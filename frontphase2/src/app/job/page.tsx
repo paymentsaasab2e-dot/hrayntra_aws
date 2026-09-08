@@ -359,6 +359,7 @@ function mapBackendJobToJobForDrawer(backendJob: Record<string, any>, fallbackJo
       ? backendJob.preScreenAssessments
       : undefined,
     applyUrl: backendJob.applyUrl || undefined,
+    applyLinkToken: backendJob.applyLinkToken || undefined,
     applications: Array.isArray(backendJob.applications)
       ? backendJob.applications.map((app: any) => ({
           id: String(app.id || ''),

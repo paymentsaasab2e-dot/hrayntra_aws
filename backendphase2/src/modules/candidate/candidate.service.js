@@ -5160,7 +5160,8 @@ export const candidateService = {
         toEmail: candidate.email,
         candidateName: `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim() || candidate.email,
         jobTitle: job.title,
-        companyName: client?.companyName || 'Company',
+        // Never include CRM client name in candidate interview emails.
+        companyName: '',
         scheduledAt,
         timezone: resolveInterviewTimeZone(data?.timezone),
         interviewType: String(data?.type || '').trim() || null,

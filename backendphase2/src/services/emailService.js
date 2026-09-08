@@ -66,12 +66,14 @@ function buildRichInterviewScheduledHtml(payload, { panelMember = false } = {}) 
   } = payload;
 
   const extraDetails = buildInterviewExtraDetails(payload, { includeCandidate: panelMember });
+  // Never expose CRM client / company name to candidates — panel emails may still include it.
+  const visibleCompanyName = panelMember ? companyName : '';
 
   return `
       ${interviewScheduledTemplate({
         candidateName: panelMember ? recipientName || 'Interviewer' : candidateName,
         jobTitle,
-        companyName,
+        companyName: visibleCompanyName,
         date: scheduledAt,
         timezone,
         meetingLink,
@@ -664,7 +666,8 @@ export async function sendCandidateInterviewScheduledEmail(payload) {
       {
         candidateName,
         jobTitle,
-        companyName: companyName || 'N/A',
+        // Do not send CRM client / company details to candidates.
+        companyName: '',
         scheduledAt: scheduledAt
           ? `${scheduledAt}${timezone ? ` (${timezone})` : ''}`
           : 'TBD',
@@ -674,11 +677,17 @@ export async function sendCandidateInterviewScheduledEmail(payload) {
     );
 
     const subject = rendered.effective?.customized
-      ? rendered.subject
-      : `Interview Scheduled: ${jobTitle} at ${companyName}`;
+      ? String(rendered.subject || '')
+          .replace(/\s+at\s+$/i, '')
+          .replace(/\s+at\s+N\/A$/i, '')
+          .trim() || `Interview Scheduled: ${jobTitle}`
+      : `Interview Scheduled: ${jobTitle}`;
     const html = rendered.effective?.customized
-      ? rendered.html
-      : buildRichInterviewScheduledHtml(payload);
+      ? String(rendered.html || '')
+          .replace(/\s+at\s+N\/A/gi, '')
+          .replace(/\s+at\s+\{\{companyName\}\}/gi, '')
+          .replace(/\s+at\s+(<\/strong>|<\/p>)/gi, '$1')
+      : buildRichInterviewScheduledHtml({ ...payload, companyName: '' });
 
     await sendEmail({
       senderUserId,

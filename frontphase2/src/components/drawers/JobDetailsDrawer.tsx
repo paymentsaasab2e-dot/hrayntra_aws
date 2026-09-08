@@ -78,6 +78,7 @@ import {
   apiGetInterviews,
   apiGetMatches,
   apiGetJobApplyLink,
+  resolveJobApplyUrlFromResponse,
   apiGetPlacements,
   apiToggleSavedMatch,
   apiGetJobStatusCatalog,
@@ -313,6 +314,7 @@ export interface JobForDrawer {
     assessment?: { id?: string; title?: string; type?: string; durationMinutes?: number };
   }>;
   applyUrl?: string | null;
+  applyLinkToken?: string | null;
   applications?: JobApplicationSubmission[];
   overview?: string;
   keyResponsibilities?: string[];
@@ -1968,7 +1970,7 @@ export function JobDetailsDrawer({
 
   useEffect(() => {
     setApplyShareOpen(false);
-  }, [job?.id, applyUrl]);
+  }, [job?.id]);
 
   const shareApplyLink = useCallback(async () => {
     if (!applyUrl) return;
@@ -2017,35 +2019,70 @@ export function JobDetailsDrawer({
     [applyUrl, job?.title],
   );
 
+  const fetchApplyLink = useCallback(async (jobId: string, fallbackToken?: string | null) => {
+    const res = await apiGetJobApplyLink(jobId);
+    return resolveJobApplyUrlFromResponse(res, fallbackToken);
+  }, []);
+
   useEffect(() => {
     if (!job?.id) {
       setApplyUrl(null);
       setApplyLinkLoading(false);
       return;
     }
-    const initialUrl = job.applyUrl || null;
-    setApplyUrl(initialUrl);
-    const load = startAsyncLoad(setApplyLinkLoading);
-    void apiGetJobApplyLink(job.id)
-      .then((res) => {
-        const payload = (res as { data?: { applyUrl?: string } })?.data ?? res;
-        const url = (payload as { applyUrl?: string })?.applyUrl;
-        if (load.isActive() && url) setApplyUrl(url);
+
+    const jobId = job.id;
+    const seeded =
+      String(job.applyUrl || '').trim() ||
+      resolveJobApplyUrlFromResponse(null, job.applyLinkToken) ||
+      null;
+    setApplyUrl(seeded);
+
+    let cancelled = false;
+    setApplyLinkLoading(true);
+    void fetchApplyLink(jobId, job.applyLinkToken)
+      .then((url) => {
+        if (cancelled) return;
+        if (url) setApplyUrl(url);
+        else if (!seeded) setApplyUrl(null);
       })
-      .catch(() => {
-        if (load.isActive()) setApplyUrl(initialUrl);
+      .catch((err) => {
+        if (cancelled) return;
+        console.error('Failed to load job apply link:', err);
+        if (!seeded) setApplyUrl(null);
       })
       .finally(() => {
-        load.finish();
+        if (!cancelled) setApplyLinkLoading(false);
       });
-    return () => {
-      load.abort();
-    };
-  }, [job?.id, job?.applyUrl]);
 
-  useEffect(() => {
-    if (job?.applyUrl) setApplyUrl(job.applyUrl);
-  }, [job?.applyUrl]);
+    return () => {
+      cancelled = true;
+    };
+  }, [job?.id, job?.applyUrl, job?.applyLinkToken, fetchApplyLink]);
+
+  const openApplyShareMenu = useCallback(async () => {
+    if (!job?.id) return;
+    if (applyUrl) {
+      setApplyShareOpen((open) => !open);
+      return;
+    }
+    if (applyLinkLoading) return;
+    setApplyLinkLoading(true);
+    try {
+      const url = await fetchApplyLink(job.id, job.applyLinkToken);
+      if (url) {
+        setApplyUrl(url);
+        setApplyShareOpen(true);
+        return;
+      }
+      void requestError('Apply link not available yet. Try publishing the job or refresh and retry.');
+    } catch (err: any) {
+      console.error('Failed to load job apply link:', err);
+      void requestError(err?.message || 'Could not load apply link. Please try again.');
+    } finally {
+      setApplyLinkLoading(false);
+    }
+  }, [applyLinkLoading, applyUrl, fetchApplyLink, job?.applyLinkToken, job?.id]);
 
   const {
     files: jobFiles,
@@ -2481,18 +2518,17 @@ export function JobDetailsDrawer({
                     ref={applyShareTriggerRef}
                     type="button"
                     onClick={() => {
-                      if (applyLinkLoading || !applyUrl) return;
-                      setApplyShareOpen((open) => !open);
+                      void openApplyShareMenu();
                     }}
-                    disabled={applyLinkLoading || !applyUrl}
+                    disabled={applyLinkLoading && !applyUrl}
                     className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-indigo-100 bg-white/90 text-indigo-700 shadow-sm transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50"
                     aria-label="Candidate apply link"
                     title={
-                      applyLinkLoading
+                      applyLinkLoading && !applyUrl
                         ? 'Loading apply link…'
                         : applyUrl
                           ? 'Candidate apply link'
-                          : 'Apply link not available yet'
+                          : 'Click to load apply link'
                     }
                   >
                     {applyLinkLoading ? (

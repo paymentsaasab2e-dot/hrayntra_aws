@@ -59,20 +59,23 @@ const layout = ({ title, intro, sections, ctaLabel, ctaLink }) => `
   </div>
 `;
 
-export const interviewScheduledTemplate = ({ candidateName, jobTitle, companyName, date, timezone, meetingLink, panelNames }) =>
-  layout({
-    title: `Interview Scheduled: ${jobTitle} at ${companyName}`,
+export const interviewScheduledTemplate = ({ candidateName, jobTitle, companyName, date, timezone, meetingLink, panelNames }) => {
+  const company = String(companyName || '').trim();
+  const sections = [
+    { label: 'Role', value: jobTitle },
+    ...(company ? [{ label: 'Company', value: company }] : []),
+    { label: 'Date & Time', value: formatDateTime(date, timezone) },
+    { label: 'Interviewers', value: panelNames.join(', ') || 'HRYANTRA Hiring Team' },
+    { label: 'Meeting Link', value: meetingLink || 'Your recruiter will share the meeting link shortly.' },
+  ];
+  return layout({
+    title: company ? `Interview Scheduled: ${jobTitle} at ${company}` : `Interview Scheduled: ${jobTitle}`,
     intro: `Hello ${candidateName}, your interview has been scheduled. Please review the details below and join on time.`,
-    sections: [
-      { label: 'Role', value: jobTitle },
-      { label: 'Company', value: companyName },
-      { label: 'Date & Time', value: formatDateTime(date, timezone) },
-      { label: 'Interviewers', value: panelNames.join(', ') || 'HRYANTRA Hiring Team' },
-      { label: 'Meeting Link', value: meetingLink || 'Your recruiter will share the meeting link shortly.' },
-    ],
+    sections,
     ctaLabel: 'Join Interview',
     ctaLink: meetingLink,
   });
+};
 
 export const interviewRescheduledTemplate = ({
   candidateName,
@@ -83,11 +86,13 @@ export const interviewRescheduledTemplate = ({
   timezone,
   reason,
   meetingLink,
-}) =>
-  layout({
-    title: `Interview Rescheduled: ${jobTitle} at ${companyName}`,
+}) => {
+  const company = String(companyName || '').trim();
+  return layout({
+    title: company ? `Interview Rescheduled: ${jobTitle} at ${company}` : `Interview Rescheduled: ${jobTitle}`,
     intro: `Hello ${candidateName}, your interview schedule has been updated.`,
     sections: [
+      { label: 'Role', value: jobTitle },
       { label: 'Old Schedule', value: formatDateTime(oldDate, timezone) },
       { label: 'New Schedule', value: formatDateTime(newDate, timezone) },
       { label: 'Reason', value: reason || 'Updated by recruiting team' },
@@ -96,18 +101,21 @@ export const interviewRescheduledTemplate = ({
     ctaLabel: 'View Updated Meeting',
     ctaLink: meetingLink,
   });
+};
 
-export const interviewCancelledTemplate = ({ candidateName, jobTitle, companyName, reason }) =>
-  layout({
-    title: `Interview Cancelled: ${jobTitle} at ${companyName}`,
+export const interviewCancelledTemplate = ({ candidateName, jobTitle, companyName, reason }) => {
+  const company = String(companyName || '').trim();
+  return layout({
+    title: company ? `Interview Cancelled: ${jobTitle} at ${company}` : `Interview Cancelled: ${jobTitle}`,
     intro: `Hello ${candidateName}, your scheduled interview has been cancelled.`,
     sections: [
       { label: 'Role', value: jobTitle },
-      { label: 'Company', value: companyName },
+      ...(company ? [{ label: 'Company', value: company }] : []),
       { label: 'Reason', value: reason || 'Cancelled by recruiting team' },
       { label: 'Next Step', value: 'Our team will reach out if a new slot becomes available.' },
     ],
   });
+};
 
 export const feedbackReminderTemplate = ({ interviewerName, candidateName, date, timezone, feedbackUrl }) =>
   layout({

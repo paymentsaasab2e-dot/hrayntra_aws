@@ -139,12 +139,12 @@ export const NOTIFICATION_TRIGGER_DEFAULT_TEMPLATES = {
   },
   'interview.candidate_scheduled': {
     subject: 'Interview Scheduled: {{jobTitle}}',
-    variables: ['candidateName', 'jobTitle', 'scheduledAt', 'location', 'meetingLink', 'companyName'],
+    variables: ['candidateName', 'jobTitle', 'scheduledAt', 'location', 'meetingLink'],
     bodyHtml: emailShell(
       'Interview scheduled',
       `<h1 style="color: #2563eb; font-size: 22px; margin: 0 0 16px;">Interview Scheduled</h1>
 <p>Hi {{candidateName}},</p>
-<p>Your interview for <strong>{{jobTitle}}</strong> at {{companyName}} has been scheduled.</p>
+<p>Your interview for <strong>{{jobTitle}}</strong> has been scheduled.</p>
 <p><strong>When:</strong> {{scheduledAt}}<br><strong>Location:</strong> {{location}}<br><strong>Meeting link:</strong> {{meetingLink}}</p>`,
     ),
   },
