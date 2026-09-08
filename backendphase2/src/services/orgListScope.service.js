@@ -294,7 +294,7 @@ export async function applyOrgCompanyAssigneeWhere(req, options = {}) {
     or.push({ [orgUnitField]: { in: unitIds } });
   }
 
-  if (orgUnitField && onlyOneCompany) {
+  if (orgUnitField && (onlyOneCompany || options.includeAllUntagged === true)) {
     or.push(untaggedOrgUnitClause(orgUnitField, hqRootId));
   } else if (orgUnitField && memberIds.length) {
     const peopleOr = buildPeopleOr(memberIds, peopleOptions);

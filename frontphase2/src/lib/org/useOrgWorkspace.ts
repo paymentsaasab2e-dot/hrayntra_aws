@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { apiOrgWorkspace } from '@/lib/org/orgApi';
 import type { OrgCompanyOption } from '@/lib/dashboard/api';
 import { usePermissions } from '@/hooks/usePermissions';
@@ -113,7 +113,9 @@ export function resolveJobPostingCompanyChooser(opts: {
 
 export function useOrgWorkspace() {
   const pathname = usePathname();
-  const side = orgSideFromPathname(pathname);
+  const searchParams = useSearchParams();
+  const search = searchParams?.toString() ? `?${searchParams.toString()}` : '';
+  const side = orgSideFromPathname(pathname, search);
   const { isSuperAdmin, hasPermission } = usePermissions();
   const [orgUnitId, setOrgUnitId] = useState('');
   const [orgUnitName, setOrgUnitName] = useState('');
@@ -143,9 +145,10 @@ export function useOrgWorkspace() {
     accessLoaded && (localMaySwitch || apiCanSwitch) && companies.length > 0,
   );
   const effectiveOrgUnitId = companies.some((c) => c.id === orgUnitId) ? orgUnitId : '';
+  // Members without Switch companies still need their home company label in the nav.
   const effectiveOrgUnitName = effectiveOrgUnitId
     ? companies.find((c) => c.id === orgUnitId)?.name || orgUnitName
-    : '';
+    : orgUnitName;
 
   useEffect(() => {
     const sync = () => {

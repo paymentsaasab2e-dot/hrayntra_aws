@@ -165,7 +165,17 @@ export function resolveOrgSide(req) {
     .trim()
     .toLowerCase();
   if (header === 'crm' || header === 'recruitment') return header;
+
+  // Recruitment Clients list/create uses the shared /clients API with this flag.
+  if (String(req?.query?.recruitmentEnabled || '').toLowerCase() === 'true') {
+    return 'recruitment';
+  }
+  if (String(req?.body?.recruitmentEnabled || '').toLowerCase() === 'true') {
+    return 'recruitment';
+  }
+
   const path = String(req?.originalUrl || req?.url || req?.path || '').toLowerCase();
+  if (/[?&]scope=recruitment(?:&|$)/.test(path)) return 'recruitment';
   if (/(^|\/)(leads|clients?|contacts)(\/|\?|$)/.test(path)) return 'crm';
   if (/(^|\/)(jobs?|candidates?|interviews?|placements?|pipeline|matches)(\/|\?|$)/.test(path)) {
     return 'recruitment';

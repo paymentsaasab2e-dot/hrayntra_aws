@@ -14,7 +14,7 @@ type Props = {
  * Custom menu (not native <select>) so “All companies” stays readable in the dark header.
  */
 export function OrgWorkspaceSwitcher({ variant = 'light' }: Props) {
-  const { orgUnitId, orgUnitName, companies, canSwitchCompanies, purpose, setActiveOrgUnit } =
+  const { orgUnitId, orgUnitName, companies, canSwitchCompanies, setActiveOrgUnit } =
     useOrgWorkspace();
   const [open, setOpen] = useState(false);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number; width: number } | null>(null);
@@ -62,9 +62,9 @@ export function OrgWorkspaceSwitcher({ variant = 'light' }: Props) {
   }, [open]);
 
   if (!canSwitchCompanies) {
-    if (orgUnitName && (purpose === 'company_head' || purpose === 'site_head')) {
+    if (orgUnitName) {
       return (
-        <span className="inline-flex h-9 items-center rounded-xl border border-slate-200 bg-slate-50 px-3 text-[13px] font-medium text-slate-600">
+        <span className="inline-flex h-9 max-w-[220px] items-center truncate rounded-xl border border-slate-200 bg-slate-50 px-3 text-[13px] font-medium text-slate-600">
           {orgUnitName}
         </span>
       );

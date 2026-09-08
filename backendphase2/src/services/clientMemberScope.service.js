@@ -112,13 +112,15 @@ export async function applyMemberClientScope(scopedWhere, req, options = {}) {
       : 'any';
 
   const userId = idStr(req?.user?.id);
+  const viewAllCrm = canViewAllCrmClients(req);
+  const viewAllRecruitment = canViewAllRecruitmentClients(req);
   const orgWhere = await applyOrgCompanyAssigneeWhere(req, {
     assignedToIdField: 'assignedToId',
     createdByField: 'createdById',
+    // Company members with “all company recruitment clients” also see
+    // Super Admin–created rows that were never stamped with orgUnitId.
+    includeAllUntagged: listMode === 'recruitment' && viewAllRecruitment,
   });
-
-  const viewAllCrm = canViewAllCrmClients(req);
-  const viewAllRecruitment = canViewAllRecruitmentClients(req);
 
   if (listMode === 'recruitment' && (viewAllRecruitment || !userId)) {
     return mergeWhereWithScope(scopedWhere, orgWhere);

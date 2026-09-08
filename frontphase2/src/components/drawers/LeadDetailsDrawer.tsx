@@ -77,7 +77,6 @@ import {
   Megaphone,
   Flag,
   GripVertical,
-  Share2,
   Gift,
   PartyPopper,
 } from 'lucide-react';
@@ -94,8 +93,6 @@ import {
   uniqueLeadEmails,
   type HqGrantLeadTrialValues,
 } from '../hq/HqGrantLeadTrialModal';
-import { ShareLeadFormMemberModal } from '../leads/ShareLeadFormMemberModal';
-import { LeadFormAccessButton } from '../leads/LeadFormAccessPopup';
 import { NotesService } from '../NotesService';
 import { HqLeadRemarksPanel } from '../hq/HqLeadRemarksPanel';
 import {
@@ -103,7 +100,6 @@ import {
   apiCheckLeadDuplicate,
   apiCreateLead,
   apiGenerateLeadDetails,
-  apiGetLeadPublicFormLink,
   type LeadAiChatMessage,
   apiGetLead,
   apiGetLeadActivities,
@@ -1181,41 +1177,6 @@ export function LeadDetailsDrawer({
       if (isHqOverrideMode) setHqProductLine('crm');
     }
   }, [addLeadMode, isHqOverrideMode]);
-
-  const [publicLeadFormLink, setPublicLeadFormLink] = useState('');
-  const [publicLeadFormTenant, setPublicLeadFormTenant] = useState('');
-  const [publicLeadFormLinkLoading, setPublicLeadFormLinkLoading] = useState(false);
-  const [shareLeadFormMemberOpen, setShareLeadFormMemberOpen] = useState(false);
-
-  useEffect(() => {
-    if (!addLeadMode || isPublicIntakeMode) {
-      setPublicLeadFormLink('');
-      setPublicLeadFormTenant('');
-      setPublicLeadFormLinkLoading(false);
-      return;
-    }
-    const load = startAsyncLoad(setPublicLeadFormLinkLoading);
-    apiGetLeadPublicFormLink()
-      .then((res) => {
-        if (!load.isActive()) return;
-        const payload =
-          (res as { data?: { formUrl?: string; tenantDbName?: string | null } })?.data ?? res;
-        const data = payload as { formUrl?: string; tenantDbName?: string | null };
-        setPublicLeadFormLink(data.formUrl || '');
-        setPublicLeadFormTenant(String(data.tenantDbName || '').trim());
-      })
-      .catch(() => {
-        if (!load.isActive()) return;
-        setPublicLeadFormLink('');
-        setPublicLeadFormTenant('');
-      })
-      .finally(() => {
-        load.finish();
-      });
-    return () => {
-      load.abort();
-    };
-  }, [addLeadMode, isPublicIntakeMode]);
 
   useEffect(() => {
     if (addLeadMode || !lead) return;
@@ -3483,49 +3444,6 @@ export function LeadDetailsDrawer({
                 <p className="mt-0.5 text-xs text-indigo-800/80">
                   Review each step, edit anything that looks off, then create the lead.
                 </p>
-              </div>
-            </div>
-          ) : null}
-
-          {addLeadMode && addLeadAiFlowStage !== 'chat' && !isPublicIntakeMode && !isHqOverrideMode && addLeadWizardStep === 'company' ? (
-            <div className="shrink-0 border-b border-blue-100 bg-blue-50/70 px-6 py-3">
-              <div className="flex items-start gap-2">
-                <Link2 className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs font-semibold text-blue-900">Shareable lead form link</p>
-                  <p className="mt-0.5 text-[11px] text-blue-800/80">
-                    Share this tenant-specific form. Create a member first; after confirmation the
-                    link is emailed so they can open it and fill the lead details
-                    {publicLeadFormTenant ? (
-                      <>
-                        {' '}
-                        (<span className="font-mono">{publicLeadFormTenant}</span>)
-                      </>
-                    ) : null}
-                    .
-                  </p>
-                  <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
-                    {publicLeadFormLinkLoading ? (
-                      <p className="text-[11px] text-blue-800/80">Loading link…</p>
-                    ) : publicLeadFormLink ? (
-                      <DrawerLinkActions url={publicLeadFormLink} shareTitle="Lead form" />
-                    ) : (
-                      <p className="text-[11px] text-blue-800/80">Link unavailable</p>
-                    )}
-                    <div className="flex shrink-0 gap-1.5">
-                      <button
-                        type="button"
-                        disabled={!publicLeadFormLink || publicLeadFormLinkLoading}
-                        onClick={() => setShareLeadFormMemberOpen(true)}
-                        className="inline-flex h-8 items-center gap-1 rounded-md bg-blue-600 px-2.5 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-                      >
-                        <Share2 className="h-3.5 w-3.5" />
-                        Send to member
-                      </button>
-                      <LeadFormAccessButton disabled={!publicLeadFormLink || publicLeadFormLinkLoading} />
-                    </div>
-                  </div>
-                </div>
               </div>
             </div>
           ) : null}
@@ -6954,11 +6872,6 @@ export function LeadDetailsDrawer({
             </motion.div>
           ) : null}
         </AnimatePresence>
-        <ShareLeadFormMemberModal
-          isOpen={shareLeadFormMemberOpen}
-          onClose={() => setShareLeadFormMemberOpen(false)}
-          formUrl={publicLeadFormLink}
-        />
         <HqGrantLeadTrialModal
           open={hqTrialModalOpen}
           name={addLeadMode ? addLeadForm.contactPerson : lead?.contactPerson}
