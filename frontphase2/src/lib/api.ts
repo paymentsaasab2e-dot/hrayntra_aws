@@ -5532,6 +5532,32 @@ export const apiGetJobApplyLink = async (jobId: string) => {
   });
 };
 
+/** Normalize apply-link API payloads (and optional token fallback) into a usable URL. */
+export function resolveJobApplyUrlFromResponse(
+  response: unknown,
+  fallbackToken?: string | null,
+): string | null {
+  const root = (response || {}) as {
+    data?: { applyUrl?: string; token?: string };
+    applyUrl?: string;
+    token?: string;
+  };
+  const payload = root.data && typeof root.data === 'object' ? root.data : root;
+  const direct = String(payload?.applyUrl || root.applyUrl || '').trim();
+  if (direct) return direct;
+
+  const token = String(payload?.token || root.token || fallbackToken || '').trim();
+  if (!token) return null;
+
+  const base =
+    resolvePhase1CandidatePortalBase() ||
+    (typeof window !== 'undefined' ? window.location.origin : '');
+  if (!base) return null;
+  const tenant = getTenantDbName();
+  const qs = tenant ? `?tenantDbName=${encodeURIComponent(tenant)}` : '';
+  return `${base.replace(/\/$/, '')}/apply/${encodeURIComponent(token)}${qs}`;
+}
+
 export const apiListApplicationFormTemplates = async () => {
   return apiFetch<Array<{ id: string; name: string; schema: unknown }>>(
     '/jobs/application-form-templates',

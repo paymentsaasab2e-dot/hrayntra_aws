@@ -33,7 +33,20 @@ router.post('/linkedin-post-templates', requireAnyPermission(['jobs_create', 'cr
 router.patch('/linkedin-post-templates/:id', requireAnyPermission(['jobs_update', 'edit_job', 'jobs_create', 'create_job']), jobLinkedInPostTemplateController.update);
 router.delete('/linkedin-post-templates/:id', requireAnyPermission(['jobs_delete', 'delete_job', 'jobs_update', 'edit_job']), jobLinkedInPostTemplateController.remove);
 
-router.get('/:jobId/apply-link', requireAnyPermission(['jobs_read', 'view_jobs']), jobPublicApplyController.getApplyLink);
+router.get(
+  '/:jobId/apply-link',
+  requireAnyPermission([
+    'jobs_read',
+    'view_jobs',
+    'jobs_create',
+    'create_job',
+    'jobs_update',
+    'edit_job',
+    'assign_job',
+    'publish_job',
+  ]),
+  jobPublicApplyController.getApplyLink,
+);
 
 router.post(
   '/process-jd-file',

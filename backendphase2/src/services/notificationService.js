@@ -49,19 +49,44 @@ const sendMail = async ({ to, subject, html }) => {
 };
 
 export const sendInterviewScheduled = async (candidate, interview, panelMembers) => {
-  const subject = `Interview Scheduled: ${interview.job.title} at ${interview.client.companyName}`;
+  const jobTitle = interview.job?.title || 'Interview';
+  const subject = `Interview Scheduled: ${jobTitle}`;
   const html = interviewScheduledTemplate({
     candidateName: `${candidate.firstName} ${candidate.lastName}`.trim(),
-    jobTitle: interview.job.title,
-    companyName: interview.client.companyName,
+    jobTitle,
+    // Candidates must not receive CRM client / company details.
+    companyName: '',
     date: interview.scheduledAt,
     timezone: interview.timezone,
     meetingLink: interview.meetingLink,
     panelNames: panelMembers.map((member) => member.user.name),
   });
 
-  const recipients = [candidate.email, ...panelMembers.map((member) => member.user.email).filter(Boolean)];
-  return Promise.all(recipients.map((email) => sendMail({ to: email, subject, html })));
+  // Candidate email without client details.
+  const candidateMail = candidate.email
+    ? sendMail({ to: candidate.email, subject, html })
+    : Promise.resolve();
+
+  // Panel may still see client context.
+  const panelCompany = interview.client?.companyName || '';
+  const panelSubject = panelCompany
+    ? `Interview Scheduled: ${jobTitle} at ${panelCompany}`
+    : subject;
+  const panelHtml = interviewScheduledTemplate({
+    candidateName: `${candidate.firstName} ${candidate.lastName}`.trim(),
+    jobTitle,
+    companyName: panelCompany,
+    date: interview.scheduledAt,
+    timezone: interview.timezone,
+    meetingLink: interview.meetingLink,
+    panelNames: panelMembers.map((member) => member.user.name),
+  });
+  const panelMails = panelMembers
+    .map((member) => member.user?.email)
+    .filter(Boolean)
+    .map((email) => sendMail({ to: email, subject: panelSubject, html: panelHtml }));
+
+  return Promise.all([candidateMail, ...panelMails]);
 };
 
 export const sendInterviewRescheduled = async (
@@ -71,32 +96,59 @@ export const sendInterviewRescheduled = async (
   panelMembers = [],
   options = { notifyCandidate: true, notifyInterviewer: true }
 ) => {
-  const subject = `Interview Rescheduled: ${interview.job.title} at ${interview.client.companyName}`;
-  const html = interviewRescheduledTemplate({
-    candidateName: `${candidate.firstName} ${candidate.lastName}`.trim(),
-    jobTitle: interview.job.title,
-    companyName: interview.client.companyName,
-    oldDate: oldSchedule,
-    newDate: interview.scheduledAt,
-    timezone: interview.timezone,
-    reason: interview.notes,
-    meetingLink: interview.meetingLink,
-  });
+  const jobTitle = interview.job?.title || 'Interview';
+  const panelCompany = interview.client?.companyName || '';
 
-  const recipients = [
-    ...(options.notifyCandidate ? [candidate.email] : []),
-    ...(options.notifyInterviewer ? panelMembers.map((member) => member.user.email).filter(Boolean) : []),
-  ];
+  const tasks = [];
+  if (options.notifyCandidate && candidate.email) {
+    tasks.push(
+      sendMail({
+        to: candidate.email,
+        subject: `Interview Rescheduled: ${jobTitle}`,
+        html: interviewRescheduledTemplate({
+          candidateName: `${candidate.firstName} ${candidate.lastName}`.trim(),
+          jobTitle,
+          companyName: '',
+          oldDate: oldSchedule,
+          newDate: interview.scheduledAt,
+          timezone: interview.timezone,
+          reason: interview.notes,
+          meetingLink: interview.meetingLink,
+        }),
+      }),
+    );
+  }
 
-  return Promise.all(recipients.map((email) => sendMail({ to: email, subject, html })));
+  if (options.notifyInterviewer) {
+    const panelSubject = panelCompany
+      ? `Interview Rescheduled: ${jobTitle} at ${panelCompany}`
+      : `Interview Rescheduled: ${jobTitle}`;
+    const panelHtml = interviewRescheduledTemplate({
+      candidateName: `${candidate.firstName} ${candidate.lastName}`.trim(),
+      jobTitle,
+      companyName: panelCompany,
+      oldDate: oldSchedule,
+      newDate: interview.scheduledAt,
+      timezone: interview.timezone,
+      reason: interview.notes,
+      meetingLink: interview.meetingLink,
+    });
+    for (const member of panelMembers) {
+      if (!member.user?.email) continue;
+      tasks.push(sendMail({ to: member.user.email, subject: panelSubject, html: panelHtml }));
+    }
+  }
+
+  return Promise.all(tasks);
 };
 
 export const sendInterviewCancelled = async (candidate, interview) => {
-  const subject = `Interview Cancelled: ${interview.job.title} at ${interview.client.companyName}`;
+  const jobTitle = interview.job?.title || 'Interview';
+  const subject = `Interview Cancelled: ${jobTitle}`;
   const html = interviewCancelledTemplate({
     candidateName: `${candidate.firstName} ${candidate.lastName}`.trim(),
-    jobTitle: interview.job.title,
-    companyName: interview.client.companyName,
+    jobTitle,
+    companyName: '',
     reason: interview.notes,
   });
 

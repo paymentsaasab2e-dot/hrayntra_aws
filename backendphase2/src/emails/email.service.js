@@ -86,14 +86,21 @@ export const sendInterviewEmail = async (to, candidateName, jobTitle, scheduledA
   const rendered = await renderNotificationTriggerEmail('interview.candidate_scheduled', null, {
     candidateName,
     jobTitle,
-    companyName: companyName || 'N/A',
+    companyName: '',
     scheduledAt: scheduledAt || 'TBD',
     location: location || 'N/A',
     meetingLink: meetingLink || 'N/A',
   });
 
   if (rendered.effective?.customized) {
-    return sendEmail(to, rendered.subject, rendered.html, 'interview.candidate_scheduled');
+    const subject = String(rendered.subject || '')
+      .replace(/\s+at\s+$/i, '')
+      .replace(/\s+at\s+N\/A$/i, '')
+      .trim() || 'Interview Scheduled';
+    const html = String(rendered.html || '')
+      .replace(/\s+at\s+N\/A/gi, '')
+      .replace(/\s+at\s+(<\/strong>|<\/p>)/gi, '$1');
+    return sendEmail(to, subject, html, 'interview.candidate_scheduled');
   }
 
   return sendEmail(
