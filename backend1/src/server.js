@@ -47,6 +47,18 @@ if (!allowedOrigins.includes(targetVercelDomain)) {
   allowedOrigins.push(targetVercelDomain);
 }
 
+const isPrivateLanHostname = (hostname) => {
+  const host = String(hostname || '').toLowerCase();
+  if (!host) return false;
+  if (host === 'localhost' || host === '127.0.0.1' || host === '::1') return true;
+  // RFC1918 + link-local — common when opening Next via Network URL (e.g. 192.168.x.x:3000)
+  if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
+  if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
+  if (/^172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
+  if (/^169\.254\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
+  return false;
+};
+
 const isOriginAllowed = (origin) => {
   if (!origin) return true;
   if (
@@ -58,7 +70,12 @@ const isOriginAllowed = (origin) => {
   }
   try {
     const host = new URL(origin).hostname.toLowerCase();
-    return host === 'hryantra.com' || host.endsWith('.hryantra.com');
+    if (host === 'hryantra.com' || host.endsWith('.hryantra.com')) return true;
+    // Local Next "Network" URL (phone / another PC on Wi‑Fi) talking to this API.
+    if (process.env.NODE_ENV !== 'production' && isPrivateLanHostname(host)) {
+      return true;
+    }
+    return false;
   } catch {
     return false;
   }
@@ -69,16 +86,14 @@ app.use(cors({
   origin: (origin, callback) => {
     // Allow non-browser requests (no Origin header)
     if (!origin) return callback(null, true);
-    
-    console.log(`[CORS DEBUG] Origin: ${origin}`);
-    console.log(`[CORS DEBUG] Allowed: ${allowedOrigins.join(', ')}`);
 
     if (isOriginAllowed(origin)) {
       return callback(null, origin);
     }
-    
+
     console.error(`[CORS ERROR] Blocked: ${origin}`);
-    return callback(new Error(`CORS blocked for origin: ${origin}`));
+    // Do not pass Error — that becomes HTTP 500; false = normal CORS deny.
+    return callback(null, false);
   },
   credentials: true,
   exposedHeaders: ['X-Token-Balance', 'X-Tokens-Spent'],

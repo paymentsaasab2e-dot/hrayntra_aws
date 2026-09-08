@@ -110,9 +110,18 @@ export function InterviewDetailHost({
   const drawer = useInterviewDrawer();
   const modals = useInterviewModals();
   const { hasPermission } = usePermissions();
-  const canUpdateInterview = hasPermission('interviews_manage') || hasPermission('all');
-  const canDeleteInterview = canUpdateInterview;
-  const canCreateInterview = canUpdateInterview;
+  const canUpdateInterview =
+    hasPermission('interviews_update') ||
+    hasPermission('interviews_manage') ||
+    hasPermission('all');
+  const canDeleteInterview =
+    hasPermission('interviews_delete') ||
+    hasPermission('interviews_manage') ||
+    hasPermission('all');
+  const canCreateInterview =
+    hasPermission('interviews_create') ||
+    hasPermission('interviews_manage') ||
+    hasPermission('all');
 
   const [interview, setInterview] = useState<Interview | null>(null);
   const [rejectOpen, setRejectOpen] = useState(false);
@@ -214,22 +223,20 @@ export function InterviewDetailHost({
     if (isInterviewCompleted(row)) return;
     setScheduleNextRoundFrom(null);
     setEditInterview(row);
-    drawer.closeDrawer();
-    window.setTimeout(() => setScheduleOpen(true), 200);
+    // Open edit popup first so closing the detail drawer cannot unmount / dismiss it.
+    setScheduleOpen(true);
   };
 
   const openScheduleNextRoundFlow = (row: Interview) => {
     if (!isInterviewCompleted(row)) return;
     setEditInterview(null);
     setScheduleNextRoundFrom(row);
-    drawer.closeDrawer();
-    window.setTimeout(() => setScheduleOpen(true), 200);
+    setScheduleOpen(true);
   };
 
   const openRejectFlow = (row: Interview) => {
     if (isInterviewCompleted(row)) return;
     setRejectOpen(true);
-    drawer.closeDrawer();
   };
 
   const handleAction = (action: InterviewAction, row: Interview) => {
@@ -334,7 +341,7 @@ export function InterviewDetailHost({
   return (
     <>
       <InterviewDrawer
-        isOpen={Boolean(isOpen && selectedInterview)}
+        isOpen={Boolean(isOpen && selectedInterview && !scheduleOpen && !rejectOpen)}
         interview={selectedInterview}
         zIndexClass={zIndexClass}
         onClose={closeAll}
@@ -537,7 +544,7 @@ export function InterviewDetailHost({
           setScheduleOpen(false);
           setEditInterview(null);
           setScheduleNextRoundFrom(null);
-          if (selectedInterview) drawer.openDrawer(selectedInterview);
+          // Keep the interview detail host open; only re-show the detail drawer.
         }}
         onScheduledSuccess={(message) => sonnerToast.success(message)}
         onSchedule={async (interviewData) => {

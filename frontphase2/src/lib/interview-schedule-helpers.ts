@@ -216,6 +216,15 @@ const POPUP_ROLE_TO_PANEL_ROLE: Record<
 
 function interviewModeToPopupMode(interview: Interview): CandidateScheduledInterview['mode'] {
   if (interview.type === 'Phone') return 'phone';
+  // Explicit video / online signals win — type "Video" must not fall through to In Person.
+  if (
+    interview.type === 'Video' ||
+    interview.mode === 'Online' ||
+    Boolean(interview.meetingLink) ||
+    Boolean(interview.meetingPlatform)
+  ) {
+    return 'video';
+  }
   if (interview.mode === 'Offline' || interview.type === 'In-Person') return 'in-person';
   return 'video';
 }

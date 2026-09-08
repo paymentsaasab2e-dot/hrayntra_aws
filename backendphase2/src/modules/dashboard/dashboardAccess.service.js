@@ -106,9 +106,20 @@ export async function resolveDashboardAccess(req) {
 
   /** @type {DashboardLevel} */
   let dashboardLevel = 'self';
-  if (isSuperAdmin || hasTenantScopePerm) {
+  // Whole-tenant dashboards require Super Admin, or dash_full_scope plus an active
+  // Switch-companies workspace (tenant-wide or already switched). Without switch,
+  // dash_full_scope stays at the user's own company — same rule as list pages.
+  const canSeeTenantDashboard = Boolean(
+    isSuperAdmin || (hasTenantScopePerm && (org.isTenantWide || org.canSwitchCompanies)),
+  );
+  if (canSeeTenantDashboard && (isSuperAdmin || org.isTenantWide)) {
     dashboardLevel = 'tenant';
-  } else if (isOrgHead || hasCompanyScopePerm) {
+  } else if (
+    canSeeTenantDashboard ||
+    isOrgHead ||
+    hasCompanyScopePerm ||
+    (hasTenantScopePerm && !org.canSwitchCompanies)
+  ) {
     dashboardLevel = 'company';
   } else if (isDeptRank1 || hasDeptScopePerm) {
     dashboardLevel = 'department';

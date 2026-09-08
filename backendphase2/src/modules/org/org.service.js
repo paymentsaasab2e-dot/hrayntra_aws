@@ -328,16 +328,18 @@ export async function resolveViewerOrgScope(req) {
       )
     : false;
 
+  // Cross-company data only via Switch companies + CRM/Recruitment org picks.
+  // Own-company module permissions (clients_read, view_all_clients, …) never unlock other orgs.
+  // Retired view_all_companies must not grant a silent all-company bypass.
   let access = { crm: [], recruitment: [] };
   if (isSA) {
     access = { crm: [...allCompanyIds], recruitment: [...allCompanyIds] };
   } else if (roleId) {
-    access = await getRoleCompanyAccess(roleId, allCompanyIds);
-    if (!access.crm.length && !access.recruitment.length && hasPermission(req, 'view_all_companies')) {
-      access = { crm: [...allCompanyIds], recruitment: [...allCompanyIds] };
+    const hasSwitch =
+      hasPermission(req, 'switch_companies') || dbSwitchPerm;
+    if (hasSwitch) {
+      access = await getRoleCompanyAccess(roleId, allCompanyIds);
     }
-  } else if (hasPermission(req, 'view_all_companies')) {
-    access = { crm: [...allCompanyIds], recruitment: [...allCompanyIds] };
   }
 
   const allowedForSide =

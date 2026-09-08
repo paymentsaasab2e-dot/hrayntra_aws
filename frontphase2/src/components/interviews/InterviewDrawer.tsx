@@ -193,8 +193,8 @@ export function InterviewDrawer({
                   <>
                     <button
                       type="button"
-                      onClick={() => {
-                        setActiveTab('overview');
+                      onClick={(event) => {
+                        event.stopPropagation();
                         onAction('edit');
                       }}
                       className="inline-flex w-full items-center justify-center rounded-md border border-[#E5E7EB] px-2 py-1.5 text-[11px] font-semibold text-[#111827]"

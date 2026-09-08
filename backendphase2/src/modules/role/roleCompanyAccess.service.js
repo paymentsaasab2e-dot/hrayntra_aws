@@ -86,10 +86,10 @@ export function resolveAccessForRole({ roleId, permissionNames = [], stored, all
   const id = String(roleId || '').trim();
   const names = Array.isArray(permissionNames) ? permissionNames.map(String) : [];
   const fromStore = normalizeRoleCompanyAccess(stored?.[id], allCompanyIds);
+  // Only Switch companies + explicit CRM/Recruitment picks grant other orgs.
+  // Retired view_all_companies alone must not imply every company.
+  if (!names.includes('switch_companies')) return emptyRoleCompanyAccess();
   if (fromStore.crm.length || fromStore.recruitment.length) return fromStore;
-  if (names.includes(VIEW_ALL_COMPANIES_PERMISSION)) {
-    return accessForAllCompanies(allCompanyIds);
-  }
   return emptyRoleCompanyAccess();
 }
 

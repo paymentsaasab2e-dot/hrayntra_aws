@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronDown, Plus, Search, X } from 'lucide-react';
 import type { JobPublicFieldVisibility } from '../../lib/jobPublicFieldVisibility';
 import { IndustryMultiSelect } from '../forms/IndustryMultiSelect';
@@ -20,6 +21,7 @@ import {
   createEmptyCustomJdSection,
   type JobCustomJdSection,
 } from '../../lib/jobCustomJdSections';
+import { useDrawerPortalDropdownPosition } from './drawerFormUi';
 
 export interface JobLanguageEntry {
   language: string;
@@ -183,7 +185,52 @@ function DropdownField({
   labelAction?: React.ReactNode;
   children: React.ReactNode;
 }) {
-  const isOpen = dropdownsOpen[openKey];
+  const isOpen = Boolean(dropdownsOpen[openKey]);
+  const closeMenu = useCallback(() => {
+    setDropdownsOpen((prev) => ({ ...prev, [openKey]: false }));
+  }, [openKey, setDropdownsOpen]);
+  // Portal + prefer upward so Create Job review step menus aren't clipped by overflow.
+  const { triggerRef, menuRef, menuPosition } = useDrawerPortalDropdownPosition(isOpen, true, closeMenu);
+
+  const menu =
+    isOpen && menuPosition && typeof document !== 'undefined'
+      ? createPortal(
+          <div
+            ref={menuRef}
+            className="fixed z-[1200] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl"
+            style={{
+              left: menuPosition.left,
+              width: menuPosition.width,
+              ...(menuPosition.placement === 'top'
+                ? { bottom: menuPosition.bottom }
+                : { top: menuPosition.top }),
+            }}
+          >
+            {searchable ? (
+              <div className="border-b border-slate-100 p-2">
+                <div className="relative">
+                  <Search
+                    size={14}
+                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                  />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => onSearchQueryChange?.(e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                    placeholder={searchPlaceholder}
+                    autoFocus
+                    className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                  />
+                </div>
+              </div>
+            ) : null}
+            <ul className="max-h-52 overflow-y-auto py-1">{children}</ul>
+          </div>,
+          document.body,
+        )
+      : null;
+
   return (
     <div>
       <div className={`${labelAction ? 'mb-2 flex flex-wrap items-center justify-between gap-2' : ''}`}>
@@ -194,43 +241,20 @@ function DropdownField({
       </div>
       <div className="relative">
         <button
+          ref={triggerRef}
           type="button"
           onClick={() => setDropdownsOpen((prev) => ({ ...prev, [openKey]: !prev[openKey] }))}
           className="w-full flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-left text-slate-700 hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
         >
           {valueLabel ? <span>{valueLabel}</span> : <span className="text-slate-400">{placeholder}</span>}
-          <ChevronDown size={16} className="text-slate-400 shrink-0" />
+          <ChevronDown
+            size={16}
+            className={`text-slate-400 shrink-0 transition-transform ${
+              isOpen && menuPosition?.placement === 'top' ? 'rotate-180' : ''
+            }`}
+          />
         </button>
-        {isOpen ? (
-          <>
-            <div
-              className="fixed inset-0 z-10"
-              onClick={() => setDropdownsOpen((prev) => ({ ...prev, [openKey]: false }))}
-            />
-            <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
-              {searchable ? (
-                <div className="border-b border-slate-100 p-2">
-                  <div className="relative">
-                    <Search
-                      size={14}
-                      className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                    />
-                    <input
-                      type="text"
-                      value={searchQuery}
-                      onChange={(e) => onSearchQueryChange?.(e.target.value)}
-                      onClick={(e) => e.stopPropagation()}
-                      placeholder={searchPlaceholder}
-                      autoFocus
-                      className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-                    />
-                  </div>
-                </div>
-              ) : null}
-              <ul className="max-h-52 overflow-y-auto py-1">{children}</ul>
-            </div>
-          </>
-        ) : null}
+        {menu}
       </div>
     </div>
   );
@@ -267,6 +291,15 @@ export function CreateJobDetailsForm({
   });
   const recruiterUsers = assignable.users;
   const loadingRecruiters = assignable.loading;
+  const recruiterMenuOpen = Boolean(dropdownsOpen.recruiter);
+  const closeRecruiterMenu = useCallback(() => {
+    setDropdownsOpen((prev) => ({ ...prev, recruiter: false }));
+  }, [setDropdownsOpen]);
+  const {
+    triggerRef: recruiterTriggerRef,
+    menuRef: recruiterMenuRef,
+    menuPosition: recruiterMenuPosition,
+  } = useDrawerPortalDropdownPosition(recruiterMenuOpen, true, closeRecruiterMenu);
   const managerOptions = lineManagerOptions;
   const loadingManagerOptions = loadingLineManagers;
   const selectedCompany = clients.find((c) => c.id === formData.companyId);
@@ -904,7 +937,7 @@ export function CreateJobDetailsForm({
             inputMode="decimal"
             value={formData.payRangeMin}
             onChange={(e) => patchForm({ payRangeMin: e.target.value })}
-            placeholder="Min (e.g. 18 or 18 LPA)"
+            placeholder="Min (e.g. 100000 or 100k)"
             className={`${compactInputClass} w-36 sm:w-44`}
             aria-label="Minimum salary"
           />
@@ -916,7 +949,7 @@ export function CreateJobDetailsForm({
             inputMode="decimal"
             value={formData.payRangeMax}
             onChange={(e) => patchForm({ payRangeMax: e.target.value })}
-            placeholder="Max (e.g. 28 or 28 LPA)"
+            placeholder="Max (e.g. 200000 or 200k)"
             className={`${compactInputClass} w-36 sm:w-44`}
             aria-label="Maximum salary"
           />
@@ -1143,6 +1176,7 @@ export function CreateJobDetailsForm({
         ) : null}
         <div className="relative">
           <button
+            ref={recruiterTriggerRef}
             type="button"
             onClick={() => setDropdownsOpen((prev) => ({ ...prev, recruiter: !prev.recruiter }))}
             className="w-full flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-left text-slate-700 hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
@@ -1162,59 +1196,72 @@ export function CreateJobDetailsForm({
             )}
             <ChevronDown size={16} className="text-slate-400 shrink-0" />
           </button>
-          {dropdownsOpen.recruiter ? (
-            <>
-              <div
-                className="fixed inset-0 z-10"
-                onClick={() => setDropdownsOpen((prev) => ({ ...prev, recruiter: false }))}
-              />
-              <ul className="absolute z-20 mt-1 w-full rounded-xl border border-slate-200 bg-white py-1 shadow-lg max-h-52 overflow-y-auto">
-                {loadingRecruiters ? (
-                  <li className="px-4 py-2 text-sm text-slate-500">Loading team…</li>
-                ) : assignable.canSelectCompany && !assignable.companyId ? (
-                  <li className="px-4 py-2 text-sm text-slate-500">Select a company to see members</li>
-                ) : recruiterUsers.length === 0 ? (
-                  <li className="px-4 py-2 text-sm text-slate-500">No team members with access in this company</li>
-                ) : (
-                  <>
-                    <li>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          patchForm({ assignedToId: '', assignedToName: '' });
-                          setDropdownsOpen((prev) => ({ ...prev, recruiter: false }));
-                        }}
-                        className="w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 text-slate-700"
-                      >
-                        Unassigned
-                      </button>
-                    </li>
-                    {recruiterUsers.map((user) => (
-                      <li key={user.id}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            patchForm({
-                              assignedToId: user.id,
-                              assignedToName: formatAssigneeDisplayName(user) || user.name,
-                              assignedToCompanyId: assignable.companyId || formData.assignedToCompanyId,
-                            });
-                            setDropdownsOpen((prev) => ({ ...prev, recruiter: false }));
-                          }}
-                          className={`w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 ${
-                            formData.assignedToId === user.id ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-700'
-                          }`}
-                        >
-                          <span className="block font-medium">{formatAssigneeDisplayName(user) || user.name}</span>
-                          <span className="block text-xs text-slate-500 truncate">{user.email}</span>
-                        </button>
-                      </li>
-                    ))}
-                  </>
-                )}
-              </ul>
-            </>
-          ) : null}
+          {recruiterMenuOpen && recruiterMenuPosition && typeof document !== 'undefined'
+            ? createPortal(
+                <div
+                  ref={recruiterMenuRef}
+                  className="fixed z-[1200] max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-2xl"
+                  style={{
+                    left: recruiterMenuPosition.left,
+                    width: recruiterMenuPosition.width,
+                    ...(recruiterMenuPosition.placement === 'top'
+                      ? { bottom: recruiterMenuPosition.bottom }
+                      : { top: recruiterMenuPosition.top }),
+                  }}
+                >
+                  <ul>
+                    {loadingRecruiters ? (
+                      <li className="px-4 py-2 text-sm text-slate-500">Loading team…</li>
+                    ) : assignable.canSelectCompany && !assignable.companyId ? (
+                      <li className="px-4 py-2 text-sm text-slate-500">Select a company to see members</li>
+                    ) : recruiterUsers.length === 0 ? (
+                      <li className="px-4 py-2 text-sm text-slate-500">No team members with access in this company</li>
+                    ) : (
+                      <>
+                        <li>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              patchForm({ assignedToId: '', assignedToName: '' });
+                              closeRecruiterMenu();
+                            }}
+                            className="w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 text-slate-700"
+                          >
+                            Unassigned
+                          </button>
+                        </li>
+                        {recruiterUsers.map((user) => (
+                          <li key={user.id}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                patchForm({
+                                  assignedToId: user.id,
+                                  assignedToName: formatAssigneeDisplayName(user) || user.name,
+                                  assignedToCompanyId: assignable.companyId || formData.assignedToCompanyId,
+                                });
+                                closeRecruiterMenu();
+                              }}
+                              className={`w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 ${
+                                formData.assignedToId === user.id
+                                  ? 'bg-blue-50 text-blue-700 font-medium'
+                                  : 'text-slate-700'
+                              }`}
+                            >
+                              <span className="block font-medium">
+                                {formatAssigneeDisplayName(user) || user.name}
+                              </span>
+                              <span className="block text-xs text-slate-500 truncate">{user.email}</span>
+                            </button>
+                          </li>
+                        ))}
+                      </>
+                    )}
+                  </ul>
+                </div>,
+                document.body,
+              )
+            : null}
         </div>
         <p className="mt-1 text-xs text-slate-500">
           Shown as the <span className="font-medium">Recruiter</span> card on the public job page

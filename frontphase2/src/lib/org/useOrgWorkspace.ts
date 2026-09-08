@@ -180,7 +180,8 @@ export function useOrgWorkspace() {
             fallback.length > 0,
         );
         setHomeIsOrgCompany(Boolean(org?.homeIsOrgCompany));
-        setApiCanSwitch(Boolean(org?.canSwitchCompanies) || (crm || []).length > 0 || (recruitment || []).length > 0);
+        // Trust API only — company arrays must not imply switch access without the permission.
+        setApiCanSwitch(Boolean(org?.canSwitchCompanies));
         setAccessLoaded(true);
 
         const granted = [...(crm || []), ...(recruitment || []), ...fallback];

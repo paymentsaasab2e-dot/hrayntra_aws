@@ -101,6 +101,7 @@ import {
   resolveJobPostingCompanyChooser,
   useOrgWorkspace,
 } from '@/lib/org/useOrgWorkspace';
+import { parseJobSalaryMoneyNumber } from '@/constants/jobSalary';
 
 type WizardStep = 'client' | 'jd' | 'review';
 type PublishFlowStep = 'assessment' | 'distribution' | null;
@@ -1743,8 +1744,14 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
           draft.payRangeMin || draft.payRangeMax
             ? {
                 currency: draft.salaryCurrency || 'USD',
-                min: draft.payRangeMin ? Number(draft.payRangeMin) : undefined,
-                max: draft.payRangeMax ? Number(draft.payRangeMax) : undefined,
+                min: (() => {
+                  const n = draft.payRangeMin ? parseJobSalaryMoneyNumber(draft.payRangeMin) : NaN;
+                  return Number.isFinite(n) ? n : undefined;
+                })(),
+                max: (() => {
+                  const n = draft.payRangeMax ? parseJobSalaryMoneyNumber(draft.payRangeMax) : NaN;
+                  return Number.isFinite(n) ? n : undefined;
+                })(),
               }
             : undefined,
         preScreenAssessments: preScreenAssessments.map((link, index) => ({

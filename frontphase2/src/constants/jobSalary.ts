@@ -95,13 +95,54 @@ const LEGACY_CURRENCY_MAP: Record<string, string> = {
   aud: 'AUD',
   cad: 'CAD',
   jpy: 'JPY',
+  /** Informal label used in West/Central Africa — ISO is XAF (BEAC) or XOF (BCEAO). */
+  cfa: 'XAF',
+  'cfa franc': 'XAF',
+  'franc cfa': 'XAF',
 };
+
+/**
+ * Parse salary range inputs for job create/edit.
+ * Handles `100,000`, `100000`, `100k`, `1.5L`, `18 LPA` (→ lakhs for INR-style).
+ */
+export function parseJobSalaryMoneyNumber(value: string | number | null | undefined): number {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : NaN;
+  const text = String(value || '').trim();
+  if (!text) return NaN;
+
+  const normalized = text.replace(/\s+/g, ' ').replace(/,/g, '');
+  const lpa = normalized.match(/^([\d.]+)\s*(?:lpa|lakh|lakhs|lacs|lac)\b/i);
+  if (lpa) {
+    const n = Number(lpa[1]);
+    return Number.isFinite(n) ? Math.round(n * 100_000) : NaN;
+  }
+  const lakhSuffix = normalized.match(/^([\d.]+)\s*l\b/i);
+  if (lakhSuffix) {
+    const n = Number(lakhSuffix[1]);
+    return Number.isFinite(n) ? Math.round(n * 100_000) : NaN;
+  }
+  const thousand = normalized.match(/^([\d.]+)\s*k\b/i);
+  if (thousand) {
+    const n = Number(thousand[1]);
+    return Number.isFinite(n) ? Math.round(n * 1000) : NaN;
+  }
+  const million = normalized.match(/^([\d.]+)\s*m\b/i);
+  if (million) {
+    const n = Number(million[1]);
+    return Number.isFinite(n) ? Math.round(n * 1_000_000) : NaN;
+  }
+
+  const match = normalized.match(/-?\d+(?:\.\d+)?/);
+  return match ? Number(match[0]) : NaN;
+}
 
 /** Normalize stored salary currency labels to a 3-letter ISO code. */
 export function normalizeJobSalaryCurrency(raw?: string | null): string {
   const trimmed = String(raw || '').trim();
   if (!trimmed) return 'INR';
   const upper = trimmed.toUpperCase();
+  // Informal "CFA" is not ISO — map before the generic 3-letter pass-through.
+  if (upper === 'CFA') return 'XAF';
   if (/^[A-Z]{3}$/.test(upper)) {
     return upper;
   }
