@@ -96,9 +96,9 @@ function readApplicationPayload(req) {
   const currentCompany = String(req.body?.currentCompany || '').trim();
   const currentRole = String(req.body?.currentRole || '').trim();
   const yearsOfExperience = Number(req.body?.yearsOfExperience || 0);
-  const expertiseAreas = normalizeTextArray(req.body?.expertiseAreas, 24);
-  const interviewTypes = normalizeTextArray(req.body?.interviewTypes, 16);
-  const languages = normalizeTextArray(req.body?.languages, 12);
+  const expertiseAreas = normalizeTextArray(req.body?.expertiseAreas, 40);
+  const interviewTypes = normalizeTextArray(req.body?.interviewTypes, 24);
+  const languages = normalizeTextArray(req.body?.languages, 24);
   const weeklyAvailability = String(req.body?.weeklyAvailability || '').trim();
   const aboutYourself = String(req.body?.aboutYourself || '').trim();
   const feedbackStyle = String(req.body?.feedbackStyle || '').trim();

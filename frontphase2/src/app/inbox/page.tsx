@@ -8,6 +8,7 @@ import {
   Bell,
   CalendarDays,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   Circle,
   Clock3,
@@ -50,7 +51,7 @@ import {
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
 
 type MailTab = 'Primary' | 'Promotions' | 'Social' | 'Updates';
-type ResizeSection = 'left' | 'middle' | null;
+type ResizeSection = 'left' | null;
 type GmailFolder = 'INBOX' | 'STARRED' | 'SNOOZED' | 'SENT' | 'DRAFT';
 type MailProvider = 'gmail' | 'outlook';
 
@@ -66,48 +67,11 @@ const LEFT_MENU = [
 
 const LEFT_MIN = 140;
 const LEFT_MAX = 420;
-const LIST_MIN = 220;
-const LIST_MAX = 760;
-const DETAIL_MIN = 240;
-const DETAIL_MAX = 900;
 
-function getResponsiveMins(viewportWidth: number) {
-  if (viewportWidth < 900) {
-    return { left: 96, list: 160, detail: 180 };
-  }
-  if (viewportWidth < 1200) {
-    return { left: 120, list: 190, detail: 220 };
-  }
-  return { left: LEFT_MIN, list: LIST_MIN, detail: DETAIL_MIN };
-}
-
-function fitPaneWidths(totalWidth: number, desired: { left: number; list: number; detail: number }, viewportWidth: number) {
-  const mins = getResponsiveMins(viewportWidth);
-  const maxLeft = Math.min(LEFT_MAX, Math.max(mins.left, totalWidth - mins.list - mins.detail - 16));
-  let left = clamp(desired.left, mins.left, maxLeft);
-
-  const maxList = Math.min(LIST_MAX, Math.max(mins.list, totalWidth - left - mins.detail - 16));
-  let list = clamp(desired.list, mins.list, maxList);
-
-  let detail = totalWidth - left - list - 16;
-  if (detail < mins.detail) {
-    const shortage = mins.detail - detail;
-    const reducibleList = Math.max(0, list - mins.list);
-    const listReduction = Math.min(shortage, reducibleList);
-    list -= listReduction;
-    detail = totalWidth - left - list - 16;
-  }
-
-  if (detail < mins.detail) {
-    const shortage = mins.detail - detail;
-    const reducibleLeft = Math.max(0, left - mins.left);
-    const leftReduction = Math.min(shortage, reducibleLeft);
-    left -= leftReduction;
-    detail = totalWidth - left - list - 16;
-  }
-
-  detail = clamp(detail, mins.detail, DETAIL_MAX);
-  return { left, list, detail };
+function getResponsiveLeftMin(viewportWidth: number) {
+  if (viewportWidth < 900) return 96;
+  if (viewportWidth < 1200) return 120;
+  return LEFT_MIN;
 }
 
 function formatRowDate(value?: string | null) {
@@ -751,6 +715,7 @@ function MailDetail({
   connectedEmail,
   actionBusy,
   actionMessage,
+  onBack,
   onCreateCalendar,
   onTrash,
   onArchive,
@@ -764,6 +729,7 @@ function MailDetail({
   connectedEmail?: string;
   actionBusy?: string | null;
   actionMessage?: string;
+  onBack: () => void;
   onCreateCalendar: (email: GmailInboxMessage) => void;
   onTrash: (email: GmailInboxMessage) => void;
   onArchive: (email: GmailInboxMessage) => void;
@@ -784,6 +750,14 @@ function MailDetail({
       <div className="flex h-full flex-col items-center justify-center text-[#5f6368]">
         <Mail className="h-10 w-10" />
         <p className="mt-3 text-sm">Select a message to read it here.</p>
+        <button
+          type="button"
+          onClick={onBack}
+          className="mt-4 inline-flex items-center gap-2 rounded-full border border-[#dadce0] px-4 py-2 text-sm text-[#202124] hover:bg-[#f1f3f4]"
+        >
+          <ChevronLeft className="h-4 w-4" />
+          Back to inbox
+        </button>
       </div>
     );
   }
@@ -793,9 +767,20 @@ function MailDetail({
   return (
     <div className="flex h-full flex-col">
       <div className="border-b border-[#dadce0] px-6 py-4">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-[28px] font-normal text-[#202124]">{email.subject}</h2>
-          <div className="relative flex items-center gap-1 text-[#5f6368]">
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-start gap-2">
+            <button
+              type="button"
+              onClick={onBack}
+              className="mt-1 shrink-0 rounded-full p-2 text-[#5f6368] hover:bg-[#f1f3f4]"
+              title="Back to inbox"
+              aria-label="Back to inbox"
+            >
+              <ChevronLeft className="h-5 w-5" />
+            </button>
+            <h2 className="min-w-0 text-[28px] font-normal text-[#202124]">{email.subject}</h2>
+          </div>
+          <div className="relative flex shrink-0 items-center gap-1 text-[#5f6368]">
             <button
               type="button"
               disabled={actionBusy === 'calendar'}
@@ -971,8 +956,6 @@ export default function InboxPage() {
   const [activeFolder, setActiveFolder] = useState<GmailFolder>('INBOX');
   const [activeTab, setActiveTab] = useState<MailTab>('Primary');
   const [leftWidth, setLeftWidth] = useState(280);
-  const [listWidth, setListWidth] = useState(760);
-  const [detailWidth, setDetailWidth] = useState(520);
   const [resizing, setResizing] = useState<ResizeSection>(null);
   const [viewportWidth, setViewportWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1440);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -987,7 +970,7 @@ export default function InboxPage() {
     setMailboxUnavailable(!!result?.mailboxUnavailable);
     setLoadError('');
     setSelectedId((current) =>
-      current && nextEmails.some((item) => item.id === current) ? current : nextEmails[0]?.id
+      current && nextEmails.some((item) => item.id === current) ? current : undefined
     );
   };
 
@@ -1191,24 +1174,10 @@ export default function InboxPage() {
       if (!container) return;
 
       const rect = container.getBoundingClientRect();
-      const total = rect.width;
-
       if (resizing === 'left') {
-        const nextLeft = clamp(event.clientX - rect.left, LEFT_MIN, LEFT_MAX);
-        const maxListAllowed = total - nextLeft - detailWidth - 40;
-        const nextList = clamp(listWidth, LIST_MIN, Math.max(LIST_MIN, Math.min(LIST_MAX, maxListAllowed)));
+        const minLeft = getResponsiveLeftMin(viewportWidth);
+        const nextLeft = clamp(event.clientX - rect.left, minLeft, LEFT_MAX);
         setLeftWidth(nextLeft);
-        setListWidth(nextList);
-      }
-
-      if (resizing === 'middle') {
-        const xFromContainer = event.clientX - rect.left;
-        const nextList = clamp(xFromContainer - leftWidth - 4, LIST_MIN, LIST_MAX);
-        const remainingDetail = total - leftWidth - nextList - 16;
-        if (remainingDetail >= DETAIL_MIN) {
-          setListWidth(nextList);
-          setDetailWidth(clamp(remainingDetail, DETAIL_MIN, DETAIL_MAX));
-        }
       }
     };
 
@@ -1225,27 +1194,19 @@ export default function InboxPage() {
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
     };
-  }, [resizing, leftWidth, listWidth, detailWidth]);
+  }, [resizing, viewportWidth]);
 
   useEffect(() => {
     const handleWindowResize = () => {
       setViewportWidth(window.innerWidth);
-      const container = containerRef.current;
-      if (!container) return;
-      const next = fitPaneWidths(
-        container.getBoundingClientRect().width,
-        { left: leftWidth, list: listWidth, detail: detailWidth },
-        window.innerWidth
-      );
-      setLeftWidth(next.left);
-      setListWidth(next.list);
-      setDetailWidth(next.detail);
+      const minLeft = getResponsiveLeftMin(window.innerWidth);
+      setLeftWidth((current) => clamp(current, minLeft, LEFT_MAX));
     };
 
     handleWindowResize();
     window.addEventListener('resize', handleWindowResize);
     return () => window.removeEventListener('resize', handleWindowResize);
-  }, [leftWidth, listWidth, detailWidth]);
+  }, []);
 
   const grouped = useMemo(() => {
     const data: Record<MailTab, GmailInboxMessage[]> = {
@@ -1264,7 +1225,7 @@ export default function InboxPage() {
     mailProvider === 'outlook' || activeFolder !== 'INBOX' ? emails : grouped[activeTab];
 
   const selectedEmail = useMemo(
-    () => filteredEmails.find((item) => item.id === selectedId) || filteredEmails[0] || null,
+    () => (selectedId ? filteredEmails.find((item) => item.id === selectedId) || null : null),
     [filteredEmails, selectedId]
   );
 
@@ -1463,8 +1424,8 @@ export default function InboxPage() {
     });
 
   useEffect(() => {
-    if (filteredEmails.length && !filteredEmails.some((item) => item.id === selectedId)) {
-      setSelectedId(filteredEmails[0]?.id);
+    if (selectedId && filteredEmails.length && !filteredEmails.some((item) => item.id === selectedId)) {
+      setSelectedId(undefined);
     }
   }, [filteredEmails, selectedId]);
 
@@ -1506,72 +1467,79 @@ export default function InboxPage() {
 
         <main className="flex min-w-0 flex-1 px-2 pb-4 pr-4">
           <div className="flex min-h-0 flex-1 overflow-hidden rounded-[24px] bg-white shadow-sm">
-            <div
-              style={{ width: listWidth }}
-              className="flex min-h-0 min-w-0 shrink-0 flex-col overflow-hidden border-r border-[#dadce0]"
-            >
-              <div className="overflow-x-auto px-4 py-3 text-[#5f6368]">
-                <div className="flex min-w-max items-center justify-between gap-6">
-                  <div className="flex items-center gap-4">
-                    <div className="h-5 w-5 rounded border border-[#9aa0a6]" />
-                    <RefreshCcw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
-                    <MoreVertical className="h-4 w-4" />
-                  </div>
-                  <div className="text-xs">
-                    {filteredEmails.length ? `1-${filteredEmails.length} of ${filteredEmails.length}` : '0 messages'}
+            {selectedEmail ? (
+              <div className="min-w-0 flex-1">
+                <MailDetail
+                  email={selectedEmail}
+                  connectedEmail={connectedEmail}
+                  actionBusy={detailActionBusy}
+                  actionMessage={detailActionMessage}
+                  onBack={() => {
+                    setSelectedId(undefined);
+                    setDetailActionMessage('');
+                  }}
+                  onCreateCalendar={handleCreateCalendar}
+                  onTrash={handleTrash}
+                  onArchive={handleArchive}
+                  onToggleUnread={handleToggleUnread}
+                  onToggleStar={handleToggleStar}
+                  onReply={handleReply}
+                  onReplyAll={handleReplyAll}
+                  onDownload={handleDownload}
+                />
+              </div>
+            ) : (
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+                <div className="overflow-x-auto px-4 py-3 text-[#5f6368]">
+                  <div className="flex min-w-max items-center justify-between gap-6">
+                    <div className="flex items-center gap-4">
+                      <div className="h-5 w-5 rounded border border-[#9aa0a6]" />
+                      <RefreshCcw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+                      <MoreVertical className="h-4 w-4" />
+                    </div>
+                    <div className="text-xs">
+                      {filteredEmails.length
+                        ? `1-${filteredEmails.length} of ${filteredEmails.length}`
+                        : '0 messages'}
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {activeFolder === 'INBOX' && mailProvider === 'gmail' ? (
-                <MailTabs
-                  counts={{
-                    Primary: grouped.Primary.length,
-                    Promotions: grouped.Promotions.length,
-                    Social: grouped.Social.length,
-                    Updates: grouped.Updates.length,
-                  }}
-                  activeTab={activeTab}
-                  onTabChange={setActiveTab}
+                {activeFolder === 'INBOX' && mailProvider === 'gmail' ? (
+                  <MailTabs
+                    counts={{
+                      Primary: grouped.Primary.length,
+                      Promotions: grouped.Promotions.length,
+                      Social: grouped.Social.length,
+                      Updates: grouped.Updates.length,
+                    }}
+                    activeTab={activeTab}
+                    onTabChange={(tab) => {
+                      setActiveTab(tab);
+                      setSelectedId(undefined);
+                      setDetailActionMessage('');
+                    }}
+                  />
+                ) : null}
+
+                <MailList
+                  emails={filteredEmails}
+                  selectedId={undefined}
+                  onSelect={handleSelect}
+                  loading={loading || refreshing}
+                  onLoadMore={loadMoreInbox}
+                  hasMore={!!nextPageToken}
+                  loadingMore={loadingMore}
+                  requiresReconnect={requiresReconnect}
+                  mailProvider={mailProvider}
+                  mailboxUnavailable={mailboxUnavailable}
+                  loadError={loadError}
+                  needsConnect={
+                    mailProvider === 'outlook' ? !outlookConnected : !gmailConnected
+                  }
                 />
-              ) : null}
-
-              <MailList
-                emails={filteredEmails}
-                selectedId={selectedEmail?.id}
-                onSelect={handleSelect}
-                loading={loading || refreshing}
-                onLoadMore={loadMoreInbox}
-                hasMore={!!nextPageToken}
-                loadingMore={loadingMore}
-                requiresReconnect={requiresReconnect}
-                mailProvider={mailProvider}
-                mailboxUnavailable={mailboxUnavailable}
-                loadError={loadError}
-                needsConnect={
-                  mailProvider === 'outlook' ? !outlookConnected : !gmailConnected
-                }
-              />
-            </div>
-
-            {viewportWidth >= 768 ? <ResizeHandle onMouseDown={() => setResizing('middle')} /> : null}
-
-            <div style={{ width: detailWidth }} className="min-w-0 flex-1">
-              <MailDetail
-                email={selectedEmail}
-                connectedEmail={connectedEmail}
-                actionBusy={detailActionBusy}
-                actionMessage={detailActionMessage}
-                onCreateCalendar={handleCreateCalendar}
-                onTrash={handleTrash}
-                onArchive={handleArchive}
-                onToggleUnread={handleToggleUnread}
-                onToggleStar={handleToggleStar}
-                onReply={handleReply}
-                onReplyAll={handleReplyAll}
-                onDownload={handleDownload}
-              />
-            </div>
+              </div>
+            )}
           </div>
         </main>
       </div>

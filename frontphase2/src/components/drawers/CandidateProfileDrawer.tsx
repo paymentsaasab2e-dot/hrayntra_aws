@@ -48,6 +48,7 @@ import {
   Loader2,
   AlertTriangle,
   MapPin,
+  Clock,
   MessageSquare,
   MessageSquareText,
   MoreVertical,
@@ -94,14 +95,15 @@ import { requestError } from '../../lib/appDialog';
 import { parseClientsListFromResponse, parseJobsListFromResponse } from '../../lib/parseApiList';
 import {
   clampDateToMinLocal,
-  filterInterviewSlotsForLocalDate,
-  generateStandardInterviewSlotDescriptors,
+  getLocalTimeInputMinNow,
 } from '../../utils/dateInputConstraints';
 import {
   computeNextInterviewRound,
   extractEditableInterviewNotes,
   formatInterviewTimeInTimezone,
   getInterviewDateInputYmd,
+  interviewTime12hToInputValue,
+  interviewTimeInputValueTo12h,
   mergeEditableInterviewNotesWithAudit,
 } from '../../lib/interview-schedule-helpers';
 import { ClientTimezoneSelect } from '../clients/ClientTimezoneSelect';
@@ -832,7 +834,6 @@ export function ScheduleInterviewModal({
   const [errors, setErrors] = useState<Record<string, string | undefined>>({});
   const [submitting, setSubmitting] = useState(false);
   const [typeOpen, setTypeOpen] = useState(false);
-  const [timeOpen, setTimeOpen] = useState(false);
   const [durationOpen, setDurationOpen] = useState(false);
   const [interviewerOpen, setInterviewerOpen] = useState(false);
   const [openRoleMenuId, setOpenRoleMenuId] = useState<string | null>(null);
@@ -857,7 +858,6 @@ export function ScheduleInterviewModal({
   const prevAutoPanelJobIdRef = useRef('');
 
   const typeRef = useRef<HTMLDivElement | null>(null);
-  const timeRef = useRef<HTMLDivElement | null>(null);
   const durationRef = useRef<HTMLDivElement | null>(null);
   const interviewerRef = useRef<HTMLDivElement | null>(null);
   const roleMenuRef = useRef<HTMLDivElement | null>(null);
@@ -885,14 +885,6 @@ export function ScheduleInterviewModal({
     };
   }, [fixedCandidate, candidateOptions, standaloneCandidateId]);
 
-  const interviewSlotDescriptors = useMemo(() => generateStandardInterviewSlotDescriptors(), []);
-  const visibleTimeSlots = useMemo(
-    () =>
-      filterInterviewSlotsForLocalDate(interviewSlotDescriptors, date, 60_000, timezone).map(
-        (s) => s.label,
-      ),
-    [interviewSlotDescriptors, date, timezone],
-  );
   const isEditingInterview = Boolean(editInterview);
   const minimumDate = getYmdInTimeZone(timezone);
 
@@ -974,7 +966,6 @@ export function ScheduleInterviewModal({
       setErrors({});
       setSubmitting(false);
       setTypeOpen(false);
-      setTimeOpen(false);
       setDurationOpen(false);
       setInterviewerOpen(false);
       setOpenRoleMenuId(null);
@@ -1409,7 +1400,6 @@ export function ScheduleInterviewModal({
     const handleOutside = (event: MouseEvent) => {
       const target = event.target as Node;
       if (!typeRef.current?.contains(target)) setTypeOpen(false);
-      if (!timeRef.current?.contains(target)) setTimeOpen(false);
       if (!durationRef.current?.contains(target)) setDurationOpen(false);
       if (!interviewerRef.current?.contains(target)) setInterviewerOpen(false);
       if (!clientContactRef.current?.contains(target)) setClientContactOpen(false);
@@ -1786,13 +1776,6 @@ export function ScheduleInterviewModal({
                           const raw = e.target.value;
                           const next = isEditingInterview ? raw : clampDateToMinLocal(raw, minimumDate);
                           setDate(next);
-                          const allowed = filterInterviewSlotsForLocalDate(
-                            interviewSlotDescriptors,
-                            next,
-                            60_000,
-                            timezone,
-                          ).map((s) => s.label);
-                          setTime((prev) => (prev && allowed.includes(prev) ? prev : ''));
                           setErrors((prev) => ({ ...prev, date: undefined }));
                         }}
                         className={`w-full rounded-xl border bg-white px-3 py-2.5 text-sm text-slate-700 outline-none ${
@@ -1806,36 +1789,31 @@ export function ScheduleInterviewModal({
                       <label className="mb-2 block text-sm font-medium text-slate-700">
                         Time <span className="text-red-500">*</span>
                       </label>
-                      <div className="relative" ref={timeRef}>
-                        <button
-                          type="button"
-                          onClick={() => setTimeOpen((prev) => !prev)}
-                          className={`flex w-full items-center justify-between rounded-xl border bg-white px-3 py-2.5 text-left text-sm ${
+                      <div className="relative">
+                        <input
+                          type="time"
+                          value={interviewTime12hToInputValue(time)}
+                          min={
+                            !isEditingInterview && date && date === minimumDate
+                              ? getLocalTimeInputMinNow()
+                              : undefined
+                          }
+                          onChange={(e) => {
+                            const next = interviewTimeInputValueTo12h(e.target.value);
+                            setTime(next);
+                            setErrors((prev) => ({ ...prev, time: undefined }));
+                          }}
+                          className={`w-full rounded-xl border bg-white px-3 py-2.5 pr-10 text-sm text-slate-700 outline-none ${
                             errors.time ? 'border-red-300' : 'border-slate-200'
-                          }`}
+                          } focus:border-blue-400 focus:ring-2 focus:ring-blue-100`}
+                          aria-label="Interview time"
+                        />
+                        <span
+                          className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
+                          aria-hidden="true"
                         >
-                          <span className={time ? 'text-slate-700' : 'text-slate-400'}>{time || 'Select time'}</span>
-                          <ChevronDown size={16} className="text-slate-400" />
-                        </button>
-                        {timeOpen ? (
-                          <div className="absolute left-0 right-0 top-12 z-20 max-h-56 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
-                            {visibleTimeSlots.map((slot) => (
-                              <button
-                                key={slot}
-                                type="button"
-                                onClick={() => {
-                                  setTime(slot);
-                                  setTimeOpen(false);
-                                  setErrors((prev) => ({ ...prev, time: undefined }));
-                                }}
-                                className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm hover:bg-slate-50"
-                              >
-                                <span>{slot}</span>
-                                {time === slot ? <Check size={15} className="text-blue-600" /> : null}
-                              </button>
-                            ))}
-                          </div>
-                        ) : null}
+                          <Clock size={16} />
+                        </span>
                       </div>
                       {errors.time ? <p className="mt-1 text-xs text-red-600">{errors.time}</p> : null}
                     </div>
@@ -1893,13 +1871,6 @@ export function ScheduleInterviewModal({
                         } focus:border-blue-400 focus:ring-2 focus:ring-blue-100`}
                         onChange={(nextTimezone) => {
                           setTimezone(nextTimezone);
-                          const allowed = filterInterviewSlotsForLocalDate(
-                            interviewSlotDescriptors,
-                            date,
-                            60_000,
-                            nextTimezone,
-                          ).map((s) => s.label);
-                          setTime((prev) => (prev && allowed.includes(prev) ? prev : ''));
                           setErrors((prev) => ({ ...prev, timezone: undefined }));
                         }}
                       />
