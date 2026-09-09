@@ -233,6 +233,7 @@ type DrawerDropdownMenuPosition = {
   placement: 'top' | 'bottom';
   top?: number;
   bottom?: number;
+  maxHeight: number;
 };
 
 export function useDrawerPortalDropdownPosition(open: boolean, preferUpward: boolean, onClose: () => void) {
@@ -245,11 +246,14 @@ export function useDrawerPortalDropdownPosition(open: boolean, preferUpward: boo
     if (!trigger) return;
 
     const rect = trigger.getBoundingClientRect();
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const spaceAbove = rect.top;
+    const spaceBelow = window.innerHeight - rect.bottom - DROPDOWN_MENU_GAP;
+    const spaceAbove = rect.top - DROPDOWN_MENU_GAP;
     const openUpward =
       preferUpward ||
-      (spaceBelow < DROPDOWN_MENU_MAX_HEIGHT + DROPDOWN_MENU_GAP && spaceAbove > spaceBelow);
+      (spaceBelow < Math.min(DROPDOWN_MENU_MAX_HEIGHT, 160) && spaceAbove > spaceBelow);
+
+    const available = openUpward ? spaceAbove : spaceBelow;
+    const maxHeight = Math.max(120, Math.min(DROPDOWN_MENU_MAX_HEIGHT, available));
 
     if (openUpward) {
       setMenuPosition({
@@ -257,6 +261,7 @@ export function useDrawerPortalDropdownPosition(open: boolean, preferUpward: boo
         width: rect.width,
         placement: 'top',
         bottom: window.innerHeight - rect.top + DROPDOWN_MENU_GAP,
+        maxHeight,
       });
       return;
     }
@@ -266,6 +271,7 @@ export function useDrawerPortalDropdownPosition(open: boolean, preferUpward: boo
       width: rect.width,
       placement: 'bottom',
       top: rect.bottom + DROPDOWN_MENU_GAP,
+      maxHeight,
     });
   }, [preferUpward]);
 
@@ -341,10 +347,11 @@ export function DrawerSelectDropdown({
       ? createPortal(
           <div
             ref={menuRef}
-            className="fixed z-[1200] max-h-64 overflow-auto rounded-xl border border-slate-200 bg-white shadow-2xl"
+            className="fixed z-[1200] overflow-auto rounded-xl border border-slate-200 bg-white shadow-2xl"
             style={{
               left: menuPosition.left,
               width: menuPosition.width,
+              maxHeight: menuPosition.maxHeight,
               ...(menuPosition.placement === 'top'
                 ? { bottom: menuPosition.bottom }
                 : { top: menuPosition.top }),

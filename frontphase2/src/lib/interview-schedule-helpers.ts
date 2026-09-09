@@ -46,7 +46,7 @@ export function mapInterviewUiTypeToBackend(type: string): CreateInterviewPayloa
 }
 
 /**
- * Builds an ISO instant from `YYYY-MM-DD` + `10:30 AM`.
+ * Builds an ISO instant from `YYYY-MM-DD` + `10:30 AM` (or `HH:mm` 24h).
  * When `timezone` is provided, the wall clock is interpreted in that IANA zone
  * (or a stored display label such as "IST (UTC+5:30)"). Otherwise the browser
  * local calendar is used.
@@ -68,13 +68,17 @@ export function combineInterviewDateAndTimeToIso(
     return new Date(ymd).toISOString();
   }
   const t = String(time12h || '').trim();
-  const m = t.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  const m12 = t.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  const m24 = t.match(/^(\d{1,2}):(\d{2})$/);
   let hours = 9;
   let minutes = 0;
-  if (m) {
-    hours = Number(m[1]) % 12;
-    minutes = Number(m[2]);
-    if (m[3].toUpperCase() === 'PM') hours += 12;
+  if (m12) {
+    hours = Number(m12[1]) % 12;
+    minutes = Number(m12[2]);
+    if (m12[3].toUpperCase() === 'PM') hours += 12;
+  } else if (m24) {
+    hours = Number(m24[1]);
+    minutes = Number(m24[2]);
   }
   const iana = String(timezone || '').trim()
     ? resolveIanaFromTimezoneValue(timezone)
@@ -83,6 +87,38 @@ export function combineInterviewDateAndTimeToIso(
     return zonedWallClockToUtcIso(y, mo, d, hours, minutes, iana);
   }
   return new Date(y, mo - 1, d, hours, minutes, 0, 0).toISOString();
+}
+
+/** Convert stored `9:30 AM` (or `HH:mm`) → `<input type="time">` value. */
+export function interviewTime12hToInputValue(time12h: string): string {
+  const t = String(time12h || '').trim();
+  if (!t) return '';
+  const m12 = t.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (m12) {
+    let hours = Number(m12[1]) % 12;
+    if (m12[3].toUpperCase() === 'PM') hours += 12;
+    return `${String(hours).padStart(2, '0')}:${m12[2]}`;
+  }
+  const m24 = t.match(/^(\d{1,2}):(\d{2})$/);
+  if (m24) {
+    return `${String(Number(m24[1])).padStart(2, '0')}:${m24[2]}`;
+  }
+  return '';
+}
+
+/** Convert `<input type="time">` `HH:mm` → display/storage `9:30 AM`. */
+export function interviewTimeInputValueTo12h(hhmm: string): string {
+  const m = String(hhmm || '')
+    .trim()
+    .match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return '';
+  let hours = Number(m[1]);
+  const minutes = m[2];
+  if (!Number.isFinite(hours) || hours < 0 || hours > 23) return '';
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  hours = hours % 12;
+  if (hours === 0) hours = 12;
+  return `${hours}:${minutes} ${ampm}`;
 }
 
 export function formatInterviewDateInTimezone(

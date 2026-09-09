@@ -1,15 +1,17 @@
 import React, { useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Plus, X } from 'lucide-react';
+import { Clock, Plus, X } from 'lucide-react';
 import { PanelAssignmentModal } from './PanelAssignmentModal';
-import { combineInterviewDateAndTimeToIso, formatInterviewTimeInTimezone, getInterviewDateInputYmd } from '../../lib/interview-schedule-helpers';
+import {
+  combineInterviewDateAndTimeToIso,
+  formatInterviewTimeInTimezone,
+  getInterviewDateInputYmd,
+  interviewTime12hToInputValue,
+  interviewTimeInputValueTo12h,
+} from '../../lib/interview-schedule-helpers';
 import { requestError } from '../../lib/appDialog';
 import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
-import {
-  clampDateToMinLocal,
-  filterInterviewSlotsForLocalDate,
-  generateStandardInterviewSlotDescriptors,
-} from '../../utils/dateInputConstraints';
+import { clampDateToMinLocal, getLocalTimeInputMinNow } from '../../utils/dateInputConstraints';
 import { ClientTimezoneSelect } from '../clients/ClientTimezoneSelect';
 import {
   DEFAULT_INTERVIEW_TIMEZONE,
@@ -132,18 +134,6 @@ export function ScheduleInterviewModal({
     sendWhatsAppReminder: true,
   });
   const [form, setForm] = useState<ScheduleInterviewPayload>(buildDefaultForm());
-
-  const interviewSlotDescriptors = useMemo(() => generateStandardInterviewSlotDescriptors(), []);
-  const visibleTimeSlotLabels = useMemo(
-    () =>
-      filterInterviewSlotsForLocalDate(
-        interviewSlotDescriptors,
-        form.date,
-        60_000,
-        form.timezone,
-      ).map((s) => s.label),
-    [interviewSlotDescriptors, form.date, form.timezone],
-  );
 
   React.useEffect(() => {
     if (!isOpen) return;
@@ -410,36 +400,38 @@ export function ScheduleInterviewModal({
                       const nextDate = isEditMode
                         ? raw
                         : clampDateToMinLocal(raw, getYmdInTimeZone(form.timezone));
-                      setForm((current) => {
-                        const allowed = filterInterviewSlotsForLocalDate(
-                          interviewSlotDescriptors,
-                          nextDate,
-                          60_000,
-                          current.timezone,
-                        ).map((s) => s.label);
-                        const nextTime = current.time && allowed.includes(current.time) ? current.time : '';
-                        return { ...current, date: nextDate, time: nextTime };
-                      });
+                      setForm((current) => ({ ...current, date: nextDate }));
                     }}
                     className="w-full rounded-xl border border-[#E5E7EB] px-3 py-2.5 text-sm outline-none focus:border-[#2563EB]"
                   />
                 </div>
                 <div>
                   <label className="mb-2 block text-sm font-semibold text-[#111827]">Start Time</label>
-                  <select
-                    value={form.time}
-                    onChange={(event) => setForm((current) => ({ ...current, time: event.target.value }))}
-                    className="w-full rounded-xl border border-[#E5E7EB] px-3 py-2.5 text-sm outline-none focus:border-[#2563EB]"
-                  >
-                    <option value="" disabled>
-                      Select time
-                    </option>
-                    {visibleTimeSlotLabels.map((slot) => (
-                      <option key={slot} value={slot}>
-                        {slot}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="relative">
+                    <input
+                      type="time"
+                      value={interviewTime12hToInputValue(form.time)}
+                      min={
+                        !isEditMode && form.date && form.date === getYmdInTimeZone(form.timezone)
+                          ? getLocalTimeInputMinNow()
+                          : undefined
+                      }
+                      onChange={(event) =>
+                        setForm((current) => ({
+                          ...current,
+                          time: interviewTimeInputValueTo12h(event.target.value),
+                        }))
+                      }
+                      className="w-full rounded-xl border border-[#E5E7EB] px-3 py-2.5 pr-10 text-sm outline-none focus:border-[#2563EB]"
+                      aria-label="Interview start time"
+                    />
+                    <span
+                      className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
+                      aria-hidden="true"
+                    >
+                      <Clock size={16} />
+                    </span>
+                  </div>
                 </div>
               </div>
 
@@ -468,16 +460,7 @@ export function ScheduleInterviewModal({
                     placeholder="Select timezone…"
                     className="w-full rounded-xl border border-[#E5E7EB] px-3 py-2.5 text-sm outline-none focus:border-[#2563EB] bg-white"
                     onChange={(nextTimezone) =>
-                      setForm((current) => {
-                        const allowed = filterInterviewSlotsForLocalDate(
-                          interviewSlotDescriptors,
-                          current.date,
-                          60_000,
-                          nextTimezone,
-                        ).map((s) => s.label);
-                        const nextTime = current.time && allowed.includes(current.time) ? current.time : '';
-                        return { ...current, timezone: nextTimezone, time: nextTime };
-                      })
+                      setForm((current) => ({ ...current, timezone: nextTimezone }))
                     }
                   />
                 </div>
