@@ -12,6 +12,7 @@ import {
 } from './jobLinkedInPostTemplate';
 import type { JobCustomJdSection } from './jobCustomJdSections';
 import { filledCustomJdSections } from './jobCustomJdSections';
+import { formatJobSalaryAmountPrefix } from '../constants/jobSalary';
 
 export type JobSocialPostInput = {
   jobTitle: string;
@@ -29,6 +30,8 @@ export type JobSocialPostInput = {
   minExperience?: string;
   maxExperience?: string;
   currency?: string;
+  /** Optional display symbol (Fr / ₹) — same as create-job currency picker. */
+  currencySymbol?: string;
   minSalary?: string;
   maxSalary?: string;
   skills?: string[];
@@ -84,7 +87,7 @@ function formatSalary(input: JobSocialPostInput): string {
   const min = String(input.minSalary || '').trim();
   const max = String(input.maxSalary || '').trim();
   if (!min && !max) return '';
-  const prefix = currency ? `${currency} ` : '';
+  const prefix = formatJobSalaryAmountPrefix(currency, input.currencySymbol);
   if (min && max) return `${prefix}${min} – ${max}`;
   if (min) return `${prefix}${min}+`;
   return `${prefix}up to ${max}`;

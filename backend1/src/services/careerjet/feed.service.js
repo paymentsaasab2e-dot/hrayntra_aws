@@ -122,13 +122,24 @@ function salaryDisplay(job) {
   const min = Number(salary.min ?? job.salaryMin);
   const max = Number(salary.max ?? job.salaryMax);
   const currencyRaw = String(salary.currency || job.salaryCurrency || '').trim().toUpperCase();
-  const currency = /^[A-Z]{3}$/.test(currencyRaw) ? currencyRaw : '';
+  const currency = /^[A-Z]{2,5}$/.test(currencyRaw) ? currencyRaw : '';
+  const symbol = String(
+    salary.currencySymbol || salary.symbol || job.salaryCurrencySymbol || '',
+  ).trim();
+  const prefix =
+    symbol && symbol.toUpperCase() !== currency
+      ? symbol.length > 1
+        ? `${symbol} `
+        : symbol
+      : currency
+        ? `${currency} `
+        : '';
   const hasMin = Number.isFinite(min) && min > 0;
   const hasMax = Number.isFinite(max) && max > 0;
   if (!hasMin && !hasMax) return '';
   const range =
     hasMin && hasMax ? `${Math.round(min)} - ${Math.round(max)}` : String(Math.round(hasMin ? min : max));
-  const base = currency ? `${currency} ${range}` : range;
+  const base = prefix ? `${prefix}${range}` : range;
   return `${base}${salaryFrequencySuffix(job)}`;
 }
 

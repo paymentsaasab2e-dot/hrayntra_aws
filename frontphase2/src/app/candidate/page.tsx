@@ -94,6 +94,7 @@ import { requestConfirm, requestError } from '../../lib/appDialog';
 import { RECYCLE_BIN_SYNC_EVENT } from '../../constants/recycleBin';
 import { parseClientsListFromResponse, parseJobsListFromResponse } from '../../lib/parseApiList';
 import { dedupeCompanyNameLabels } from '../../lib/companyNameKey';
+import { resolveCountryFilterLabel } from '../../lib/cscData';
 import {
   apiAddCandidateNote,
   apiAddCandidateTag,
@@ -227,26 +228,33 @@ function extractBackendCandidatesList(
   return [];
 }
 
-/** Location options may come from candidate rows. Client filter options must NOT —
- * they come only from GET /clients (CRM clients), never from candidate employer names. */
+/** Location filter is country-only — never raw CV/location free text. */
 function buildLocationFilterOptions(
   candidates: Candidate[],
   backendRows: BackendCandidate[],
   existingLocations: string[],
 ) {
-  const locations = new Set(existingLocations);
+  const countries = new Set<string>();
+
+  const addCountry = (country?: string | null, location?: string | null) => {
+    const label = resolveCountryFilterLabel({ country, location });
+    if (label) countries.add(label);
+  };
 
   for (const row of candidates) {
-    const location = normalizeFilterOption(row.location);
-    if (location) locations.add(location);
+    addCountry(row.country, row.location);
   }
 
   for (const row of backendRows) {
-    const location = normalizeFilterOption(row.location);
-    if (location) locations.add(location);
+    addCountry(row.country, row.location);
   }
 
-  return Array.from(locations).sort((a, b) => a.localeCompare(b));
+  // Keep previously selected countries that are still valid CSC names
+  for (const existing of existingLocations) {
+    addCountry(existing, existing);
+  }
+
+  return Array.from(countries).sort((a, b) => a.localeCompare(b));
 }
 
 type CandidateJobFilterOption = { id: string; title: string };
@@ -456,6 +464,16 @@ function CandidatesPageContent() {
   useEffect(() => {
     locationFilterOptionsRef.current = locationFilterOptions;
   }, [locationFilterOptions]);
+
+  // Drop stale non-country values left in the filter from older CV junk options
+  useEffect(() => {
+    const selected = columnFilters.location.trim();
+    if (!selected) return;
+    const resolved = resolveCountryFilterLabel({ country: selected, location: selected });
+    if (!resolved || resolved !== selected) {
+      setColumnFilters((prev) => ({ ...prev, location: resolved || '' }));
+    }
+  }, [locationFilterOptions, columnFilters.location]);
 
   useEffect(() => {
     let cancelled = false;

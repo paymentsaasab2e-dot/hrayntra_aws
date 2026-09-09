@@ -5291,6 +5291,7 @@ export interface BackendJob {
     amount?: string | number;
     type?: string;
     currency?: string;
+    currencySymbol?: string;
   } | null;
   experienceRequired?: string | null;
   education?: string | null;

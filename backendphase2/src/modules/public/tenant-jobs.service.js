@@ -48,6 +48,7 @@ function publicSalary(salary) {
     min: salary.min ?? salary.minimum ?? null,
     max: salary.max ?? salary.maximum ?? null,
     currency: salary.currency || salary.currencyCode || null,
+    currencySymbol: salary.currencySymbol || salary.symbol || null,
     period: salary.period || salary.frequency || salary.type || null,
     text: salary.text || salary.display || null,
   };

@@ -152,6 +152,7 @@ import { EntityAuditSummary } from '../table/TableAuditCell';
 import { DrawerEntityChatTab } from './DrawerEntityChatTab';
 import { extractAuditMeta } from '../../utils/auditMeta';
 import { JobOverviewTabContent } from './JobOverviewTabContent';
+import { formatJobSalaryAmountPrefix } from '../../constants/jobSalary';
 import { EntityWorkspaceAlertsPanel } from '../ai/EntityWorkspaceAlertsPanel';
 import { JobAssessmentsTabContent } from '../jobs/JobAssessmentsTabContent';
 import { JobClientRemarksTab } from '../jobs/JobClientRemarksTab';
@@ -182,19 +183,20 @@ import {
   DRAWER_TABLE_TR,
 } from './drawerFormUi';
 
-/** Render salary as `currency min - max` (or single number when only one bound). */
+/** Render salary with the same symbol prefix as create-job / LinkedIn. */
 function formatJobSalaryRange(job: {
   salaryRange?: string;
   salaryCurrency?: string;
+  salaryCurrencySymbol?: string;
   minSalary?: number;
   maxSalary?: number;
 }): string {
-  const currency = job.salaryCurrency ? `${job.salaryCurrency} ` : '';
+  const prefix = formatJobSalaryAmountPrefix(job.salaryCurrency, job.salaryCurrencySymbol);
   const hasMin = job.minSalary !== undefined && job.minSalary !== null;
   const hasMax = job.maxSalary !== undefined && job.maxSalary !== null;
-  if (hasMin && hasMax) return `${currency}${job.minSalary} - ${job.maxSalary}`;
-  if (hasMin) return `${currency}${job.minSalary}`;
-  if (hasMax) return `${currency}${job.maxSalary}`;
+  if (hasMin && hasMax) return `${prefix}${job.minSalary} - ${job.maxSalary}`;
+  if (hasMin) return `${prefix}${job.minSalary}`;
+  if (hasMax) return `${prefix}${job.maxSalary}`;
   return job.salaryRange || '';
 }
 
@@ -298,6 +300,7 @@ export interface JobForDrawer {
   jobLocationType?: string;
   salaryType?: string;
   salaryCurrency?: string;
+  salaryCurrencySymbol?: string;
   minSalary?: number;
   maxSalary?: number;
    department?: string;

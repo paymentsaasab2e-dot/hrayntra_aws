@@ -90,7 +90,7 @@ import {
 import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 import { startAsyncLoad } from '../../lib/asyncLoadGuard';
 import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
-import { normalizeJobSalaryCurrency, parseJobSalaryMoneyNumber } from '../../constants/jobSalary';
+import { normalizeJobSalaryCurrency, parseJobSalaryMoneyNumber, resolveJobSalaryCurrencySymbolForSave } from '../../constants/jobSalary';
 import { getCachedOrgDefaultCurrency } from '../../lib/api';
 import { loadJobVisibilityUserDefaults, visibilityDefaultsForNewJob, jobVisibilityDefaultsEqual } from '../../lib/jobVisibilityUserDefaults';
 import { filterClientsForAddJob } from '../../lib/recruitmentClients';
@@ -1700,6 +1700,7 @@ export function CreateJobDrawer({
       minExperience: formData.minExperience,
       maxExperience: formData.maxExperience,
       currency: formData.currency,
+      currencySymbol: resolveJobSalaryCurrencySymbolForSave(formData.currency),
       minSalary: formData.minSalary,
       maxSalary: formData.maxSalary,
       skills: formData.skills,
@@ -3433,10 +3434,12 @@ export function CreateJobDrawer({
           const hasMin = Number.isFinite(payMin);
           const hasMax = Number.isFinite(payMax);
           if (!hasMin && !hasMax && !formData.salaryInput) return undefined;
+          const currency = normalizeJobSalaryCurrency(formData.currency) || undefined;
           return {
             min: hasMin ? payMin : undefined,
             max: hasMax ? payMax : undefined,
-            currency: normalizeJobSalaryCurrency(formData.currency) || undefined,
+            currency,
+            currencySymbol: resolveJobSalaryCurrencySymbolForSave(currency),
             type: formData.salaryType || undefined,
             amount: formData.salaryInput || undefined,
           };
