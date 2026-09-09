@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Briefcase, DollarSign, FileText, GraduationCap, Link2 } from 'lucide-react';
 import { formatDateDMY } from '../../utils/dateDisplay';
 import { formatIndustriesDisplay } from '../../lib/industryOptions';
+import { formatJobSalaryCurrencyLabel } from '../../constants/jobSalary';
 import { DrawerSectionCard } from './drawerFormUi';
 import type { JobForDrawer } from './JobDetailsDrawer';
 
@@ -241,7 +242,14 @@ export function JobOverviewTabContent({ job }: JobOverviewTabContentProps) {
         onOpenChange={() => toggleSection('compensation')}
       >
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <OverviewField label="Currency" value={displayValue(job.salaryCurrency)} />
+          <OverviewField
+            label="Currency"
+            value={displayValue(
+              job.salaryCurrency
+                ? formatJobSalaryCurrencyLabel(job.salaryCurrency, job.salaryCurrencySymbol)
+                : undefined,
+            )}
+          />
           <OverviewField
             label="Minimum Salary"
             value={job.minSalary !== undefined && job.minSalary !== null ? String(job.minSalary) : '—'}

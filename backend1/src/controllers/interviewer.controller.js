@@ -71,18 +71,6 @@ async function loadCandidateKyc(candidateId) {
   return evaluateCandidateKyc({ candidate, profile });
 }
 
-async function assertInterviewerKyc(candidateId) {
-  const kyc = await loadCandidateKyc(candidateId);
-  if (kyc.kycVerified) return kyc;
-  const missing = kyc.missing.length ? ` Missing: ${kyc.missing.join(', ')}.` : '';
-  const error = new Error(
-    `Complete KYC / ID verification on your profile before applying as an interviewer.${missing}`,
-  );
-  error.status = 403;
-  error.kyc = kyc;
-  throw error;
-}
-
 async function getAccountProfilePhotoUrl(candidateId) {
   if (!candidateId) return null;
   const profile = await retryQuery(async () =>
@@ -161,16 +149,6 @@ async function submitInterviewerApplication(req, res) {
       return res.status(400).json({ success: false, message: parsed.error });
     }
 
-    try {
-      await assertInterviewerKyc(candidateId);
-    } catch (kycError) {
-      return res.status(kycError.status || 403).json({
-        success: false,
-        message: kycError.message,
-        data: { kyc: kycError.kyc || { kycVerified: false, missing: [] } },
-      });
-    }
-
     const accountPhotoUrl = await getAccountProfilePhotoUrl(candidateId);
 
     const existingProfile = await retryQuery(async () =>
@@ -222,16 +200,6 @@ async function updateMyInterviewerApplication(req, res) {
     const parsed = readApplicationPayload(req);
     if (parsed.error) {
       return res.status(400).json({ success: false, message: parsed.error });
-    }
-
-    try {
-      await assertInterviewerKyc(candidateId);
-    } catch (kycError) {
-      return res.status(kycError.status || 403).json({
-        success: false,
-        message: kycError.message,
-        data: { kyc: kycError.kyc || { kycVerified: false, missing: [] } },
-      });
     }
 
     const accountPhotoUrl = await getAccountProfilePhotoUrl(candidateId);

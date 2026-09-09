@@ -127,6 +127,56 @@ export function getCountryByCodeOrName(
   )[0];
 }
 
+/**
+ * Strict country label for candidate list filters.
+ * Only accepts real CSC countries (ISO or exact name) — never free-text CV junk.
+ */
+export function resolveCountryFilterLabel(input: {
+  country?: string | null;
+  location?: string | null;
+}): string | null {
+  const tryExact = (raw?: string | null): string | null => {
+    const v = String(raw || '').trim();
+    if (!v || v === '—' || v === '-') return null;
+    // CV bullets, phones, addresses, and section headers are not countries
+    if (v.length > 56) return null;
+    if (v.startsWith('-') || v.includes('\n')) return null;
+    if (/^\d/.test(v) || /\d{3,}/.test(v)) return null;
+    if (/^(achievements?|experience|education|skills?|summary|objective)\b/i.test(v)) {
+      return null;
+    }
+
+    if (/^[A-Za-z]{2}$/.test(v)) {
+      return safeGetCountryByCode(v.toUpperCase())?.name || null;
+    }
+
+    const key = normalizeKey(v);
+    if (!key) return null;
+    const exact = safeGetAllCountries().find((c) => normalizeKey(c.name) === key);
+    return exact?.name || null;
+  };
+
+  const fromCountry = tryExact(input.country);
+  if (fromCountry) return fromCountry;
+
+  const loc = String(input.location || '').trim();
+  if (!loc) return null;
+
+  // "City, Country" / "City, State, Country" — try segments from the end
+  if (loc.includes(',')) {
+    const parts = loc
+      .split(',')
+      .map((part) => part.trim())
+      .filter(Boolean);
+    for (let i = parts.length - 1; i >= 0; i -= 1) {
+      const hit = tryExact(parts[i]);
+      if (hit) return hit;
+    }
+  }
+
+  return tryExact(loc);
+}
+
 export function getCscStateOptions(countryCode: string): CscStateOption[] {
   const code = countryCode.trim().toUpperCase();
   if (!code) return [];

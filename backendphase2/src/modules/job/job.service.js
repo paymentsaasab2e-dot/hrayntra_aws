@@ -248,10 +248,8 @@ function normalizeSalaryCurrencyCode(raw) {
   const trimmed = String(raw || '').trim();
   if (!trimmed) return undefined;
   const upper = trimmed.toUpperCase();
-  // Informal African label — map before generic 3-letter pass-through.
-  if (upper === 'CFA') return 'XAF';
-  // Any ISO-4217 style code wins over label heuristics (XAF, UGX, etc. must stay XAF, not INR).
-  if (/^[A-Z]{3}$/.test(upper)) return upper;
+  // Keep informal custom codes (e.g. CFA) as saved — display uses currencySymbol.
+  if (/^[A-Z]{2,5}$/.test(upper)) return upper;
   const lower = trimmed.toLowerCase();
   if (lower.includes('cfa')) return 'XAF';
   if (lower.includes('rupee') || lower.includes('₹')) return 'INR';
@@ -301,6 +299,17 @@ function normalizeSalaryData(salary) {
   const currencyCode = normalizeSalaryCurrencyCode(normalized.currency);
   if (currencyCode) normalized.currency = currencyCode;
   else delete normalized.currency;
+
+  const currencySymbol = String(
+    normalized.currencySymbol || normalized.symbol || '',
+  )
+    .trim()
+    .slice(0, 8);
+  if (currencySymbol) normalized.currencySymbol = currencySymbol;
+  else {
+    delete normalized.currencySymbol;
+    delete normalized.symbol;
+  }
 
   if (normalized.type != null && String(normalized.type).trim() === '') delete normalized.type;
 

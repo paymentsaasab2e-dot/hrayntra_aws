@@ -106,11 +106,11 @@ export const CandidateTableFilters: React.FC<CandidateTableFiltersProps> = ({
         value={filters.location}
         onChange={(location) => patch({ location })}
         options={locationFilterOptions}
-        placeholder="All locations"
-        allLabel="All locations"
+        placeholder="All countries"
+        allLabel="All countries"
         className={FILTER_WIDE_WIDTH}
-        ariaLabel="Filter by location"
-        searchPlaceholder="Search locations…"
+        ariaLabel="Filter by country"
+        searchPlaceholder="Search countries…"
       />
       <SearchableToolbarFilterSelect
         value={filters.jobId}

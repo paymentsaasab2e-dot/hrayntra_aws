@@ -19,6 +19,11 @@ function buildCurrencyOptions(): string[] {
 /** ISO codes shown in create/edit job salary range. */
 export const JOB_SALARY_CURRENCY_OPTIONS: string[] = buildCurrencyOptions();
 
+export type CustomJobSalaryCurrency = {
+  code: string;
+  symbol: string;
+};
+
 const CUSTOM_CURRENCY_STORAGE_KEY = 'jobSalaryCustomCurrencies';
 
 function customCurrencyStorageKey(): string {
@@ -31,33 +36,217 @@ function customCurrencyStorageKey(): string {
   }
 }
 
-export function listCustomJobSalaryCurrencies(): string[] {
+function normalizeCustomCurrencyEntry(raw: unknown): CustomJobSalaryCurrency | null {
+  if (typeof raw === 'string') {
+    const code = raw.trim().toUpperCase();
+    if (!/^[A-Z]{2,5}$/.test(code)) return null;
+    return { code, symbol: '' };
+  }
+  if (!raw || typeof raw !== 'object') return null;
+  const row = raw as { code?: unknown; symbol?: unknown };
+  const code = String(row.code || '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z]/g, '')
+    .slice(0, 5);
+  if (!/^[A-Z]{2,5}$/.test(code)) return null;
+  const symbol = String(row.symbol || '')
+    .trim()
+    .slice(0, 8);
+  return { code, symbol };
+}
+
+export function listCustomJobSalaryCurrencyEntries(): CustomJobSalaryCurrency[] {
   if (typeof window === 'undefined') return [];
   try {
     const parsed = JSON.parse(localStorage.getItem(customCurrencyStorageKey()) || '[]');
     if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map((code) => String(code || '').trim().toUpperCase())
-      .filter((code) => /^[A-Z]{3}$/.test(code));
+    const seen = new Set<string>();
+    const entries: CustomJobSalaryCurrency[] = [];
+    for (const item of parsed) {
+      const entry = normalizeCustomCurrencyEntry(item);
+      if (!entry || seen.has(entry.code)) continue;
+      seen.add(entry.code);
+      entries.push(entry);
+    }
+    return entries;
   } catch {
     return [];
   }
 }
 
-export function saveCustomJobSalaryCurrency(
-  raw: string,
-): { ok: true; code: string } | { ok: false; message: string } {
-  const code = String(raw || '').trim().toUpperCase();
-  if (!/^[A-Z]{3}$/.test(code)) {
-    return { ok: false, message: 'Enter a 3-letter currency code (e.g. UGX)' };
-  }
-  const next = [code, ...listCustomJobSalaryCurrencies().filter((item) => item !== code)];
+/** @deprecated Prefer listCustomJobSalaryCurrencyEntries — returns codes only. */
+export function listCustomJobSalaryCurrencies(): string[] {
+  return listCustomJobSalaryCurrencyEntries().map((entry) => entry.code);
+}
+
+function persistCustomCurrencies(
+  entries: CustomJobSalaryCurrency[],
+): { ok: true } | { ok: false; message: string } {
   try {
-    localStorage.setItem(customCurrencyStorageKey(), JSON.stringify(next));
+    localStorage.setItem(customCurrencyStorageKey(), JSON.stringify(entries));
+    return { ok: true };
   } catch {
     return { ok: false, message: 'Could not save this currency' };
   }
-  return { ok: true, code };
+}
+
+export function getCustomJobSalaryCurrencySymbol(code?: string | null): string {
+  const key = String(code || '')
+    .trim()
+    .toUpperCase();
+  if (!key) return '';
+  return listCustomJobSalaryCurrencyEntries().find((entry) => entry.code === key)?.symbol || '';
+}
+
+const ISO_CURRENCY_SYMBOL_CACHE = new Map<string, string>();
+
+/** Resolve display symbol: custom saved symbol first, then ISO narrow symbol. */
+export function getJobSalaryCurrencySymbol(code?: string | null): string {
+  const key = String(code || '')
+    .trim()
+    .toUpperCase();
+  if (!key) return '';
+
+  const custom = getCustomJobSalaryCurrencySymbol(key);
+  if (custom) return custom;
+
+  if (ISO_CURRENCY_SYMBOL_CACHE.has(key)) {
+    return ISO_CURRENCY_SYMBOL_CACHE.get(key) || '';
+  }
+
+  let symbol = '';
+  try {
+    const parts = new Intl.NumberFormat('en', {
+      style: 'currency',
+      currency: key,
+      currencyDisplay: 'narrowSymbol',
+    }).formatToParts(0);
+    symbol = parts.find((part) => part.type === 'currency')?.value?.trim() || '';
+    // Avoid useless labels like "USD" when Intl falls back to the code itself.
+    if (symbol.toUpperCase() === key) {
+      const nameParts = new Intl.NumberFormat('en', {
+        style: 'currency',
+        currency: key,
+        currencyDisplay: 'symbol',
+      }).formatToParts(0);
+      const alt = nameParts.find((part) => part.type === 'currency')?.value?.trim() || '';
+      symbol = alt.toUpperCase() === key ? '' : alt;
+    }
+  } catch {
+    symbol = '';
+  }
+
+  ISO_CURRENCY_SYMBOL_CACHE.set(key, symbol);
+  return symbol;
+}
+
+export function formatJobSalaryCurrencyLabel(code: string, symbol?: string | null): string {
+  const cleanCode = String(code || '')
+    .trim()
+    .toUpperCase();
+  if (!cleanCode) return '';
+  const cleanSymbol = String(
+    symbol != null && String(symbol).trim()
+      ? symbol
+      : getJobSalaryCurrencySymbol(cleanCode),
+  ).trim();
+  if (cleanSymbol && cleanSymbol.toUpperCase() !== cleanCode) {
+    return `${cleanSymbol} ${cleanCode}`;
+  }
+  return cleanCode;
+}
+
+/** Prefix for salary amounts in LinkedIn / job lists (Fr / ₹ / USD). */
+export function formatJobSalaryAmountPrefix(
+  code?: string | null,
+  storedSymbol?: string | null,
+): string {
+  const cleanCode = String(code || '')
+    .trim()
+    .toUpperCase();
+  const cleanSymbol = String(
+    storedSymbol != null && String(storedSymbol).trim()
+      ? storedSymbol
+      : getJobSalaryCurrencySymbol(cleanCode),
+  ).trim();
+  if (cleanSymbol && cleanSymbol.toUpperCase() !== cleanCode) {
+    return cleanSymbol.length > 1 ? `${cleanSymbol} ` : cleanSymbol;
+  }
+  return cleanCode ? `${cleanCode} ` : '';
+}
+
+/** Persistable symbol for the selected currency (custom or ISO). */
+export function resolveJobSalaryCurrencySymbolForSave(code?: string | null): string | undefined {
+  const symbol = getJobSalaryCurrencySymbol(code);
+  const cleanCode = String(code || '')
+    .trim()
+    .toUpperCase();
+  if (!symbol || symbol.toUpperCase() === cleanCode) return undefined;
+  return symbol;
+}
+
+export function saveCustomJobSalaryCurrency(
+  rawCode: string,
+  rawSymbol = '',
+): { ok: true; code: string; symbol: string } | { ok: false; message: string } {
+  const code = String(rawCode || '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z]/g, '')
+    .slice(0, 5);
+  if (!/^[A-Z]{2,5}$/.test(code)) {
+    return { ok: false, message: 'Enter a currency code (e.g. CFA or UGX)' };
+  }
+  const symbol = String(rawSymbol || '').trim().slice(0, 8);
+  if (!symbol) {
+    return { ok: false, message: 'Enter a currency symbol (e.g. Fr or ₣)' };
+  }
+
+  const next = [
+    { code, symbol },
+    ...listCustomJobSalaryCurrencyEntries().filter((entry) => entry.code !== code),
+  ];
+  const saved = persistCustomCurrencies(next);
+  if (!saved.ok) return saved;
+  return { ok: true, code, symbol };
+}
+
+export function updateCustomJobSalaryCurrency(
+  previousCode: string,
+  rawCode: string,
+  rawSymbol = '',
+): { ok: true; code: string; symbol: string } | { ok: false; message: string } {
+  const prev = String(previousCode || '')
+    .trim()
+    .toUpperCase();
+  const code = String(rawCode || '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z]/g, '')
+    .slice(0, 5);
+  if (!/^[A-Z]{2,5}$/.test(code)) {
+    return { ok: false, message: 'Enter a currency code (e.g. CFA or UGX)' };
+  }
+  const symbol = String(rawSymbol || '').trim().slice(0, 8);
+  if (!symbol) {
+    return { ok: false, message: 'Enter a currency symbol (e.g. Fr or ₣)' };
+  }
+
+  const existing = listCustomJobSalaryCurrencyEntries();
+  if (!existing.some((entry) => entry.code === prev)) {
+    return { ok: false, message: 'Currency not found' };
+  }
+  if (code !== prev && existing.some((entry) => entry.code === code)) {
+    return { ok: false, message: `${code} is already saved` };
+  }
+
+  const next = existing.map((entry) =>
+    entry.code === prev ? { code, symbol } : entry,
+  );
+  const saved = persistCustomCurrencies(next);
+  if (!saved.ok) return saved;
+  return { ok: true, code, symbol };
 }
 
 export function mergeJobSalaryCurrencyOptions(
@@ -67,7 +256,7 @@ export function mergeJobSalaryCurrencyOptions(
   const merged: string[] = [];
   const push = (value: string) => {
     const code = String(value || '').trim().toUpperCase();
-    if (!/^[A-Z]{3}$/.test(code) || seen.has(code)) return;
+    if (!/^[A-Z]{2,5}$/.test(code) || seen.has(code)) return;
     seen.add(code);
     merged.push(code);
   };
@@ -95,8 +284,6 @@ const LEGACY_CURRENCY_MAP: Record<string, string> = {
   aud: 'AUD',
   cad: 'CAD',
   jpy: 'JPY',
-  /** Informal label used in West/Central Africa — ISO is XAF (BEAC) or XOF (BCEAO). */
-  cfa: 'XAF',
   'cfa franc': 'XAF',
   'franc cfa': 'XAF',
 };
@@ -136,14 +323,13 @@ export function parseJobSalaryMoneyNumber(value: string | number | null | undefi
   return match ? Number(match[0]) : NaN;
 }
 
-/** Normalize stored salary currency labels to a 3-letter ISO code. */
+/** Normalize stored salary currency labels to a short currency code. */
 export function normalizeJobSalaryCurrency(raw?: string | null): string {
   const trimmed = String(raw || '').trim();
   if (!trimmed) return 'INR';
   const upper = trimmed.toUpperCase();
-  // Informal "CFA" is not ISO — map before the generic 3-letter pass-through.
-  if (upper === 'CFA') return 'XAF';
-  if (/^[A-Z]{3}$/.test(upper)) {
+  // Allow informal custom codes such as CFA (2–5 letters).
+  if (/^[A-Z]{2,5}$/.test(upper)) {
     return upper;
   }
   const legacy = LEGACY_CURRENCY_MAP[trimmed.toLowerCase()];

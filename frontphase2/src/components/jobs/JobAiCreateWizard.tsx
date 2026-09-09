@@ -101,7 +101,7 @@ import {
   resolveJobPostingCompanyChooser,
   useOrgWorkspace,
 } from '@/lib/org/useOrgWorkspace';
-import { parseJobSalaryMoneyNumber } from '@/constants/jobSalary';
+import { parseJobSalaryMoneyNumber, resolveJobSalaryCurrencySymbolForSave } from '@/constants/jobSalary';
 
 type WizardStep = 'client' | 'jd' | 'review';
 type PublishFlowStep = 'assessment' | 'distribution' | null;
@@ -1445,6 +1445,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
       minExperience: draft.minExperience,
       maxExperience: draft.maxExperience,
       currency: draft.salaryCurrency,
+      currencySymbol: resolveJobSalaryCurrencySymbolForSave(draft.salaryCurrency),
       minSalary: draft.payRangeMin,
       maxSalary: draft.payRangeMax,
       skills: draft.skills,
@@ -1744,6 +1745,9 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
           draft.payRangeMin || draft.payRangeMax
             ? {
                 currency: draft.salaryCurrency || 'USD',
+                currencySymbol: resolveJobSalaryCurrencySymbolForSave(
+                  draft.salaryCurrency || 'USD',
+                ),
                 min: (() => {
                   const n = draft.payRangeMin ? parseJobSalaryMoneyNumber(draft.payRangeMin) : NaN;
                   return Number.isFinite(n) ? n : undefined;

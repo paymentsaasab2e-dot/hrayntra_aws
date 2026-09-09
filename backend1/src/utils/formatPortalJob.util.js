@@ -218,6 +218,7 @@ function redactPortalJobPayload(job, payload) {
     out.salaryMin = null;
     out.salaryMax = null;
     out.salaryCurrency = null;
+    out.salaryCurrencySymbol = null;
     out.salaryType = null;
     out.salary = undefined;
   }
@@ -296,6 +297,8 @@ function formatPortalJob(job, options = {}) {
   const salaryMin = job.salaryMin ?? salaryJson?.min ?? null;
   const salaryMax = job.salaryMax ?? salaryJson?.max ?? null;
   const salaryCurrency = job.salaryCurrency ?? salaryJson?.currency ?? null;
+  const salaryCurrencySymbol =
+    job.salaryCurrencySymbol ?? salaryJson?.currencySymbol ?? salaryJson?.symbol ?? null;
   const salaryType = job.salaryType ?? salaryJson?.type ?? null;
 
   const responsibilitiesArray = Array.isArray(job.keyResponsibilities)
@@ -345,6 +348,7 @@ function formatPortalJob(job, options = {}) {
     salaryMin,
     salaryMax,
     salaryCurrency,
+    salaryCurrencySymbol,
     salaryType,
     salary: job.salary ?? undefined,
     experienceLevel: job.experienceRequired ?? job.experienceLevel ?? null,

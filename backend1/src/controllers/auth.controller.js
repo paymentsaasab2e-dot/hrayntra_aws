@@ -3,7 +3,12 @@ const { scheduleCandidateCommonSync } = require('../services/candidateCommonSync
 const { generateOTP, getOTPExpiration, isOTPExpired, normalizeOtpInput, otpMatches } = require('../utils/otp.util');
 const { generateCandidateIdFromEmail } = require('../utils/candidate.util');
 const { sendOTPEmail } = require('../services/email.service');
-const { resolveWhatsAppLogin, whatsappNumbersMatch, normalizeE164 } = require('../utils/phone.util');
+const {
+  resolveWhatsAppLogin,
+  whatsappNumbersMatch,
+  normalizeE164,
+  preferStableWhatsApp,
+} = require('../utils/phone.util');
 const { OtpStatus } = require('@prisma/client');
 const { isPortalPlaceholderFullName } = require('../utils/portal-profile-placeholder.util');
 const jwt = require('jsonwebtoken');
@@ -263,10 +268,19 @@ async function detachLoginIdentifiersFromCandidate(candidate, { normalizedEmail,
 }
 
 async function updateCandidateLoginFields(candidate, { normalizedEmail, fullWhatsAppNumber, countryCode }) {
+  const stablePhone = preferStableWhatsApp({
+    existingFull: candidate.whatsappNumber,
+    existingDial: candidate.countryCode,
+    incomingFull: fullWhatsAppNumber,
+    incomingDial: countryCode,
+    isVerified: candidate.isVerified,
+    hasPassword: Boolean(candidate.passwordHash),
+  });
+
   const needsUpdate =
     (candidate.email || '').toLowerCase() !== normalizedEmail ||
-    candidate.countryCode !== countryCode ||
-    candidate.whatsappNumber !== fullWhatsAppNumber;
+    candidate.countryCode !== stablePhone.countryCode ||
+    candidate.whatsappNumber !== stablePhone.fullWhatsAppNumber;
 
   if (!needsUpdate) {
     return candidate;
@@ -278,8 +292,8 @@ async function updateCandidateLoginFields(candidate, { normalizedEmail, fullWhat
         where: { id: candidate.id },
         data: {
           email: normalizedEmail,
-          countryCode,
-          whatsappNumber: fullWhatsAppNumber,
+          countryCode: stablePhone.countryCode,
+          whatsappNumber: stablePhone.fullWhatsAppNumber,
         },
       });
     });
@@ -904,18 +918,36 @@ async function verifyOTP(req, res) {
       });
     });
 
+    // Verified accounts keep their saved WhatsApp; wrong login dial (e.g. +234 from
+    // browser geo) must not overwrite an Indian (+91) number on every re-login.
+    const stablePhone = preferStableWhatsApp({
+      existingFull: candidate.whatsappNumber,
+      existingDial: candidate.countryCode,
+      incomingFull: fullWhatsAppNumber,
+      incomingDial: dialCode,
+      isVerified: candidate.isVerified,
+      hasPassword: Boolean(candidate.passwordHash),
+    });
+
     candidate = await retryQuery(async () => {
       return await prisma.candidate.update({
         where: { id: candidate.id },
         data: {
           isVerified: true,
           email: normalizedEmail,
-          whatsappNumber: fullWhatsAppNumber,
-          countryCode: dialCode,
+          whatsappNumber: stablePhone.fullWhatsAppNumber,
+          countryCode: stablePhone.countryCode,
         },
       });
     });
-    console.log('✅ Candidate verified:', candidate.id, '| email:', normalizedEmail);
+    console.log(
+      '✅ Candidate verified:',
+      candidate.id,
+      '| email:',
+      normalizedEmail,
+      '| WhatsApp:',
+      stablePhone.fullWhatsAppNumber,
+    );
 
     // Final verification: Confirm candidate is stored in DB with correct ID
     const finalCandidate = await retryQuery(async () => {

@@ -1,6 +1,6 @@
 const { prisma, retryQuery } = require('../lib/prisma');
 const { getMissingProfileSections } = require('../utils/profile-completeness.util');
-const { resolveCandidateLocalPhone, resolveWhatsAppLogin, normalizeE164 } = require('../utils/phone.util');
+const { resolveCandidateLocalPhone, resolveWhatsAppLogin, normalizeE164, inferDialFromE164 } = require('../utils/phone.util');
 const {
   mapEmploymentTypeToDb,
   mapWorkModeToDb,
@@ -336,7 +336,9 @@ async function getProfileData(req, res) {
         email: displayEmail,
         profilePhotoUrl: candidate.profile.profilePhotoUrl || '',
         phone: resolveCandidateLocalPhone(candidate),
-        phoneCode: mapPhoneCode(candidate.countryCode),
+        phoneCode: mapPhoneCode(
+          inferDialFromE164(candidate.whatsappNumber) || candidate.countryCode,
+        ),
         countryCode: candidate.countryCode || '+91',
         whatsappNumber: candidate.whatsappNumber || '',
         gender: mapGenderLabel(candidate.profile.gender),
@@ -4132,11 +4134,12 @@ function mapEmploymentLabel(status) {
 function mapPhoneCode(countryCode) {
   const map = {
     '+237': '+237 (Cameroon)',
+    '+234': '+234 (Nigeria)',
     '+1': '+1 (USA)',
     '+44': '+44 (UK)',
     '+91': '+91 (India)',
   };
-  return map[countryCode] || countryCode || '+237 (Cameroon)';
+  return map[countryCode] || countryCode || '+91 (India)';
 }
 
 function logProfileSave(section, action, identifier, details) {

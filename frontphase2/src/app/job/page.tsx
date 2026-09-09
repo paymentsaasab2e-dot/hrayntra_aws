@@ -150,6 +150,7 @@ import type { InterviewPanelMember } from '../../types/interview.types';
 import { getAllTeamMembersForAssign, getAllTeamMembersForDirectory, teamMembersToBackendUsers } from '../../lib/api/teamApi';
 import { formatAssigneeDisplayName } from '../../lib/assigneeDisplay';
 import { getActiveOrgUnitId } from '../../lib/org/orgWorkspaceStorage';
+import { formatJobSalaryAmountPrefix } from '../../constants/jobSalary';
 import { usePermissions } from '../../hooks/usePermissions';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
 import {
@@ -348,6 +349,8 @@ function mapBackendJobToJobForDrawer(backendJob: Record<string, any>, fallbackJo
     jobLocationType: backendJob.jobLocationType || undefined,
     salaryType: backendJob.salary?.type || undefined,
     salaryCurrency: backendJob.salary?.currency || undefined,
+    salaryCurrencySymbol:
+      (backendJob.salary as { currencySymbol?: string } | undefined)?.currencySymbol || undefined,
     minSalary: backendJob.salary?.min,
     maxSalary: backendJob.salary?.max,
     department: backendJob.department || undefined,
@@ -1104,17 +1107,21 @@ function formatSalaryRange(salary?: BackendJob['salary']): string | undefined {
   if (!salary) return undefined;
 
   const currency = String(salary.currency || '').trim();
+  const currencySymbol = String(
+    (salary as { currencySymbol?: string | null }).currencySymbol || '',
+  ).trim();
+  const prefix = formatJobSalaryAmountPrefix(currency, currencySymbol);
   const amount = salary.amount !== undefined && salary.amount !== null ? String(salary.amount).trim() : '';
 
   if (amount) {
-    return currency ? `${currency} ${amount}` : amount;
+    return prefix ? `${prefix}${amount}` : amount;
   }
 
   if (salary.min !== undefined || salary.max !== undefined) {
     const minText = salary.min !== undefined ? `${salary.min}` : '';
     const maxText = salary.max !== undefined ? `${salary.max}` : '';
     const range = [minText, maxText].filter(Boolean).join(' - ');
-    return currency ? `${currency} ${range}`.trim() : range || undefined;
+    return range ? `${prefix}${range}`.trim() : undefined;
   }
 
   return undefined;
