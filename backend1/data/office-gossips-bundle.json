@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-09-09T07:14:03.745Z",
+  "updatedAt": "2026-09-09T10:17:05.736Z",
   "communities": [
     {
       "id": "c_watercooler",
@@ -10,7 +10,7 @@
       "ownerId": "system",
       "ownerName": "Office Gossips",
       "memberIds": [],
-      "createdAt": "2026-08-27T09:06:51.496Z"
+      "createdAt": "2026-09-08T08:32:36.722Z"
     },
     {
       "id": "c_managers_private",
@@ -20,7 +20,7 @@
       "ownerId": "system",
       "ownerName": "Office Gossips",
       "memberIds": [],
-      "createdAt": "2026-08-26T09:06:51.496Z"
+      "createdAt": "2026-09-07T08:32:36.722Z"
     },
     {
       "id": "c_interview_prep",

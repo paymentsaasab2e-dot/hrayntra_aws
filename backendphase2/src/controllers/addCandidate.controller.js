@@ -26,9 +26,17 @@ import {
   getBulkCvStoredFile,
   registerBulkCvZipSession,
   releaseBulkCvZipSession,
-  removeBulkCvStoredFile,
 } from '../services/bulkCvZipStore.js';
 import { withBulkCvProcessSlot } from '../services/bulkCvProcessLimiter.service.js';
+import {
+  countActiveFailedBulkResumes,
+  getFailedBulkResumeFileBuffer,
+  getFailedBulkResumeForUser,
+  listFailedBulkResumes,
+  resolveFailedBulkResumes,
+  saveFailedBulkResume,
+  trashFailedBulkResumes,
+} from '../services/bulkCvFailed.service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1194,6 +1202,35 @@ export const addCandidateController = {
     return res.json({ success: true, message: 'Bulk ZIP session cleared' });
   },
 
+  /**
+   * Download a ZIP-extracted CV still held in the bulk session (for client-side Retry storage).
+   * Query: sessionId, storedFileId
+   */
+  async bulkCvDownloadStoredFile(req, res) {
+    try {
+      const sessionId = String(req.query?.sessionId || req.body?.sessionId || '').trim();
+      const storedFileId = String(req.query?.storedFileId || req.body?.storedFileId || '').trim();
+      const userId = req.user?.id;
+      if (!userId || !sessionId || !storedFileId) {
+        return res.status(400).json({ success: false, message: 'sessionId and storedFileId are required' });
+      }
+      const stored = getBulkCvStoredFile(userId, sessionId, storedFileId);
+      if (!stored?.path || !fs.existsSync(stored.path)) {
+        return res.status(404).json({ success: false, message: 'Stored CV not found (already processed or released)' });
+      }
+      const fileName = stored.originalname || 'resume';
+      res.setHeader('Content-Type', stored.mimetype || 'application/octet-stream');
+      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
+      return res.sendFile(path.resolve(stored.path));
+    } catch (error) {
+      console.error('[bulk-cv] bulkCvDownloadStoredFile failed:', error?.message || error);
+      return res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to download stored CV',
+      });
+    }
+  },
+
   async bulkCvProcessFile(req, res) {
     const storedFileId = String(req.body?.storedFileId || '').trim();
     let file = req.file;
@@ -1219,10 +1256,8 @@ export const addCandidateController = {
     }
 
     const safeUnlink = () => {
-      if (fromZipStore && userId && sessionId && storedFileId) {
-        removeBulkCvStoredFile(userId, sessionId, storedFileId);
-        return;
-      }
+      // ZIP-extracted files stay until release-zip so the client can save failures for Retry.
+      if (fromZipStore) return;
       if (filePath && fs.existsSync(filePath)) {
         try {
           fs.unlinkSync(filePath);
@@ -1521,7 +1556,10 @@ export const addCandidateController = {
       });
     } catch (error) {
       console.error('[bulk-cv] bulkCvProcessFile failed:', error?.message || error);
-      safeUnlink();
+      // Keep ZIP-stored files on failure so the client can download them for Retry without re-upload.
+      if (!fromZipStore) {
+        safeUnlink();
+      }
       return res.status(500).json({
         success: false,
         message: error.message || 'Bulk CV processing failed',
@@ -1840,6 +1878,194 @@ export const addCandidateController = {
       return res.status(500).json({
         success: false,
         message: error.message,
+      });
+    }
+  },
+
+  /** Save one or many failed bulk CVs to S3 + DB for later one-click reparse. */
+  async bulkCvSaveFailed(req, res) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ success: false, message: 'Unauthorized' });
+      }
+      const tenantDbName =
+        String(
+          req.user?.tenantDbName ||
+            req.headers['x-tenant-db-name'] ||
+            getActiveTenantDbName() ||
+            'default'
+        ).trim() || 'default';
+      const orgUnitId = String(req.user?.orgUnitId || req.body?.orgUnitId || '').trim() || null;
+
+      const files = [];
+      if (Array.isArray(req.files) && req.files.length) {
+        files.push(...req.files);
+      } else if (req.file) {
+        files.push(req.file);
+      }
+      if (!files.length) {
+        return res.status(400).json({ success: false, message: 'At least one resume file is required' });
+      }
+
+      let reasons = [];
+      try {
+        const raw = req.body?.reasons;
+        if (typeof raw === 'string' && raw.trim()) {
+          const parsed = JSON.parse(raw);
+          reasons = Array.isArray(parsed) ? parsed : [];
+        }
+      } catch {
+        reasons = [];
+      }
+      const singleReason = String(req.body?.reason || '').trim();
+
+      const saved = [];
+      const errors = [];
+      for (let i = 0; i < files.length; i += 1) {
+        const file = files[i];
+        const reason =
+          String(reasons[i] || singleReason || 'Bulk CV processing failed').trim() ||
+          'Bulk CV processing failed';
+        try {
+          const row = await saveFailedBulkResume({
+            userId,
+            orgUnitId,
+            file,
+            reason,
+            tenantDbName,
+          });
+          saved.push(row);
+        } catch (err) {
+          errors.push({
+            fileName: file.originalname || 'resume',
+            message: err?.message || 'Save failed',
+          });
+        } finally {
+          if (file?.path && fs.existsSync(file.path)) {
+            try {
+              fs.unlinkSync(file.path);
+            } catch {
+              /* ignore */
+            }
+          }
+        }
+      }
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          saved,
+          errors,
+          activeCount: await countActiveFailedBulkResumes(userId),
+        },
+      });
+    } catch (error) {
+      console.error('[bulk-cv] bulkCvSaveFailed:', error?.message || error);
+      return res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to store failed resumes',
+      });
+    }
+  },
+
+  async bulkCvListFailed(req, res) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ success: false, message: 'Unauthorized' });
+      }
+      const status = String(req.query?.status || 'active').trim() || 'active';
+      const rows = await listFailedBulkResumes(userId, { status });
+      return res.status(200).json({
+        success: true,
+        data: {
+          items: rows,
+          count: rows.length,
+        },
+      });
+    } catch (error) {
+      console.error('[bulk-cv] bulkCvListFailed:', error?.message || error);
+      return res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to list failed resumes',
+      });
+    }
+  },
+
+  async bulkCvDownloadFailedFile(req, res) {
+    try {
+      const userId = req.user?.id;
+      const id = String(req.params?.id || '').trim();
+      if (!userId || !id) {
+        return res.status(400).json({ success: false, message: 'id required' });
+      }
+      const row = await getFailedBulkResumeForUser(userId, id);
+      if (!row || row.status !== 'active') {
+        return res.status(404).json({ success: false, message: 'Failed resume not found' });
+      }
+      const { buffer, fileName, mimeType } = await getFailedBulkResumeFileBuffer(row);
+      res.setHeader('Content-Type', mimeType || 'application/octet-stream');
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${encodeURIComponent(fileName || 'resume')}"`
+      );
+      return res.send(buffer);
+    } catch (error) {
+      console.error('[bulk-cv] bulkCvDownloadFailedFile:', error?.message || error);
+      return res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to download resume',
+      });
+    }
+  },
+
+  async bulkCvTrashFailed(req, res) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ success: false, message: 'Unauthorized' });
+      }
+      const ids = Array.isArray(req.body?.ids)
+        ? req.body.ids
+        : req.params?.id
+          ? [req.params.id]
+          : [];
+      const result = await trashFailedBulkResumes(userId, ids);
+      return res.status(200).json({
+        success: true,
+        data: {
+          ...result,
+          activeCount: await countActiveFailedBulkResumes(userId),
+        },
+      });
+    } catch (error) {
+      return res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to delete',
+      });
+    }
+  },
+
+  async bulkCvResolveFailed(req, res) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ success: false, message: 'Unauthorized' });
+      }
+      const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+      const result = await resolveFailedBulkResumes(userId, ids);
+      return res.status(200).json({
+        success: true,
+        data: {
+          ...result,
+          activeCount: await countActiveFailedBulkResumes(userId),
+        },
+      });
+    } catch (error) {
+      return res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to resolve',
       });
     }
   },

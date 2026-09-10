@@ -1,7 +1,13 @@
 /**
  * Client-only persistence for bulk CV uploads that did not create a candidate.
- * Active list: shown on Candidates → "Failed resumes". Trashed list: Recycle Bin (local section).
+ * Active list: Candidates → "Failed resumes". File blobs live in IndexedDB for Retry without re-upload.
  */
+
+import {
+  deleteFailedBulkResumeFile,
+  deleteFailedBulkResumeFiles,
+  putFailedBulkResumeFile,
+} from './failedBulkResumesFilesDb';
 
 export const FAILED_BULK_RESUMES_CHANGED = 'hrayntra:failed-bulk-resumes-changed';
 
@@ -13,9 +19,17 @@ export type FailedBulkResumeRecord = {
   fileName: string;
   reason: string;
   failedAt: string;
+  /** True when the CV bytes are stored for one-click Retry. */
+  hasFile?: boolean;
 };
 
 export type TrashedFailedBulkResume = FailedBulkResumeRecord & { trashedAt: string };
+
+export type FailedBulkResumeInput = {
+  fileName: string;
+  reason: string;
+  file?: File | Blob | null;
+};
 
 function emitChanged() {
   if (typeof window === 'undefined') return;
@@ -58,6 +72,7 @@ export function getTrashedFailedBulkResumes(): TrashedFailedBulkResume[] {
   return Array.isArray(rows) ? rows : [];
 }
 
+/** Metadata-only (legacy). Prefer addFailedBulkResumeRecordsWithFiles when File is available. */
 export function addFailedBulkResumeRecords(
   items: Array<{ fileName: string; reason: string }>
 ): FailedBulkResumeRecord[] {
@@ -69,7 +84,41 @@ export function addFailedBulkResumeRecords(
     fileName: String(it.fileName || 'resume').trim() || 'resume',
     reason: String(it.reason || 'Unknown error').trim() || 'Unknown error',
     failedAt: now,
+    hasFile: false,
   }));
+  writeJson(KEY_ACTIVE, [...added, ...prev]);
+  return added;
+}
+
+/** Persist failed rows and keep CV bytes in IndexedDB for Retry without re-upload. */
+export async function addFailedBulkResumeRecordsWithFiles(
+  items: FailedBulkResumeInput[]
+): Promise<FailedBulkResumeRecord[]> {
+  if (!items.length || typeof window === 'undefined') return [];
+  const prev = getActiveFailedBulkResumes();
+  const now = new Date().toISOString();
+  const added: FailedBulkResumeRecord[] = [];
+
+  for (const it of items) {
+    const id = newId();
+    const fileName = String(it.fileName || 'resume').trim() || 'resume';
+    let hasFile = false;
+    if (it.file && typeof (it.file as Blob).size === 'number' && (it.file as Blob).size > 0) {
+      const mime =
+        it.file instanceof File
+          ? it.file.type
+          : (it.file as Blob).type || 'application/octet-stream';
+      hasFile = await putFailedBulkResumeFile(id, it.file as Blob, fileName, mime);
+    }
+    added.push({
+      id,
+      fileName,
+      reason: String(it.reason || 'Unknown error').trim() || 'Unknown error',
+      failedAt: now,
+      hasFile,
+    });
+  }
+
   writeJson(KEY_ACTIVE, [...added, ...prev]);
   return added;
 }
@@ -80,6 +129,7 @@ export function removeFailedBulkResumeById(id: string) {
     KEY_ACTIVE,
     prev.filter((r) => r.id !== id)
   );
+  void deleteFailedBulkResumeFile(id);
 }
 
 /** Clears active failed rows that match this file name (e.g. after a successful re-upload). */
@@ -87,9 +137,13 @@ export function removeFailedBulkResumesByFileName(fileName: string) {
   const name = String(fileName || '').trim();
   if (!name) return;
   const prev = getActiveFailedBulkResumes();
-  const next = prev.filter((r) => r.fileName !== name);
-  if (next.length === prev.length) return;
-  writeJson(KEY_ACTIVE, next);
+  const toRemove = prev.filter((r) => r.fileName === name);
+  if (!toRemove.length) return;
+  writeJson(
+    KEY_ACTIVE,
+    prev.filter((r) => r.fileName !== name)
+  );
+  void deleteFailedBulkResumeFiles(toRemove.map((r) => r.id));
 }
 
 export function moveFailedBulkResumeToTrash(id: string) {
@@ -112,6 +166,7 @@ export function moveFailedBulkResumesToTrash(ids: string[]) {
 
   writeJson(KEY_ACTIVE, rest);
   writeJson(KEY_TRASH, [...trashedRows, ...trash]);
+  // Keep blobs so restore can still Retry; purge deletes blobs.
 }
 
 export function restoreFailedBulkResumeFromTrash(id: string) {
@@ -132,4 +187,5 @@ export function purgeFailedBulkResumeFromTrash(id: string) {
     KEY_TRASH,
     trash.filter((r) => r.id !== id)
   );
+  void deleteFailedBulkResumeFile(id);
 }

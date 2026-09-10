@@ -167,62 +167,139 @@ export function WritingAssistHost() {
   const [target, setTarget] = useState<AssistEl | null>(null);
   const [active, setActive] = useState<WritingSpanSuggestion | null>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const [tipVisible, setTipVisible] = useState(false);
   const tooltipRef = useRef<HTMLDivElement | null>(null);
   const targetRef = useRef<AssistEl | null>(null);
+  const ignoredIdsRef = useRef<Set<string>>(new Set());
+  const lastShownIdRef = useRef<string | null>(null);
+  const lastActivityRef = useRef(Date.now());
+  const idleTimerRef = useRef<number | null>(null);
+  const showTimerRef = useRef<number | null>(null);
+  const fieldKeyRef = useRef<string>('');
+
+  const IDLE_HIDE_MS = 2500;
+  const SHOW_DEBOUNCE_MS = 280;
+
+  const clearTimers = useCallback(() => {
+    if (idleTimerRef.current != null) {
+      window.clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = null;
+    }
+    if (showTimerRef.current != null) {
+      window.clearTimeout(showTimerRef.current);
+      showTimerRef.current = null;
+    }
+  }, []);
 
   const dismiss = useCallback(() => {
+    clearTimers();
     setTarget(null);
     setActive(null);
     setPos(null);
+    setTipVisible(false);
     targetRef.current = null;
-  }, []);
+    lastShownIdRef.current = null;
+  }, [clearTimers]);
 
   const isTooltipFocus = useCallback((node: EventTarget | Node | null) => {
     return Boolean(node instanceof Node && tooltipRef.current?.contains(node));
   }, []);
 
-  const refresh = useCallback((el: AssistEl | null) => {
-    if (isEmployerPublicAuthPath(pathname)) {
-      dismiss();
-      return;
-    }
-    if (isTooltipFocus(document.activeElement)) return;
+  const scheduleIdleHide = useCallback(() => {
+    if (idleTimerRef.current != null) window.clearTimeout(idleTimerRef.current);
+    idleTimerRef.current = window.setTimeout(() => {
+      if (Date.now() - lastActivityRef.current >= IDLE_HIDE_MS) {
+        if (lastShownIdRef.current) ignoredIdsRef.current.add(lastShownIdRef.current);
+        setTipVisible(false);
+        setActive(null);
+        setPos(null);
+        lastShownIdRef.current = null;
+      }
+      idleTimerRef.current = null;
+    }, IDLE_HIDE_MS);
+  }, []);
 
-    if (!el || !el.isConnected) {
-      dismiss();
-      return;
-    }
+  const refresh = useCallback(
+    (el: AssistEl | null) => {
+      if (isEmployerPublicAuthPath(pathname)) {
+        dismiss();
+        return;
+      }
+      if (isTooltipFocus(document.activeElement)) return;
 
-    const focused =
-      document.activeElement === el ||
-      (document.activeElement instanceof Node && el.contains(document.activeElement));
+      if (!el || !el.isConnected) {
+        dismiss();
+        return;
+      }
 
-    if (!focused) {
-      dismiss();
-      return;
-    }
+      const focused =
+        document.activeElement === el ||
+        (document.activeElement instanceof Node && el.contains(document.activeElement));
 
-    const { text, caret } = readAssistValue(el);
-    const spans = getWritingSpanSuggestions(text, { max: 14 });
-    const span = pickSpanNearCaret(spans, caret);
+      if (!focused) {
+        dismiss();
+        return;
+      }
 
-    targetRef.current = el;
-    setTarget(el);
-    setActive(span);
+      const fieldKey = `${el.tagName}:${(el as HTMLElement).id || ''}:${(el as HTMLElement).getAttribute('name') || ''}`;
+      if (fieldKeyRef.current !== fieldKey) {
+        fieldKeyRef.current = fieldKey;
+        ignoredIdsRef.current.clear();
+        lastShownIdRef.current = null;
+      }
 
-    if (!span) {
-      setPos(null);
-      return;
-    }
+      lastActivityRef.current = Date.now();
+      const { text, caret } = readAssistValue(el);
+      const spans = getWritingSpanSuggestions(text, { max: 14 });
 
-    const anchor = Math.min(Math.max(span.end, 0), text.length);
-    const rect = isFieldEl(el) ? getCaretViewportRect(el, anchor) : contentEditableCaretRect(el, anchor);
-    const tooltipW = 220;
-    setPos({
-      left: Math.min(Math.max(8, rect.left), window.innerWidth - tooltipW - 8),
-      top: Math.min(rect.top + rect.height + 6, window.innerHeight - 56),
-    });
-  }, [dismiss, isTooltipFocus, pathname]);
+      for (const s of spans) {
+        if (caret > s.end + 3) ignoredIdsRef.current.add(s.id);
+        if (caret >= s.start && caret <= s.end) ignoredIdsRef.current.delete(s.id);
+      }
+
+      const eligible = spans.filter((s) => !ignoredIdsRef.current.has(s.id));
+      const span = pickSpanNearCaret(eligible, caret);
+
+      targetRef.current = el;
+      setTarget(el);
+
+      if (!span) {
+        setActive(null);
+        setPos(null);
+        setTipVisible(false);
+        lastShownIdRef.current = null;
+        return;
+      }
+
+      const place = () => {
+        const anchor = Math.min(Math.max(span.end, 0), text.length);
+        const rect = isFieldEl(el) ? getCaretViewportRect(el, anchor) : contentEditableCaretRect(el, anchor);
+        const tooltipW = 220;
+        setActive(span);
+        setTipVisible(true);
+        lastShownIdRef.current = span.id;
+        setPos({
+          left: Math.min(Math.max(8, rect.left), window.innerWidth - tooltipW - 8),
+          top: Math.min(rect.top + rect.height + 6, window.innerHeight - 56),
+        });
+        scheduleIdleHide();
+      };
+
+      if (showTimerRef.current != null) window.clearTimeout(showTimerRef.current);
+      if (lastShownIdRef.current === span.id && tipVisible) {
+        place();
+      } else {
+        setTipVisible(false);
+        setActive(null);
+        setPos(null);
+        showTimerRef.current = window.setTimeout(() => {
+          place();
+          showTimerRef.current = null;
+        }, SHOW_DEBOUNCE_MS);
+      }
+    },
+    [dismiss, isTooltipFocus, pathname, scheduleIdleHide, tipVisible],
+  );
 
   useEffect(() => {
     dismiss();
@@ -325,7 +402,7 @@ export function WritingAssistHost() {
   }, [dismiss, isTooltipFocus, target]);
 
   if (isEmployerPublicAuthPath(pathname)) return null;
-  if (!target || !active || !pos) return null;
+  if (!target || !tipVisible || !active || !pos) return null;
 
   return (
     <div
@@ -333,6 +410,10 @@ export function WritingAssistHost() {
       className="pointer-events-auto fixed z-[20000] max-w-[240px] rounded-md border border-slate-200 bg-white px-2.5 py-1.5 shadow-lg shadow-slate-900/10"
       style={{ top: pos.top, left: pos.left }}
       onMouseDown={(e) => e.preventDefault()}
+      onMouseEnter={() => {
+        lastActivityRef.current = Date.now();
+        scheduleIdleHide();
+      }}
     >
       <button
         type="button"

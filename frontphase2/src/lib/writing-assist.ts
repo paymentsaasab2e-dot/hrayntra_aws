@@ -518,25 +518,38 @@ export function applyWritingSpan(
   return text.slice(0, span.start) + span.suggestion + text.slice(span.end);
 }
 
-/** Nearest issue to caret. */
+/** Nearest issue to caret — only the active typing region (Grammarly-like). */
 export function pickSpanNearCaret(
   spans: WritingSpanSuggestion[],
   caret: number,
+  options?: { maxBehind?: number; maxAhead?: number },
 ): WritingSpanSuggestion | null {
   if (!spans.length) return null;
-  const inside = spans.find((s) => caret >= s.start && caret <= s.end);
-  if (inside) return inside;
+  // Stay on the word being edited; never jump back to the first typo after the user moved on.
+  const maxBehind = options?.maxBehind ?? 3;
+  const maxAhead = options?.maxAhead ?? 2;
+
+  const containing = spans.find((s) => caret >= s.start && caret <= s.end);
+  if (containing) return containing;
+
+  // Still finishing that word (caret just after the issue)
+  const trailing = spans.find((s) => caret > s.end && caret <= s.end + maxBehind);
+  if (trailing) return trailing;
+
   let best: WritingSpanSuggestion | null = null;
   let bestDist = Number.POSITIVE_INFINITY;
   for (const s of spans) {
-    const dist = caret < s.start ? s.start - caret : caret - s.end;
+    // Already typed past this issue — ignore until caret returns into it.
+    if (caret > s.end + maxBehind) continue;
+    // Issue is ahead of what the user is typing right now.
+    if (s.start > caret + maxAhead) continue;
+    const dist = caret < s.start ? s.start - caret : Math.max(0, caret - s.end);
     if (dist < bestDist) {
       bestDist = dist;
       best = s;
     }
   }
-  if (best && bestDist <= 18) return best;
-  return null;
+  return best && bestDist <= 8 ? best : null;
 }
 
 export function getWritingSuggestions(raw: string, options?: { max?: number }): WritingSuggestion[] {

@@ -17,8 +17,8 @@ import {
 } from '@/lib/sessionAuth';
 import { registerAppTab, unregisterAppTab } from '@/lib/tabSessionCoordinator';
 import { buildApiUrl, buildSocketBaseUrl, getAccessToken, getTenantDbName } from '@/lib/api';
+import { isBulkCvUploadInProgress } from '@/lib/bulkCvRuntime';
 import {
-  InactivityWarningModal,
   SessionMessageModal,
   SessionTransferRequestModal,
 } from './SessionModals';
@@ -34,7 +34,6 @@ export default function ActiveSessionManager() {
     challenger: ActiveSessionView | null;
   } | null>(null);
   const [transferLoading, setTransferLoading] = useState(false);
-  const [inactivityWarning, setInactivityWarning] = useState(false);
   const [sessionMessage, setSessionMessage] = useState<{ title: string; message: string } | null>(null);
 
   const isAuthRoute =
@@ -114,7 +113,7 @@ export default function ActiveSessionManager() {
     });
 
     socket.on('session_inactivity_warning', () => {
-      setInactivityWarning(true);
+      // Inactivity timeout disabled for now — ignore warning events.
     });
 
     return () => {
@@ -129,6 +128,8 @@ export default function ActiveSessionManager() {
     const sendBrowserCloseBeacon = () => {
       // OAuth redirects leave the app temporarily — do not mark the session as closed.
       if (sessionStorage.getItem('oauth_navigation') === '1') return;
+      // Keep session alive while Bulk CV is importing so a leave prompt can cancel safely.
+      if (isBulkCvUploadInProgress()) return;
 
       const token = getAccessToken();
       const sessionId = getStoredSessionId();
@@ -177,12 +178,10 @@ export default function ActiveSessionManager() {
         const res = await apiSessionHeartbeat(sessionId);
         if (cancelled) return;
         if (!res.data?.ok) {
-          forceLogout('Your session expired due to inactivity.');
+          forceLogout('Your session is no longer active.');
           return;
         }
-        if (res.data.inactivityWarning) {
-          setInactivityWarning(true);
-        }
+        // Inactivity timeout disabled — never show the expiring-soon modal.
       } catch {
         /* network blip — do not logout immediately */
       }
@@ -237,15 +236,7 @@ export default function ActiveSessionManager() {
           onReject={handleReject}
         />
       ) : null}
-      {inactivityWarning ? (
-        <InactivityWarningModal
-          onContinue={() => {
-            setInactivityWarning(false);
-            void apiSessionHeartbeat(getStoredSessionId() || '');
-          }}
-          onLogout={() => forceLogout(undefined, { silent: true })}
-        />
-      ) : null}
+      {/* Inactivity warning modal disabled for now */}
       {sessionMessage ? (
         <SessionMessageModal
           title={sessionMessage.title}

@@ -213,6 +213,13 @@ export const env = {
   SINGLE_ACTIVE_SESSION_ENABLED:
     process.env.SINGLE_ACTIVE_SESSION_ENABLED !== 'false' &&
     process.env.SINGLE_ACTIVE_SESSION_ENABLED !== '0',
+  /**
+   * Inactivity auto-logout / warning. Off by default for now —
+   * set SESSION_INACTIVITY_ENABLED=true to re-enable.
+   */
+  SESSION_INACTIVITY_ENABLED:
+    process.env.SESSION_INACTIVITY_ENABLED === 'true' ||
+    process.env.SESSION_INACTIVITY_ENABLED === '1',
   SESSION_INACTIVITY_MS: parseInt(process.env.SESSION_INACTIVITY_MS || String(30 * 60 * 1000), 10),
   SESSION_INACTIVITY_WARNING_MS: parseInt(
     process.env.SESSION_INACTIVITY_WARNING_MS || String(2 * 60 * 1000),
@@ -396,14 +403,14 @@ export const env = {
     return 25 * 1024 * 1024;
   })(),
 
-  /** Max CV count per bulk session (ZIP expand or client queue). Default 2000. */
+  /** Max CV count per bulk session (ZIP expand or client queue). Default 5000. */
   BULK_CV_MAX_FILES: (() => {
     const raw = process.env.BULK_CV_MAX_FILES;
     if (raw != null && String(raw).trim() !== '') {
       const n = parseInt(String(raw).trim(), 10);
       if (Number.isFinite(n) && n > 0) return n;
     }
-    return 2000;
+    return 5000;
   })(),
 
   /**
