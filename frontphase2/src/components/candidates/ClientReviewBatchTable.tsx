@@ -1,8 +1,9 @@
 'use client';
 
 import React from 'react';
-import { Eye } from 'lucide-react';
+import { Eye, FileText } from 'lucide-react';
 import type { ClientReviewBatchRow } from '../../lib/clientReviewTypes';
+import { isClientReviewFileHref } from '../../lib/clientReviewAssets';
 
 type Props = {
   rows: ClientReviewBatchRow[];
@@ -47,6 +48,17 @@ function companyLabel(row: ClientReviewBatchRow) {
   return String(candidateOf(row).currentCompany || row.designation || '').trim();
 }
 
+function resumeUrlOf(row: ClientReviewBatchRow): string {
+  return String(row.detail?.sharedResumeUrl || row.detail?.candidate?.resume || '').trim();
+}
+
+function canOpenCv(row: ClientReviewBatchRow): boolean {
+  if (row.detail?.trackerOptions?.downloadResume === false) return false;
+  const url = resumeUrlOf(row);
+  if (!url) return false;
+  return url.startsWith('http') || isClientReviewFileHref(url);
+}
+
 export function ClientReviewBatchTable({ rows, onView }: Props) {
   const showScore = rows.some((row) => {
     const score = row.matchScore ?? row.detail?.matchScore;
@@ -54,17 +66,18 @@ export function ClientReviewBatchTable({ rows, onView }: Props) {
   });
   const viewEnabled = rows.some((row) => row.detail?.trackerOptions?.viewProfile !== false);
   const showCompany = rows.some((row) => Boolean(companyLabel(row)));
+  const showXp = rows.some((row) => Number.isFinite(Number(row.experience ?? row.detail?.candidate?.experience)));
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="border-b border-slate-200 bg-slate-50/80 px-4 py-3 sm:px-6 lg:px-8">
         <h2 className="text-sm font-semibold text-slate-900">Submitted candidates</h2>
         <p className="mt-0.5 text-xs text-slate-500">
-          Open a candidate to review the profile
+          Select a candidate to review the profile
           {rows.some((row) => row.detail?.trackerOptions?.addRemarks !== false)
             ? ' and submit your decision'
             : ''}
-          .
+          , or open the CV directly.
         </p>
       </div>
       <div className="min-h-0 flex-1 overflow-auto">
@@ -77,6 +90,7 @@ export function ClientReviewBatchTable({ rows, onView }: Props) {
               <th className="px-4 py-3 sm:px-6">Location</th>
               <th className="px-4 py-3 sm:px-6">Skills</th>
               <th className="px-4 py-3 sm:px-6">Education</th>
+              {showXp ? <th className="px-4 py-3 sm:px-6">XP (yr)</th> : null}
               {showScore ? <th className="px-4 py-3 sm:px-6">Score</th> : null}
               <th className="px-4 py-3 text-right sm:px-6 lg:px-8">Action</th>
             </tr>
@@ -89,6 +103,9 @@ export function ClientReviewBatchTable({ rows, onView }: Props) {
               const education = educationLabel(row);
               const company = companyLabel(row);
               const email = String(candidateOf(row).email || '').trim();
+              const experience = row.experience ?? row.detail?.candidate?.experience;
+              const cvUrl = resumeUrlOf(row);
+              const cvAvailable = canOpenCv(row);
               return (
               <tr
                 key={row.matchId}
@@ -142,23 +159,42 @@ export function ClientReviewBatchTable({ rows, onView }: Props) {
                 <td className="max-w-[16rem] truncate px-4 py-3.5 text-slate-600 sm:px-6">
                   {education || '—'}
                 </td>
+                {showXp ? (
+                  <td className="px-4 py-3.5 text-slate-600 sm:px-6">
+                    {Number.isFinite(Number(experience)) ? Number(experience) : '—'}
+                  </td>
+                ) : null}
                 {showScore ? (
                   <td className="px-4 py-3.5 text-slate-600 sm:px-6">
                     {Number.isFinite(Number(score)) ? Math.round(Number(score)) : '—'}
                   </td>
                 ) : null}
                 <td className="px-4 py-3.5 text-right sm:px-6 lg:px-8">
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onView(row);
-                    }}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:opacity-95"
-                  >
-                    <Eye size={14} />
-                    {viewEnabled ? 'View' : 'Open'}
-                  </button>
+                  <div className="inline-flex flex-wrap items-center justify-end gap-2">
+                    {cvAvailable ? (
+                      <a
+                        href={cvUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={(event) => event.stopPropagation()}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+                      >
+                        <FileText size={14} />
+                        CV
+                      </a>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onView(row);
+                      }}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:opacity-95"
+                    >
+                      <Eye size={14} />
+                      {viewEnabled ? 'View' : 'Open'}
+                    </button>
+                  </div>
                 </td>
               </tr>
               );

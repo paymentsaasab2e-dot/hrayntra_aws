@@ -103,13 +103,21 @@ export default function ClientReviewPage() {
       <header className="shrink-0 border-b border-slate-200 bg-white">
         <div className="flex w-full items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
-            <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-600 text-sm font-bold text-white">
-              H
-            </span>
-            <div>
-              <p className="text-sm font-semibold tracking-wide text-slate-900">HRYANTRA</p>
-              <p className="text-xs text-slate-500">Secure client review</p>
-            </div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/hryantra-logo.png"
+              alt="HRyantra"
+              className="h-10 w-auto max-w-[168px] object-contain object-left"
+              width={168}
+              height={40}
+              decoding="async"
+              onError={(e) => {
+                const el = e.currentTarget;
+                if (el.dataset.fallback === '1') return;
+                el.dataset.fallback = '1';
+                el.src = '/saasa-logo.png';
+              }}
+            />
           </div>
           {reviewData?.client?.companyName ? (
             <span className="hidden rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-800 sm:inline-flex">
@@ -165,7 +173,8 @@ export default function ClientReviewPage() {
                 </p>
               ) : (
                 <p className="text-sm text-slate-500">
-                  Click a candidate row or View to open the profile and submit your decision.
+                  Click a candidate row or View to open the profile, or use CV to open the resume
+                  directly.
                 </p>
               )}
             </div>
