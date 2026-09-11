@@ -3,16 +3,7 @@
 import React, { createContext, useContext, useMemo, useState } from 'react';
 import type { DrillDownPayload, RecruitmentDashboardFilters } from '@/lib/dashboard/api';
 
-export type RecSectionId =
-  | 'kpis'
-  | 'charts'
-  | 'tables'
-  | 'schedule'
-  | 'team'
-  | 'alerts'
-  | 'modules'
-  | 'insights'
-  | 'pipeline';
+export type RecSectionId = 'insights' | 'pipeline' | 'team' | 'alerts';
 
 export const REC_SECTIONS: Array<{ id: RecSectionId; label: string }> = [
   { id: 'insights', label: 'Insights & actions' },
@@ -20,6 +11,17 @@ export const REC_SECTIONS: Array<{ id: RecSectionId; label: string }> = [
   { id: 'team', label: 'Team & performance' },
   { id: 'alerts', label: 'Alerts sidebar' },
 ];
+
+/** Map legacy customize ids onto current section ids. */
+export function normalizeRecHiddenSections(hidden?: string[] | null): string[] {
+  if (!Array.isArray(hidden)) return [];
+  const mapped = hidden.map((id) => {
+    if (id === 'schedule' || id === 'modules' || id === 'kpis') return 'insights';
+    if (id === 'charts' || id === 'tables') return 'pipeline';
+    return id;
+  });
+  return Array.from(new Set(mapped.filter(Boolean)));
+}
 
 export type RecCategoryTabId = 'mine' | 'insights' | 'pipeline' | 'team' | 'people';
 
@@ -79,7 +81,7 @@ export function RecDashboardProvider({
   onHiddenChange?: (hidden: string[]) => void;
 }) {
   const [filters, setFilters] = useState<RecruitmentDashboardFilters>({ dateRange: 'last_30_days' });
-  const [hidden, setHidden] = useState<string[]>(initialHidden);
+  const [hidden, setHidden] = useState<string[]>(() => normalizeRecHiddenSections(initialHidden));
   const [refreshKey, setRefreshKey] = useState(0);
   const [drillDown, setDrillDown] = useState<DrillDownPayload | null>(null);
 
@@ -91,8 +93,8 @@ export function RecDashboardProvider({
       toggleSection: (id: string) => {
         setHidden((prev) => {
           const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
-          onHiddenChange?.(next);
-          return next;
+          onHiddenChange?.(normalizeRecHiddenSections(next));
+          return normalizeRecHiddenSections(next);
         });
       },
       refreshKey,

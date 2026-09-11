@@ -57,7 +57,7 @@ export function LinkedInAccountsModal({
                 LinkedIn accounts
               </h3>
               <p className="mt-0.5 text-xs text-slate-500">
-                Choose which connected accounts to publish to. You can log in to multiple accounts.
+                Choose which connected accounts to publish to. Team LinkedIn connections are shared with everyone.
               </p>
               <p className="mt-1 text-[11px] font-medium text-slate-400">
                 {connectedCount} connected

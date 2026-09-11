@@ -200,6 +200,7 @@ export function teamMembersToBackendUsers(members: TeamMember[]): BackendUser[] 
       department: m.department?.name,
       isActive: m.status === 'ACTIVE',
       createdAt: m.createdAt,
+      managerId: m.manager?.id || (m as { managerId?: string | null }).managerId || null,
     };
   });
 }

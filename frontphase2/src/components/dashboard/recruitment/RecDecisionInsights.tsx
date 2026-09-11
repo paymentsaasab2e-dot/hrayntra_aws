@@ -159,7 +159,8 @@ function PulseStat({
 }
 
 export function RecDecisionInsights({ overview, loading }: Props) {
-  const { openDrillDown } = useRecDashboard();
+  const { openDrillDown, hiddenSections } = useRecDashboard();
+  const showAlerts = !hiddenSections.has('alerts');
   const { user } = useUser();
   const roleName = user && 'roleName' in user ? String((user as { roleName?: string }).roleName || '') : '';
   const manager = isManagerLike(user?.role, roleName);
@@ -281,7 +282,7 @@ export function RecDecisionInsights({ overview, loading }: Props) {
           <HqInfoTip text="Upcoming interviews and hiring alerts for this working day." />
         </div>
         <div className="grid gap-3 xl:grid-cols-12 xl:items-start">
-          <section className={`${recCard} p-4 xl:col-span-8`}>
+          <section className={`${recCard} p-4 ${showAlerts ? 'xl:col-span-8' : 'xl:col-span-12'}`}>
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-[13px] font-bold text-slate-900">Upcoming interviews</h3>
               <Link href="/interviews" className="text-[12px] font-semibold text-blue-600 hover:text-blue-800">
@@ -312,6 +313,7 @@ export function RecDecisionInsights({ overview, loading }: Props) {
             )}
           </section>
 
+          {showAlerts ? (
           <section className={`${recCard} p-4 xl:col-span-4`}>
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-[13px] font-bold text-slate-900">Hiring alerts</h3>
@@ -347,6 +349,7 @@ export function RecDecisionInsights({ overview, loading }: Props) {
               </div>
             )}
           </section>
+          ) : null}
         </div>
       </section>
 

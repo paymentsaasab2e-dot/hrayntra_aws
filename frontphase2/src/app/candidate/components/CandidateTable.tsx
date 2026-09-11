@@ -483,7 +483,8 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                       {candidate.experienceLabel ??
                         (() => {
                           const exp = Number(candidate.experience);
-                          if (!Number.isFinite(exp) || exp <= 0) return '—';
+                          if (!Number.isFinite(exp) || exp <= 0 || exp > 50) return '—';
+                          if (exp >= 1900 && exp <= 2100) return '—';
                           return `${Number.isInteger(exp) ? exp : exp.toFixed(1)}y`;
                         })()}
                     </span>

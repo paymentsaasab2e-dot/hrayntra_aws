@@ -42,6 +42,8 @@ export type BulkSubmitCandidateEntry = {
   jobTitle?: string;
   clientId?: string;
   matchScore?: number;
+  /** Which CV the client should see: original resume, edited profile CV, or HRYantra annotated CV. */
+  cvShareMode?: 'edited' | 'original' | 'saasa';
 };
 
 export type SubmitToClientPreviewResult = {
@@ -56,6 +58,9 @@ export type SubmitToClientPreviewResult = {
   batchMatchIds: string[];
   trackerOptions: ClientTrackerOptions;
 };
+
+/** Keep API pressure reasonable while still parallelizing bulk preview generation. */
+const PREVIEW_CONCURRENCY = 5;
 
 function candidateDisplayName(candidate: BackendCandidate, fallback?: string): string {
   const fromParts = `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim();
@@ -80,6 +85,30 @@ function notifyCandidateSubmitted() {
   window.dispatchEvent(new CustomEvent('jobportal:interviews-changed'));
 }
 
+async function mapPool<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  if (!items.length) return [];
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(Math.max(1, concurrency), items.length);
+
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (true) {
+        const index = nextIndex;
+        nextIndex += 1;
+        if (index >= items.length) return;
+        results[index] = await mapper(items[index]!, index);
+      }
+    }),
+  );
+
+  return results;
+}
+
 async function resolveClientMailContext(
   entries: BulkSubmitCandidateEntry[],
   preparedJobTitle: string,
@@ -91,15 +120,18 @@ async function resolveClientMailContext(
   let clientName = '';
   const jobId = first?.jobId;
 
-  if (jobId && isValidObjectId(jobId)) {
-    try {
-      const job = extractApiData<BackendJob>(await apiGetJob(jobId));
-      if (!jobTitle) jobTitle = String(job.title || '').trim();
-      if (!clientId) clientId = String(job.client?.id || '').trim();
-      if (!clientName) clientName = String(job.client?.companyName || '').trim();
-    } catch {
-      // Compose still works without a prefilled client address.
-    }
+  const jobPromise =
+    jobId && isValidObjectId(jobId)
+      ? apiGetJob(jobId)
+          .then((raw) => extractApiData<BackendJob>(raw))
+          .catch(() => null)
+      : Promise.resolve(null);
+
+  const job = await jobPromise;
+  if (job) {
+    if (!jobTitle) jobTitle = String(job.title || '').trim();
+    if (!clientId) clientId = String(job.client?.id || '').trim();
+    if (!clientName) clientName = String(job.client?.companyName || '').trim();
   }
 
   if (clientId && isValidObjectId(clientId)) {
@@ -150,6 +182,68 @@ async function persistVisibleClientPresentation(
   };
 }
 
+/**
+ * Original / HRYantra CV shares do not need the edited presentation draft write —
+ * skipping that get+update pair is the main speed win for those modes.
+ */
+function needsPresentationPersist(cvShareMode?: BulkSubmitCandidateEntry['cvShareMode']): boolean {
+  return !cvShareMode || cvShareMode === 'edited';
+}
+
+async function prepareEntryForPreview(
+  entry: BulkSubmitCandidateEntry,
+  visibility: SubmitToClientFieldVisibility,
+): Promise<{
+  entry: BulkSubmitCandidateEntry;
+  matchId: string;
+  candidateName: string;
+  jobTitle: string;
+}> {
+  let candidate: BackendCandidate | null = null;
+  let candidateName = String(entry.candidateName || '').trim() || 'Candidate';
+
+  if (needsPresentationPersist(entry.cvShareMode)) {
+    const persisted = await persistVisibleClientPresentation(
+      entry.candidateId,
+      visibility,
+      entry.candidateName,
+    );
+    candidate = persisted.candidate;
+    candidateName = persisted.candidateName;
+  } else if (!entry.jobId || !isValidObjectId(entry.jobId)) {
+    const raw = await apiGetCandidate(entry.candidateId);
+    candidate = extractApiData<BackendCandidate>(raw);
+    candidateName = candidateDisplayName(candidate, entry.candidateName);
+  }
+
+  const resolvedJobId =
+    entry.jobId && isValidObjectId(entry.jobId)
+      ? entry.jobId
+      : candidate
+        ? resolveSubmitJobIdFromBackend(candidate)
+        : '';
+  if (!resolvedJobId) {
+    throw new Error(`Unable to resolve a job for ${candidateName}. Assign them to a job first.`);
+  }
+
+  const { matchId, error: matchError } = await resolveMatchIdForSubmit(
+    entry.candidateId,
+    resolvedJobId,
+    entry.matchScore ?? 0,
+    entry.matchId,
+  );
+  if (!matchId) {
+    throw new Error(matchError || `Unable to create a match record for ${candidateName}.`);
+  }
+
+  return {
+    entry,
+    matchId,
+    candidateName,
+    jobTitle: entry.jobTitle || '',
+  };
+}
+
 export async function generateSubmitToClientPreview(
   entries: BulkSubmitCandidateEntry[],
 ): Promise<SubmitToClientPreviewResult> {
@@ -157,95 +251,52 @@ export async function generateSubmitToClientPreview(
     throw new Error('Select at least one candidate to submit to the client.');
   }
 
-  const { visibility } = await loadSubmitToClientVisibilityDefaults();
+  const [{ visibility }, mailContextEarly] = await Promise.all([
+    loadSubmitToClientVisibilityDefaults(),
+    resolveClientMailContext(entries, String(entries[0]?.jobTitle || '').trim()),
+  ]);
   const hiddenCount = SUBMIT_TO_CLIENT_FIELDS.filter((id) => visibility[id] === false).length;
   const visibleCount = SUBMIT_TO_CLIENT_FIELDS.length - hiddenCount;
 
-  const prepared: Array<{
-    entry: BulkSubmitCandidateEntry;
-    matchId: string;
-    candidateName: string;
-    jobTitle: string;
-  }> = [];
-
-  for (const entry of entries) {
-    const { candidate, candidateName } = await persistVisibleClientPresentation(
-      entry.candidateId,
-      visibility,
-      entry.candidateName,
-    );
-    const resolvedJobId =
-      entry.jobId && isValidObjectId(entry.jobId)
-        ? entry.jobId
-        : resolveSubmitJobIdFromBackend(candidate);
-    if (!resolvedJobId) {
-      throw new Error(
-        `Unable to resolve a job for ${candidateName}. Assign them to a job first.`,
-      );
-    }
-
-    const { matchId, error: matchError } = await resolveMatchIdForSubmit(
-      entry.candidateId,
-      resolvedJobId,
-      entry.matchScore ?? 0,
-      entry.matchId,
-    );
-    if (!matchId) {
-      throw new Error(
-        matchError || `Unable to create a match record for ${candidateName}.`,
-      );
-    }
-
-    prepared.push({
-      entry,
-      matchId,
-      candidateName,
-      jobTitle: entry.jobTitle || '',
-    });
-  }
+  const prepared = await mapPool(entries, PREVIEW_CONCURRENCY, (entry) =>
+    prepareEntryForPreview(entry, visibility),
+  );
 
   const batchMatchIds = prepared.map((item) => item.matchId);
-  let reviewUrl: string | null = null;
   const trackerOptions = normalizeClientTrackerOptions(CLIENT_TRACKER_OPTION_DEFAULTS, true);
+  const messageJobTitle =
+    prepared.find((item) => item.jobTitle)?.jobTitle || mailContextEarly.jobTitle || '';
 
-  for (let index = 0; index < prepared.length; index += 1) {
-    const item = prepared[index]!;
+  const submitResults = await mapPool(prepared, PREVIEW_CONCURRENCY, async (item) => {
     const submittedRaw = await apiSubmitMatch(item.matchId, {
       message: `Please review the submitted candidate details${
-        item.jobTitle ? ` for ${item.jobTitle}` : ''
+        messageJobTitle ? ` for ${messageJobTitle}` : ''
       }.`,
-      // Preview modal: generate link only. Never auto-email the client.
-      // Recruiters open Gmail/Outlook compose themselves from the modal.
       notifyClient: false,
       previewOnly: true,
       submissionType: 'INITIAL_REVIEW',
       batchMatchIds: batchMatchIds.length > 1 ? batchMatchIds : undefined,
       trackerOptions,
+      ...(item.entry.cvShareMode ? { cvShareMode: item.entry.cvShareMode } : {}),
     });
-    if (index === 0) {
-      reviewUrl = readSubmitMatchReviewUrl(submittedRaw);
-    }
-  }
+    return readSubmitMatchReviewUrl(submittedRaw);
+  });
 
+  const reviewUrl = submitResults.find((url) => Boolean(url)) || null;
   if (!reviewUrl) {
     throw new Error('The client preview link could not be generated. Try again.');
   }
 
   notifyCandidateSubmitted();
 
-  const mailContext = await resolveClientMailContext(
-    entries,
-    prepared.find((item) => item.jobTitle)?.jobTitle || '',
-  );
-
   return {
     reviewUrl,
     candidateNames: prepared.map((item) => item.candidateName),
     visibleCount,
     hiddenCount,
-    jobTitle: mailContext.jobTitle,
-    clientEmail: mailContext.clientEmail,
-    clientName: mailContext.clientName,
+    jobTitle: mailContextEarly.jobTitle || messageJobTitle,
+    clientEmail: mailContextEarly.clientEmail,
+    clientName: mailContextEarly.clientName,
     matchId: prepared[0]!.matchId,
     batchMatchIds,
     trackerOptions,

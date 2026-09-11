@@ -12,6 +12,9 @@ export type SocialAccountOption = {
   accountEmail?: string | null;
   connected?: boolean;
   expired?: boolean;
+  ownerUserId?: string | null;
+  ownerName?: string | null;
+  isOwn?: boolean;
 };
 
 type SocialAccountPickerProps = {
@@ -116,8 +119,15 @@ export function SocialAccountPicker({
                     {account.accountEmail ? (
                       <p className="text-xs text-slate-500 truncate">{account.accountEmail}</p>
                     ) : null}
+                    {account.ownerName ? (
+                      <p className="text-[11px] text-slate-400 truncate">
+                        {account.isOwn === false
+                          ? `Connected by ${account.ownerName}`
+                          : `Connected by you`}
+                      </p>
+                    ) : null}
                   </div>
-                  {account.type !== 'page' ? (
+                  {account.type !== 'page' && account.isOwn !== false ? (
                     <button
                       type="button"
                       onClick={(e) => {

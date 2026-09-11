@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
-import { getAccessToken, getTenantDbName } from '@/lib/api';
+import { getAccessToken, getTenantDbName, apiSyncFollowUpAlerts, emitNotificationsUpdated } from '@/lib/api';
 import { useUser } from '@/hooks/useUser';
 import { isEmployerPublicAuthPath } from '@/lib/sessionAuth';
 import { flushAppDialogs } from '@/lib/appDialog';
@@ -12,7 +12,6 @@ import {
 } from '@/lib/tenant-drawer-engine';
 import {
   clearTenantIntelligenceCache,
-  getCachedTenantIntelligence,
   refreshTenantIntelligence,
 } from '@/lib/phase2-intelligence';
 
@@ -76,24 +75,32 @@ export function TenantDrawerAnalysisHost() {
         try {
           if (getTenantDbName() !== tenantDbName) return;
 
-          const cache =
-            getCachedTenantIntelligence(tenantDbName, user.id) ||
-            (await refreshTenantIntelligence({
-              userId: user.id,
-              tenantDbName,
-            }));
+          // Push follow-up reminders into Alerts tab + email for this member.
+          try {
+            await apiSyncFollowUpAlerts();
+            emitNotificationsUpdated();
+          } catch {
+            // Non-fatal — corner popups still run from intelligence scan
+          }
+
+          const cache = await refreshTenantIntelligence({
+            userId: user.id,
+            tenantDbName,
+            force: true,
+          });
           if (cancelled || !cache) return;
           if (getTenantDbName() !== tenantDbName) return;
 
           const scan: TenantOverdueScanResult = {
-            overdueMeetings: cache.snapshot.topOverdue,
+            overdueMeetings: cache.snapshot.topOverdue || [],
+            upcomingMeetings: cache.snapshot.topUpcoming || [],
             scannedAt: cache.snapshot.scannedAt,
           };
-          if (!scan.overdueMeetings.length) return;
+          if (!scan.overdueMeetings.length && !scan.upcomingMeetings.length) return;
 
-          const review = await alertTenantOverdueScan(scan, tenantDbName);
+          const review = await alertTenantOverdueScan(scan, tenantDbName, user.id);
           if (review && typeof window !== 'undefined' && getTenantDbName() === tenantDbName) {
-            const first = scan.overdueMeetings[0];
+            const first = scan.overdueMeetings[0] || scan.upcomingMeetings[0];
             window.location.href = first?.entityKind === 'client' ? '/client' : '/leads';
           }
         } catch {

@@ -179,4 +179,34 @@ export const inboxController = {
       sendError(res, 400, error.message, error);
     }
   },
+
+  async createOutlookComposeDraft(req, res) {
+    try {
+      const result = await inboxService.createOutlookComposeDraft(req.user.id, req.body || {});
+      sendResponse(res, 201, 'Outlook draft created successfully', result);
+    } catch (error) {
+      const status =
+        error?.code === 'OUTLOOK_RECONNECT_REQUIRED' ||
+        error?.code === 'OUTLOOK_MODIFY_SCOPE_REQUIRED' ||
+        error?.code === 'OUTLOOK_SEND_SCOPE_REQUIRED'
+          ? 403
+          : 400;
+      sendError(res, status, error.message, error);
+    }
+  },
+
+  async sendOutlookComposeMail(req, res) {
+    try {
+      const result = await inboxService.sendOutlookComposeMail(req.user.id, req.body || {});
+      sendResponse(res, 200, 'Outlook mail sent successfully', result);
+    } catch (error) {
+      const status =
+        error?.code === 'OUTLOOK_RECONNECT_REQUIRED' ||
+        error?.code === 'OUTLOOK_MODIFY_SCOPE_REQUIRED' ||
+        error?.code === 'OUTLOOK_SEND_SCOPE_REQUIRED'
+          ? 403
+          : 400;
+      sendError(res, status, error.message, error);
+    }
+  },
 };

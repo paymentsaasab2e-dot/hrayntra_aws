@@ -220,8 +220,8 @@ export function JobOverviewTabContent({ job }: JobOverviewTabContentProps) {
             label="Created Date"
             value={job.createdDate ? formatDateDMY(job.createdDate) : '—'}
           />
-          <OverviewField label="Assign Manager" value={displayValue(job.managerName)} />
-          <OverviewField label="Assign team member" value={recruiterDisplay} />
+          <OverviewField label="Manager" value={displayValue(job.managerName)} />
+          <OverviewField label="Recruiter" value={recruiterDisplay} />
           <OverviewField label="Visibility" value={displayValue(job.visibility)} />
           <OverviewField label="JD Document" value={displayValue(job.jdFileName)} />
           <OverviewField label="Video / Media Link" value={displayValue(job.videoMediaLink)} />

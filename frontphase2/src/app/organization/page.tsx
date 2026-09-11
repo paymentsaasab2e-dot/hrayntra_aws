@@ -447,25 +447,25 @@ function StructureUnitRow({
 
           {depth < 20
             ? (unit.children || []).map((child) => (
-                <StructureUnitRow
-                  key={child.id}
-                  unit={child}
-                  depth={depth + 1}
-                  canWrite={canWrite}
-                  isTenantAdmin={isTenantAdmin}
-                  unassignedCount={unassignedCount}
-                  editingId={editingId}
-                  editName={editName}
-                  onEditNameChange={onEditNameChange}
-                  onStartEdit={onStartEdit}
-                  onCancelEdit={onCancelEdit}
-                  onSaveEdit={onSaveEdit}
-                  onAddChild={onAddChild}
-                  onAddUser={onAddUser}
-                  onDelete={onDelete}
-                  onAdopt={onAdopt}
-                  onStampData={onStampData}
-                />
+            <StructureUnitRow
+              key={child.id}
+              unit={child}
+              depth={depth + 1}
+              canWrite={canWrite}
+              isTenantAdmin={isTenantAdmin}
+              unassignedCount={unassignedCount}
+              editingId={editingId}
+              editName={editName}
+              onEditNameChange={onEditNameChange}
+              onStartEdit={onStartEdit}
+              onCancelEdit={onCancelEdit}
+              onSaveEdit={onSaveEdit}
+              onAddChild={onAddChild}
+              onAddUser={onAddUser}
+              onDelete={onDelete}
+              onAdopt={onAdopt}
+              onStampData={onStampData}
+            />
               ))
             : null}
         </div>

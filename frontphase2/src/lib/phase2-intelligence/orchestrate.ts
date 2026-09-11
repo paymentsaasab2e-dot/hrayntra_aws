@@ -4,6 +4,7 @@ import type { TenantCrmSnapshot } from '@/lib/tenant-behavior-engine';
 import {
   analyzeClientDrawer,
   analyzeLeadDrawer,
+  isRecordAssignedToUser,
   type DrawerAnalysisResult,
 } from '@/lib/tenant-drawer-engine';
 import {
@@ -50,6 +51,11 @@ function buildSnapshot(
     ...clientAnalyses.flatMap((a) => a.overdueMeetings),
   ].sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
 
+  const upcomingMeetings = [
+    ...leadAnalyses.flatMap((a) => a.upcomingMeetings || []),
+    ...clientAnalyses.flatMap((a) => a.upcomingMeetings || []),
+  ].sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
+
   const incompleteLeads = leadAnalyses.filter((a) => a.missingFields.length > 0);
   const incompleteClients = clientAnalyses.filter((a) => a.missingFields.length > 0);
 
@@ -59,9 +65,11 @@ function buildSnapshot(
     clientCount: clientAnalyses.length,
     overdueFollowUps: overdueMeetings.filter((m) => m.kind === 'followup').length,
     overdueMeetings: overdueMeetings.filter((m) => m.kind === 'meeting').length,
+    upcomingFollowUps: upcomingMeetings.filter((m) => m.kind === 'followup').length,
     incompleteLeads: incompleteLeads.length,
     incompleteClients: incompleteClients.length,
     topOverdue: overdueMeetings.slice(0, 12),
+    topUpcoming: upcomingMeetings.slice(0, 8),
     incompleteLeadIds: incompleteLeads.map((a) => a.entityId),
     incompleteClientIds: incompleteClients.map((a) => a.entityId),
     sampleIncomplete: [...incompleteLeads, ...incompleteClients].slice(0, 8).map((a) => ({
@@ -104,7 +112,7 @@ export function clearTenantIntelligenceCache() {
 
 /**
  * Shared Phase 2 intelligence refresh:
- * drawer completeness + overdue meetings → behavior CRM snapshot.
+ * drawer completeness + overdue/upcoming follow-ups for the signed-in team member.
  * Cache is keyed by tenant + user so workspaces never share CRM alerts.
  */
 export async function refreshTenantIntelligence(options?: {
@@ -137,18 +145,22 @@ export async function refreshTenantIntelligence(options?: {
   inflightKey = scopeKey;
   inflight = (async () => {
     try {
+      // Prefer this member's assigned records so admins don't get everyone else's reminders.
       const [leadsRes, clientsRes] = await Promise.all([
-        apiGetLeads({ limit: 100, page: 1 }),
-        apiGetClients({ limit: 100, page: 1 }),
+        apiGetLeads({ limit: 100, page: 1, assignedToId: userId }),
+        apiGetClients({ limit: 100, page: 1, assignedToId: userId }),
       ]);
 
-      // Tenant/user may have changed while the request was in flight.
       if (intelligenceScopeKey(getTenantDbName(), userId) !== scopeKey) {
         return null;
       }
 
-      const leads = unwrapList<Record<string, unknown>>(leadsRes?.data ?? leadsRes);
-      const clients = unwrapList<Record<string, unknown>>(clientsRes?.data ?? clientsRes);
+      const leads = unwrapList<Record<string, unknown>>(leadsRes?.data ?? leadsRes).filter((lead) =>
+        isRecordAssignedToUser(lead, userId),
+      );
+      const clients = unwrapList<Record<string, unknown>>(clientsRes?.data ?? clientsRes).filter(
+        (client) => isRecordAssignedToUser(client, userId),
+      );
 
       const leadAnalyses = leads
         .map((lead) => analyzeLeadDrawer(lead))

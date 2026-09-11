@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePermissions } from '@/hooks/usePermissions';
-import { apiGetAssignCompanies } from '@/lib/org/orgApi';
+import { apiGetAssignCompanies, apiOrgWorkspace } from '@/lib/org/orgApi';
 import { getActiveOrgUnitId, ORG_WORKSPACE_EVENT } from '@/lib/org/orgWorkspaceStorage';
 import {
   getAllTeamMembersForAssign,
@@ -11,8 +11,16 @@ import {
 import type { TeamMember } from '@/types/team';
 import type { BackendUser } from '@/lib/api';
 import { startAsyncLoad } from '@/lib/asyncLoadGuard';
+import { dedupeByCompanyName } from '@/lib/companyNameKey';
 
 export type AssignCompanyOption = { id: string; name: string; kind?: string };
+
+function mergeCompanies(rows: AssignCompanyOption[]): AssignCompanyOption[] {
+  return dedupeByCompanyName(
+    (Array.isArray(rows) ? rows : []).filter((row) => row?.id && row.kind !== 'hq'),
+    (row) => row.name,
+  );
+}
 
 export function useAssignableMembers(
   enabled = true,
@@ -22,17 +30,23 @@ export function useAssignableMembers(
   const { isSuperAdmin, hasAnyPermission } = usePermissions();
   const mayPickCompany =
     isSuperAdmin() ||
-    hasAnyPermission(['view_cross_company_members', 'VIEW_CROSS_COMPANY_MEMBERS']);
+    hasAnyPermission([
+      'view_cross_company_members',
+      'VIEW_CROSS_COMPANY_MEMBERS',
+      'switch_companies',
+      'SWITCH_COMPANIES',
+    ]);
   const initialCompanyId = String(options?.initialCompanyId || '').trim();
   const [workspaceCompanyId, setWorkspaceCompanyId] = useState('');
 
   const [companies, setCompanies] = useState<AssignCompanyOption[]>([]);
-  const [companiesReady, setCompaniesReady] = useState(!mayPickCompany);
+  const [companiesReady, setCompaniesReady] = useState(false);
   const [companyId, setCompanyId] = useState('');
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const canSelectCompany = mayPickCompany && companies.length > 0;
+  /** Show Organization whenever we have at least one org unit to assign under. */
+  const canSelectCompany = companies.length > 0;
   const seededCompanyRef = useRef('');
 
   useEffect(() => {
@@ -46,7 +60,14 @@ export function useAssignableMembers(
 
   useEffect(() => {
     if (!enabled || !canSelectCompany || !companiesReady || companyId) return;
-    if (!preferredCompanyId) return;
+    if (!preferredCompanyId) {
+      // Single org: auto-select so Manager/Team can load immediately.
+      if (companies.length === 1 && companies[0]?.id) {
+        seededCompanyRef.current = companies[0].id;
+        setCompanyId(companies[0].id);
+      }
+      return;
+    }
     if (!companies.some((row) => row.id === preferredCompanyId)) return;
     if (seededCompanyRef.current === preferredCompanyId) return;
     seededCompanyRef.current = preferredCompanyId;
@@ -54,27 +75,55 @@ export function useAssignableMembers(
   }, [enabled, canSelectCompany, companiesReady, companies, companyId, preferredCompanyId]);
 
   useEffect(() => {
-    if (!enabled || !mayPickCompany) {
+    if (!enabled) {
       setCompanies([]);
       setCompaniesReady(true);
       return;
     }
     let cancelled = false;
     setCompaniesReady(false);
-    void apiGetAssignCompanies(module)
-      .then((rows) => {
-        if (cancelled) return;
-        const next = (Array.isArray(rows) ? rows : []).filter(
-          (row) => row?.id && row.kind !== 'hq',
-        );
-        setCompanies(next);
-        setCompaniesReady(true);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setCompanies([]);
-        setCompaniesReady(true);
-      });
+
+    void (async () => {
+      const collected: AssignCompanyOption[] = [];
+
+      if (mayPickCompany) {
+        try {
+          const rows = await apiGetAssignCompanies(module);
+          for (const row of Array.isArray(rows) ? rows : []) {
+            if (row?.id) collected.push({ id: String(row.id), name: String(row.name || ''), kind: row.kind });
+          }
+        } catch {
+          /* fall through to workspace */
+        }
+      }
+
+      try {
+        const org = await apiOrgWorkspace();
+        const fromWorkspace = [
+          ...(Array.isArray(org?.companiesRecruitment) ? org.companiesRecruitment : []),
+          ...(Array.isArray(org?.companies) ? org.companies : []),
+          ...(Array.isArray(org?.companiesCrm) ? org.companiesCrm : []),
+        ];
+        for (const row of fromWorkspace) {
+          const id = String(row?.id || '').trim();
+          const name = String(row?.name || '').trim();
+          if (id && name) collected.push({ id, name, kind: 'company' });
+        }
+        // Pinned / home company when switch list is empty
+        const homeId = String(org?.homeOrgUnitId || org?.orgUnitId || '').trim();
+        const homeName = String(org?.homeOrgUnitName || '').trim();
+        if (homeId && homeName && !collected.some((c) => c.id === homeId)) {
+          collected.push({ id: homeId, name: homeName, kind: 'company' });
+        }
+      } catch {
+        /* ignore */
+      }
+
+      if (cancelled) return;
+      setCompanies(mergeCompanies(collected));
+      setCompaniesReady(true);
+    })();
+
     return () => {
       cancelled = true;
     };
@@ -88,7 +137,7 @@ export function useAssignableMembers(
 
   useEffect(() => {
     if (!enabled) return;
-    if (mayPickCompany && !companiesReady) return;
+    if (!companiesReady) return;
     if (canSelectCompany && !companyId) {
       setMembers([]);
       setLoading(false);
@@ -109,7 +158,7 @@ export function useAssignableMembers(
     return () => {
       load.abort();
     };
-  }, [enabled, mayPickCompany, companiesReady, canSelectCompany, companyId, module]);
+  }, [enabled, companiesReady, canSelectCompany, companyId, module]);
 
   const users: BackendUser[] = useMemo(() => teamMembersToBackendUsers(members), [members]);
 
@@ -121,5 +170,6 @@ export function useAssignableMembers(
     members,
     users,
     loading,
+    companiesReady,
   };
 }

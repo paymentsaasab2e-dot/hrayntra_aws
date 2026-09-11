@@ -15,6 +15,7 @@ import { HqDashCategoryTabs } from '@/components/hq/analytics/HqDashCategoryTabs
 import {
   CRM_CATEGORY_TABS,
   CrmDashboardProvider,
+  normalizeCrmHiddenSections,
   type CrmCategoryTabId,
   useCrmDashboard,
 } from './crmShared';
@@ -154,7 +155,7 @@ function CrmDrillDownModal() {
 }
 
 function CrmDashboardInner() {
-  const { filters, refreshKey } = useCrmDashboard();
+  const { filters, refreshKey, hiddenSections } = useCrmDashboard();
   const access = useDashboardAccess();
   const [overview, setOverview] = useState<CrmOverview | null>(() => {
     const cached = readCrmOverviewCache({ dateRange: 'last_30_days', category: 'insights' });
@@ -164,12 +165,14 @@ function CrmDashboardInner() {
     () => !readCrmOverviewCache({ dateRange: 'last_30_days', category: 'insights' })?.data,
   );
   const [category, setCategory] = useState<CrmCategoryTabId>('insights');
-  const visibleTabs = CRM_CATEGORY_TABS.filter((tab) => access.crmTabs[tab.id]);
+  const visibleTabs = CRM_CATEGORY_TABS.filter(
+    (tab) => access.crmTabs[tab.id] && !hiddenSections.has(tab.id),
+  );
 
   useEffect(() => {
     if (!visibleTabs.length) return;
-    if (!access.crmTabs[category]) setCategory(visibleTabs[0].id);
-  }, [access.crmTabs, category, visibleTabs]);
+    if (!visibleTabs.some((tab) => tab.id === category)) setCategory(visibleTabs[0].id);
+  }, [category, visibleTabs]);
 
   useEffect(() => {
     const query =
@@ -250,24 +253,28 @@ function CrmDashboardInner() {
 
       {visibleTabs.length === 0 ? (
         <p className="rounded-2xl border border-slate-100 bg-white px-5 py-10 text-center text-sm text-slate-500">
-          No CRM dashboard tabs are assigned to this role. Ask an admin to enable Insights, Pipeline, Team, or Hours & scores in Team → Roles.
+          No CRM sections are visible. Use Customize to show Insights, Pipeline, Team, or Hours & scores — or ask an admin to enable them for this role.
         </p>
       ) : null}
 
-      {category === 'mine' && access.crmTabs.mine ? (
+      {category === 'mine' && access.crmTabs.mine && !hiddenSections.has('mine') ? (
         <CrmMineWorkPanel overview={overview} loading={loading} />
       ) : null}
 
-      {category === 'insights' && access.crmTabs.insights ? (
+      {category === 'insights' && access.crmTabs.insights && !hiddenSections.has('insights') ? (
         <CrmDecisionInsights overview={overview} loading={loading} />
       ) : null}
 
-      {category === 'portfolio' && access.crmTabs.portfolio ? (
+      {category === 'portfolio' && access.crmTabs.portfolio && !hiddenSections.has('portfolio') ? (
         <CrmChartsAndTables overview={overview} loading={loading} mode="portfolio" />
       ) : null}
 
-      {category === 'team' && access.crmTabs.team ? <CrmTeamIntelligence overview={overview} /> : null}
-      {category === 'people' && access.crmTabs.people ? <PeoplePerfPanel product="crm" /> : null}
+      {category === 'team' && access.crmTabs.team && !hiddenSections.has('team') ? (
+        <CrmTeamIntelligence overview={overview} />
+      ) : null}
+      {category === 'people' && access.crmTabs.people && !hiddenSections.has('people') ? (
+        <PeoplePerfPanel product="crm" />
+      ) : null}
 
       {overview?.generatedAt ? (
         <p className="pb-2 text-center text-[11px] text-slate-400">
@@ -293,7 +300,7 @@ function CrmDashboardWithLayout() {
       const next = {
         ...layout,
         version: 2 as const,
-        crm: { ...(layout.crm || {}), hiddenSections },
+        crm: { ...(layout.crm || {}), hiddenSections: normalizeCrmHiddenSections(hiddenSections) },
       };
       setLayout(next);
       void saveLayout(next);
@@ -316,7 +323,7 @@ function CrmDashboardWithLayout() {
 
   return (
     <CrmDashboardProvider
-      initialHidden={Array.isArray(layout.crm?.hiddenSections) ? layout.crm.hiddenSections : []}
+      initialHidden={normalizeCrmHiddenSections(layout.crm?.hiddenSections)}
       onHiddenChange={onHiddenChange}
     >
       <CrmDashboardInner />

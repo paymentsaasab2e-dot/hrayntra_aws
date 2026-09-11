@@ -6,9 +6,11 @@ export type TenantIntelligenceSnapshot = {
   clientCount: number;
   overdueFollowUps: number;
   overdueMeetings: number;
+  upcomingFollowUps: number;
   incompleteLeads: number;
   incompleteClients: number;
   topOverdue: OverdueMeetingIssue[];
+  topUpcoming: OverdueMeetingIssue[];
   incompleteLeadIds: string[];
   incompleteClientIds: string[];
   sampleIncomplete: Array<{

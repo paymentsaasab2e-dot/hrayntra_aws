@@ -206,7 +206,8 @@ function PulseStat({
 }
 
 export function CrmDecisionInsights({ overview, loading }: Props) {
-  const { openDrillDown } = useCrmDashboard();
+  const { openDrillDown, hiddenSections } = useCrmDashboard();
+  const showAlerts = !hiddenSections.has('alerts');
   const { user } = useUser();
   const roleName =
     user && 'roleName' in user ? String((user as { roleName?: string }).roleName || '') : '';
@@ -332,12 +333,14 @@ export function CrmDecisionInsights({ overview, loading }: Props) {
           <HqInfoTip text="Follow-up queue and recent activity for your working day — placed here because it drives today’s actions." />
         </div>
         <div className="grid gap-4 xl:grid-cols-12 xl:items-start">
-          <div className="xl:col-span-8">
+          <div className={showAlerts ? 'xl:col-span-8' : 'xl:col-span-12'}>
             <CrmFollowupActivity overview={overview} loading={loading} compact />
           </div>
-          <div className="xl:col-span-4">
-            <CrmAlertsPanel overview={overview} loading={loading} />
-          </div>
+          {showAlerts ? (
+            <div className="xl:col-span-4">
+              <CrmAlertsPanel overview={overview} loading={loading} />
+            </div>
+          ) : null}
         </div>
       </div>
 

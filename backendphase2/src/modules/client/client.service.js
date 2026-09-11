@@ -24,6 +24,7 @@ import {
   buildPostServiceKycFormCreateFields,
 } from '../../utils/postServiceKycFormFields.js';
 import { assertCanAssignCrm } from '../../services/crmAssignmentScope.service.js';
+import { normalizeBusinessValue } from '../../utils/businessValue.js';
 import {
   applyMemberClientScope,
   systemWorkspaceClientExclusionWhere,
@@ -1120,7 +1121,7 @@ export const clientService = {
       timezone: data.timezone,
       priority: data.priority,
       servicesNeeded: data.servicesNeeded,
-      expectedBusinessValue: data.expectedBusinessValue,
+      expectedBusinessValue: normalizeBusinessValue(data.expectedBusinessValue),
       leadStatus: data.leadStatus,
       sla: data.sla,
       // Smart-location autofill metadata (shared with Lead).
@@ -1297,7 +1298,10 @@ export const clientService = {
       timezone: data.timezone,
       priority: data.priority,
       servicesNeeded: data.servicesNeeded,
-      expectedBusinessValue: data.expectedBusinessValue,
+      expectedBusinessValue:
+        data.expectedBusinessValue !== undefined
+          ? normalizeBusinessValue(data.expectedBusinessValue)
+          : undefined,
       leadStatus: data.leadStatus,
       sla: data.sla,
       // Only include fields that exist in the Prisma schema

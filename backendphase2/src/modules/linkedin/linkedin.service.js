@@ -53,20 +53,33 @@ async function fetchOrganizationPages(accessToken) {
   }
 }
 
-function flattenAccountsFromTokens(tokens) {
+function flattenAccountsFromTokens(tokens, viewerUserId = null) {
   const accounts = [];
   for (const token of tokens) {
     const expired = isExpired(token);
+    const ownerUser = token.user || null;
+    const ownerUserId = String(token.userId || ownerUser?.id || '').trim();
+    const ownerName =
+      String(ownerUser?.name || '').trim() ||
+      [ownerUser?.firstName, ownerUser?.lastName].filter(Boolean).join(' ').trim() ||
+      String(ownerUser?.email || '').trim() ||
+      null;
+    const isOwn = viewerUserId ? ownerUserId === String(viewerUserId) : true;
+
     accounts.push({
       id: token.id,
       key: `personal:${token.id}`,
       type: 'personal',
       name: token.name || 'LinkedIn Profile',
       email: token.email || null,
+      accountEmail: token.email || null,
       picture: token.picture || null,
       linkedinSub: token.linkedinSub,
       connected: !expired,
       expired,
+      ownerUserId: ownerUserId || null,
+      ownerName,
+      isOwn,
     });
 
     const pages = Array.isArray(token.organizations) ? token.organizations : [];
@@ -82,6 +95,9 @@ function flattenAccountsFromTokens(tokens) {
         picture: null,
         connected: !expired,
         expired,
+        ownerUserId: ownerUserId || null,
+        ownerName,
+        isOwn,
       });
     }
   }
@@ -202,10 +218,39 @@ export const linkedinService = {
     return decryptAccessToken(tokenRecord);
   },
 
+  /** Resolve a LinkedIn token by id anywhere in the current tenant DB. */
+  async getTokenRecordByIdInTenant(tokenId) {
+    ensureLinkedInModel();
+    const tokenRecord = await prisma.linkedInToken.findFirst({
+      where: { id: tokenId },
+      include: {
+        user: {
+          select: { id: true, name: true, firstName: true, lastName: true, email: true },
+        },
+      },
+    });
+    if (!tokenRecord) return null;
+    if (isExpired(tokenRecord)) return { ...tokenRecord, expired: true };
+    return decryptAccessToken(tokenRecord);
+  },
+
   async getTokensByUserId(userId) {
     ensureLinkedInModel();
     return prisma.linkedInToken.findMany({
       where: { userId },
+      orderBy: { updatedAt: 'desc' },
+    });
+  },
+
+  /** All LinkedIn tokens in this tenant (shared with every team member). */
+  async getTokensForTenant() {
+    ensureLinkedInModel();
+    return prisma.linkedInToken.findMany({
+      include: {
+        user: {
+          select: { id: true, name: true, firstName: true, lastName: true, email: true, isActive: true },
+        },
+      },
       orderBy: { updatedAt: 'desc' },
     });
   },
@@ -274,7 +319,10 @@ export const linkedinService = {
       const anyExpired = accounts.some((a) => a.expired);
       return { connected: false, expired: anyExpired, accounts };
     }
-    const primary = connectedAccounts.find((a) => a.type === 'personal') || connectedAccounts[0];
+    const primary =
+      connectedAccounts.find((a) => a.isOwn && a.type === 'personal') ||
+      connectedAccounts.find((a) => a.type === 'personal') ||
+      connectedAccounts[0];
     return {
       connected: true,
       name: primary.name,
@@ -283,9 +331,14 @@ export const linkedinService = {
     };
   },
 
+  /**
+   * List LinkedIn accounts for the whole tenant so any teammate
+   * (including superadmin) can publish to shared connections.
+   */
   async listAccounts(userId) {
-    const tokens = await this.getTokensByUserId(userId);
-    return flattenAccountsFromTokens(tokens);
+    const tokens = await this.getTokensForTenant();
+    const activeTokens = tokens.filter((token) => token.user?.isActive !== false);
+    return flattenAccountsFromTokens(activeTokens, userId);
   },
 
   async postToTarget(userId, targetKey, jobData) {
@@ -298,8 +351,9 @@ export const linkedinService = {
 
     if (String(targetKey).startsWith('org:')) {
       const orgId = String(targetKey).replace(/^org:/, '');
-      const tokens = await this.getTokensByUserId(userId);
+      const tokens = await this.getTokensForTenant();
       const ownerToken = tokens.find((token) => {
+        if (token.user?.isActive === false) return false;
         const pages = Array.isArray(token.organizations) ? token.organizations : [];
         return pages.some((page) => String(page.id) === orgId);
       });
@@ -308,8 +362,12 @@ export const linkedinService = {
       authorUrn = `urn:li:organization:${orgId}`;
     } else {
       const tokenId = String(targetKey).replace(/^personal:/, '');
-      tokenRecord = await this.getTokenRecordById(userId, tokenId);
+      // Allow posting with any teammate's connected LinkedIn in this tenant.
+      tokenRecord = await this.getTokenRecordByIdInTenant(tokenId);
       if (!tokenRecord) throw new Error('LinkedIn account not found');
+      if (tokenRecord.user?.isActive === false) {
+        throw new Error('LinkedIn account owner is inactive');
+      }
       authorUrn = `urn:li:person:${tokenRecord.linkedinSub}`;
     }
 

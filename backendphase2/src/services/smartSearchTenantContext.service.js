@@ -14,7 +14,7 @@ import {
   sanitizeMatchingLeadIds,
 } from './smartSearchLeadContext.service.js';
 import { buildClientsListScopeWhere } from './clientMemberScope.service.js';
-import { buildAssigneeVisibilityOr } from './memberVisibility.service.js';
+import { buildAssigneeVisibilityOr, buildJobVisibilityOr } from './memberVisibility.service.js';
 
 export { buildClientsListScopeWhere };
 
@@ -111,7 +111,7 @@ function buildTenantMeta(tenantDbName, total, loaded, allRecordIds, totalKey, lo
 export function buildJobsListScopeWhere(req) {
   const where = {};
   if (!canViewAllAssignments(req) && req?.user?.id) {
-    where.OR = buildAssigneeVisibilityOr(req.user.id);
+    where.OR = buildJobVisibilityOr(req.user.id);
   }
   const superAdminScope = buildSuperAdminOwnerScope(req, ['createdById', 'assignedToId']);
   let scopedWhere = mergeWhereWithScope(where, superAdminScope);

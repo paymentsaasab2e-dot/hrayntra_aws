@@ -17,7 +17,7 @@ export function AssignCompanySelect({
   value,
   onChange,
   disabled = false,
-  label = 'Select Company',
+  label = 'Organization',
   className = '',
 }: AssignCompanySelectProps) {
   if (!companies?.length) return null;
@@ -33,7 +33,7 @@ export function AssignCompanySelect({
         onChange={(event) => onChange(event.target.value)}
         className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-700 hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 disabled:bg-slate-50"
       >
-        <option value="">Select Company</option>
+        <option value="">Select organization</option>
         {uniqueCompanies.map((company) => (
           <option key={company.id} value={company.id}>
             {company.name}

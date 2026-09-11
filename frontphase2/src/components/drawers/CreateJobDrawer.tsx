@@ -1061,6 +1061,7 @@ export function CreateJobDrawer({
     assignedToId: '',
     assignedToName: '',
     assignedToCompanyId: '',
+    assignedToIds: [] as string[],
     
     // Job Description
     aboutCompany: '',
@@ -1257,6 +1258,7 @@ export function CreateJobDrawer({
         assignedToId: '',
         assignedToName: '',
         assignedToCompanyId: '',
+        assignedToIds: [],
         aboutCompany: '',
         jobDescriptionHtml: '',
         jobLocation: '',
@@ -1539,6 +1541,9 @@ export function CreateJobDrawer({
         expired: !!account.expired,
         organizationId: account.organizationId ? String(account.organizationId) : undefined,
         parentAccountId: account.parentAccountId ? String(account.parentAccountId) : undefined,
+        ownerUserId: account.ownerUserId ? String(account.ownerUserId) : null,
+        ownerName: account.ownerName ? String(account.ownerName) : null,
+        isOwn: account.isOwn !== false,
       })),
     [],
   );
@@ -2164,7 +2169,10 @@ export function CreateJobDrawer({
         targetHireDate,
         videoMediaLink: jobExtras.videoMediaLink || '',
         forecastRevenue: jobExtras.forecastRevenue || '',
-        managerId: jobExtras.managerId || '',
+        managerId:
+          jobExtras.managerId ||
+          (job as { manager?: { id?: string } | null }).manager?.id ||
+          '',
         languages: Array.isArray(jobExtras.languages)
           ? jobExtras.languages
               .map((row) => ({
@@ -2217,6 +2225,18 @@ export function CreateJobDrawer({
         assignedToCompanyId: assigneeCompanyId(
           (job as { assignedTo?: { assignCompanyId?: string; orgUnitId?: string; orgUnit?: { id?: string } } }).assignedTo,
         ),
+        assignedToIds: (() => {
+          const primary =
+            (job as { assignedToId?: string }).assignedToId ||
+            (job as { assignedTo?: { id?: string } }).assignedTo?.id ||
+            '';
+          const supporting = Array.isArray((job as { supportingRecruiters?: string[] }).supportingRecruiters)
+            ? (job as { supportingRecruiters?: string[] }).supportingRecruiters!
+                .map((id) => String(id || '').trim())
+                .filter(Boolean)
+            : [];
+          return [...new Set([primary, ...supporting].filter(Boolean))];
+        })(),
         aboutCompany: String((job as { aboutCompany?: string }).aboutCompany || ''),
       }));
       
@@ -3304,7 +3324,7 @@ export function CreateJobDrawer({
       return;
     }
     if (useLineManagerPicker && !formData.managerId) {
-      void requestWarning('Line Manager is required');
+      void requestWarning('Manager is required');
       return;
     }
 
@@ -3410,7 +3430,11 @@ export function CreateJobDrawer({
             proficiency: row.proficiency.trim(),
           }))
           .filter((row) => row.language),
-        managerId: useLineManagerPicker ? formData.managerId || undefined : undefined,
+        managerId: formData.managerId
+          ? formData.managerId
+          : isEditMode
+            ? null
+            : undefined,
         hiringManager: formData.contactPersonName.trim() || undefined,
         hiringManagerId: formData.contactPersonId || undefined,
         aboutCompany: (formData.aboutCompany || '').trim() || null,
@@ -3466,11 +3490,22 @@ export function CreateJobDrawer({
         })),
         // Store JD file name if file was uploaded
         jdFileName: uploadedFile?.name || undefined,
-        assignedToId: isEditMode
-          ? formData.assignedToId
-            ? formData.assignedToId
-            : null
-          : formData.assignedToId || undefined,
+        assignedToId: (() => {
+          const ids = Array.isArray(formData.assignedToIds)
+            ? formData.assignedToIds.filter(Boolean)
+            : [];
+          const primary = ids[0] || formData.assignedToId || '';
+          if (isEditMode) return primary || null;
+          return primary || undefined;
+        })(),
+        supportingRecruiters: (() => {
+          const ids = Array.isArray(formData.assignedToIds)
+            ? formData.assignedToIds.filter(Boolean)
+            : formData.assignedToId
+              ? [formData.assignedToId]
+              : [];
+          return ids.slice(1);
+        })(),
         showClientNamePublicly: formData.showClientNamePublicly !== false,
         publicFieldVisibility: buildPublicFieldVisibilityPayload(
           formData.publicFieldVisibility,
@@ -3813,6 +3848,9 @@ export function CreateJobDrawer({
           forecastRevenue: prev.forecastRevenue,
           managerId: prev.managerId,
           assignedToId: prev.assignedToId,
+          assignedToName: prev.assignedToName,
+          assignedToCompanyId: prev.assignedToCompanyId,
+          assignedToIds: prev.assignedToIds,
           aboutCompany: prev.aboutCompany,
         };
         const nextPatch = typeof patch === 'function' ? patch(current) : patch;
@@ -3930,6 +3968,9 @@ export function CreateJobDrawer({
     forecastRevenue: formData.forecastRevenue,
     managerId: formData.managerId,
     assignedToId: formData.assignedToId,
+    assignedToName: formData.assignedToName,
+    assignedToCompanyId: formData.assignedToCompanyId,
+    assignedToIds: formData.assignedToIds,
     aboutCompany: formData.aboutCompany,
     publicFieldVisibility: formData.publicFieldVisibility,
   };

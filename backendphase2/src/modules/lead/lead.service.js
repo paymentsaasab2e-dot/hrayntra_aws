@@ -47,6 +47,7 @@ import {
   buildEntitySnapshot,
 } from '../../services/aiEntryRecommendation.service.js';
 import { findLiveClientByCompanyName } from '../client/client.service.js';
+import { normalizeBusinessValue } from '../../utils/businessValue.js';
 import {
   formatFollowUpInTimezone,
   mergeFollowUpScheduleIntoOtherDetails,
@@ -968,7 +969,10 @@ export const leadService = {
     const normalizedCompanySize = normalizeNullableString(data.companySize) || normalizeNullableString(data.teamName);
     const normalizedInterestedNeeds = normalizeNullableString(data.interestedNeeds) || normalizeNullableString(data.servicesNeeded);
     const normalizedNotes = normalizeNullableString(data.notes);
-    const normalizedExpectedBusinessValue = normalizeNullableString(data.expectedBusinessValue);
+    const normalizedExpectedBusinessValue =
+      normalizeBusinessValue(data.expectedBusinessValue) ||
+      normalizeBusinessValue(data.notes) ||
+      null;
     const resolvedAssignedToId = await resolveAssignedToId(data.assignedToId || data.assignedToName);
     const resolvedAssignedToIds = Array.isArray(data.assignedToIds)
       ? await resolveAssignedToIds(data.assignedToIds)
@@ -1265,7 +1269,9 @@ export const leadService = {
     if (data.servicesNeeded !== undefined) updateData.servicesNeeded = data.servicesNeeded || null;
     if (data.interestedNeeds === undefined && data.servicesNeeded !== undefined) updateData.interestedNeeds = data.servicesNeeded || null;
     if (data.notes !== undefined) updateData.notes = data.notes || null;
-    if (data.expectedBusinessValue !== undefined) updateData.expectedBusinessValue = data.expectedBusinessValue || null;
+    if (data.expectedBusinessValue !== undefined) {
+      updateData.expectedBusinessValue = normalizeBusinessValue(data.expectedBusinessValue);
+    }
     // Extended company fields
     if (data.industry !== undefined) updateData.industry = data.industry || null;
     if (data.sector !== undefined) updateData.sector = data.sector || null;

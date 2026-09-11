@@ -11,10 +11,13 @@ import {
   type MailboxStatusResponse,
 } from '../../lib/api';
 import {
+  buildInboxComposePath,
   buildMailboxComposeUrl,
   buildSubmitToClientMailCopy,
+  connectedMailboxEmail,
   connectedMailboxProviders,
   openMailboxComposeTab,
+  stashInboxComposeDraft,
   type MailboxComposeProvider,
 } from '../../lib/mailboxCompose';
 import {
@@ -23,6 +26,12 @@ import {
   type ClientTrackerOptionKey,
   type ClientTrackerOptions,
 } from '../../lib/clientTrackerOptions';
+import {
+  getDefaultSubmitToClientMailTemplate,
+  listSubmitToClientMailTemplates,
+  subscribeSubmitToClientMailTemplatesChanged,
+  type SubmitToClientMailTemplate,
+} from '../../lib/submitToClientMailTemplate';
 
 type Props = {
   isOpen: boolean;
@@ -32,6 +41,7 @@ type Props = {
   candidateNames: string[];
   jobTitle?: string;
   clientEmail?: string;
+  clientName?: string;
   visibleCount: number | null;
   hiddenCount: number | null;
   matchId?: string;
@@ -50,6 +60,7 @@ export function SubmitToClientPreviewLinkModal({
   candidateNames,
   jobTitle,
   clientEmail,
+  clientName,
   visibleCount,
   hiddenCount,
   matchId,
@@ -65,6 +76,8 @@ export function SubmitToClientPreviewLinkModal({
   const [connecting, setConnecting] = useState<MailboxComposeProvider | null>(null);
   const [savingOptions, setSavingOptions] = useState(false);
   const [optionsHint, setOptionsHint] = useState('');
+  const [mailTemplates, setMailTemplates] = useState<SubmitToClientMailTemplate[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const options = trackerOptions || CLIENT_TRACKER_OPTION_DEFAULTS;
 
   useEffect(() => {
@@ -72,6 +85,20 @@ export function SubmitToClientPreviewLinkModal({
     setConnecting(null);
     setOptionsHint('');
   }, [reviewUrl, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const refresh = (next?: SubmitToClientMailTemplate[]) => {
+      const list = next || listSubmitToClientMailTemplates();
+      setMailTemplates(list);
+      setSelectedTemplateId((prev) => {
+        if (prev && list.some((t) => t.id === prev)) return prev;
+        return getDefaultSubmitToClientMailTemplate(list).id;
+      });
+    };
+    refresh();
+    return subscribeSubmitToClientMailTemplatesChanged(refresh);
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen || loading) return;
@@ -110,14 +137,24 @@ export function SubmitToClientPreviewLinkModal({
     [mailboxStatus],
   );
 
+  const selectedTemplate = useMemo(() => {
+    return (
+      mailTemplates.find((t) => t.id === selectedTemplateId) ||
+      getDefaultSubmitToClientMailTemplate(mailTemplates)
+    );
+  }, [mailTemplates, selectedTemplateId]);
+
   const mailCopy = useMemo(
     () =>
       buildSubmitToClientMailCopy({
         reviewUrl,
         candidateNames,
         jobTitle,
+        clientEmail,
+        clientName,
+        template: selectedTemplate,
       }),
-    [reviewUrl, candidateNames, jobTitle],
+    [reviewUrl, candidateNames, jobTitle, clientEmail, clientName, selectedTemplate],
   );
 
   if (!isOpen) return null;
@@ -130,16 +167,39 @@ export function SubmitToClientPreviewLinkModal({
         : `${candidateNames[0]} +${candidateNames.length - 1} more`;
 
   const openCompose = (provider: MailboxComposeProvider) => {
+    const accountEmail = connectedMailboxEmail(mailboxStatus, provider);
+    const brand = provider === 'gmail' ? 'Gmail' : 'Outlook';
+
+    // Outlook: open HRYANTRA Inbox compose (review + send). Do not auto-send.
+    if (provider === 'outlook') {
+      const draftId = stashInboxComposeDraft({
+        provider: 'outlook',
+        to: clientEmail,
+        subject: mailCopy.subject,
+        body: mailCopy.body,
+      });
+      const opened = openMailboxComposeTab(buildInboxComposePath('outlook', draftId));
+      setMailHint(
+        opened
+          ? `Opened Inbox compose for ${accountEmail || 'Outlook'}. Review and send from there.`
+          : 'Allow pop-ups to open Inbox compose.',
+      );
+      return;
+    }
+
     const url = buildMailboxComposeUrl({
       provider,
       to: clientEmail,
       subject: mailCopy.subject,
       body: mailCopy.body,
+      accountEmail,
     });
     const opened = openMailboxComposeTab(url);
     setMailHint(
       opened
-        ? `Opened ${provider === 'gmail' ? 'Gmail' : 'Outlook'} compose in a new tab. Review and send it from there — HRYANTRA does not send this email.`
+        ? accountEmail
+          ? `Opened ${brand} compose for ${accountEmail}. If the wrong profile opens, choose that account once in the browser — HRYANTRA does not send this email.`
+          : `Opened ${brand} compose in a new tab. Review and send it from there — HRYANTRA does not send this email.`
         : 'Allow pop-ups to open Gmail or Outlook compose.',
     );
   };
@@ -309,6 +369,26 @@ export function SubmitToClientPreviewLinkModal({
                 <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">
                   Send a mail to the client
                 </p>
+                {mailTemplates.length > 0 ? (
+                  <label className="mt-3 block space-y-1">
+                    <span className="text-[11px] font-medium text-slate-500">Email template</span>
+                    <select
+                      value={selectedTemplate.id}
+                      onChange={(e) => setSelectedTemplateId(e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-sm text-slate-800 outline-none ring-indigo-200 focus:ring-2"
+                    >
+                      {mailTemplates.map((template) => (
+                        <option key={template.id} value={template.id}>
+                          {template.name}
+                          {template.isDefault ? ' (default)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-[11px] leading-4 text-slate-500">
+                      Subject: {mailCopy.subject || '—'}
+                    </p>
+                  </label>
+                ) : null}
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   {!mailboxReady ? (
                     <span className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-500">
@@ -321,20 +401,34 @@ export function SubmitToClientPreviewLinkModal({
                         <button
                           type="button"
                           onClick={() => openCompose('gmail')}
-                          className="inline-flex items-center gap-1.5 rounded-xl bg-rose-600 px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-rose-700"
+                          className="inline-flex flex-col items-start gap-0.5 rounded-xl bg-rose-600 px-3.5 py-2.5 text-left text-sm font-semibold text-white shadow-sm transition hover:bg-rose-700"
                         >
-                          <Mail size={15} strokeWidth={2.25} />
-                          Gmail
+                          <span className="inline-flex items-center gap-1.5">
+                            <Mail size={15} strokeWidth={2.25} />
+                            Gmail
+                          </span>
+                          {connectedMailboxEmail(mailboxStatus, 'gmail') ? (
+                            <span className="text-[10px] font-medium text-rose-100">
+                              {connectedMailboxEmail(mailboxStatus, 'gmail')}
+                            </span>
+                          ) : null}
                         </button>
                       ) : null}
                       {connectedProviders.includes('outlook') ? (
                         <button
                           type="button"
                           onClick={() => openCompose('outlook')}
-                          className="inline-flex items-center gap-1.5 rounded-xl bg-sky-600 px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-700"
+                          className="inline-flex flex-col items-start gap-0.5 rounded-xl bg-sky-600 px-3.5 py-2.5 text-left text-sm font-semibold text-white shadow-sm transition hover:bg-sky-700"
                         >
-                          <Mail size={15} strokeWidth={2.25} />
-                          Outlook
+                          <span className="inline-flex items-center gap-1.5">
+                            <Mail size={15} strokeWidth={2.25} />
+                            Outlook
+                          </span>
+                          {connectedMailboxEmail(mailboxStatus, 'outlook') ? (
+                            <span className="text-[10px] font-medium text-sky-100">
+                              {connectedMailboxEmail(mailboxStatus, 'outlook')}
+                            </span>
+                          ) : null}
                         </button>
                       ) : null}
                     </>

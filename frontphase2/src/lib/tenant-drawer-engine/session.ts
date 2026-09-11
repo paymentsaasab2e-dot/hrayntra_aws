@@ -33,6 +33,8 @@ export function drawerAlertScope(entityKind: string, entityId: string, kind: 'mi
   return `${entityKind}:${entityId}:${kind}`;
 }
 
-export function tenantOverdueAlertScope(tenantKey: string) {
-  return `tenant-overdue:${tenantKey}:${new Date().toISOString().slice(0, 10)}`;
+export function tenantOverdueAlertScope(tenantKey: string, userId?: string | null) {
+  const day = new Date().toISOString().slice(0, 10);
+  const uid = String(userId || '').trim() || 'user';
+  return `tenant-overdue:${tenantKey}:${uid}:${day}`;
 }

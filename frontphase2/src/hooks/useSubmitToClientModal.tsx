@@ -31,6 +31,7 @@ export function useSubmitToClientModal(options?: {
   const [hiddenCount, setHiddenCount] = useState<number | null>(null);
   const [jobTitle, setJobTitle] = useState('');
   const [clientEmail, setClientEmail] = useState('');
+  const [clientName, setClientName] = useState('');
   const [matchId, setMatchId] = useState('');
   const [batchMatchIds, setBatchMatchIds] = useState<string[]>([]);
   const [trackerOptions, setTrackerOptions] = useState<ClientTrackerOptions>(CLIENT_TRACKER_OPTION_DEFAULTS);
@@ -49,6 +50,7 @@ export function useSubmitToClientModal(options?: {
     setHiddenCount(null);
     setJobTitle('');
     setClientEmail('');
+    setClientName('');
     setMatchId('');
     setBatchMatchIds([]);
     setTrackerOptions(CLIENT_TRACKER_OPTION_DEFAULTS);
@@ -70,6 +72,7 @@ export function useSubmitToClientModal(options?: {
       setHiddenCount(null);
       setJobTitle(entries.find((entry) => entry.jobTitle)?.jobTitle || '');
       setClientEmail('');
+      setClientName('');
       setMatchId('');
       setBatchMatchIds([]);
       setTrackerOptions(CLIENT_TRACKER_OPTION_DEFAULTS);
@@ -82,6 +85,7 @@ export function useSubmitToClientModal(options?: {
         setHiddenCount(result.hiddenCount);
         setJobTitle(result.jobTitle);
         setClientEmail(result.clientEmail);
+        setClientName(result.clientName);
         setMatchId(result.matchId);
         setBatchMatchIds(result.batchMatchIds);
         setTrackerOptions(result.trackerOptions);
@@ -209,6 +213,7 @@ export function useSubmitToClientModal(options?: {
       candidateNames={candidateNames}
       jobTitle={jobTitle}
       clientEmail={clientEmail}
+      clientName={clientName}
       visibleCount={visibleCount}
       hiddenCount={hiddenCount}
       matchId={matchId}

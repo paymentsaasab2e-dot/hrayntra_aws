@@ -3,21 +3,26 @@
 import React, { createContext, useContext, useMemo, useState } from 'react';
 import type { CrmDashboardFilters, DrillDownPayload } from '@/lib/dashboard/api';
 
-export type CrmSectionId =
-  | 'kpis'
-  | 'charts'
-  | 'tables'
-  | 'followups'
-  | 'team'
-  | 'alerts';
+export type CrmSectionId = 'insights' | 'portfolio' | 'team' | 'alerts';
 
-/** Legacy customize panel — maps to category tabs where possible. */
+/** Customize toggles — ids match category tabs (except alerts, which is a panel). */
 export const CRM_SECTIONS: Array<{ id: CrmSectionId; label: string }> = [
-  { id: 'followups', label: 'Insights & follow-ups' },
-  { id: 'charts', label: 'Pipeline & records' },
+  { id: 'insights', label: 'Insights & actions' },
+  { id: 'portfolio', label: 'Pipeline & records' },
   { id: 'team', label: 'Team & outreach' },
   { id: 'alerts', label: 'Alerts sidebar' },
 ];
+
+/** Map legacy customize ids (pre category-tabs) onto current section ids. */
+export function normalizeCrmHiddenSections(hidden?: string[] | null): string[] {
+  if (!Array.isArray(hidden)) return [];
+  const mapped = hidden.map((id) => {
+    if (id === 'followups' || id === 'kpis') return 'insights';
+    if (id === 'charts' || id === 'tables') return 'portfolio';
+    return id;
+  });
+  return Array.from(new Set(mapped.filter(Boolean)));
+}
 
 export type CrmCategoryTabId = 'mine' | 'insights' | 'portfolio' | 'team' | 'people';
 
@@ -77,7 +82,7 @@ export function CrmDashboardProvider({
   onHiddenChange?: (hidden: string[]) => void;
 }) {
   const [filters, setFilters] = useState<CrmDashboardFilters>({ dateRange: 'last_30_days' });
-  const [hidden, setHidden] = useState<string[]>(initialHidden);
+  const [hidden, setHidden] = useState<string[]>(() => normalizeCrmHiddenSections(initialHidden));
   const [refreshKey, setRefreshKey] = useState(0);
   const [drillDown, setDrillDown] = useState<DrillDownPayload | null>(null);
 
@@ -89,8 +94,8 @@ export function CrmDashboardProvider({
       toggleSection: (id: string) => {
         setHidden((prev) => {
           const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
-          onHiddenChange?.(next);
-          return next;
+          onHiddenChange?.(normalizeCrmHiddenSections(next));
+          return normalizeCrmHiddenSections(next);
         });
       },
       refreshKey,

@@ -54,6 +54,17 @@ function isOverdue(date) {
   return d < startOfDay();
 }
 
+/** Due within next 48h but not calendar-today (today is covered by isDueToday). */
+function isUpcomingSoon(date, withinMs = 48 * 60 * 60 * 1000) {
+  if (!date) return false;
+  const d = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(d.getTime())) return false;
+  if (isDueToday(d) || isOverdue(d)) return false;
+  const now = Date.now();
+  const t = d.getTime();
+  return t > now && t <= now + withinMs;
+}
+
 function formatDateLabel(date) {
   const d = date instanceof Date ? date : new Date(date);
   return d.toLocaleDateString('en-US', { dateStyle: 'medium' });
@@ -68,11 +79,12 @@ function getCandidateFollowUpDate(candidate) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-async function processLeadFollowUps() {
+async function processLeadFollowUps(options = {}) {
+  const onlyUserId = String(options.userId || '').trim() || null;
   const leads = await prisma.lead.findMany({
     where: {
       isDeleted: { not: true },
-      assignedToId: { not: null },
+      assignedToId: onlyUserId || { not: null },
       nextFollowUp: { not: null },
       status: { notIn: TERMINAL_LEAD_STATUSES },
       convertedToClientId: null,
@@ -88,38 +100,42 @@ async function processLeadFollowUps() {
       assignedToId: true,
       assignedTo: { select: { id: true, name: true, email: true } },
     },
-    take: 500,
+    take: onlyUserId ? 200 : 500,
   });
 
+  let dispatched = 0;
   for (const lead of leads) {
     const userId = lead.assignedToId;
     if (!userId) continue;
+    if (onlyUserId && userId !== onlyUserId) continue;
     const label = lead.companyName || lead.contactPerson || 'Lead';
     const followUp = lead.nextFollowUp;
 
     // Timed follow-up reminder emails (stored on lead otherDetails)
-    try {
-      const schedule = readFollowUpScheduleFromOtherDetails(lead.otherDetails);
-      if (schedule && schedule.reminderAt && !schedule.reminderSentAt) {
-        const updatedSchedule = await sendLeadFollowUpReminderEmails({ lead, schedule });
-        if (updatedSchedule?.reminderSentAt && updatedSchedule.reminderSentAt !== schedule.reminderSentAt) {
-          await prisma.lead.update({
-            where: { id: lead.id },
-            data: {
-              otherDetails: mergeFollowUpScheduleIntoOtherDetails(
-                Array.isArray(lead.otherDetails) ? lead.otherDetails : [],
-                updatedSchedule,
-              ),
-            },
-          });
+    if (!onlyUserId) {
+      try {
+        const schedule = readFollowUpScheduleFromOtherDetails(lead.otherDetails);
+        if (schedule && schedule.reminderAt && !schedule.reminderSentAt) {
+          const updatedSchedule = await sendLeadFollowUpReminderEmails({ lead, schedule });
+          if (updatedSchedule?.reminderSentAt && updatedSchedule.reminderSentAt !== schedule.reminderSentAt) {
+            await prisma.lead.update({
+              where: { id: lead.id },
+              data: {
+                otherDetails: mergeFollowUpScheduleIntoOtherDetails(
+                  Array.isArray(lead.otherDetails) ? lead.otherDetails : [],
+                  updatedSchedule,
+                ),
+              },
+            });
+          }
         }
+      } catch (reminderErr) {
+        console.warn('[alert-scheduler] meet reminder failed:', reminderErr?.message || reminderErr);
       }
-    } catch (reminderErr) {
-      console.warn('[alert-scheduler] meet reminder failed:', reminderErr?.message || reminderErr);
     }
 
     if (isDueToday(followUp)) {
-      await dispatchScheduledAlert({
+      const result = await dispatchScheduledAlert({
         alertId: 'lead.followup_due_today',
         userId,
         payload: {
@@ -142,8 +158,9 @@ async function processLeadFollowUps() {
           );
         },
       });
+      if (!result?.skipped) dispatched += 1;
     } else if (isOverdue(followUp)) {
-      await dispatchScheduledAlert({
+      const result = await dispatchScheduledAlert({
         alertId: 'lead.followup_overdue',
         userId,
         payload: {
@@ -166,8 +183,35 @@ async function processLeadFollowUps() {
           );
         },
       });
+      if (!result?.skipped) dispatched += 1;
+    } else if (isUpcomingSoon(followUp)) {
+      const result = await dispatchScheduledAlert({
+        alertId: 'lead.followup_upcoming',
+        userId,
+        payload: {
+          category: 'LEAD',
+          title: 'Upcoming lead follow-up',
+          description: `Follow-up with ${label} is due ${formatDateLabel(followUp)}.`,
+          actionLabel: 'Open lead',
+          actionPath: `/leads?leadId=${lead.id}`,
+          entityType: 'LEAD',
+          entityId: lead.id,
+        },
+        emailFn: async () => {
+          if (!lead.assignedTo?.email) return null;
+          return sendLeadFollowUpEmail(
+            lead.assignedTo.email,
+            label,
+            formatDateLabel(followUp),
+            'Upcoming reminder',
+            'This lead follow-up is coming up soon — please plan to connect.'
+          );
+        },
+      });
+      if (!result?.skipped) dispatched += 1;
     }
   }
+  return { dispatched, scanned: leads.length };
 }
 
 async function processClientScheduledMeetingReminders() {
@@ -214,11 +258,12 @@ async function processClientScheduledMeetingReminders() {
   }
 }
 
-async function processClientFollowUps() {
+async function processClientFollowUps(options = {}) {
+  const onlyUserId = String(options.userId || '').trim() || null;
   const clients = await prisma.client.findMany({
     where: {
       isDeleted: { not: true },
-      assignedToId: { not: null },
+      assignedToId: onlyUserId || { not: null },
       nextFollowUpDue: { not: null },
     },
     select: {
@@ -228,17 +273,19 @@ async function processClientFollowUps() {
       assignedToId: true,
       assignedTo: { select: { id: true, name: true, email: true } },
     },
-    take: 500,
+    take: onlyUserId ? 200 : 500,
   });
 
+  let dispatched = 0;
   for (const client of clients) {
     const userId = client.assignedToId;
     if (!userId) continue;
+    if (onlyUserId && userId !== onlyUserId) continue;
     const label = client.companyName || 'Client';
     const followUp = client.nextFollowUpDue;
 
     if (isDueToday(followUp)) {
-      await dispatchScheduledAlert({
+      const result = await dispatchScheduledAlert({
         alertId: 'client.followup_due',
         userId,
         payload: {
@@ -262,8 +309,9 @@ async function processClientFollowUps() {
           });
         },
       });
+      if (!result?.skipped) dispatched += 1;
     } else if (isOverdue(followUp)) {
-      await dispatchScheduledAlert({
+      const result = await dispatchScheduledAlert({
         alertId: 'client.followup_overdue',
         userId,
         payload: {
@@ -287,8 +335,36 @@ async function processClientFollowUps() {
           });
         },
       });
+      if (!result?.skipped) dispatched += 1;
+    } else if (isUpcomingSoon(followUp)) {
+      const result = await dispatchScheduledAlert({
+        alertId: 'client.followup_upcoming',
+        userId,
+        payload: {
+          category: 'CLIENT',
+          title: 'Upcoming client follow-up',
+          description: `Follow-up with ${label} is due ${formatDateLabel(followUp)}.`,
+          actionLabel: 'Open client',
+          actionPath: `/client?clientId=${client.id}`,
+          entityType: 'CLIENT',
+          entityId: client.id,
+        },
+        emailFn: async () => {
+          if (!client.assignedTo?.email) return null;
+          return sendClientFollowUpReminderEmail({
+            toEmail: client.assignedTo.email,
+            recipientName: client.assignedTo.name,
+            clientCompanyName: label,
+            followUpDueDate: followUp,
+            notes: 'This client follow-up is coming up soon.',
+            senderUserId: null,
+          });
+        },
+      });
+      if (!result?.skipped) dispatched += 1;
     }
   }
+  return { dispatched, scanned: clients.length };
 }
 
 async function processPipelineFollowUps() {
@@ -807,6 +883,20 @@ export async function runAlertScheduler() {
   } finally {
     schedulerRunning = false;
   }
+}
+
+/**
+ * Sync portal Alerts + emails for the signed-in member's lead/client follow-ups.
+ * Used on login / Alerts tab open so reminders appear without waiting for the hourly cron.
+ */
+export async function syncMyFollowUpAlerts(userId) {
+  const uid = String(userId || '').trim();
+  if (!uid) return { leads: null, clients: null };
+  const [leads, clients] = await Promise.all([
+    processLeadFollowUps({ userId: uid }),
+    processClientFollowUps({ userId: uid }),
+  ]);
+  return { leads, clients };
 }
 
 export function startAlertScheduler() {

@@ -27,6 +27,17 @@ export function buildAssigneeVisibilityOr(userId, { includeAssignedToIds = false
   return or;
 }
 
+/** Jobs: assignee/creator/history, Job.managerId, and supportingRecruiters[]. */
+export function buildJobVisibilityOr(userId) {
+  const uid = idStr(userId);
+  if (!uid) return [];
+  return [
+    ...buildAssigneeVisibilityOr(uid),
+    { managerId: uid },
+    { supportingRecruiters: { has: uid } },
+  ];
+}
+
 /**
  * When assignee changes, keep prior assignee + assigner in participantIds so both
  * still see the record after handoff (same pattern as tasks).

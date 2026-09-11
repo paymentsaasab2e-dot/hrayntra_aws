@@ -24,6 +24,7 @@ import {
   apiListNotifications,
   apiMarkAllNotificationsRead,
   apiMarkNotificationRead,
+  apiSyncFollowUpAlerts,
   NOTIFICATIONS_UPDATED_EVENT,
   type AppNotification,
   type AppNotificationCategory,
@@ -83,6 +84,21 @@ function isAlertNotification(n: AppNotification): boolean {
   const severity = String(meta.severity || meta.level || meta.alertType || '').toLowerCase();
   if (['high', 'critical', 'warning', 'alert', 'error'].includes(severity)) return true;
   if (meta.alert === true || meta.isAlert === true) return true;
+
+  const alertId = String(meta.alertId || '').toLowerCase();
+  if (
+    alertId.includes('followup') ||
+    alertId.includes('follow-up') ||
+    alertId.includes('overdue') ||
+    alertId.includes('due_today') ||
+    alertId.includes('due-today')
+  ) {
+    return true;
+  }
+  if (meta.scheduled === true && (n.category === 'LEAD' || n.category === 'CLIENT')) {
+    return true;
+  }
+
   const blob = `${n.title || ''} ${n.description || ''} ${n.actionLabel || ''}`.toLowerCase();
   return (
     blob.includes('overdue') ||
@@ -91,8 +107,10 @@ function isAlertNotification(n: AppNotification): boolean {
     blob.includes('urgent') ||
     blob.includes('sla') ||
     blob.includes('at risk') ||
-    blob.includes('follow-up overdue') ||
-    blob.includes('followup overdue')
+    blob.includes('follow-up') ||
+    blob.includes('followup') ||
+    blob.includes('due today') ||
+    blob.includes('upcoming follow')
   );
 }
 
@@ -153,6 +171,11 @@ export function NotificationDrawer({ isOpen, onClose }: NotificationDrawerProps)
     setLoading(true);
     setError(null);
     try {
+      try {
+        await apiSyncFollowUpAlerts();
+      } catch {
+        // Still show existing notifications if sync fails
+      }
       const res = await apiListNotifications({
         category: 'ALL',
         take: 100,

@@ -92,6 +92,12 @@ export const ALERT_EXAMPLE_PREVIEWS = {
     emailSubject: 'Reminder: Follow-up due today — Acme Corp',
     shownIn: 'Bell • Email on due date (scheduler)',
   },
+  'lead.followup_upcoming': {
+    portalTitle: 'Upcoming lead follow-up',
+    portalBody: 'Acme Corp — follow-up due within 48 hours.',
+    emailSubject: 'Upcoming: Lead follow-up — Acme Corp',
+    shownIn: 'Bell • Email • Alerts tab (scheduler / login sync)',
+  },
   'lead.followup_overdue': {
     portalTitle: 'Lead follow-up overdue',
     portalBody: 'Acme Corp follow-up was due 20 Jun 2026. Act today to protect conversion.',
@@ -129,6 +135,12 @@ export const ALERT_EXAMPLE_PREVIEWS = {
     portalBody: 'Globex — retention check-in due 23 Jun 2026.',
     emailSubject: 'Client follow-up reminder — Globex',
     shownIn: 'Bell • Email on follow-up due date',
+  },
+  'client.followup_upcoming': {
+    portalTitle: 'Upcoming client follow-up',
+    portalBody: 'Globex — follow-up due within 48 hours.',
+    emailSubject: 'Upcoming client follow-up — Globex',
+    shownIn: 'Bell • Email • Alerts tab (scheduler / login sync)',
   },
   'client.followup_overdue': {
     portalTitle: 'Client follow-up overdue',

@@ -678,7 +678,7 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
     currentTitle: c.currentTitle || null,
     currentCompany: c.currentCompany || null,
     stage,
-    experience: resolveCandidateExperienceYears(c) ?? c.experience ?? c.experienceYears ?? 0,
+    experience: resolveCandidateExperienceYears(c) ?? 0,
     location: c.location || '—',
     email: displayCandidateEmail(c.email) || c.email || '',
     phone: c.phone || '—',

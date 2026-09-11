@@ -173,7 +173,8 @@ export interface TeamMember {
   department: Department | null;
   /** Department authority rank (1 = head). From department role config. */
   departmentRank?: number | null;
-  manager: { id: string; firstName: string; lastName: string } | null;
+  managerId?: string | null;
+  manager: { id: string; firstName: string; lastName: string; email?: string } | null;
   credential: {
     loginId: string;
     isLocked: boolean;

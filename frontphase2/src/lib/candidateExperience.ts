@@ -29,26 +29,62 @@ export type CvWorkEntryLike = {
   documents?: Array<{ id?: string; name?: string; url?: string; fileName?: string }> | null;
 };
 
+/** Hard ceiling for human work experience shown in CRM lists. */
+export const MAX_PLAUSIBLE_EXPERIENCE_YEARS = 50;
+
+/** Earliest start year we trust when computing tenure from dates. */
+const MIN_PLAUSIBLE_CAREER_YEAR = 1970;
+
+/**
+ * Certification / standards codes that CV parsers often store as "experience".
+ * Example: ISO 27001 → experience = 27001 → table shows "27001y".
+ */
+const CERTIFICATION_STANDARD_YEARS = new Set([
+  9001, 14001, 18001, 20000, 22000, 22301, 27001, 27002, 27017, 27018, 27701, 45001, 50001,
+]);
+
+/**
+ * Reject absurd / misparsed experience values (ISO codes, calendar years, huge numbers).
+ * Returns rounded years or null when the value is not a plausible tenure.
+ */
+export function sanitizeExperienceYears(value: number | null | undefined): number | null {
+  if (value == null || !Number.isFinite(Number(value))) return null;
+  const n = Number(value);
+  if (n <= 0) return null;
+  const roundedInt = Math.round(n);
+  // Calendar year mistaken for years of experience (e.g. 2019, 2024).
+  if (roundedInt >= 1900 && roundedInt <= 2100) return null;
+  if (CERTIFICATION_STANDARD_YEARS.has(roundedInt)) return null;
+  if (n > MAX_PLAUSIBLE_EXPERIENCE_YEARS) return null;
+  return Math.round(n * 10) / 10;
+}
+
 function parseDurationYears(text: string): number | null {
   const t = String(text || '').toLowerCase().trim();
   if (!t) return null;
 
+  // "ISO 27001" / "ISO27001 certified" must never become tenure.
+  if (/\biso\s*[/:-]?\s*\d{4,5}\b/i.test(t)) {
+    const withoutIso = t.replace(/\biso\s*[/:-]?\s*\d{4,5}\b/gi, ' ');
+    return parseDurationYears(withoutIso);
+  }
+
   const yearMatch = t.match(/(\d+(?:\.\d+)?)\s*(?:\+)?\s*years?/);
   if (yearMatch) {
     const n = Number(yearMatch[1]);
-    return Number.isFinite(n) ? n : null;
+    return sanitizeExperienceYears(n);
   }
 
   const monthMatch = t.match(/(\d+(?:\.\d+)?)\s*months?/);
   if (monthMatch) {
     const n = Number(monthMatch[1]);
-    return Number.isFinite(n) ? n / 12 : null;
+    return Number.isFinite(n) ? sanitizeExperienceYears(n / 12) : null;
   }
 
   const yrAbbr = t.match(/(\d+(?:\.\d+)?)\s*yr\b/);
   if (yrAbbr) {
     const n = Number(yrAbbr[1]);
-    return Number.isFinite(n) ? n : null;
+    return sanitizeExperienceYears(n);
   }
 
   return null;
@@ -64,33 +100,36 @@ function parseDateMs(value: string | null | undefined): number | null {
   if (!raw || isOpenEndedEndDate(raw)) return null;
 
   let ms = Date.parse(raw);
-  if (Number.isFinite(ms)) return ms;
-
-  const monthYear = raw.match(/^([A-Za-z]{3,9})\s+(\d{4})$/);
-  if (monthYear) {
-    ms = Date.parse(`${monthYear[1]} 1, ${monthYear[2]}`);
-    if (Number.isFinite(ms)) return ms;
+  if (!Number.isFinite(ms)) {
+    const monthYear = raw.match(/^([A-Za-z]{3,9})\s+(\d{4})$/);
+    if (monthYear) {
+      ms = Date.parse(`${monthYear[1]} 1, ${monthYear[2]}`);
+    }
   }
-
-  const slashMY = raw.match(/^(\d{1,2})[/.-](\d{4})$/);
-  if (slashMY) {
-    ms = Date.parse(`${slashMY[1]}/1/${slashMY[2]}`);
-    if (Number.isFinite(ms)) return ms;
+  if (!Number.isFinite(ms)) {
+    const slashMY = raw.match(/^(\d{1,2})[/.-](\d{4})$/);
+    if (slashMY) {
+      ms = Date.parse(`${slashMY[1]}/1/${slashMY[2]}`);
+    }
   }
-
-  const yearMonth = raw.match(/^(\d{4})[/.-](\d{1,2})$/);
-  if (yearMonth) {
-    ms = Date.parse(`${yearMonth[2]}/1/${yearMonth[1]}`);
-    if (Number.isFinite(ms)) return ms;
+  if (!Number.isFinite(ms)) {
+    const yearMonth = raw.match(/^(\d{4})[/.-](\d{1,2})$/);
+    if (yearMonth) {
+      ms = Date.parse(`${yearMonth[2]}/1/${yearMonth[1]}`);
+    }
   }
-
-  const yearOnly = raw.match(/^(\d{4})$/);
-  if (yearOnly) {
-    ms = Date.parse(`Jan 1, ${yearOnly[1]}`);
-    if (Number.isFinite(ms)) return ms;
+  if (!Number.isFinite(ms)) {
+    const yearOnly = raw.match(/^(\d{4})$/);
+    if (yearOnly) {
+      ms = Date.parse(`Jan 1, ${yearOnly[1]}`);
+    }
   }
+  if (!Number.isFinite(ms)) return null;
 
-  return null;
+  const year = new Date(ms).getFullYear();
+  // Reject epoch / garbage dates that produce multi-thousand-year tenures.
+  if (year < MIN_PLAUSIBLE_CAREER_YEAR || year > new Date().getFullYear() + 1) return null;
+  return ms;
 }
 
 export function normalizeCvWorkEntry(entry: CvWorkEntryLike): CvWorkEntryLike {
@@ -253,8 +292,7 @@ export function computeWorkEntryYears(entry: CvWorkEntryLike): number | null {
     : parseDateMs(normalized.endDate) ?? (start != null ? Date.now() : null);
   if (start != null && end != null && end >= start) {
     const years = (end - start) / (365.25 * 24 * 60 * 60 * 1000);
-    const rounded = Math.round(years * 10) / 10;
-    return rounded > 0 ? rounded : null;
+    return sanitizeExperienceYears(years);
   }
   return null;
 }
@@ -405,16 +443,18 @@ function parseGlobalExperienceFromExtra(
     pipeline.experience,
   ];
   for (const value of nums) {
-    const n = Number(value);
-    if (Number.isFinite(n) && n > 0) return Math.round(n * 10) / 10;
+    const sanitized = sanitizeExperienceYears(Number(value));
+    if (sanitized != null) return sanitized;
   }
-  const blob = [narrative, String(extra?.experienceRaw || '')].filter(Boolean).join('\n');
+  const blob = [narrative, String(extra?.experienceRaw || '')]
+    .filter(Boolean)
+    .join('\n')
+    .replace(/\biso\s*[/:-]?\s*\d{4,5}\b/gi, ' ');
   const totalMatch = blob.match(
     /(\d+(?:\.\d+)?)\s*(?:\+)?\s*years?\s+(?:of\s+)?(?:total\s+)?experience/i,
   );
   if (totalMatch) {
-    const n = Number(totalMatch[1]);
-    if (Number.isFinite(n) && n > 0) return n;
+    return sanitizeExperienceYears(Number(totalMatch[1]));
   }
   return null;
 }
@@ -489,8 +529,7 @@ function computeYearsFromDateRanges(list: CvWorkEntryLike[]): number | null {
   }
   if (totalMs <= 0) return null;
   const years = totalMs / (365.25 * 24 * 60 * 60 * 1000);
-  const rounded = Math.round(years * 10) / 10;
-  return rounded > 0 ? rounded : 0.1;
+  return sanitizeExperienceYears(years) ?? (years > 0 && years < 1 ? 0.1 : null);
 }
 
 /** Sum per-role duration claims from CV text ("1 year experience on-site", etc.). */
@@ -505,8 +544,7 @@ export function computeYearsFromDurationClaims(list: CvWorkEntryLike[]): number 
     }
   }
   if (!anyDuration) return null;
-  const rounded = Math.round(durationSum * 10) / 10;
-  return rounded > 0 ? rounded : 0.1;
+  return sanitizeExperienceYears(durationSum) ?? (durationSum > 0 && durationSum < 1 ? 0.1 : null);
 }
 
 /** Total years for list/drawer — prefers CV duration lines when dates understate tenure. */
@@ -527,11 +565,11 @@ export function resolveCandidateExperienceYears(
     enriched.experience ??
     (enriched as BackendCandidate & { experienceYears?: number | null }).experienceYears ??
     null;
-  const fallback =
-    parseGlobalExperienceFromExtra(extra, narrative) ??
-    (apiYears != null && Number.isFinite(Number(apiYears)) ? Number(apiYears) : null);
-  const computed = computeTotalExperienceYears(entries, fallback);
-  const apiNum = apiYears != null && Number.isFinite(Number(apiYears)) ? Number(apiYears) : null;
+  const apiNum = sanitizeExperienceYears(
+    apiYears != null && Number.isFinite(Number(apiYears)) ? Number(apiYears) : null,
+  );
+  const fallback = parseGlobalExperienceFromExtra(extra, narrative) ?? apiNum;
+  const computed = sanitizeExperienceYears(computeTotalExperienceYears(entries, fallback));
   if (computed != null && computed < 1 && apiNum != null && apiNum >= 1) {
     return apiNum;
   }
@@ -544,11 +582,11 @@ export function computeTotalExperienceYears(
   fallbackYears?: number | null | undefined,
 ): number | null {
   const list = Array.isArray(entries) ? entries.filter(Boolean) : [];
+  const fallbackNum = sanitizeExperienceYears(
+    fallbackYears != null && Number.isFinite(Number(fallbackYears)) ? Number(fallbackYears) : null,
+  );
   if (!list.length) {
-    if (fallbackYears != null && Number.isFinite(Number(fallbackYears))) {
-      return Math.max(0, Number(fallbackYears));
-    }
-    return null;
+    return fallbackNum;
   }
 
   const durationSum = computeYearsFromDurationClaims(list);
@@ -560,8 +598,6 @@ export function computeTotalExperienceYears(
     }
   }
   if (calendarYears != null && calendarYears > 0) {
-    const fallbackNum =
-      fallbackYears != null && Number.isFinite(Number(fallbackYears)) ? Number(fallbackYears) : null;
     // Portal profile dates often understate tenure; trust CV/API total when calendar ≈ 0.
     if (fallbackNum != null && fallbackNum >= 1 && calendarYears < 1) {
       return fallbackNum;
@@ -572,17 +608,17 @@ export function computeTotalExperienceYears(
     return calendarYears;
   }
 
-  if (fallbackYears != null && Number.isFinite(Number(fallbackYears))) {
-    return Math.max(0, Number(fallbackYears));
-  }
+  if (fallbackNum != null) return fallbackNum;
   if (list.length > 0) return 0.1;
   return null;
 }
 
 export function formatExperienceYearsLabel(years: number | null | undefined): string {
-  if (years == null || !Number.isFinite(Number(years))) return '';
-  const n = Number(years);
-  if (n === 0) return '0 years';
+  const n = sanitizeExperienceYears(years);
+  if (n == null) {
+    if (years != null && Number(years) === 0) return '0 years';
+    return '';
+  }
   if (Number.isInteger(n)) return `${n} year${n === 1 ? '' : 's'}`;
   return `${n.toFixed(1)} years`;
 }
@@ -593,15 +629,17 @@ export function formatCandidateExperienceForTable(
   workEntryCount = 0,
 ): string {
   const hasWork = workEntryCount > 0;
-  if (years == null || !Number.isFinite(Number(years))) {
+  const n = sanitizeExperienceYears(years);
+  if (n == null) {
+    if (years != null && Number.isFinite(Number(years)) && Number(years) > 0 && Number(years) < 1) {
+      return '<1y';
+    }
     return hasWork ? '<1y' : '—';
   }
-  const n = Number(years);
   if (n >= 1) {
     return Number.isInteger(n) ? `${n}y` : `${n.toFixed(1)}y`;
   }
-  if (n > 0) return '<1y';
-  return hasWork ? '<1y' : '—';
+  return '<1y';
 }
 
 export function formatWorkEntryHeadline(entry: CvWorkEntryLike, index: number): string {

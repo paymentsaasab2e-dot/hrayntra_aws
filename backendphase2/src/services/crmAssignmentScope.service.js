@@ -32,6 +32,7 @@ const memberSelect = {
   email: true,
   departmentId: true,
   roleId: true,
+  managerId: true,
   status: true,
   orgUnitId: true,
   systemRole: {
@@ -50,6 +51,15 @@ const memberSelect = {
     select: {
       id: true,
       name: true,
+    },
+  },
+  managerRelation: {
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      name: true,
+      email: true,
     },
   },
   credential: {
@@ -71,6 +81,17 @@ function normalizeMember(user) {
     'User';
   const nameParts = String(name).split(/\s+/).filter(Boolean);
   const role = user.systemRole || null;
+  const manager = user.managerRelation
+    ? {
+        id: user.managerRelation.id,
+        firstName: user.managerRelation.firstName || '',
+        lastName: user.managerRelation.lastName || '',
+        name:
+          user.managerRelation.name ||
+          `${user.managerRelation.firstName || ''} ${user.managerRelation.lastName || ''}`.trim(),
+        email: user.managerRelation.email || '',
+      }
+    : null;
   return {
     id: user.id,
     firstName: firstName || nameParts[0] || '',
@@ -79,9 +100,11 @@ function normalizeMember(user) {
     email: user.email,
     departmentId: user.departmentId,
     roleId: user.roleId,
+    managerId: user.managerId || null,
     status: user.status,
     role,
     department: user.departmentRelation || null,
+    manager,
     orgUnitId: user.orgUnitId || null,
   };
 }
