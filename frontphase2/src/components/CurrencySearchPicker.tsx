@@ -34,7 +34,8 @@ function flagForCode(code: string): string {
 }
 
 /**
- * Same searchable world-currency UX as HQ Settings — reusable in tenant settings.
+ * Same as HQ Settings: search any world currency + full scrollable catalog.
+ * Quick chips are shortcuts only — the list below always has every currency.
  */
 export function CurrencySearchPicker({
   value,
@@ -48,21 +49,28 @@ export function CurrencySearchPicker({
   const [search, setSearch] = useState('');
   const selected = String(value || 'USD').toUpperCase();
 
-  const favorites = useMemo(() => {
-    const base = Array.from(new Set([...SUPPORTED_CURRENCIES, 'CNY', selected]));
-    return base;
+  const quickPicks = useMemo(() => {
+    return Array.from(new Set([...SUPPORTED_CURRENCIES, 'CNY', selected]));
   }, [selected]);
 
-  const searchResults = useMemo(() => {
+  const listRows = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return [];
-    return WORLD_CURRENCIES.filter(
-      (w) =>
-        w.code.toLowerCase().includes(q) ||
-        w.name.toLowerCase().includes(q) ||
-        w.countries.toLowerCase().includes(q),
-    ).slice(0, 30);
-  }, [search]);
+    const rows = !q
+      ? WORLD_CURRENCIES
+      : WORLD_CURRENCIES.filter(
+          (w) =>
+            w.code.toLowerCase().includes(q) ||
+            w.name.toLowerCase().includes(q) ||
+            w.countries.toLowerCase().includes(q),
+        );
+    // Keep selected near the top when not searching.
+    if (!q) {
+      const selectedRow = rows.find((w) => w.code === selected);
+      const rest = rows.filter((w) => w.code !== selected);
+      return selectedRow ? [selectedRow, ...rest] : rest;
+    }
+    return rows;
+  }, [search, selected]);
 
   const pick = (code: string) => {
     onChange(String(code || '').toUpperCase());
@@ -80,8 +88,8 @@ export function CurrencySearchPicker({
           value={search}
           disabled={disabled}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search any currency (e.g. BRL, Swiss Franc, Yen)"
-          className="w-full rounded-xl border border-slate-200 bg-slate-50/80 py-2.5 pl-9 pr-9 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-indigo-300 focus:bg-white focus:ring-2 focus:ring-indigo-500/15 disabled:opacity-50"
+          placeholder="Search any currency (code, name, or country)"
+          className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-9 pr-9 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/15 disabled:opacity-50"
         />
         {search ? (
           <button
@@ -95,53 +103,9 @@ export function CurrencySearchPicker({
         ) : null}
       </div>
 
-      {search.trim() ? (
-        <div className="mt-2">
-          {searchResults.length === 0 ? (
-            <p className="py-4 text-center text-sm text-slate-500">
-              No currency matches &ldquo;{search.trim()}&rdquo;
-            </p>
-          ) : (
-            <ul className="max-h-[240px] overflow-y-auto rounded-xl border border-slate-200 bg-white">
-              {searchResults.map((row) => {
-                const active = row.code === selected;
-                return (
-                  <li key={row.code} className="border-b border-slate-50 last:border-b-0">
-                    <button
-                      type="button"
-                      disabled={disabled}
-                      onClick={() => pick(row.code)}
-                      className={`flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left transition hover:bg-slate-50 disabled:opacity-50 ${
-                        active ? 'bg-indigo-50/80' : ''
-                      }`}
-                    >
-                      <div className="flex min-w-0 items-center gap-2.5">
-                        <span className="text-lg leading-none">{flagForCode(row.code)}</span>
-                        <div className="min-w-0">
-                          <p className="text-sm font-bold text-slate-900">
-                            {row.code}
-                            <span className="ml-1.5 font-medium text-slate-500">{row.name}</span>
-                          </p>
-                          {!compact ? (
-                            <p className="truncate text-[11px] text-slate-400">{row.countries}</p>
-                          ) : null}
-                        </div>
-                      </div>
-                      {active ? (
-                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-white">
-                          <Check className="h-3 w-3" strokeWidth={3} />
-                        </span>
-                      ) : null}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
-      ) : (
-        <div className={`mt-2 flex flex-wrap gap-1.5 ${compact ? '' : ''}`}>
-          {favorites.map((code) => {
+      {!search.trim() ? (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {quickPicks.map((code) => {
             const active = code === selected;
             return (
               <button
@@ -152,7 +116,7 @@ export function CurrencySearchPicker({
                 className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-[11px] font-bold transition disabled:opacity-50 ${
                   active
                     ? 'border-indigo-300 bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200'
-                    : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
+                    : 'border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-white'
                 }`}
               >
                 <span>{flagForCode(code)}</span>
@@ -161,7 +125,61 @@ export function CurrencySearchPicker({
             );
           })}
         </div>
-      )}
+      ) : null}
+
+      <p className="mt-2 text-[10px] font-medium uppercase tracking-wide text-slate-400">
+        {search.trim()
+          ? `${listRows.length} match${listRows.length === 1 ? '' : 'es'}`
+          : `All currencies (${WORLD_CURRENCIES.length}) — scroll or search`}
+      </p>
+
+      <div className="mt-1.5">
+        {listRows.length === 0 ? (
+          <p className="rounded-xl border border-slate-200 py-6 text-center text-sm text-slate-500">
+            No currency matches &ldquo;{search.trim()}&rdquo;
+          </p>
+        ) : (
+          <ul
+            className={`overflow-y-auto rounded-xl border border-slate-200 bg-white ${
+              compact ? 'max-h-[220px]' : 'max-h-[320px]'
+            }`}
+          >
+            {listRows.map((row) => {
+              const active = row.code === selected;
+              return (
+                <li key={row.code} className="border-b border-slate-50 last:border-b-0">
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => pick(row.code)}
+                    className={`flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left transition hover:bg-slate-50 disabled:opacity-50 ${
+                      active ? 'bg-indigo-50/80' : ''
+                    }`}
+                  >
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <span className="text-lg leading-none">{flagForCode(row.code)}</span>
+                      <div className="min-w-0">
+                        <p className="text-sm font-bold text-slate-900">
+                          {row.code}
+                          <span className="ml-1.5 font-medium text-slate-500">{row.name}</span>
+                        </p>
+                        {!compact ? (
+                          <p className="truncate text-[11px] text-slate-400">{row.countries}</p>
+                        ) : null}
+                      </div>
+                    </div>
+                    {active ? (
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-white">
+                        <Check className="h-3 w-3" strokeWidth={3} />
+                      </span>
+                    ) : null}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
 
       {hint ? <p className="mt-1 text-[11px] font-normal text-slate-500">{hint}</p> : null}
     </div>
