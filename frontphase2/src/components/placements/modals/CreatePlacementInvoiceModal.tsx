@@ -59,7 +59,8 @@ import {
   resolvePlacementInvoiceCurrency,
 } from '../../../lib/invoiceCurrency';
 import { calculatePlacementFee } from '../../../utils/placements';
-import { formatCurrencyAmount, SUPPORTED_CURRENCIES } from '../../../utils/currency';
+import { formatCurrencyAmount } from '../../../utils/currency';
+import { CurrencySearchPicker } from '../../CurrencySearchPicker';
 import {
   generateInvoicePdfBlobFromComponent,
   generateInvoicePdfFromElement,
@@ -1464,38 +1465,24 @@ export function CreatePlacementInvoiceModal({
                           </div>
                           {invoice ? (
                             <div>
-                              <label className={labelClass}>Invoice currency</label>
-                              <select
-                                className={inputClass}
+                              <CurrencySearchPicker
+                                compact
+                                label="Invoice currency"
                                 value={invoice.currency}
-                                onChange={(e) =>
-                                  updateInvoice({ currency: e.target.value.toUpperCase() })
-                                }
-                              >
-                                {SUPPORTED_CURRENCIES.map((c) => (
-                                  <option key={c} value={c}>
-                                    {c}
-                                  </option>
-                                ))}
-                              </select>
+                                onChange={(code) => updateInvoice({ currency: code })}
+                              />
                             </div>
                           ) : null}
                         </div>
                       ) : editingDraft && invoice ? (
                         <div className="space-y-3">
                           <div>
-                            <label className={labelClass}>Invoice currency</label>
-                            <select
-                              className={inputClass}
+                            <CurrencySearchPicker
+                              compact
+                              label="Invoice currency"
                               value={invoice.currency}
-                              onChange={(e) => updateInvoice({ currency: e.target.value.toUpperCase() })}
-                            >
-                              {SUPPORTED_CURRENCIES.map((c) => (
-                                <option key={c} value={c}>
-                                  {c}
-                                </option>
-                              ))}
-                            </select>
+                              onChange={(code) => updateInvoice({ currency: code })}
+                            />
                           </div>
                         </div>
                       ) : (
@@ -1575,20 +1562,12 @@ export function CreatePlacementInvoiceModal({
                             </div>
                             {invoice ? (
                               <div>
-                                <label className={labelClass}>Invoice currency</label>
-                                <select
-                                  className={inputClass}
+                                <CurrencySearchPicker
+                                  compact
+                                  label="Invoice currency"
                                   value={invoice.currency}
-                                  onChange={(e) =>
-                                    updateInvoice({ currency: e.target.value.toUpperCase() })
-                                  }
-                                >
-                                  {SUPPORTED_CURRENCIES.map((c) => (
-                                    <option key={c} value={c}>
-                                      {c}
-                                    </option>
-                                  ))}
-                                </select>
+                                  onChange={(code) => updateInvoice({ currency: code })}
+                                />
                               </div>
                             ) : null}
                             <div>

@@ -83,6 +83,13 @@ export const SalesGroupsTab: React.FC = () => {
     return recommended;
   }, [recommended, lower, showLower]);
 
+  const memberBadge = (m: SalesGroupMember) => {
+    if (m.isSuperAdmin || /super\s*admin/i.test(String(m.roleName || ''))) return 'Super Admin';
+    if (m.hierarchyPurpose === 'company_head' || m.hierarchyPurpose === 'site_head') return 'Head';
+    if (m.orgRank != null) return `R${m.orgRank}`;
+    return m.orgUnitName || '—';
+  };
+
   const toggleMember = (id: string) => {
     setSelectedIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
@@ -275,18 +282,18 @@ export const SalesGroupsTab: React.FC = () => {
                 onClick={() => setShowLower((v) => !v)}
               >
                 <UserPlus size={12} />
-                {showLower ? 'Hide lower ranks' : 'Add lower-ranked members'}
+                {showLower ? 'Show top ranks only' : 'Add lower-ranked members'}
               </button>
             </div>
             <p className="mb-2 text-[10px] text-slate-400">
-              Default list = org rank 1–2 and company/branch heads. Use the button to add lower ranks.
+              Default = Super Admins, org rank 1–2, and company/branch heads. Use the button for lower ranks.
             </p>
             <div className="max-h-56 space-y-1 overflow-y-auto rounded-lg border border-slate-200 p-2">
               {pickerMembers.length === 0 ? (
                 <p className="px-1 py-2 text-xs text-slate-400">
                   {orgUnitId
                     ? 'No ranked members for this company yet. Set ranks in Organization, or add lower ranks.'
-                    : 'No default top-rank members. Pick a company or add lower ranks.'}
+                    : 'No default top-rank members yet. Set ranks in Organization, or add lower ranks.'}
                 </p>
               ) : (
                 pickerMembers.map((m) => {
@@ -301,10 +308,13 @@ export const SalesGroupsTab: React.FC = () => {
                         checked={checked}
                         onChange={() => toggleMember(String(m.id))}
                       />
-                      <span className="min-w-0 flex-1 truncate text-xs text-slate-800">{m.name}</span>
-                      <span className="shrink-0 text-[10px] text-slate-400">
-                        {m.orgRank != null ? `R${m.orgRank}` : m.hierarchyPurpose === 'company_head' || m.hierarchyPurpose === 'site_head' ? 'Head' : '—'}
+                      <span className="min-w-0 flex-1 truncate text-xs text-slate-800">
+                        {m.name}
+                        {m.orgUnitName ? (
+                          <span className="text-slate-400"> · {m.orgUnitName}</span>
+                        ) : null}
                       </span>
+                      <span className="shrink-0 text-[10px] text-slate-400">{memberBadge(m)}</span>
                     </label>
                   );
                 })

@@ -16,24 +16,42 @@ function normalizeKind(value) {
   return kind === TEAM_KIND_SALES ? TEAM_KIND_SALES : TEAM_KIND_GENERAL;
 }
 
-function memberLabel(user) {
+function isTenantSuperAdminUser(user) {
+  const role = String(user?.role || '').trim().toUpperCase().replace(/\s+/g, '_');
+  const roleName = String(user?.systemRole?.roleName || user?.roleName || '')
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, '_');
+  return (
+    role === 'SUPER_ADMIN' ||
+    roleName === 'SUPER_ADMIN' ||
+    roleName.replace(/_/g, '') === 'SUPERADMIN'
+  );
+}
+
+function memberLabel(user, unitNameById = null) {
   if (!user) return null;
-  if (isHqPlatformUser(user)) return null;
+  // Keep tenant Super Admins available for sales teams; only drop true HQ platform ops.
+  if (isHqPlatformUser(user) && !isTenantSuperAdminUser(user)) return null;
   const name =
     String(user.name || '').trim() ||
     [user.firstName, user.lastName].filter(Boolean).join(' ').trim() ||
     user.email ||
     'User';
+  const orgUnitId = user.orgUnitId ? String(user.orgUnitId) : null;
   return {
     id: String(user.id),
     name,
     email: user.email || '',
     firstName: user.firstName || '',
     lastName: user.lastName || '',
-    orgUnitId: user.orgUnitId || null,
+    orgUnitId,
+    orgUnitName: orgUnitId && unitNameById ? unitNameById.get(orgUnitId) || '' : '',
     orgRank: user.orgRank ?? null,
     hierarchyPurpose: user.hierarchyPurpose || 'member',
     roleName: user.systemRole?.roleName || '',
+    role: user.role || '',
+    isSuperAdmin: isTenantSuperAdminUser(user),
     departmentName: user.departmentRelation?.name || '',
   };
 }
@@ -289,8 +307,8 @@ export const teamService = {
 
   /**
    * Candidates to add into a sales group.
-   * Default: top org ranks (1–2) + company/site heads.
-   * includeLowerRanks=true: everyone else under that company/branch.
+   * Default: Super Admins + top org ranks (1–2) + company/site heads.
+   * includeLowerRanks=true: everyone else in scope.
    */
   async listSalesCandidateMembers({ orgUnitId = null, includeLowerRanks = false, teamId = null } = {}) {
     const emailExclude = hqPlatformUserEmailNotClause();
@@ -299,24 +317,70 @@ export const teamService = {
       ...(Object.keys(emailExclude).length ? [emailExclude] : []),
     ];
     const unitId = oid(orgUnitId);
-    if (unitId) clauses.push({ orgUnitId: unitId });
+    // Load company-scoped people and/or whole tenant; Super Admins always merged in JS.
+    if (unitId) {
+      clauses.push({ orgUnitId: unitId });
+    }
 
-    const users = await prisma.user.findMany({
-      where: clauses.length === 1 ? clauses[0] : { AND: clauses },
-      select: {
-        id: true,
-        name: true,
-        firstName: true,
-        lastName: true,
-        email: true,
-        orgUnitId: true,
-        orgRank: true,
-        hierarchyPurpose: true,
-        systemRole: { select: { id: true, roleName: true, color: true } },
-        departmentRelation: { select: { id: true, name: true } },
-      },
-      orderBy: [{ orgRank: 'asc' }, { firstName: 'asc' }, { name: 'asc' }],
-    });
+    const [users, orgUnits, superAdminUsers] = await Promise.all([
+      prisma.user.findMany({
+        where: clauses.length === 1 ? clauses[0] : { AND: clauses },
+        select: {
+          id: true,
+          name: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          role: true,
+          orgUnitId: true,
+          orgRank: true,
+          hierarchyPurpose: true,
+          systemRole: { select: { id: true, roleName: true, color: true } },
+          departmentRelation: { select: { id: true, name: true } },
+        },
+        orderBy: [{ orgRank: 'asc' }, { firstName: 'asc' }, { name: 'asc' }],
+      }),
+      prisma.orgUnit.findMany({ select: { id: true, name: true, parentId: true } }),
+      prisma.user.findMany({
+        where: {
+          AND: [
+            { OR: [{ status: 'ACTIVE' }, { status: null }] },
+            ...(Object.keys(emailExclude).length ? [emailExclude] : []),
+            {
+              OR: [
+                { role: 'SUPER_ADMIN' },
+                { systemRole: { is: { roleName: 'Super Admin' } } },
+              ],
+            },
+          ],
+        },
+        select: {
+          id: true,
+          name: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          role: true,
+          orgUnitId: true,
+          orgRank: true,
+          hierarchyPurpose: true,
+          systemRole: { select: { id: true, roleName: true, color: true } },
+          departmentRelation: { select: { id: true, name: true } },
+        },
+      }),
+    ]);
+
+    const byId = new Map();
+    for (const user of [...users, ...superAdminUsers]) {
+      byId.set(String(user.id), user);
+    }
+    const mergedUsers = [...byId.values()];
+
+    const unitNameById = new Map(orgUnits.map((u) => [String(u.id), String(u.name || '')]));
+    // Real companies/branches = units with a parent (not HQ root).
+    const companyOrBranchIds = new Set(
+      orgUnits.filter((u) => Boolean(u.parentId)).map((u) => String(u.id)),
+    );
 
     let already = new Set();
     if (teamId) {
@@ -327,12 +391,21 @@ export const teamService = {
       already = new Set(existing.map((row) => String(row.userId)));
     }
 
-    const mapped = users
-      .map(memberLabel)
+    const mapped = mergedUsers
+      .map((user) => memberLabel(user, unitNameById))
       .filter(Boolean)
-      .filter((user) => !already.has(String(user.id)));
+      .filter((user) => !already.has(String(user.id)))
+      // All-companies view: keep people on companies/branches + every Super Admin.
+      .filter((user) => {
+        if (unitId) {
+          return user.isSuperAdmin || String(user.orgUnitId || '') === unitId;
+        }
+        if (user.isSuperAdmin) return true;
+        return Boolean(user.orgUnitId && companyOrBranchIds.has(String(user.orgUnitId)));
+      });
 
     const isTop = (user) => {
+      if (user.isSuperAdmin) return true;
       const purpose = String(user.hierarchyPurpose || 'member');
       if (purpose === 'company_head' || purpose === 'site_head') return true;
       const rank = Number(user.orgRank);
@@ -348,6 +421,7 @@ export const teamService = {
       members: includeLowerRanks ? mapped : recommended,
       includeLowerRanks: Boolean(includeLowerRanks),
       defaultRankMax: SALES_DEFAULT_ORG_RANK_MAX,
+      allCompanies: !unitId,
     };
   },
 };

@@ -11,7 +11,8 @@ import {
   type CommissionSlab,
   type CommissionSlabSettings,
 } from '../../lib/commissionSlabs';
-import { SUPPORTED_CURRENCIES, formatCurrencyAmount } from '../../utils/currency';
+import { formatCurrencyAmount } from '../../utils/currency';
+import { CurrencySearchPicker } from '../CurrencySearchPicker';
 import { usePermissions } from '../../hooks/usePermissions';
 
 function emptySlab(): CommissionSlab {
@@ -69,8 +70,6 @@ export function CommissionSlabSettings() {
       }),
     [draft, sampleSalary],
   );
-
-  const currencies = Array.from(new Set([...SUPPORTED_CURRENCIES, 'CNY']));
 
   const updateSlab = (id: string, patch: Partial<CommissionSlab>) => {
     setDraft((current) => ({
@@ -181,57 +180,41 @@ export function CommissionSlabSettings() {
           </label>
         </div>
 
-        <div className="mt-5 grid gap-4 sm:grid-cols-3">
-          <label className="block text-xs font-semibold text-slate-600">
-            Salary range currency
-            <select
-              value={draft.salaryCurrency}
-              onChange={(e) => {
-                const salaryCurrency = e.target.value;
-                setDraft((c) => ({
-                  ...c,
-                  salaryCurrency,
-                  fxRate:
-                    salaryCurrency === c.commissionCurrency
-                      ? null
-                      : suggestedFxRate(salaryCurrency, c.commissionCurrency),
-                }));
-              }}
-              className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800"
-            >
-              {currencies.map((code) => (
-                <option key={code} value={code}>
-                  {code}
-                </option>
-              ))}
-            </select>
-            <span className="mt-1 block font-normal text-slate-500">Min/max bands are entered in this currency.</span>
-          </label>
-          <label className="block text-xs font-semibold text-slate-600">
-            Commission / invoice currency
-            <select
-              value={draft.commissionCurrency}
-              onChange={(e) => {
-                const commissionCurrency = e.target.value;
-                setDraft((c) => ({
-                  ...c,
-                  commissionCurrency,
-                  fxRate:
-                    c.salaryCurrency === commissionCurrency
-                      ? null
-                      : suggestedFxRate(c.salaryCurrency, commissionCurrency),
-                }));
-              }}
-              className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800"
-            >
-              {currencies.map((code) => (
-                <option key={code} value={code}>
-                  {code}
-                </option>
-              ))}
-            </select>
-            <span className="mt-1 block font-normal text-slate-500">Placement fee and invoices are billed in this currency.</span>
-          </label>
+        <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <CurrencySearchPicker
+            compact
+            label="Salary range currency"
+            hint="Min/max bands are entered in this currency."
+            value={draft.salaryCurrency}
+            disabled={!canEdit}
+            onChange={(salaryCurrency) => {
+              setDraft((c) => ({
+                ...c,
+                salaryCurrency,
+                fxRate:
+                  salaryCurrency === c.commissionCurrency
+                    ? null
+                    : suggestedFxRate(salaryCurrency, c.commissionCurrency),
+              }));
+            }}
+          />
+          <CurrencySearchPicker
+            compact
+            label="Commission / invoice currency"
+            hint="Placement fee and invoices are billed in this currency."
+            value={draft.commissionCurrency}
+            disabled={!canEdit}
+            onChange={(commissionCurrency) => {
+              setDraft((c) => ({
+                ...c,
+                commissionCurrency,
+                fxRate:
+                  c.salaryCurrency === commissionCurrency
+                    ? null
+                    : suggestedFxRate(c.salaryCurrency, commissionCurrency),
+              }));
+            }}
+          />
           {draft.salaryCurrency !== draft.commissionCurrency ? (
             <label className="block text-xs font-semibold text-slate-600">
               Rate: 1 {draft.salaryCurrency} =

@@ -18,6 +18,7 @@ import {
   type ClientPageFieldVisibility,
 } from '../../lib/clientPageFieldVisibility';
 import { SettingsPageHero, SettingsPanel } from './SettingsPageHero';
+import { CurrencySearchPicker } from '../CurrencySearchPicker';
 
 type TemplateStage = {
   name: string;
@@ -45,9 +46,6 @@ export function RecruitmentWorkflowSettings() {
   const [applyingTemplate, setApplyingTemplate] = useState(false);
   const [stages, setStages] = useState<TemplateStage[]>([]);
   const [currency, setCurrency] = useState<string>('USD');
-  const [supportedCurrencies, setSupportedCurrencies] = useState<string[]>([
-    'USD', 'EUR', 'GBP', 'INR', 'AED', 'SGD', 'AUD', 'CAD', 'JPY', 'CNY',
-  ]);
   const [savingCurrency, setSavingCurrency] = useState(false);
   const [clientPageFields, setClientPageFields] = useState<ClientPageFieldVisibility>({
     ...DEFAULT_CLIENT_PAGE_FIELD_VISIBILITY,
@@ -80,9 +78,6 @@ export function RecruitmentWorkflowSettings() {
       );
       const code = String(currencyRes.data?.code || '').trim().toUpperCase();
       if (code) setCurrency(code);
-      if (Array.isArray(currencyRes.data?.supportedCurrencies) && currencyRes.data!.supportedCurrencies.length > 0) {
-        setSupportedCurrencies(currencyRes.data!.supportedCurrencies);
-      }
       const fields = clientFieldsRes.data?.clientPageFieldVisibility ?? DEFAULT_CLIENT_PAGE_FIELD_VISIBILITY;
       setClientPageFields(fields);
       setDraftClientPageFields(fields);
@@ -364,30 +359,14 @@ export function RecruitmentWorkflowSettings() {
 
       <SettingsPanel
         title="Default currency"
-        description="Portal-wide default for invoices, placements, pay expectations, and charts. Per-row invoice overrides still work."
+        description="Portal-wide default for invoices, placements, pay expectations, and charts. Search any world currency — same catalog as HQ Settings."
         icon={<Coins className="h-4 w-4 text-indigo-600" />}
       >
-        <div className="flex flex-wrap gap-2">
-          {supportedCurrencies.map((code) => {
-            const active = currency === code;
-            return (
-              <button
-                key={code}
-                type="button"
-                onClick={() => void saveCurrency(code)}
-                disabled={savingCurrency}
-                className={`rounded-xl border px-3.5 py-2 text-xs font-bold transition-colors ${
-                  active
-                    ? 'border-indigo-500 bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-sm shadow-indigo-500/25'
-                    : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
-                } disabled:opacity-50`}
-              >
-                {code}
-                {active ? ' · Active' : ''}
-              </button>
-            );
-          })}
-        </div>
+        <CurrencySearchPicker
+          value={currency}
+          disabled={savingCurrency}
+          onChange={(code) => void saveCurrency(code)}
+        />
       </SettingsPanel>
     </div>
   );

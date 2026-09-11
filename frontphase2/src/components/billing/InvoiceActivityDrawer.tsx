@@ -41,7 +41,8 @@ import {
   type InvoiceActivityResponse,
 } from '../../lib/api';
 import { usePermissions } from '../../hooks/usePermissions';
-import { SUPPORTED_CURRENCIES, formatCurrencyAmount } from '../../utils/currency';
+import { formatCurrencyAmount } from '../../utils/currency';
+import { CurrencySearchPicker } from '../CurrencySearchPicker';
 import { formatDateTimeDMY } from '../../utils/dateDisplay';
 import { Skeleton } from '../ui/Skeleton';
 import { EntityAuditSummary } from '../table/TableAuditCell';
@@ -361,18 +362,13 @@ export default function InvoiceActivityDrawer({
                 <p className="mb-3 text-[10px] font-bold uppercase tracking-widest text-slate-400">
                   Currency for this placement
                 </p>
-                <div className="flex flex-wrap items-center gap-2">
-                  <select
+                <div className="space-y-2">
+                  <CurrencySearchPicker
+                    compact
                     value={currencyDraft || baseCurrency}
-                    onChange={(e) => setCurrencyDraft(e.target.value)}
-                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 outline-none focus:border-blue-500"
-                  >
-                    {SUPPORTED_CURRENCIES.map((code) => (
-                      <option key={code} value={code}>
-                        {code}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(code) => setCurrencyDraft(code)}
+                  />
+                  <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
                     onClick={handleSaveCurrency}
@@ -387,6 +383,7 @@ export default function InvoiceActivityDrawer({
                       {savedFlash}
                     </span>
                   ) : null}
+                  </div>
                 </div>
                 <p className="mt-2 text-[11px] text-slate-500">
                   Saving applies the new currency to every invoice for this placement so the revenue chain stays

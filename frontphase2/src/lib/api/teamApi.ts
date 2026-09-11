@@ -451,9 +451,12 @@ export type SalesGroupMember = {
   name: string;
   email?: string;
   orgUnitId?: string | null;
+  orgUnitName?: string;
   orgRank?: number | null;
   hierarchyPurpose?: string;
   roleName?: string;
+  role?: string;
+  isSuperAdmin?: boolean;
   departmentName?: string;
 };
 
