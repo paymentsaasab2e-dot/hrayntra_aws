@@ -17,6 +17,11 @@ import {
 } from '../LeadFollowUpScheduler';
 import { formatFollowUpDisplay } from '../../utils/formatLeadDateTime';
 import { cleanDisplayText } from '../../lib/sanitizeMojibake';
+import {
+  businessValueInputValue,
+  normalizeBusinessValueForSave,
+  sanitizeBusinessValueInput,
+} from '../../lib/businessValue';
 import { clampDateTimeLocalToMin, getLocalDateTimeInputMinNow } from '../../utils/dateInputConstraints';
 import { NAME_SALUTATION_OPTIONS, formatDirectorDisplay } from '../../constants/salutations';
 import { MultiContactFields } from '../ui/MultiContactFields';
@@ -151,6 +156,13 @@ import { IndustryMultiSelect } from '../forms/IndustryMultiSelect';
 import { formatIndustriesDisplay } from '../../lib/industryOptions';
 import { DirectorContactFields } from '../forms/DirectorContactFields';
 import { TeamMemberOptionalFields } from '../forms/TeamMemberOptionalFields';
+import {
+  isDirectorDetailLabel,
+  mergeDirectorsIntoOtherDetails,
+  normalizeDirectorList,
+  resolveDirectorList,
+  type DirectorListItem,
+} from '../../lib/directorFormDetails';
 import {
   isTeamMemberDetailLabel,
   mergeTeamMemberIntoOtherDetails,
@@ -649,6 +661,8 @@ export type AddLeadFormData = AgreementTermsFormValues & {
   // Contact Section
   directorSalutation?: string;
   contactPerson: string;
+  /** Extra directors (name + email + phone). Primary is also mirrored in contactPerson/emails/phones. */
+  directors: DirectorListItem[];
   designation?: string;
   email: string;
   phone?: string;
@@ -1205,6 +1219,7 @@ export function LeadDetailsDrawer({
     // Contact Person
     directorSalutation: '',
     contactPerson: '',
+    directors: normalizeDirectorList(),
     designation: '',
     email: '',
     phone: '',
@@ -1613,6 +1628,7 @@ export function LeadDetailsDrawer({
       location: '',
       directorSalutation: '',
       contactPerson: '',
+      directors: normalizeDirectorList(),
       designation: '',
     email: '',
     phone: '',
@@ -1726,7 +1742,7 @@ export function LeadDetailsDrawer({
     status: generated.status || form.status,
     priority: generated.priority || form.priority,
     interestedNeeds: generated.interestedNeeds || form.interestedNeeds,
-    notes: generated.expectedBusinessValue || generated.notes || form.notes,
+    notes: businessValueInputValue(generated.expectedBusinessValue || generated.notes) || form.notes,
     industry: generated.industry || form.industry,
     companySize: generated.companySize || form.companySize,
     website: linkFields.website,
@@ -1924,6 +1940,7 @@ export function LeadDetailsDrawer({
     location: '',
     directorSalutation: '',
     contactPerson: '',
+    directors: normalizeDirectorList(),
     designation: '',
     email: '',
     phone: '',
@@ -2452,6 +2469,7 @@ export function LeadDetailsDrawer({
       location: lead.location ?? '',
       directorSalutation: lead.directorSalutation ?? '',
       contactPerson: lead.contactPerson,
+      directors: resolveDirectorList(lead),
       designation: lead.designation ?? '',
       email: lead.email,
       phone: lead.phone,
@@ -2484,6 +2502,7 @@ export function LeadDetailsDrawer({
               .filter(
                 (item) =>
                   !isTeamMemberDetailLabel(item.label) &&
+                  !isDirectorDetailLabel(item.label) &&
                   !isLeadOccasionDetailLabel(item.label) &&
                   !isInternalLeadOtherDetailLabel(item.label),
               )
@@ -2506,7 +2525,25 @@ export function LeadDetailsDrawer({
       status: lead.status,
       priority: lead.priority ?? 'Medium',
       interestedNeeds: lead.interestedNeeds ?? '',
-      notes: lead.notes ?? '',
+      notes: businessValueInputValue(
+        (() => {
+          const bv = String(lead.expectedBusinessValue || '').trim();
+          if (
+            bv &&
+            !/booked demo:|employer demo request:|entrepreneur demo request:/i.test(bv)
+          ) {
+            return bv;
+          }
+          const note = String(lead.notes || '').trim();
+          if (
+            note &&
+            !/booked demo:|employer demo request:|entrepreneur demo request:/i.test(note)
+          ) {
+            return note;
+          }
+          return '';
+        })(),
+      ),
       createdDate: lead.createdDate ?? '',
       lastFollowUp: lead.lastFollowUp,
       nextFollowUp: lead.nextFollowUp ?? '',
@@ -2796,14 +2833,17 @@ export function LeadDetailsDrawer({
         ),
         otherDetails: withPreservedInternalOtherDetails(
           mergeOccasionIntoOtherDetails(
-            mergeTeamMemberIntoOtherDetails(
-              overviewEditForm.dynamicOtherDetails
-                .map((item) => ({
-                  label: String(item.label || '').trim(),
-                  value: String(item.value || '').trim(),
-                }))
-                .filter((item) => item.label && item.value),
-              overviewEditForm.teamMembers,
+            mergeDirectorsIntoOtherDetails(
+              mergeTeamMemberIntoOtherDetails(
+                overviewEditForm.dynamicOtherDetails
+                  .map((item) => ({
+                    label: String(item.label || '').trim(),
+                    value: String(item.value || '').trim(),
+                  }))
+                  .filter((item) => item.label && item.value),
+                overviewEditForm.teamMembers,
+              ),
+              overviewEditForm.directors || resolveDirectorList(overviewEditForm),
             ),
             overviewEditForm.occasions || emptyLeadOccasionForm(),
           ),
@@ -2818,7 +2858,8 @@ export function LeadDetailsDrawer({
         assignedToName: overviewEditForm.leadOwner || undefined,
         ...(isHqOverrideMode ? { leadOwner: overviewEditForm.leadOwner || undefined } : {}),
         interestedNeeds: overviewEditForm.interestedNeeds || undefined,
-        notes: overviewEditForm.notes || undefined,
+        expectedBusinessValue: normalizeBusinessValueForSave(overviewEditForm.notes) || null,
+        notes: normalizeBusinessValueForSave(overviewEditForm.notes) || undefined,
         lastFollowUp: overviewEditForm.lastFollowUp || undefined,
         nextFollowUp: nextFollowUpValue || '',
         ...(followUpChanged
@@ -3046,9 +3087,12 @@ export function LeadDetailsDrawer({
           primaryTeamMemberFromList(addLeadForm.teamMembers),
         ),
         otherDetails: mergeOccasionIntoOtherDetails(
-          mergeTeamMemberIntoOtherDetails(
-            addLeadForm.otherDetails,
-            addLeadForm.teamMembers,
+          mergeDirectorsIntoOtherDetails(
+            mergeTeamMemberIntoOtherDetails(
+              addLeadForm.otherDetails,
+              addLeadForm.teamMembers,
+            ),
+            addLeadForm.directors || resolveDirectorList(addLeadForm),
           ),
           addLeadForm.occasions || emptyLeadOccasionForm(),
         ),
@@ -3056,8 +3100,8 @@ export function LeadDetailsDrawer({
         priority: addLeadForm.priority || 'Medium',
         servicesNeeded: addLeadForm.interestedNeeds?.trim() || undefined,
         interestedNeeds: addLeadForm.interestedNeeds?.trim() || undefined,
-        expectedBusinessValue: addLeadForm.notes?.trim() || undefined,
-        notes: addLeadForm.notes?.trim() || undefined,
+        expectedBusinessValue: normalizeBusinessValueForSave(addLeadForm.notes) || undefined,
+        notes: normalizeBusinessValueForSave(addLeadForm.notes) || undefined,
         lastFollowUp: addLeadForm.lastFollowUp || undefined,
         nextFollowUp: addLeadForm.nextFollowUp || undefined,
         statusRemark: addLeadForm.nextFollowUp
@@ -4369,6 +4413,10 @@ export function LeadDetailsDrawer({
                         <DirectorContactFields
                           directorSalutation={addLeadForm.directorSalutation}
                           contactPerson={addLeadForm.contactPerson}
+                          directors={addLeadForm.directors}
+                          onDirectorsChange={(directors) =>
+                            setAddLeadForm((p) => ({ ...p, directors: normalizeDirectorList(directors) }))
+                          }
                           emails={addLeadForm.emails}
                           phones={addLeadForm.phones}
                           email={addLeadForm.email}
@@ -4646,12 +4694,18 @@ export function LeadDetailsDrawer({
                           icon={IndianRupee}
                           iconClassName="text-rose-500"
                         />
-                        <textarea
+                        <input
+                          type="text"
+                          inputMode="decimal"
                           value={addLeadForm.notes ?? ''}
-                          onChange={(e) => setAddLeadForm((p) => ({ ...p, notes: e.target.value }))}
-                          rows={3}
-                          className={`${ADD_LEAD_INPUT} resize-none`}
-                          placeholder="e.g. Potential annual business of ₹15,00,000"
+                          onChange={(e) =>
+                            setAddLeadForm((p) => ({
+                              ...p,
+                              notes: sanitizeBusinessValueInput(e.target.value),
+                            }))
+                          }
+                          className={ADD_LEAD_INPUT}
+                          placeholder="e.g. 1500000"
                         />
                       </div>
                       {(() => {
@@ -4805,6 +4859,10 @@ export function LeadDetailsDrawer({
                         <DirectorContactFields
                           directorSalutation={addLeadForm.directorSalutation}
                           contactPerson={addLeadForm.contactPerson}
+                          directors={addLeadForm.directors}
+                          onDirectorsChange={(directors) =>
+                            setAddLeadForm((p) => ({ ...p, directors: normalizeDirectorList(directors) }))
+                          }
                           emails={addLeadForm.emails}
                           phones={addLeadForm.phones}
                           email={addLeadForm.email}
@@ -4990,12 +5048,18 @@ export function LeadDetailsDrawer({
                         </div>
                         <div>
                           <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Expected Business Value</label>
-                          <textarea
+                          <input
+                            type="text"
+                            inputMode="decimal"
                             value={addLeadForm.notes ?? ''}
-                            onChange={(e) => setAddLeadForm((p) => ({ ...p, notes: e.target.value }))}
-                            rows={3}
-                            className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-none"
-                            placeholder="e.g. Potential annual business of $50,000"
+                            onChange={(e) =>
+                              setAddLeadForm((p) => ({
+                                ...p,
+                                notes: sanitizeBusinessValueInput(e.target.value),
+                              }))
+                            }
+                            className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                            placeholder="e.g. 50000"
                           />
                         </div>
                         <div>
@@ -5463,6 +5527,13 @@ export function LeadDetailsDrawer({
                               <DirectorContactFields
                                 directorSalutation={overviewEditForm.directorSalutation}
                                 contactPerson={overviewEditForm.contactPerson}
+                                directors={overviewEditForm.directors}
+                                onDirectorsChange={(directors) =>
+                                  setOverviewEditForm((p) => ({
+                                    ...p,
+                                    directors: normalizeDirectorList(directors),
+                                  }))
+                                }
                                 emails={overviewEditForm.emails}
                                 phones={overviewEditForm.phones}
                                 email={overviewEditForm.email}
@@ -5700,11 +5771,18 @@ export function LeadDetailsDrawer({
                             </div>
                           <div>
                             <AddLeadFieldLabel label="Expected Business Value" icon={IndianRupee} iconClassName="text-rose-500" />
-                            <textarea
+                            <input
+                              type="text"
+                              inputMode="decimal"
                               value={overviewEditForm.notes}
-                              onChange={(e) => setOverviewEditForm((p) => ({ ...p, notes: e.target.value }))}
-                              rows={3}
-                              className={`${ADD_LEAD_INPUT} resize-none`}
+                              onChange={(e) =>
+                                setOverviewEditForm((p) => ({
+                                  ...p,
+                                  notes: sanitizeBusinessValueInput(e.target.value),
+                                }))
+                              }
+                              className={ADD_LEAD_INPUT}
+                              placeholder="e.g. 1500000"
                             />
                           </div>
                           <div>

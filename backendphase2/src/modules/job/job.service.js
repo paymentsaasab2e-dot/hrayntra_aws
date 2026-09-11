@@ -26,8 +26,9 @@ import {
 import { transferIdentityKey } from '../org/orgTransferIdentity.js';
 import { findWorkspaceClient } from '../setting/workspace-client.service.js';
 import {
-  buildAssigneeVisibilityOr,
+  appendParticipantIds,
   buildInitialParticipantIds,
+  buildJobVisibilityOr,
   stampVisibilityOnAssigneeChange,
 } from '../../services/memberVisibility.service.js';
 import { assertCanAssignCrm } from '../../services/crmAssignmentScope.service.js';
@@ -1381,7 +1382,7 @@ export const jobService = {
     } else if (!canViewAllJobs(req) && req.user?.id) {
       const org = await getRequestOrgScope(req);
       if (!isOrgHeadPurpose(org)) {
-        visibilityOr.push(...buildAssigneeVisibilityOr(req.user.id));
+        visibilityOr.push(...buildJobVisibilityOr(req.user.id));
         const ownCompany = ownCompanyJobsVisible(org, ownCompanyClientId);
         if (ownCompany) visibilityOr.push(ownCompany);
       }
@@ -1455,6 +1456,9 @@ export const jobService = {
       },
       assignedTo: {
         select: JOB_ASSIGNEE_SELECT,
+      },
+      manager: {
+        select: { id: true, name: true, email: true },
       },
       createdBy: {
         select: USER_BRIEF_SELECT,
@@ -1535,7 +1539,7 @@ export const jobService = {
     if (!canViewAllJobs(req) && req?.user?.id) {
       const org = await getRequestOrgScope(req);
       if (!isOrgHeadPurpose(org)) {
-        const visibilityOr = [...buildAssigneeVisibilityOr(req.user.id)];
+        const visibilityOr = [...buildJobVisibilityOr(req.user.id)];
         const ownCompany = ownCompanyJobsVisible(org, ownCompanyClientId);
         if (ownCompany) visibilityOr.push(ownCompany);
         where = mergeWhereWithScope(where, { OR: visibilityOr });
@@ -1791,9 +1795,10 @@ export const jobService = {
       jobData.createdBy = { connect: { id: createdByUserId } };
     }
 
-    jobData.participantIds = buildInitialParticipantIds(
-      createdByUserId,
-      data.assignedToId,
+    jobData.participantIds = appendParticipantIds(
+      buildInitialParticipantIds(createdByUserId, data.assignedToId),
+      data.managerId,
+      ...(Array.isArray(data.supportingRecruiters) ? data.supportingRecruiters : []),
     );
 
     const ownCompanyClientId = await resolveOwnCompanyClientId();
@@ -1941,6 +1946,7 @@ export const jobService = {
         status: true,
         clientId: true,
         assignedToId: true,
+        managerId: true,
         createdById: true,
         participantIds: true,
         openings: true,
@@ -2092,7 +2098,12 @@ export const jobService = {
       forecastRevenue: data.forecastRevenue,
       videoMediaLink: data.videoMediaLink,
       languages: data.languages,
-      managerId: data.managerId,
+      managerId:
+        data.managerId === undefined
+          ? undefined
+          : data.managerId
+            ? String(data.managerId).trim() || null
+            : null,
       postingCompanyName:
         data.postingCompanyName === undefined
           ? undefined
@@ -2127,6 +2138,32 @@ export const jobService = {
       previous: currentJob,
       performerId: data.performedById || req?.user?.id,
     });
+
+    if (updateData.managerId !== undefined) {
+      const prevManager = String(currentJob.managerId || '').trim();
+      const nextManager = String(updateData.managerId || '').trim();
+      if (prevManager !== nextManager) {
+        updateData.participantIds = appendParticipantIds(
+          updateData.participantIds || currentJob.participantIds,
+          prevManager,
+          nextManager,
+          data.performedById || req?.user?.id,
+          currentJob.createdById,
+        );
+      }
+    }
+
+    if (Array.isArray(updateData.supportingRecruiters)) {
+      updateData.participantIds = appendParticipantIds(
+        updateData.participantIds || currentJob.participantIds,
+        ...(Array.isArray(currentJob.supportingRecruiters) ? currentJob.supportingRecruiters : []),
+        ...updateData.supportingRecruiters,
+        data.performedById || req?.user?.id,
+        currentJob.createdById,
+        currentJob.assignedToId,
+        updateData.assignedToId,
+      );
+    }
 
     if (!hasPipelineStageUpdates) {
       const updatedJob = await prisma.job.update({
@@ -2510,7 +2547,7 @@ export const jobService = {
       const org = await getRequestOrgScope(req);
       const visibilityOr = [
         { createdById: req.user.id },
-        ...buildAssigneeVisibilityOr(req.user.id),
+        ...buildJobVisibilityOr(req.user.id),
         { deletedBy: req.user.id },
       ];
       const ownCompany = ownCompanyJobsVisible(org, ownCompanyClientId);
@@ -2547,6 +2584,7 @@ export const jobService = {
             },
           },
           assignedTo: { select: JOB_ASSIGNEE_SELECT },
+          manager: { select: { id: true, name: true, email: true } },
           createdBy: { select: USER_BRIEF_SELECT },
         },
       }),
@@ -2654,7 +2692,7 @@ export const jobService = {
     const org = await getRequestOrgScope(req);
     const ownCompany = ownCompanyJobsVisible(org, ownCompanyClientId);
     const memberVisibilityOr = req?.user?.id
-      ? [...buildAssigneeVisibilityOr(req.user.id), ...(ownCompany ? [ownCompany] : [])]
+      ? [...buildJobVisibilityOr(req.user.id), ...(ownCompany ? [ownCompany] : [])]
       : [];
     const ownerScope = superAdminScope || (
       mineFilter && req?.user?.id

@@ -28,6 +28,7 @@ import { orEmpty, startAsyncLoad } from '../../lib/asyncLoadGuard';
 import {
   X,
   Pencil,
+  SquarePen,
   LayoutGrid,
   Users,
   GitBranch,
@@ -77,6 +78,7 @@ import {
   apiCreateMatch,
   apiGetInterviews,
   apiGetMatches,
+  apiGetCandidate,
   apiGetJobApplyLink,
   resolveJobApplyUrlFromResponse,
   apiGetPlacements,
@@ -90,10 +92,17 @@ import {
   apiCreateCandidateFromDrawer,
   apiUploadCandidateResumeFile,
   apiAddCandidateToPipeline,
+  type BackendCandidate,
   type BackendInterviewListItem,
   type AddCandidatePayload,
   type ImportedProfileData,
 } from '../../lib/api';
+import {
+  hasEditedCvAvailable,
+  resolveDefaultCvShareMode,
+  type CvShareMode,
+} from '../../lib/cvEditorMapping';
+import { resolveSaasaCvPreviewUrl } from '../../lib/saasaCvAnnotations';
 import {
   DEFAULT_JOB_STATUS_OPTIONS,
   isProtectedJobStatus,
@@ -126,6 +135,8 @@ import {
   type MatchCandidate,
 } from '../matches/types';
 import { useSubmitToClientModal } from '../../hooks/useSubmitToClientModal';
+import { useSaasaCvAnnotations } from '../../hooks/useSaasaCvAnnotations';
+import { ResumePreviewModal } from '../candidates/ResumePreviewModal';
 import { ImageWithFallback } from '../ImageWithFallback';
 import { NotesService } from '../NotesService';
 import {
@@ -167,7 +178,8 @@ import PaginationAll from '../PaginationAll';
 import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../constants/tablePagination';
 import { PH2_TABLE_CARD_FOOTER_CLASS } from '../layout/Ph2ModulePageLayout';
 import { extractApiData } from '../../lib/mapCandidateProfile';
-import { BULK_CV_ACCEPT_INPUT } from '../../lib/bulkCvFileTypes';
+import { BULK_CV_ACCEPT_INPUT, BULK_CV_FORMAT_LABEL } from '../../lib/bulkCvFileTypes';
+import { filterBulkCvFiles } from '../../lib/bulkCvCollect';
 import { normalizeCandidateEmailInput } from '../../lib/candidateEmailValidation';
 import {
   DrawerSectionCard,
@@ -562,6 +574,29 @@ export interface JobCandidateItem {
   lastActivity: string;
   /** True when linked via apply/assign and CRM stage is Applied */
   isJobAppliedCandidate?: boolean;
+}
+
+type PickerCvMeta = {
+  hasOriginal: boolean;
+  hasSaasa: boolean;
+  hasEdited: boolean;
+  originalUrl: string | null;
+  saasaUrl: string | null;
+};
+
+function buildPickerCvMeta(candidate: BackendCandidate | null | undefined): PickerCvMeta {
+  const originalUrl = String(candidate?.resumeUrl || candidate?.resume || '').trim() || null;
+  const saasaUrl =
+    resolveSaasaCvPreviewUrl(
+      (candidate?.extraData as Record<string, unknown> | null | undefined) || null,
+    ) || null;
+  return {
+    hasOriginal: Boolean(originalUrl),
+    hasSaasa: Boolean(saasaUrl),
+    hasEdited: hasEditedCvAvailable(candidate ?? null),
+    originalUrl,
+    saasaUrl,
+  };
 }
 
 export interface JobDetailsDrawerProps {
@@ -1175,6 +1210,20 @@ export function JobDetailsDrawer({
   const [submitCandidatePickerOpen, setSubmitCandidatePickerOpen] = useState(false);
   const [pickerSelectedIds, setPickerSelectedIds] = useState<string[]>([]);
   const [pickerSearch, setPickerSearch] = useState('');
+  const [pickerCvModeById, setPickerCvModeById] = useState<Record<string, CvShareMode>>({});
+  const [pickerCvMetaById, setPickerCvMetaById] = useState<Record<string, PickerCvMeta>>({});
+  const [pickerCvMetaLoading, setPickerCvMetaLoading] = useState(false);
+  const [pickerSaasaTarget, setPickerSaasaTarget] = useState<{
+    id: string;
+    name: string;
+    resumeUrl: string | null;
+    extraData: Record<string, unknown> | null;
+  } | null>(null);
+  const [pickerSaasaOpenToken, setPickerSaasaOpenToken] = useState(0);
+  const [pickerResumePreview, setPickerResumePreview] = useState<{
+    url: string;
+    name: string;
+  } | null>(null);
   const {
     openFromJobDrawerRow,
     openSubmit,
@@ -1183,6 +1232,87 @@ export function JobDetailsDrawer({
   } = useSubmitToClientModal({
     onClosed: () => setSubmitClientRowId(null),
   });
+
+  const refreshPickerCvMetaForCandidate = useCallback(async (candidateId: string) => {
+    try {
+      const candidate = extractApiData<BackendCandidate>(await apiGetCandidate(candidateId));
+      const meta = buildPickerCvMeta(candidate);
+      setPickerCvMetaById((prev) => ({
+        ...prev,
+        [candidateId]: meta,
+      }));
+      if (meta.hasSaasa) {
+        setPickerCvModeById((prev) => ({ ...prev, [candidateId]: 'saasa' }));
+      }
+    } catch {
+      /* keep prior meta */
+    }
+  }, []);
+
+  const pickerSaasaCv = useSaasaCvAnnotations({
+    candidateId: pickerSaasaTarget?.id || null,
+    candidateName: pickerSaasaTarget?.name || 'Candidate',
+    resumeUrl: pickerSaasaTarget?.resumeUrl || null,
+    extraData: pickerSaasaTarget?.extraData || null,
+    enabled: Boolean(pickerSaasaTarget?.id),
+    canEdit: true,
+    onToast: (message) => {
+      if (message) toast.error(message);
+    },
+    onCandidateUpdated: async () => {
+      const id = pickerSaasaTarget?.id;
+      if (!id) return;
+      await refreshPickerCvMetaForCandidate(id);
+      setPickerCvModeById((prev) => ({ ...prev, [id]: 'saasa' }));
+    },
+    onViewModeChange: (mode) => {
+      const id = pickerSaasaTarget?.id;
+      if (!id || mode !== 'saasa') return;
+      setPickerCvModeById((prev) => ({ ...prev, [id]: 'saasa' }));
+      void refreshPickerCvMetaForCandidate(id);
+    },
+  });
+
+  useEffect(() => {
+    if (!pickerSaasaTarget?.id || !pickerSaasaOpenToken) return;
+    const timer = window.setTimeout(() => {
+      pickerSaasaCv.openModal();
+    }, 200);
+    return () => window.clearTimeout(timer);
+    // Only re-open when the user explicitly requests the editor for a candidate.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pickerSaasaTarget?.id, pickerSaasaOpenToken]);
+
+  const openPickerUpdatedCvEditor = useCallback(
+    async (candidateId: string, candidateName: string) => {
+      try {
+        const candidate = extractApiData<BackendCandidate>(await apiGetCandidate(candidateId));
+        const resumeUrl = String(candidate?.resumeUrl || candidate?.resume || '').trim();
+        if (!resumeUrl) {
+          toast.error('No original resume on file — upload a CV before editing Updated / HRYantra CV.');
+          return;
+        }
+        const extraData =
+          candidate?.extraData &&
+          typeof candidate.extraData === 'object' &&
+          !Array.isArray(candidate.extraData)
+            ? (candidate.extraData as Record<string, unknown>)
+            : null;
+        setPickerSaasaTarget({
+          id: candidateId,
+          name: candidateName || 'Candidate',
+          resumeUrl,
+          extraData,
+        });
+        setPickerSaasaOpenToken((n) => n + 1);
+        // Ensure the row stays selected while editing.
+        setPickerSelectedIds((prev) => (prev.includes(candidateId) ? prev : [...prev, candidateId]));
+      } catch (error: unknown) {
+        toast.error(error instanceof Error ? error.message : 'Could not open HRYantra CV editor');
+      }
+    },
+    [],
+  );
 
   const [moveStageModalOpen, setMoveStageModalOpen] = useState(false);
   const [moveStageCandidate, setMoveStageCandidate] = useState<CandidateProfileDrawerData | null>(null);
@@ -1205,6 +1335,9 @@ export function JobDetailsDrawer({
   const prevAiTabJobIdRef = useRef<string | null>(null);
   const prevOnAiTabRef = useRef(false);
   const [uploadingJobCv, setUploadingJobCv] = useState(false);
+  const [jobCvUploadProgress, setJobCvUploadProgress] = useState<{ done: number; total: number } | null>(
+    null,
+  );
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -1212,6 +1345,12 @@ export function JobDetailsDrawer({
     setSubmitCandidatePickerOpen(false);
     setPickerSelectedIds([]);
     setPickerSearch('');
+    setPickerCvModeById({});
+    setPickerCvMetaById({});
+    setPickerCvMetaLoading(false);
+    setPickerSaasaTarget(null);
+    setPickerSaasaOpenToken(0);
+    setPickerResumePreview(null);
   }, [job?.id, isOpen]);
 
   useEffect(() => {
@@ -1304,7 +1443,44 @@ export function JobDetailsDrawer({
     const preselected = selectedCandidateIds.filter((id) => list.some((row) => row.id === id));
     setPickerSelectedIds(preselected.length ? preselected : list.length === 1 ? [list[0].id] : []);
     setPickerSearch('');
+    setPickerCvModeById({});
+    setPickerCvMetaById({});
     setSubmitCandidatePickerOpen(true);
+
+    const ids = list.map((row) => row.id);
+    setPickerCvMetaLoading(true);
+    void (async () => {
+      const meta: Record<string, PickerCvMeta> = {};
+      const modes: Record<string, CvShareMode> = {};
+      await Promise.all(
+        ids.map(async (id) => {
+          try {
+            const candidate = extractApiData<BackendCandidate>(await apiGetCandidate(id));
+            const built = buildPickerCvMeta(candidate);
+            meta[id] = built;
+            const mode = resolveDefaultCvShareMode(
+              candidate,
+              built.hasOriginal,
+              built.hasSaasa,
+            );
+            if (mode === 'original' || mode === 'saasa') modes[id] = mode;
+            else if (built.hasOriginal) modes[id] = 'original';
+            else if (built.hasSaasa) modes[id] = 'saasa';
+          } catch {
+            meta[id] = {
+              hasOriginal: false,
+              hasSaasa: false,
+              hasEdited: false,
+              originalUrl: null,
+              saasaUrl: null,
+            };
+          }
+        }),
+      );
+      setPickerCvMetaById(meta);
+      setPickerCvModeById(modes);
+      setPickerCvMetaLoading(false);
+    })();
   }, [displayJobCandidates, job?.id, selectedCandidateIds]);
 
   const confirmSubmitCandidatePicker = useCallback(() => {
@@ -1316,6 +1492,13 @@ export function JobDetailsDrawer({
       void requestError('Choose at least one candidate to submit to the client.');
       return;
     }
+    const missingMode = rows.find((row) => !pickerCvModeById[row.id]);
+    if (missingMode) {
+      void requestError(
+        `Choose which CV to send for ${missingMode.candidateName || 'each selected candidate'} — Original CV or HRYantra CV.`,
+      );
+      return;
+    }
     setSubmitCandidatePickerOpen(false);
     openBulkSubmit(
       rows.map((row) => ({
@@ -1325,11 +1508,14 @@ export function JobDetailsDrawer({
         jobTitle: job.title,
         clientId: job.clientId ?? undefined,
         matchScore: parseJobCandidateScore(row.score),
+        cvShareMode: pickerCvModeById[row.id],
       })),
     );
     setSelectedCandidateIds([]);
     setPickerSelectedIds([]);
-  }, [displayJobCandidates, job, openBulkSubmit, pickerSelectedIds]);
+    setPickerCvModeById({});
+    setPickerCvMetaById({});
+  }, [displayJobCandidates, job, openBulkSubmit, pickerCvModeById, pickerSelectedIds]);
 
   const openBulkSubmitToClient = useCallback(() => {
     if (!job?.id) return;
@@ -1353,10 +1539,11 @@ export function JobDetailsDrawer({
         jobTitle: job.title,
         clientId: job.clientId ?? undefined,
         matchScore: parseJobCandidateScore(row.score),
+        cvShareMode: pickerCvModeById[row.id],
       })),
     );
     setSelectedCandidateIds([]);
-  }, [displayJobCandidates, job, openBulkSubmit, selectedCandidateIds]);
+  }, [displayJobCandidates, job, openBulkSubmit, pickerCvModeById, selectedCandidateIds]);
 
   const stageOptionsFromJobPipeline = useMemo(() => {
     if (!job?.id) return {} as Record<string, Array<{ id: string; name: string }>>;
@@ -1462,38 +1649,56 @@ export function JobDetailsDrawer({
   );
 
   const handleJobCvFileSelected = useCallback(
-    async (file: File | undefined) => {
-      if (!file || !job?.id) return;
-      if (file.size > MAX_JOB_CV_FILE_BYTES) {
-        void requestError('Resume must be 25MB or smaller.');
+    async (fileList: FileList | File[] | null | undefined) => {
+      if (!job?.id) return;
+      const rawFiles = Array.from(fileList || []);
+      if (!rawFiles.length) return;
+
+      const files = filterBulkCvFiles(rawFiles);
+      if (!files.length) {
+        const message = `Select CV files (${BULK_CV_FORMAT_LABEL}).`;
+        toast.error(message);
+        void requestError(message);
+        if (fileInputRef.current) fileInputRef.current.value = '';
         return;
       }
-      setUploadingJobCv(true);
+
+      const oversized = files.filter((file) => file.size > MAX_JOB_CV_FILE_BYTES);
+      const validFiles = files.filter((file) => file.size <= MAX_JOB_CV_FILE_BYTES);
+      if (oversized.length) {
+        toast.error(
+          oversized.length === 1
+            ? `${oversized[0].name} is larger than 25MB and was skipped.`
+            : `${oversized.length} files larger than 25MB were skipped.`,
+        );
+      }
+      if (!validFiles.length) {
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        return;
+      }
+
+      let recruiterId = '';
       try {
+        const raw = localStorage.getItem('currentUser');
+        if (raw) {
+          const user = JSON.parse(raw) as { id?: string; _id?: string };
+          recruiterId = String(user.id || user._id || '').trim();
+        }
+      } catch {
+        recruiterId = '';
+      }
+
+      setUploadingJobCv(true);
+      setJobCvUploadProgress({ done: 0, total: validFiles.length });
+
+      let createdCount = 0;
+      let linkedCount = 0;
+      let failedCount = 0;
+      const failedNames: string[] = [];
+
+      const processOne = async (file: File) => {
         const parsedRes = await apiParseCandidateResume(file);
         const parsed = parsedRes.data || {};
-        let recruiterId = '';
-        try {
-          const raw = localStorage.getItem('currentUser');
-          if (raw) {
-            const user = JSON.parse(raw) as { id?: string; _id?: string };
-            recruiterId = String(user.id || user._id || '').trim();
-          }
-        } catch {
-          recruiterId = '';
-        }
-
-        const finishSuccess = async (displayName?: string) => {
-          const message = displayName
-            ? `Candidate created successfully: ${displayName}`
-            : 'Candidate created successfully';
-          toast.success(message);
-          void requestCornerAlert(message, { tone: 'success', priority: 'high' });
-          if (typeof window !== 'undefined') {
-            window.dispatchEvent(new CustomEvent('jobportal:candidates-changed'));
-          }
-          await refreshAppliedJobCandidates({ runPipeline: false, refresh: true });
-        };
 
         const attachResume = async (candidateId: string) => {
           const resumeAlreadyRemote = /^https?:\/\//i.test(String(parsed.resumeUrl || '').trim());
@@ -1505,7 +1710,7 @@ export function JobDetailsDrawer({
           }
         };
 
-        const addExistingToJob = async (candidateId: string, displayName?: string) => {
+        const addExistingToJob = async (candidateId: string) => {
           const pipelinePayload = {
             candidateId,
             jobId: job.id,
@@ -1524,7 +1729,6 @@ export function JobDetailsDrawer({
             });
           }
           await attachResume(candidateId);
-          await finishSuccess(displayName);
         };
 
         const payload = payloadFromParsedJobCv(parsed, file, job.id, recruiterId || undefined);
@@ -1533,13 +1737,8 @@ export function JobDetailsDrawer({
           const created = createdRes.data || {};
           const candidateId = String(created.id || (created as { _id?: string })._id || '').trim();
           await attachResume(candidateId);
-          const displayName = [created.firstName || payload.firstName, created.lastName || payload.lastName]
-            .filter(Boolean)
-            .join(' ')
-            .trim();
-          await finishSuccess(displayName);
+          createdCount += 1;
         } catch (createError) {
-          // Existing candidate: assign them to this job instead of opening Add Candidate.
           if (createError instanceof ApiRequestError && createError.status === 409) {
             const dupData = (createError.data || {}) as {
               existingCandidate?: { _id?: string; id?: string; name?: string };
@@ -1547,19 +1746,66 @@ export function JobDetailsDrawer({
             const existing = dupData.existingCandidate;
             const existingId = String(existing?._id || existing?.id || '').trim();
             if (existingId) {
-              await addExistingToJob(existingId, existing?.name || undefined);
+              await addExistingToJob(existingId);
+              linkedCount += 1;
               return;
             }
           }
           throw createError;
         }
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : 'Could not create the candidate from this CV.';
-        toast.error(message);
-        void requestError(message);
+      };
+
+      try {
+        for (let index = 0; index < validFiles.length; index += 1) {
+          const file = validFiles[index];
+          try {
+            await processOne(file);
+          } catch (error) {
+            failedCount += 1;
+            failedNames.push(file.name);
+            console.error(`Job CV upload failed for ${file.name}:`, error);
+          } finally {
+            setJobCvUploadProgress({ done: index + 1, total: validFiles.length });
+          }
+        }
+
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('jobportal:candidates-changed'));
+        }
+        await refreshAppliedJobCandidates({ runPipeline: false, refresh: true });
+
+        const successTotal = createdCount + linkedCount;
+        if (successTotal > 0 && failedCount === 0) {
+          const message =
+            validFiles.length === 1
+              ? createdCount
+                ? 'Candidate created successfully'
+                : 'Existing candidate linked to this job'
+              : `${createdCount} candidate${createdCount === 1 ? '' : 's'} created${
+                  linkedCount ? `, ${linkedCount} existing linked` : ''
+                }`;
+          toast.success(message);
+          void requestCornerAlert(message, { tone: 'success', priority: 'high' });
+        } else if (successTotal > 0 && failedCount > 0) {
+          const message = `${successTotal} succeeded, ${failedCount} failed.`;
+          toast.success(message);
+          void requestCornerAlert(message, { tone: 'success', priority: 'high' });
+          toast.error(
+            failedNames.length <= 3
+              ? `Failed: ${failedNames.join(', ')}`
+              : `${failedCount} CVs could not be processed.`,
+          );
+        } else {
+          const message =
+            failedNames.length === 1
+              ? `Could not create a candidate from ${failedNames[0]}.`
+              : 'Could not create candidates from the selected CVs.';
+          toast.error(message);
+          void requestError(message);
+        }
       } finally {
         setUploadingJobCv(false);
+        setJobCvUploadProgress(null);
         if (fileInputRef.current) fileInputRef.current.value = '';
       }
     },
@@ -2687,10 +2933,10 @@ export function JobDetailsDrawer({
                           ref={fileInputRef}
                           type="file"
                           accept={BULK_CV_ACCEPT_INPUT}
+                          multiple
                           className="hidden"
                           onChange={(event) => {
-                            const file = event.target.files?.[0];
-                            void handleJobCvFileSelected(file);
+                            void handleJobCvFileSelected(event.target.files);
                           }}
                         />
                         <button
@@ -2698,14 +2944,18 @@ export function JobDetailsDrawer({
                           onClick={() => fileInputRef.current?.click()}
                           disabled={uploadingJobCv}
                           className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-white px-4 py-2 text-sm font-semibold text-indigo-700 shadow-sm transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60"
-                          title="Upload a CV to create a candidate and assign them to this job"
+                          title={`Upload one or more CVs (${BULK_CV_FORMAT_LABEL}) to create candidates for this job`}
                         >
                           {uploadingJobCv ? (
                             <Loader2 size={16} className="animate-spin" strokeWidth={2.25} />
                           ) : (
                             <Upload size={16} strokeWidth={2.25} />
                           )}
-                          {uploadingJobCv ? 'Creating candidate…' : 'Upload CV'}
+                          {uploadingJobCv
+                            ? jobCvUploadProgress
+                              ? `Creating ${jobCvUploadProgress.done}/${jobCvUploadProgress.total}…`
+                              : 'Creating candidates…'
+                            : 'Upload CV'}
                         </button>
                       </>
                     ) : null}
@@ -2777,7 +3027,11 @@ export function JobDetailsDrawer({
                           ) : (
                             <Upload size={16} />
                           )}
-                          {uploadingJobCv ? 'Creating candidate…' : 'Upload CV to add a candidate'}
+                          {uploadingJobCv
+                            ? jobCvUploadProgress
+                              ? `Creating ${jobCvUploadProgress.done}/${jobCvUploadProgress.total}…`
+                              : 'Creating candidates…'
+                            : 'Upload CVs to add candidates'}
                         </button>
                       ) : null}
                     </div>
@@ -3941,9 +4195,9 @@ export function JobDetailsDrawer({
 
     {submitCandidatePickerOpen ? (
       <DetailsModalShell
-        size="sm"
+        size="md"
         zIndexClass="z-[120]"
-        panelClassName="!h-auto max-h-[min(80vh,640px)]"
+        panelClassName="!h-auto max-h-[min(85vh,720px)]"
         onBackdropClick={() => setSubmitCandidatePickerOpen(false)}
         dialogTitleId="submit-candidate-picker-title"
       >
@@ -3957,7 +4211,8 @@ export function JobDetailsDrawer({
                 Choose candidate
               </h2>
               <p className="mt-1 text-xs text-slate-500">
-                Select who to submit for {job?.title || 'this job'}, then continue.
+                Select who to submit for {job?.title || 'this job'}, then choose Original CV or
+                HRYantra CV for each.
               </p>
             </div>
             <button
@@ -3983,6 +4238,17 @@ export function JobDetailsDrawer({
                 className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-3 text-sm text-slate-800 placeholder:text-slate-400 outline-none focus:border-indigo-300 focus:bg-white focus:ring-2 focus:ring-indigo-500/20"
               />
             </div>
+            {pickerCvMetaLoading ? (
+              <p className="mt-2 inline-flex items-center gap-1.5 text-[11px] text-slate-500">
+                <Loader2 size={12} className="animate-spin" />
+                Loading CV options…
+              </p>
+            ) : (
+              <p className="mt-2 text-[11px] text-slate-500">
+                Choose <strong>Original CV</strong> or <strong>HRYantra CV</strong>. Use View /
+                Preview to open the file; Edit opens the HRYantra editor.
+              </p>
+            )}
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
             {pickerCandidates.length === 0 ? (
@@ -3993,43 +4259,159 @@ export function JobDetailsDrawer({
               <ul className="space-y-1">
                 {pickerCandidates.map((row) => {
                   const checked = pickerSelectedIds.includes(row.id);
+                  const meta = pickerCvMetaById[row.id];
+                  const mode = pickerCvModeById[row.id];
+                  const hasOriginal = meta?.hasOriginal;
+                  const hasSaasa = meta?.hasSaasa;
                   return (
                     <li key={row.id}>
-                      <label
-                        className={`flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 transition ${
+                      <div
+                        className={`rounded-xl px-3 py-2.5 transition ${
                           checked ? 'bg-indigo-50 ring-1 ring-indigo-200' : 'hover:bg-slate-50'
                         }`}
                       >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() =>
-                            setPickerSelectedIds((prev) =>
-                              prev.includes(row.id)
-                                ? prev.filter((id) => id !== row.id)
-                                : [...prev, row.id],
-                            )
-                          }
-                          className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                        />
-                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-xs font-bold text-indigo-700">
-                          {(row.candidateName || 'C')
-                            .split(/\s+/)
-                            .map((part) => part[0])
-                            .filter(Boolean)
-                            .slice(0, 2)
-                            .join('')
-                            .toUpperCase()}
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm font-semibold text-slate-900">
-                            {row.candidateName || 'Unnamed candidate'}
+                        <label className="flex cursor-pointer items-center gap-3">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() =>
+                              setPickerSelectedIds((prev) =>
+                                prev.includes(row.id)
+                                  ? prev.filter((id) => id !== row.id)
+                                  : [...prev, row.id],
+                              )
+                            }
+                            className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                          />
+                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-xs font-bold text-indigo-700">
+                            {(row.candidateName || 'C')
+                              .split(/\s+/)
+                              .map((part) => part[0])
+                              .filter(Boolean)
+                              .slice(0, 2)
+                              .join('')
+                              .toUpperCase()}
                           </span>
-                          <span className="mt-0.5 block truncate text-xs text-slate-500">
-                            {[row.currentStage, row.email].filter(Boolean).join(' · ') || 'Job candidate'}
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm font-semibold text-slate-900">
+                              {row.candidateName || 'Unnamed candidate'}
+                            </span>
+                            <span className="mt-0.5 block truncate text-xs text-slate-500">
+                              {[row.currentStage, row.email].filter(Boolean).join(' · ') ||
+                                'Job candidate'}
+                            </span>
                           </span>
-                        </span>
-                      </label>
+                        </label>
+                        {checked ? (
+                          <div
+                            className="mt-2 ml-7 flex flex-col gap-2"
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className="mr-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                                CV
+                              </span>
+                              {hasOriginal ? (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setPickerCvModeById((prev) => ({
+                                      ...prev,
+                                      [row.id]: 'original',
+                                    }))
+                                  }
+                                  className={`rounded-lg border px-2 py-1 text-[11px] font-semibold transition ${
+                                    mode === 'original'
+                                      ? 'border-indigo-500 bg-indigo-600 text-white'
+                                      : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  Original CV
+                                </button>
+                              ) : null}
+                              {hasOriginal || hasSaasa ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (hasSaasa) {
+                                      setPickerCvModeById((prev) => ({
+                                        ...prev,
+                                        [row.id]: 'saasa',
+                                      }));
+                                      return;
+                                    }
+                                    void openPickerUpdatedCvEditor(
+                                      row.id,
+                                      row.candidateName || 'Candidate',
+                                    );
+                                  }}
+                                  className={`rounded-lg border px-2 py-1 text-[11px] font-semibold transition ${
+                                    mode === 'saasa'
+                                      ? 'border-amber-500 bg-amber-500 text-white'
+                                      : 'border-amber-200 bg-amber-50 text-amber-900 hover:bg-amber-100'
+                                  }`}
+                                >
+                                  {pickerSaasaCv.busy && pickerSaasaTarget?.id === row.id
+                                    ? 'Saving…'
+                                    : 'HRYantra CV'}
+                                </button>
+                              ) : null}
+                              {!pickerCvMetaLoading && !hasOriginal && !hasSaasa ? (
+                                <span className="text-[11px] text-rose-600">
+                                  No CV on file — add a resume first
+                                </span>
+                              ) : null}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              {hasOriginal && meta?.originalUrl ? (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setPickerResumePreview({
+                                      url: meta.originalUrl!,
+                                      name: `${row.candidateName || 'Candidate'} — Original CV`,
+                                    })
+                                  }
+                                  className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-50"
+                                >
+                                  <Eye size={12} />
+                                  View original
+                                </button>
+                              ) : null}
+                              {hasSaasa && meta?.saasaUrl ? (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setPickerResumePreview({
+                                      url: meta.saasaUrl!,
+                                      name: `${row.candidateName || 'Candidate'} — HRYantra CV`,
+                                    })
+                                  }
+                                  className="inline-flex items-center gap-1 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-900 transition hover:bg-amber-100"
+                                >
+                                  <Eye size={12} />
+                                  Preview HRYantra
+                                </button>
+                              ) : null}
+                              {hasOriginal ? (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    void openPickerUpdatedCvEditor(
+                                      row.id,
+                                      row.candidateName || 'Candidate',
+                                    )
+                                  }
+                                  className="inline-flex items-center gap-1 rounded-lg border border-sky-200 bg-sky-50 px-2 py-1 text-[11px] font-semibold text-sky-900 transition hover:bg-sky-100"
+                                >
+                                  <SquarePen size={12} />
+                                  Edit HRYantra
+                                </button>
+                              ) : null}
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
                     </li>
                   );
                 })}
@@ -4064,6 +4446,13 @@ export function JobDetailsDrawer({
     ) : null}
 
     {submitToClientModal}
+    {pickerSaasaCv.modals}
+    <ResumePreviewModal
+      isOpen={Boolean(pickerResumePreview?.url)}
+      onClose={() => setPickerResumePreview(null)}
+      resumeUrl={pickerResumePreview?.url || null}
+      candidateName={pickerResumePreview?.name || 'Candidate'}
+    />
     <InterviewDetailHost
       interviewItem={selectedJobInterview}
       isOpen={jobInterviewDetailOpen}

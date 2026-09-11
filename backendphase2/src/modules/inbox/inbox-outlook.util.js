@@ -79,6 +79,11 @@ function canModifyOutlook(scopes = []) {
   return haystack.includes('mail.readwrite');
 }
 
+function canSendOutlook(scopes = []) {
+  const haystack = Array.isArray(scopes) ? scopes.join(' ').toLowerCase() : String(scopes || '').toLowerCase();
+  return haystack.includes('mail.send');
+}
+
 function canCreateOutlookCalendar(scopes = []) {
   const haystack = Array.isArray(scopes) ? scopes.join(' ').toLowerCase() : String(scopes || '').toLowerCase();
   return haystack.includes('calendars.readwrite') || haystack.includes('calendars.read');
@@ -157,8 +162,15 @@ async function fetchGraphJson(url, accessToken, init = {}, attempt = 0) {
       : error.code;
     throw error;
   }
-  if (response.status === 204) return null;
-  return response.json();
+  // sendMail and similar Graph actions return 202/204 with an empty body.
+  if (response.status === 202 || response.status === 204) return null;
+  const text = await response.text();
+  if (!text.trim()) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
 }
 
 function toOutlookListItem(message, fallbackEmail = '') {
@@ -290,7 +302,7 @@ async function getOutlookOauth(userId) {
   return prisma.userOAuthTokens.findUnique({ where: { userId } });
 }
 
-async function getOutlookAccessContext(userId, { requireModify = false } = {}) {
+async function getOutlookAccessContext(userId, { requireModify = false, requireSend = false } = {}) {
   const oauth = await getOutlookOauth(userId);
   if (!oauth?.outlookConnected) {
     throw new Error('Outlook is not connected');
@@ -307,6 +319,11 @@ async function getOutlookAccessContext(userId, { requireModify = false } = {}) {
   if (requireModify && !canModifyOutlook(oauth.microsoftScope || [])) {
     const error = new Error('Reconnect Outlook to grant inbox action permissions');
     error.code = 'OUTLOOK_MODIFY_SCOPE_REQUIRED';
+    throw error;
+  }
+  if (requireSend && !canSendOutlook(oauth.microsoftScope || [])) {
+    const error = new Error('Reconnect Outlook to grant send permissions');
+    error.code = 'OUTLOOK_SEND_SCOPE_REQUIRED';
     throw error;
   }
   return { oauth, accessToken };
@@ -493,5 +510,80 @@ export async function createCalendarEventFromOutlookMessage(userId, messageId) {
     messageId,
     eventId: event?.id || '',
     eventLink: event?.webLink || '',
+  };
+}
+
+/**
+ * Send mail from the connected Outlook mailbox via Graph.
+ * Does not open Outlook Web — personal deeplinks redirect to marketing / read views.
+ */
+export async function sendOutlookComposeMail(userId, { to = '', subject = '', body = '' } = {}) {
+  const toAddress = String(to || '').trim();
+  if (!toAddress) {
+    throw new Error('Client email is required to send with Outlook');
+  }
+
+  const { oauth, accessToken } = await getOutlookAccessContext(userId, { requireSend: true });
+  const accountEmail =
+    (await resolveOutlookEmail(accessToken, normalizeMicrosoftEmail(oauth.microsoftEmail || ''))) ||
+    normalizeMicrosoftEmail(oauth.microsoftEmail || '');
+
+  await fetchGraphJson('https://graph.microsoft.com/v1.0/me/sendMail', accessToken, {
+    method: 'POST',
+    body: JSON.stringify({
+      message: {
+        subject: String(subject || '').trim() || '(No subject)',
+        body: {
+          contentType: 'Text',
+          content: String(body || ''),
+        },
+        toRecipients: [{ emailAddress: { address: toAddress } }],
+      },
+      saveToSentItems: true,
+    }),
+  });
+
+  return {
+    sent: true,
+    email: accountEmail,
+    to: toAddress,
+  };
+}
+
+/**
+ * Create a draft in the connected Outlook mailbox (Graph) when send is not possible yet.
+ */
+export async function createOutlookComposeDraft(userId, { to = '', subject = '', body = '' } = {}) {
+  const { oauth, accessToken } = await getOutlookAccessContext(userId, { requireModify: true });
+  const accountEmail =
+    (await resolveOutlookEmail(accessToken, normalizeMicrosoftEmail(oauth.microsoftEmail || ''))) ||
+    normalizeMicrosoftEmail(oauth.microsoftEmail || '');
+
+  const toAddress = String(to || '').trim();
+  const payload = {
+    subject: String(subject || '').trim() || '(No subject)',
+    body: {
+      contentType: 'Text',
+      content: String(body || ''),
+    },
+    toRecipients: toAddress
+      ? [{ emailAddress: { address: toAddress } }]
+      : [],
+  };
+
+  const created = await fetchGraphJson('https://graph.microsoft.com/v1.0/me/messages', accessToken, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+
+  const id = String(created?.id || '').trim();
+  if (!id) {
+    throw new Error('Outlook did not return a draft id');
+  }
+
+  return {
+    id,
+    email: accountEmail,
+    sent: false,
   };
 }

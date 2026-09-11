@@ -111,6 +111,82 @@ function extractLabeledValue(text, labels) {
   return '';
 }
 
+/**
+ * Keep Add Job titles short and scannable in the Jobs table.
+ * Drops method/specialty parentheses and trims long "Role – Domain – Detail" tails.
+ *
+ * Example:
+ *   "Assistant Project Manager – Bridge Construction (Balanced Cantilever Method)"
+ *   → "Assistant Project Manager – Bridge Construction"
+ */
+export function normalizeExtractedJobTitle(raw, { maxLength = 72 } = {}) {
+  let title = String(raw || '')
+    .replace(/\r?\n+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!title) return '';
+
+  title = title.replace(/^(?:job\s*title|role|position|designation)\s*[:\-–—]\s*/i, '').trim();
+
+  // Strip trailing parenthetical notes (construction method, shift, band, etc.).
+  let prev = '';
+  while (title !== prev) {
+    prev = title;
+    title = title.replace(/\s*[([（][^)\]]{2,160}[)\]][）]?\s*$/g, '').trim();
+  }
+
+  // Drop trailing " - Remote/Hybrid/Onsite" noise from title (belongs in workplace type).
+  title = title
+    .replace(/\s*[–—|-]\s*(?:remote|hybrid|on[-\s]?site|onsite|wfh)\s*$/i, '')
+    .trim();
+
+  if (title.length > maxLength) {
+    const parts = title.split(/\s*[–—]\s*/).map((part) => part.trim()).filter(Boolean);
+    if (parts.length >= 2) {
+      const rolePlusDomain = `${parts[0]} – ${parts[1]}`;
+      if (rolePlusDomain.length <= maxLength) {
+        title = rolePlusDomain;
+      } else if (parts[0].length <= maxLength) {
+        title = parts[0];
+      } else {
+        title = parts[0].slice(0, maxLength).replace(/\s+\S*$/, '').trim();
+      }
+    } else {
+      title = title.slice(0, maxLength).replace(/\s+\S*$/, '').trim();
+    }
+  }
+
+  return title.replace(/\s*[–—|,;:.\-]+\s*$/g, '').trim();
+}
+
+/** Language / requirement sentences that must never be stored as city/location. */
+export function isImplausibleJobLocation(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return true;
+  const v = raw.toLowerCase();
+  if (v.length > 80) return true;
+  if (
+    /\b(french|english|arabic|hindi|spanish|german|mandarin|language|fluency|fluent|spoken|written)\b/.test(
+      v,
+    )
+  ) {
+    return true;
+  }
+  if (/\b(strongly\s+preferr|preferred|must\s+have|required|experience|years?\s+of)\b/.test(v)) {
+    return true;
+  }
+  if (/\b(bachelor|master|degree|qualification|salary|ctc|lpa)\b/.test(v)) return true;
+  // Real places are usually short proper nouns / comma lists — reject full sentences.
+  if (/\bis\s+\w+/.test(v) || /[.!?]$/.test(raw)) return true;
+  return false;
+}
+
+function sanitizeLocationField(value) {
+  const raw = String(value || '').trim();
+  if (!raw || isImplausibleJobLocation(raw)) return '';
+  return raw;
+}
+
 /** Multi-line section after a label (e.g. Responsibilities: + bullet lines). */
 function extractLabeledSectionBlock(text, labels) {
   const sortedLabels = [...labels].sort((a, b) => b.length - a.length);
@@ -330,12 +406,12 @@ export function applyPromptConstraintsToMerged(merged, promptText) {
   const c = extractPromptConstraints(text);
   const next = { ...merged };
 
-  if (c.jobTitle) next.jobTitle = c.jobTitle;
-  if (c.city) {
+  if (c.jobTitle) next.jobTitle = normalizeExtractedJobTitle(c.jobTitle);
+  if (c.city && !isImplausibleJobLocation(c.city)) {
     next.city = c.city;
-    next.state = c.state || next.state;
+    next.state = sanitizeLocationField(c.state || next.state);
     next.country = c.country || next.country;
-    next.jobLocation = c.jobLocation || next.jobLocation;
+    next.jobLocation = sanitizeLocationField(c.jobLocation || next.jobLocation);
   } else if (c.country) {
     next.country = c.country;
   }
@@ -666,7 +742,7 @@ function inferJobTitleFromNaturalText(text) {
   if (!clean) return '';
 
   const labeled = extractLabeledValue(clean, ['role', 'job title', 'position', 'title']);
-  if (labeled) return labeled;
+  if (labeled) return normalizeExtractedJobTitle(labeled);
 
   const patterns = [
     /(?:create|creat|generate|make|write)\s+(?:a\s+)?job(?:\s+description|\s+jd)?\s+(?:for|of)\s+(?:an?\s+|the\s+)?(.+?)(?:\s+in\s+[A-Za-z]|\s+with\s+salary|\s+for\s+salary|\s+salary\s+|\s+only\s+for|,|$)/i,
@@ -676,7 +752,7 @@ function inferJobTitleFromNaturalText(text) {
   for (const pattern of patterns) {
     const match = clean.match(pattern);
     if (match?.[1]) {
-      return match[1].trim().replace(/[.!,]$/, '');
+      return normalizeExtractedJobTitle(match[1].replace(/[.!,]$/, ''));
     }
   }
   return '';
@@ -717,9 +793,10 @@ function inferSalaryFromNaturalText(text) {
 
 export function extractJobRegexFallback(cleanedText) {
   const text = String(cleanedText || '');
-  const jobTitle =
+  const jobTitle = normalizeExtractedJobTitle(
     extractLabeledValue(text, ['role', 'job title', 'position', 'title']) ||
-    inferJobTitleFromNaturalText(text);
+      inferJobTitleFromNaturalText(text),
+  );
   const openingsRaw = extractLabeledValue(text, [
     'openings',
     'number of openings',
@@ -729,11 +806,15 @@ export function extractJobRegexFallback(cleanedText) {
   ]);
   const openingsMatch = openingsRaw.match(/\d+/);
   const companyName = extractLabeledValue(text, ['company', 'client', 'employer']);
-  const locationLine = extractLabeledValue(text, ['location', 'job location', 'work location']);
-  const inferredCity = inferCityFromNaturalText(text);
+  const locationLineRaw = extractLabeledValue(text, ['location', 'job location', 'work location']);
+  const locationLine = sanitizeLocationField(locationLineRaw);
+  const inferredCity = sanitizeLocationField(inferCityFromNaturalText(text));
   const loc = locationLine
     ? parseLocationLine(locationLine)
     : { city: '', state: '', country: '', workMode: '', jobLocation: '' };
+  loc.city = sanitizeLocationField(loc.city);
+  loc.state = sanitizeLocationField(loc.state);
+  loc.jobLocation = sanitizeLocationField(loc.jobLocation);
   if (!loc.city && inferredCity) {
     loc.city = inferredCity;
     loc.jobLocation = inferredCity;
@@ -831,6 +912,10 @@ export function extractJobRegexFallback(cleanedText) {
 
 export function enrichJobFieldsAfterMerge(merged) {
   const next = { ...merged };
+  next.jobTitle = normalizeExtractedJobTitle(next.jobTitle);
+  next.city = sanitizeLocationField(next.city);
+  next.state = sanitizeLocationField(next.state);
+  next.jobLocation = sanitizeLocationField(next.jobLocation);
   if (!next.jobDescriptionHtml?.trim()) {
     next.jobDescriptionHtml = buildJobDescriptionHtmlFromFields(next);
   }
@@ -872,13 +957,13 @@ export function mergeJobAiWithFallback(ai, fallback, promptText = '') {
   };
   const merged = {
     nationality: pick(ai?.nationality, fallback.nationality),
-    jobTitle: pick(ai?.jobTitle, fallback.jobTitle),
+    jobTitle: normalizeExtractedJobTitle(pick(ai?.jobTitle, fallback.jobTitle)),
     priority: pick(ai?.priority, fallback.priority) || 'Medium',
     companyName: pick(ai?.companyName, fallback.companyName),
     numberOfOpenings: String(pick(ai?.numberOfOpenings, fallback.numberOfOpenings) || '1'),
     country: pick(ai?.country, fallback.country),
-    state: pick(ai?.state, fallback.state),
-    city: pick(ai?.city, fallback.city),
+    state: sanitizeLocationField(pick(ai?.state, fallback.state)),
+    city: sanitizeLocationField(pick(ai?.city, fallback.city)),
     industryType: pick(ai?.industryType, fallback.industryType),
     employmentType: pick(ai?.employmentType, fallback.employmentType),
     targetHireDate: pick(ai?.targetHireDate, fallback.targetHireDate),
@@ -892,7 +977,7 @@ export function mergeJobAiWithFallback(ai, fallback, promptText = '') {
     payRangeMax: pick(ai?.payRangeMax, fallback.payRangeMax),
     salaryCurrency: pick(ai?.salaryCurrency, fallback.salaryCurrency),
     salaryInput: pick(ai?.salaryInput, fallback.salaryInput),
-    jobLocation: pick(ai?.jobLocation, fallback.jobLocation),
+    jobLocation: sanitizeLocationField(pick(ai?.jobLocation, fallback.jobLocation)),
     jobLocationType: pick(ai?.jobLocationType, fallback.jobLocationType),
     jobType: pick(ai?.jobType, fallback.jobType) || 'Full Time',
     languages: Array.isArray(ai?.languages) && ai.languages.length ? ai.languages : fallback.languages,
@@ -969,9 +1054,14 @@ export function buildJobExtractionPromptInstructions(isNaturalLanguagePrompt = f
     );
   }
   lines.push(
+    'jobTitle: SHORT professional role title only (max ~8 words). Example: "Assistant Project Manager – Bridge Construction".',
+    'Do NOT put construction methods, tools, certifications, shifts, salary, or long parenthetical notes in jobTitle.',
+    'Bad jobTitle: "Assistant Project Manager – Bridge Construction (Balanced Cantilever Method)".',
+    'Good jobTitle: "Assistant Project Manager – Bridge Construction" (put method details in jobDescriptionHtml / requirements).',
+    'city / state / jobLocation: real geographic places only. Never put language preferences (e.g. "French is strongly preferred") into location fields — put those in languages or candidateRequirementsText.',
     'priority: High | Medium | Low. employmentType: Full Time | Part Time | Contract | Internship.',
     'jobLocationType: Remote | Hybrid | On-site. targetHireDate: YYYY-MM-DD or empty.',
-    'Copy labeled lines exactly (Role/Job Title, Company, Openings, Location, Experience, Salary, Skills).',
+    'Copy labeled lines exactly (Role/Job Title, Company, Openings, Location, Experience, Salary, Skills) then shorten jobTitle as above.',
     'jobDescriptionHtml: concise HTML with h3 sections. Always include Overview, Key Responsibilities, Requirements, Preferred Qualifications, Benefits when present in the source. ALSO include any other distinct JD sections found in the source as additional h3 headings (examples: About the Company, About the Team, Nice to Have, Tools & Technologies, Interview Process, What We Offer, Day to Day). Do not invent sections that are not supported by the source text.',
     'keyResponsibilitiesText: 4–8 bullet lines (one responsibility per line, no HTML).',
     'qualificationsExperienceText: requirements + preferred education/experience (one item per line, no HTML).',

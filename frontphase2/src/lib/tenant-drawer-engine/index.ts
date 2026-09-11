@@ -126,31 +126,52 @@ export async function alertDrawerAnalysis(
   return { action: 'fill', focus };
 }
 
-/** Tenant-wide overdue items — each shown as a corner popup, one by one. */
+/** Tenant-wide overdue + upcoming follow-ups — each shown as a corner popup. */
 export async function alertTenantOverdueScan(
   scan: TenantOverdueScanResult,
   tenantKey: string,
+  userId?: string | null,
 ): Promise<boolean> {
-  if (!scan.overdueMeetings.length) return false;
+  const overdue = scan.overdueMeetings || [];
+  const upcoming = scan.upcomingMeetings || [];
+  if (!overdue.length && !upcoming.length) return false;
+
   const expectedTenant = String(tenantKey || currentTenantKey() || '').trim();
   if (!expectedTenant || !stillSameTenant(expectedTenant)) return false;
 
-  const scope = tenantOverdueAlertScope(expectedTenant);
+  const scope = tenantOverdueAlertScope(expectedTenant, userId);
   if (wasDrawerAlertDismissed(scope)) return false;
 
+  const total = overdue.length + upcoming.length;
   await requestCornerAlert(
-    `You have ${scan.overdueMeetings.length} overdue meeting/follow-up${
-      scan.overdueMeetings.length === 1 ? '' : 's'
-    }. Showing them one by one.`,
+    `You have ${total} follow-up reminder${total === 1 ? '' : 's'} on your leads/clients` +
+      `${overdue.length ? ` (${overdue.length} overdue)` : ''}` +
+      `${upcoming.length ? ` (${upcoming.length} upcoming)` : ''}. Showing them one by one.`,
     {
-      tone: 'warning',
-      title: 'Overdue meetings',
+      tone: overdue.length ? 'warning' : 'info',
+      title: 'Follow-up reminders',
       confirmLabel: 'OK',
       autoCloseMs: 4500,
     },
   );
 
-  for (const meeting of scan.overdueMeetings.slice(0, 12)) {
+  for (const meeting of upcoming.slice(0, 8)) {
+    if (!stillSameTenant(expectedTenant)) {
+      flushAppDialogs();
+      return false;
+    }
+    await requestCornerAlert(
+      `[${meeting.entityKind}] ${meeting.title}\nDue ${formatWhen(meeting.at)}`,
+      {
+        tone: 'warning',
+        title: meeting.kind === 'meeting' ? 'Upcoming meeting' : 'Upcoming follow-up',
+        confirmLabel: 'Next',
+        autoCloseMs: 5500,
+      },
+    );
+  }
+
+  for (const meeting of overdue.slice(0, 12)) {
     if (!stillSameTenant(expectedTenant)) {
       flushAppDialogs();
       return false;
@@ -171,12 +192,17 @@ export async function alertTenantOverdueScan(
     return false;
   }
 
-  const confirmed = await requestCornerConfirm('Open records to complete these now?', {
-    tone: 'warning',
-    title: 'Review overdue items',
-    confirmLabel: 'Review now',
-    cancelLabel: 'Dismiss today',
-  });
+  const confirmed = await requestCornerConfirm(
+    overdue.length
+      ? 'Open your leads/clients to complete overdue follow-ups now?'
+      : 'Open your leads/clients to review upcoming follow-ups?',
+    {
+      tone: 'warning',
+      title: overdue.length ? 'Review overdue items' : 'Review follow-ups',
+      confirmLabel: 'Review now',
+      cancelLabel: 'Dismiss today',
+    },
+  );
 
   if (!stillSameTenant(expectedTenant)) {
     flushAppDialogs();
@@ -213,6 +239,8 @@ export {
   buildTenantOverdueAlertMessage,
   scanTenantOverdueFromLists,
   isDateOverdue,
+  isDateUpcoming,
+  isRecordAssignedToUser,
 } from './analyze';
 export { trackDrawerIntelligenceEvent } from './track';
 export * from './types';

@@ -116,7 +116,7 @@ export function RecHeader({ overview, onRefresh }: Props) {
             {customizeOpen ? (
               <div className="absolute right-0 z-40 mt-2 w-60 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
                 <p className="px-2 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                  Legacy widget toggles
+                  Show sections
                 </p>
                 {REC_SECTIONS.map((s) => (
                   <label

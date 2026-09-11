@@ -14,6 +14,8 @@ export type OverdueMeetingIssue = {
   entityKind: DrawerEntityKind;
   entityId: string;
   entityName: string;
+  /** overdue = past due; upcoming = due soon (not yet past) */
+  urgency?: 'overdue' | 'upcoming';
 };
 
 export type DrawerAnalysisResult = {
@@ -22,9 +24,11 @@ export type DrawerAnalysisResult = {
   entityName: string;
   missingFields: MissingFieldIssue[];
   overdueMeetings: OverdueMeetingIssue[];
+  upcomingMeetings: OverdueMeetingIssue[];
 };
 
 export type TenantOverdueScanResult = {
   overdueMeetings: OverdueMeetingIssue[];
+  upcomingMeetings: OverdueMeetingIssue[];
   scannedAt: string;
 };

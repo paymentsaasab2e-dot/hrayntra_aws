@@ -2494,7 +2494,8 @@ export const interviewService = {
             ]);
             return serializeInterviewForClientReview(interview, {
               submissionType,
-              cvShareMode,
+              cvShareMode:
+                readCandidateCvShareMode(match.candidate) || cvShareMode,
               offerLetterFile: offerFile,
               matchId: match.id,
               trackerOptions: resolveReviewTrackerOptions(match.candidate, decoded),
@@ -2557,7 +2558,7 @@ export const interviewService = {
 
     const payload = serializeInterviewForClientReview(interview, {
       submissionType,
-      cvShareMode,
+      cvShareMode: readCandidateCvShareMode(interview.candidate) || cvShareMode,
       offerLetterFile,
       matchId: decoded.matchId || interview.id,
       trackerOptions: resolveReviewTrackerOptions(interview.candidate, decoded),

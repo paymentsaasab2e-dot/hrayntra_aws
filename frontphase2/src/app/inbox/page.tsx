@@ -49,6 +49,11 @@ import {
   type GmailInboxMessage,
 } from '../../lib/api';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
+import { InboxComposePanel, type InboxComposeValues } from '../../components/inbox/InboxComposePanel';
+import {
+  clearInboxComposeDraftStorage,
+  readInboxComposeDraft,
+} from '../../lib/mailboxCompose';
 
 type MailTab = 'Primary' | 'Promotions' | 'Social' | 'Updates';
 type ResizeSection = 'left' | null;
@@ -958,6 +963,14 @@ export default function InboxPage() {
   const [leftWidth, setLeftWidth] = useState(280);
   const [resizing, setResizing] = useState<ResizeSection>(null);
   const [viewportWidth, setViewportWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1440);
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [composeKey, setComposeKey] = useState(0);
+  const [composeValues, setComposeValues] = useState<InboxComposeValues>({
+    to: '',
+    subject: '',
+    body: '',
+  });
+  const composeHandledRef = useRef(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   const applyInboxResult = (result: Awaited<ReturnType<typeof apiGetGmailInbox>>) => {
@@ -1277,12 +1290,54 @@ export default function InboxPage() {
   };
 
   const handleCompose = () => {
-    const url =
-      mailProvider === 'outlook'
-        ? 'https://outlook.office.com/mail/deeplink/compose'
-        : 'https://mail.google.com/mail/u/0/#inbox?compose=new';
-    window.open(url, '_blank', 'noopener,noreferrer');
+    openComposeWithValues({ to: '', subject: '', body: '' });
   };
+
+  const openComposeWithValues = useCallback((values: InboxComposeValues) => {
+    setComposeValues({
+      to: String(values.to || '').trim(),
+      subject: String(values.subject || ''),
+      body: String(values.body || ''),
+    });
+    setComposeKey((key) => key + 1);
+    setComposeOpen(true);
+    setSelectedId(undefined);
+  }, []);
+
+  useEffect(() => {
+    if (!statusReady) return;
+    const wantsCompose = searchParams.get('compose') === '1';
+    if (!wantsCompose) {
+      composeHandledRef.current = false;
+      return;
+    }
+    if (composeHandledRef.current) return;
+    composeHandledRef.current = true;
+
+    const draftId = searchParams.get('draft');
+    const draft = readInboxComposeDraft(draftId);
+    if (draft) {
+      if (draft.provider === 'outlook' || draft.provider === 'gmail') {
+        setMailProvider(draft.provider);
+        window.sessionStorage.setItem(INBOX_PROVIDER_KEY, draft.provider);
+        setConnectedEmail(draft.provider === 'outlook' ? outlookEmail : gmailEmail);
+      }
+      openComposeWithValues({
+        to: draft.to || '',
+        subject: draft.subject,
+        body: draft.body,
+      });
+      // Keep memory cache for Strict Mode remount; drop localStorage so it isn't reused later.
+      clearInboxComposeDraftStorage();
+    }
+
+    const mailbox = searchParams.get('mailbox');
+    const next =
+      mailbox === 'outlook' || mailbox === 'gmail'
+        ? `/inbox?mailbox=${mailbox}`
+        : '/inbox';
+    router.replace(next, { scroll: false });
+  }, [statusReady, searchParams, openComposeWithValues, router, outlookEmail, gmailEmail]);
 
   const handleProviderChange = (provider: MailProvider) => {
     if (provider !== mailProvider) {
@@ -1543,6 +1598,16 @@ export default function InboxPage() {
           </div>
         </main>
       </div>
+
+      {composeOpen ? (
+        <InboxComposePanel
+          key={composeKey}
+          provider={mailProvider}
+          fromEmail={connectedEmail || (mailProvider === 'outlook' ? outlookEmail : gmailEmail)}
+          initial={composeValues}
+          onClose={() => setComposeOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }

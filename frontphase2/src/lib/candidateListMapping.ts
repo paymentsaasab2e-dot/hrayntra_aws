@@ -227,7 +227,14 @@ export function resolveCandidateExperienceYears(c: {
 }): number {
   for (const raw of [c.experience, c.experienceYears]) {
     const n = Number(raw);
-    if (Number.isFinite(n) && n >= 0) return n;
+    if (!Number.isFinite(n) || n < 0) continue;
+    // Reject ISO codes / calendar years / absurd tenures (e.g. ISO 27001 → 27001y).
+    if (n > 50) continue;
+    if (n >= 1900 && n <= 2100) continue;
+    if ([9001, 14001, 18001, 20000, 22000, 27001, 27002, 45001, 50001].includes(Math.round(n))) {
+      continue;
+    }
+    return Math.round(n * 10) / 10;
   }
   return 0;
 }

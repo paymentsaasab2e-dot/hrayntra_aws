@@ -295,11 +295,8 @@ function mapBackendCandidate(raw: BackendCandidate): Candidate {
   const basicFullName = `${c.firstName ?? ''} ${c.lastName ?? ''}`.trim();
   const assignedJobsFromAssignedTitles = resolveCandidateAssignedJobTitles(c);
   const workEntries = collectCandidateWorkEntries(c);
-  const rawExperience = resolveCandidateExperienceYears(c) ?? c.experience ?? 0;
-  const experienceYears =
-    typeof rawExperience === 'number' && Number.isFinite(rawExperience)
-      ? rawExperience
-      : Number(rawExperience) || 0;
+  // Never fall back to raw API experience — it can be ISO codes (e.g. 27001) or calendar years.
+  const experienceYears = resolveCandidateExperienceYears(c) ?? 0;
   const skillLabels = normalizeCandidateSkillLabels(c.skills ?? (c as { recruiterSkills?: unknown }).recruiterSkills);
 
   return {

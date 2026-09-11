@@ -347,11 +347,16 @@ export async function wasAlertDispatchedRecently(userId, alertId, entityId, hour
 export async function createAlertNotification(userId, alertId, payload) {
   if (!userId || !payload?.title) return null;
   if (!(await isAlertPortalEnabled(alertId, userId))) return null;
+  const def = getAlertDefinition(alertId);
+  const severity = String(def?.severity || 'warning').toLowerCase();
   const enriched = {
     ...payload,
     metadata: {
       ...(payload.metadata || {}),
       alertId,
+      isAlert: true,
+      severity,
+      scheduled: Boolean(payload?.metadata?.scheduled),
     },
   };
   return createUserNotification(userId, enriched);

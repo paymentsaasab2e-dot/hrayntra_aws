@@ -16,6 +16,8 @@ import {
   buildJobExtractionPromptInstructions,
   logJobRegexFieldExtraction,
   enrichJobFieldsAfterMerge,
+  normalizeExtractedJobTitle,
+  isImplausibleJobLocation,
 } from './jobCreationPipelineSchema.js';
 
 const TEXT_CAP = 22000;
@@ -46,16 +48,22 @@ function normalizeJobPipelineOutput(merged, clients = []) {
     ? [...new Set(merged.skills.map((s) => String(s).trim()).filter(Boolean))]
     : [];
 
+  const city = isImplausibleJobLocation(merged.city) ? '' : String(merged.city || '').trim();
+  const state = isImplausibleJobLocation(merged.state) ? '' : String(merged.state || '').trim();
+  const jobLocation = isImplausibleJobLocation(merged.jobLocation)
+    ? ''
+    : String(merged.jobLocation || '').trim();
+
   return {
     nationality: String(merged.nationality || '').trim(),
-    jobTitle: String(merged.jobTitle || '').trim(),
+    jobTitle: normalizeExtractedJobTitle(merged.jobTitle),
     priority: ['High', 'Medium', 'Low'].includes(merged.priority) ? merged.priority : 'Medium',
     companyName: String(merged.companyName || '').trim(),
     companyId,
     numberOfOpenings: String(merged.numberOfOpenings || '1').trim() || '1',
     country: String(merged.country || '').trim(),
-    state: String(merged.state || '').trim(),
-    city: String(merged.city || '').trim(),
+    state,
+    city,
     industryType: String(merged.industryType || '').trim(),
     employmentType: String(merged.employmentType || '').trim(),
     targetHireDate,
@@ -72,7 +80,7 @@ function normalizeJobPipelineOutput(merged, clients = []) {
       return raw || 'USD';
     })(),
     salaryInput: String(merged.salaryInput || '').trim(),
-    jobLocation: String(merged.jobLocation || '').trim(),
+    jobLocation,
     jobLocationType: String(merged.jobLocationType || '').trim(),
     jobType: String(merged.jobType || 'Full Time').trim() || 'Full Time',
     languages: Array.isArray(merged.languages) ? merged.languages : [],
@@ -110,8 +118,8 @@ async function extractJobStructuredWithAi(cleanedText, currentForm = {}, options
         {
           role: 'system',
           content: isNaturalLanguagePrompt
-            ? 'You are an ATS job creation assistant. Extract ALL Add Job form fields from a recruiter\'s short instruction. Never invent location, salary, or country — use only what the user explicitly states. Generate rich description, skills, and responsibilities for the role. Return only valid JSON matching the schema.'
-            : 'You are an ATS job creation assistant. Extract job posting fields from document text for an Add Job form. Do not ask questions. Return only valid JSON matching the schema.',
+            ? 'You are an ATS job creation assistant. Extract ALL Add Job form fields from a recruiter\'s short instruction. jobTitle must be a short role name only (no method parentheses). Never invent location, salary, or country — use only what the user explicitly states. Never put language preferences into city/location. Generate rich description, skills, and responsibilities for the role. Return only valid JSON matching the schema.'
+            : 'You are an ATS job creation assistant. Extract job posting fields from document text for an Add Job form. jobTitle must be short and clean (role ± domain only; drop parenthetical methods). Location fields must be real places, never language requirements. Do not ask questions. Return only valid JSON matching the schema.',
         },
         {
           role: 'user',

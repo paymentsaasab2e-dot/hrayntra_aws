@@ -5254,6 +5254,8 @@ export interface BackendUser {
   lastLogin?: string;
   createdAt: string;
   updatedAt?: string;
+  /** Reporting manager on the team hierarchy (User.managerId). */
+  managerId?: string | null;
   /** Company name entered when HQ created this tenant. */
   organizationName?: string | null;
   companyName?: string | null;
@@ -5508,6 +5510,7 @@ export interface BackendJob {
   } | null;
   manager?: { id: string; name: string; email?: string } | null;
   managerId?: string | null;
+  supportingRecruiters?: string[] | null;
   jobLocationType?: string | null;
   applicationFormEnabled?: boolean;
   applicationFormLogo?: string | null;
@@ -10408,6 +10411,46 @@ export const apiCreateCalendarEventFromOutlookMessage = async (messageId: string
   return res.data;
 };
 
+export type OutlookComposeDraftResult = {
+  id: string;
+  email?: string;
+  sent?: boolean;
+};
+
+export type OutlookSendMailResult = {
+  sent: boolean;
+  email?: string;
+  to?: string;
+};
+
+/** Create a draft in the connected Outlook mailbox (no Outlook Web open). */
+export const apiCreateOutlookComposeDraft = async (body: {
+  to?: string;
+  subject: string;
+  body: string;
+}) => {
+  const res = await apiFetch<OutlookComposeDraftResult>('/inbox/outlook/compose-draft', {
+    method: 'POST',
+    body,
+    auth: true,
+  });
+  return res.data;
+};
+
+/** Send mail from the connected Outlook mailbox via Microsoft Graph. */
+export const apiSendOutlookComposeMail = async (body: {
+  to?: string;
+  subject: string;
+  body: string;
+}) => {
+  const res = await apiFetch<OutlookSendMailResult>('/inbox/outlook/send-mail', {
+    method: 'POST',
+    body,
+    auth: true,
+  });
+  return res.data;
+};
+
 function parseInboxThreadList(raw: unknown): InboxThread[] {
   if (Array.isArray(raw)) return raw as InboxThread[];
   if (raw && typeof raw === 'object' && Array.isArray((raw as { data?: unknown }).data)) {
@@ -10518,6 +10561,11 @@ export type SocialPublishingAccount = {
   expired?: boolean;
   organizationId?: string;
   parentAccountId?: string;
+  /** Team member who connected this LinkedIn (tenant-shared). */
+  ownerUserId?: string | null;
+  ownerName?: string | null;
+  /** True when the current user owns this connection. */
+  isOwn?: boolean;
 };
 
 export interface LinkedInStatus {
@@ -11794,6 +11842,17 @@ export async function apiListNotifications(params?: {
     `/notifications${query ? `?${query}` : ''}`,
     { method: 'GET', auth: true }
   );
+}
+
+/** Push overdue / due-today / upcoming lead+client follow-ups into Alerts + email. */
+export async function apiSyncFollowUpAlerts() {
+  return apiFetch<{
+    leads?: { dispatched?: number; scanned?: number } | null;
+    clients?: { dispatched?: number; scanned?: number } | null;
+  }>('/notifications/sync-follow-up-alerts', {
+    method: 'POST',
+    auth: true,
+  });
 }
 
 export async function apiGetNotificationUnreadCount(): Promise<{

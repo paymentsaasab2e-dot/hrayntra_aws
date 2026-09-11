@@ -9,6 +9,8 @@ import {
   trashOutlookMessage,
   updateOutlookMessageFlags,
   createCalendarEventFromOutlookMessage,
+  createOutlookComposeDraft,
+  sendOutlookComposeMail,
 } from './inbox-outlook.util.js';
 
 function decodeBase64Url(value = '') {
@@ -673,5 +675,13 @@ export const inboxService = {
 
   async createCalendarEventFromOutlookMessage(userId, messageId) {
     return createCalendarEventFromOutlookMessage(userId, messageId);
+  },
+
+  async createOutlookComposeDraft(userId, body = {}) {
+    return createOutlookComposeDraft(userId, body);
+  },
+
+  async sendOutlookComposeMail(userId, body = {}) {
+    return sendOutlookComposeMail(userId, body);
   },
 };

@@ -24,6 +24,8 @@ router.post(
   '/outlook/messages/:messageId/calendar-event',
   inboxController.createCalendarEventFromOutlookMessage
 );
+router.post('/outlook/compose-draft', inboxController.createOutlookComposeDraft);
+router.post('/outlook/send-mail', inboxController.sendOutlookComposeMail);
 router.post('/threads', inboxController.createThread);
 router.post('/threads/:threadId/messages', inboxController.addMessage);
 router.patch('/threads/:threadId/read', inboxController.markAsRead);

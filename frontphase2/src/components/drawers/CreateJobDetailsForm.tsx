@@ -24,6 +24,10 @@ import {
   createEmptyCustomJdSection,
   type JobCustomJdSection,
 } from '../../lib/jobCustomJdSections';
+import {
+  isSyntheticJobContactId,
+  type JobContactPersonOption,
+} from '../../lib/jobClientContacts';
 import { useDrawerPortalDropdownPosition } from './drawerFormUi';
 
 export interface JobLanguageEntry {
@@ -64,6 +68,8 @@ export interface CreateJobDetailsFormData {
   assignedToId?: string;
   assignedToName?: string;
   assignedToCompanyId?: string;
+  /** Ordered assignee list — first is primary recruiter; rest are supporting. */
+  assignedToIds?: string[];
   aboutCompany: string;
   publicFieldVisibility: JobPublicFieldVisibility;
   postingOrgUnitId?: string;
@@ -303,8 +309,85 @@ export function CreateJobDetailsForm({
     menuRef: recruiterMenuRef,
     menuPosition: recruiterMenuPosition,
   } = useDrawerPortalDropdownPosition(recruiterMenuOpen, true, closeRecruiterMenu);
-  const managerOptions = lineManagerOptions;
-  const loadingManagerOptions = loadingLineManagers;
+
+  /** Managers of the selected organization: people who have reports, or manager-role users. */
+  const managerUsers = useMemo(() => {
+    const byId = new Map<string, BackendUser>();
+    const reportCount = new Map<string, number>();
+
+    for (const member of assignable.members) {
+      const managerId = String(member.manager?.id || member.managerId || '').trim();
+      if (!managerId) continue;
+      reportCount.set(managerId, (reportCount.get(managerId) || 0) + 1);
+      if (byId.has(managerId)) continue;
+      if (member.manager?.id === managerId) {
+        const name = [member.manager.firstName, member.manager.lastName]
+          .filter(Boolean)
+          .join(' ')
+          .trim();
+        byId.set(managerId, {
+          id: managerId,
+          name: name || 'Manager',
+          email: member.manager.email || '',
+          role: 'Manager',
+          isActive: true,
+          createdAt: '',
+        });
+      }
+    }
+
+    const looksLikeManager = (user: BackendUser) => {
+      const role = String(user.role || '').toLowerCase();
+      return (
+        role.includes('manager') ||
+        role.includes('director') ||
+        role.includes('head') ||
+        role.includes('lead')
+      );
+    };
+
+    if (useLineManagerPicker) {
+      for (const user of lineManagerOptions) {
+        byId.set(user.id, user);
+      }
+    }
+
+    for (const user of recruiterUsers) {
+      if (reportCount.has(user.id) || looksLikeManager(user)) {
+        byId.set(user.id, user);
+      }
+    }
+
+    for (const user of lineManagerOptions) {
+      byId.set(user.id, user);
+    }
+
+    // Fallback: if hierarchy has no managers yet, allow any org member.
+    if (byId.size === 0) {
+      for (const user of recruiterUsers) {
+        byId.set(user.id, user);
+      }
+    }
+
+    return Array.from(byId.values()).sort((a, b) =>
+      String(a.name || '').localeCompare(String(b.name || '')),
+    );
+  }, [assignable.members, lineManagerOptions, recruiterUsers, useLineManagerPicker]);
+
+  const loadingManagerOptions = loadingLineManagers || loadingRecruiters;
+  const needsOrganizationFirst = assignable.canSelectCompany && !assignable.companyId;
+  const needsManagerFirst = !formData.managerId;
+
+  /** Team under the selected manager only (org → manager → team). */
+  const filteredRecruiterUsers = useMemo(() => {
+    if (!formData.managerId) return [];
+    return recruiterUsers.filter((user) => {
+      if (user.id === formData.managerId) return true;
+      const member = assignable.members.find((row) => row.id === user.id);
+      const reportsTo = member?.manager?.id || member?.managerId || user.managerId || '';
+      return reportsTo === formData.managerId;
+    });
+  }, [assignable.members, formData.managerId, recruiterUsers]);
   const selectedCompany = clients.find((c) => c.id === formData.companyId);
   const ownCompanyName = (client: BackendClient) =>
     ownCompanyDisplayName || client.companyName || 'Your organization';
@@ -313,16 +396,115 @@ export function CreateJobDetailsForm({
       ? `Own company · ${ownCompanyName(selectedCompany)}`
       : selectedCompany.companyName
     : undefined;
-  const selectedRecruiter =
-    recruiterUsers.find((u) => u.id === formData.assignedToId) ||
-    users.find((u) => u.id === formData.assignedToId) ||
-    (formData.assignedToId && formData.assignedToName
-      ? { id: formData.assignedToId, name: formData.assignedToName }
+  const selectedAssigneeIds = useMemo(() => {
+    if (Array.isArray(formData.assignedToIds) && formData.assignedToIds.length) {
+      return formData.assignedToIds.filter(Boolean);
+    }
+    return formData.assignedToId ? [formData.assignedToId] : [];
+  }, [formData.assignedToId, formData.assignedToIds]);
+
+  const selectedAssignees = useMemo(() => {
+    return selectedAssigneeIds
+      .map((id) => {
+        const fromFiltered = filteredRecruiterUsers.find((u) => u.id === id);
+        if (fromFiltered) return fromFiltered;
+        const fromAll =
+          recruiterUsers.find((u) => u.id === id) || users.find((u) => u.id === id);
+        if (fromAll) return fromAll;
+        if (id === formData.assignedToId && formData.assignedToName) {
+          return { id, name: formData.assignedToName, email: '', role: '', isActive: true, createdAt: '' };
+        }
+        return null;
+      })
+      .filter(Boolean) as BackendUser[];
+  }, [
+    filteredRecruiterUsers,
+    formData.assignedToId,
+    formData.assignedToName,
+    recruiterUsers,
+    selectedAssigneeIds,
+    users,
+  ]);
+
+  const selectedManager =
+    managerUsers.find((u) => u.id === formData.managerId) ||
+    (formData.managerId
+      ? lineManagerOptions.find((u) => u.id === formData.managerId)
       : undefined);
-  const selectedRecruiterLabel = selectedRecruiter
-    ? formatAssigneeDisplayName(selectedRecruiter) || selectedRecruiter.name
+  const selectedManagerLabel = selectedManager
+    ? formatAssigneeDisplayName(selectedManager) || selectedManager.name
     : '';
-  const selectedManager = managerOptions.find((u) => u.id === formData.managerId);
+
+  const applyAssigneeIds = useCallback(
+    (ids: string[]) => {
+      const unique = [...new Set(ids.map((id) => String(id || '').trim()).filter(Boolean))];
+      const primary = unique[0] || '';
+      const primaryUser =
+        filteredRecruiterUsers.find((u) => u.id === primary) ||
+        recruiterUsers.find((u) => u.id === primary) ||
+        users.find((u) => u.id === primary);
+      const primaryMember = assignable.members.find((row) => row.id === primary);
+      const managerId =
+        primaryMember?.manager?.id || primaryMember?.managerId || primaryUser?.managerId || '';
+      setFormData({
+        assignedToIds: unique,
+        assignedToId: primary,
+        assignedToName: primaryUser
+          ? formatAssigneeDisplayName(primaryUser) || primaryUser.name
+          : '',
+        assignedToCompanyId: assignable.companyId || formData.assignedToCompanyId,
+        ...(managerId && !formData.managerId ? { managerId } : {}),
+      });
+    },
+    [
+      assignable.companyId,
+      assignable.members,
+      filteredRecruiterUsers,
+      formData.assignedToCompanyId,
+      formData.managerId,
+      recruiterUsers,
+      setFormData,
+      users,
+    ],
+  );
+
+  const selectManager = (userId: string) => {
+    const patch: Partial<CreateJobDetailsFormData> = { managerId: userId };
+    if (selectedAssigneeIds.length) {
+      const kept = selectedAssigneeIds.filter((id) => {
+        const member = assignable.members.find((row) => row.id === id);
+        const reportsTo = member?.manager?.id || member?.managerId || '';
+        return !userId || reportsTo === userId;
+      });
+      if (kept.length !== selectedAssigneeIds.length) {
+        const primary = kept[0] || '';
+        const primaryUser =
+          filteredRecruiterUsers.find((u) => u.id === primary) ||
+          recruiterUsers.find((u) => u.id === primary);
+        patch.assignedToIds = kept;
+        patch.assignedToId = primary;
+        patch.assignedToName = primaryUser
+          ? formatAssigneeDisplayName(primaryUser) || primaryUser.name
+          : '';
+      }
+    }
+    setFormData(patch);
+    setDropdownsOpen((prev) => ({ ...prev, manager: false }));
+  };
+
+  const toggleAssignee = (user: BackendUser) => {
+    const exists = selectedAssigneeIds.includes(user.id);
+    const next = exists
+      ? selectedAssigneeIds.filter((id) => id !== user.id)
+      : [...selectedAssigneeIds, user.id];
+    applyAssigneeIds(next);
+  };
+
+  const clearAssignees = () => {
+    applyAssigneeIds([]);
+    closeRecruiterMenu();
+  };
+
   const selectedContact =
     contacts.find((c) => c.id === formData.contactPersonId) ||
     contacts.find(
@@ -638,42 +820,6 @@ export function CreateJobDetailsForm({
           )}
         </DropdownField>
       )}
-
-      {useLineManagerPicker ? (
-        <DropdownField
-          label="Line Manager"
-          required
-          placeholder="Select line manager"
-          valueLabel={selectedManager?.name}
-          openKey="manager"
-          dropdownsOpen={dropdownsOpen}
-          setDropdownsOpen={setDropdownsOpen}
-        >
-          {loadingManagerOptions ? (
-            <li className="px-4 py-2 text-sm text-slate-500">Loading line managers…</li>
-          ) : managerOptions.length === 0 ? (
-            <li className="px-4 py-2 text-sm text-slate-500">No line managers found</li>
-          ) : (
-            managerOptions.map((user) => (
-              <li key={user.id}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    patchForm({ managerId: user.id });
-                    setDropdownsOpen((prev) => ({ ...prev, manager: false }));
-                  }}
-                  className={`w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 ${
-                    formData.managerId === user.id ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-700'
-                  }`}
-                >
-                  <span className="block font-medium">{user.name}</span>
-                  <span className="block text-xs text-slate-500 truncate">{user.email}</span>
-                </button>
-              </li>
-            ))
-          )}
-        </DropdownField>
-      ) : null}
 
       {!hideCompanyField ? (
       <DropdownField
@@ -1245,22 +1391,111 @@ export function CreateJobDetailsForm({
         </p>
       </div>
 
-      <div>
-        <FieldLabelRow
-          label="Assign team member"
-        />
-        {assignable.canSelectCompany ? (
+      {assignable.canSelectCompany ? (
+        <div>
           <AssignCompanySelect
             companies={assignable.companies}
             value={assignable.companyId}
+            label="Organization"
             onChange={(id) => {
               assignable.setCompanyId(id);
               if (id !== assignable.companyId) {
-                patchForm({ assignedToId: '', assignedToName: '', assignedToCompanyId: id });
+                patchForm({
+                  assignedToId: '',
+                  assignedToName: '',
+                  assignedToIds: [],
+                  assignedToCompanyId: id,
+                  managerId: '',
+                });
               }
             }}
-            className="mb-2"
           />
+          <p className="mt-1 text-xs text-slate-500">
+            Assignment organization (who owns this job). Separate from the posting company name above.
+          </p>
+        </div>
+      ) : null}
+
+      <DropdownField
+        label="Manager"
+        required={useLineManagerPicker || assignable.canSelectCompany}
+        placeholder={
+          needsOrganizationFirst
+            ? 'Select an organization first'
+            : 'Select manager of this organization'
+        }
+        valueLabel={selectedManagerLabel || undefined}
+        openKey="manager"
+        dropdownsOpen={dropdownsOpen}
+        setDropdownsOpen={setDropdownsOpen}
+      >
+        {loadingManagerOptions ? (
+          <li className="px-4 py-2 text-sm text-slate-500">Loading managers…</li>
+        ) : needsOrganizationFirst ? (
+          <li className="px-4 py-2 text-sm text-slate-500">Select an organization to see managers</li>
+        ) : managerUsers.length === 0 ? (
+          <li className="px-4 py-2 text-sm text-slate-500">No managers found in this organization</li>
+        ) : (
+          <>
+            {!useLineManagerPicker ? (
+              <li>
+                <button
+                  type="button"
+                  onClick={() => selectManager('')}
+                  className="w-full px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+                >
+                  None
+                </button>
+              </li>
+            ) : null}
+            {managerUsers.map((user) => (
+              <li key={user.id}>
+                <button
+                  type="button"
+                  onClick={() => selectManager(user.id)}
+                  className={`w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 ${
+                    formData.managerId === user.id ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-700'
+                  }`}
+                >
+                  <span className="block font-medium">{formatAssigneeDisplayName(user) || user.name}</span>
+                  {user.email ? (
+                    <span className="block text-xs text-slate-500 truncate">{user.email}</span>
+                  ) : null}
+                </button>
+              </li>
+            ))}
+          </>
+        )}
+      </DropdownField>
+
+      <div>
+        <FieldLabelRow label="Recruiters / Team members" />
+        {selectedAssignees.length > 0 ? (
+          <div className="mb-2 flex flex-wrap gap-1.5">
+            {selectedAssignees.map((user, index) => (
+              <span
+                key={user.id}
+                className="inline-flex items-center gap-1 rounded-full border border-blue-100 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-800"
+              >
+                <span className="max-w-[140px] truncate">
+                  {formatAssigneeDisplayName(user) || user.name}
+                </span>
+                {index === 0 ? (
+                  <span className="rounded bg-blue-100 px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-blue-600">
+                    Primary
+                  </span>
+                ) : null}
+                <button
+                  type="button"
+                  aria-label={`Remove ${formatAssigneeDisplayName(user) || user.name}`}
+                  onClick={() => applyAssigneeIds(selectedAssigneeIds.filter((id) => id !== user.id))}
+                  className="rounded-full p-0.5 text-blue-500 hover:bg-blue-100 hover:text-blue-700"
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            ))}
+          </div>
         ) : null}
         <div className="relative">
           <button
@@ -1269,19 +1504,19 @@ export function CreateJobDetailsForm({
             onClick={() => setDropdownsOpen((prev) => ({ ...prev, recruiter: !prev.recruiter }))}
             className="w-full flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-left text-slate-700 hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
           >
-            {selectedRecruiterLabel ? (
-              <span>{selectedRecruiterLabel}</span>
-            ) : (
-              <span className="text-slate-400">
-                {assignable.canSelectCompany && !assignable.companyId
-                  ? 'Select a company first'
+            <span className={selectedAssignees.length ? 'text-slate-700' : 'text-slate-400'}>
+              {needsOrganizationFirst
+                ? 'Select an organization first'
+                : needsManagerFirst
+                  ? 'Select a manager first'
                   : loadingRecruiters
                     ? 'Loading team…'
-                    : recruiterUsers.length === 0
-                      ? 'No team members with access'
-                      : 'Select team member'}
-              </span>
-            )}
+                    : filteredRecruiterUsers.length === 0
+                      ? 'No team members under this manager'
+                      : selectedAssignees.length
+                        ? `${selectedAssignees.length} selected — add more`
+                        : 'Select team members under this manager'}
+            </span>
             <ChevronDown size={16} className="text-slate-400 shrink-0" />
           </button>
           {recruiterMenuOpen && recruiterMenuPosition && typeof document !== 'undefined'
@@ -1300,49 +1535,65 @@ export function CreateJobDetailsForm({
                   <ul>
                     {loadingRecruiters ? (
                       <li className="px-4 py-2 text-sm text-slate-500">Loading team…</li>
-                    ) : assignable.canSelectCompany && !assignable.companyId ? (
-                      <li className="px-4 py-2 text-sm text-slate-500">Select a company to see members</li>
-                    ) : recruiterUsers.length === 0 ? (
-                      <li className="px-4 py-2 text-sm text-slate-500">No team members with access in this company</li>
+                    ) : needsOrganizationFirst ? (
+                      <li className="px-4 py-2 text-sm text-slate-500">Select an organization to see members</li>
+                    ) : needsManagerFirst ? (
+                      <li className="px-4 py-2 text-sm text-slate-500">
+                        Select a manager to see their team
+                      </li>
+                    ) : filteredRecruiterUsers.length === 0 ? (
+                      <li className="px-4 py-2 text-sm text-slate-500">
+                        No team members report to this manager
+                      </li>
                     ) : (
                       <>
                         <li>
                           <button
                             type="button"
-                            onClick={() => {
-                              patchForm({ assignedToId: '', assignedToName: '' });
-                              closeRecruiterMenu();
-                            }}
+                            onClick={clearAssignees}
                             className="w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 text-slate-700"
                           >
-                            Unassigned
+                            Clear all
                           </button>
                         </li>
-                        {recruiterUsers.map((user) => (
-                          <li key={user.id}>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                patchForm({
-                                  assignedToId: user.id,
-                                  assignedToName: formatAssigneeDisplayName(user) || user.name,
-                                  assignedToCompanyId: assignable.companyId || formData.assignedToCompanyId,
-                                });
-                                closeRecruiterMenu();
-                              }}
-                              className={`w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 ${
-                                formData.assignedToId === user.id
-                                  ? 'bg-blue-50 text-blue-700 font-medium'
-                                  : 'text-slate-700'
-                              }`}
-                            >
-                              <span className="block font-medium">
-                                {formatAssigneeDisplayName(user) || user.name}
-                              </span>
-                              <span className="block text-xs text-slate-500 truncate">{user.email}</span>
-                            </button>
-                          </li>
-                        ))}
+                        {filteredRecruiterUsers.map((user) => {
+                          const checked = selectedAssigneeIds.includes(user.id);
+                          const isPrimary = selectedAssigneeIds[0] === user.id;
+                          return (
+                            <li key={user.id}>
+                              <button
+                                type="button"
+                                onClick={() => toggleAssignee(user)}
+                                className={`w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 ${
+                                  checked ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-700'
+                                }`}
+                              >
+                                <span className="flex items-start gap-2">
+                                  <span
+                                    className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                                      checked
+                                        ? 'border-blue-500 bg-blue-500 text-white'
+                                        : 'border-slate-300 bg-white'
+                                    }`}
+                                  >
+                                    {checked ? '✓' : ''}
+                                  </span>
+                                  <span className="min-w-0 flex-1">
+                                    <span className="block font-medium">
+                                      {formatAssigneeDisplayName(user) || user.name}
+                                      {isPrimary ? (
+                                        <span className="ml-1 text-[10px] font-bold uppercase text-blue-500">
+                                          Primary
+                                        </span>
+                                      ) : null}
+                                    </span>
+                                    <span className="block text-xs text-slate-500 truncate">{user.email}</span>
+                                  </span>
+                                </span>
+                              </button>
+                            </li>
+                          );
+                        })}
                       </>
                     )}
                   </ul>
@@ -1352,8 +1603,8 @@ export function CreateJobDetailsForm({
             : null}
         </div>
         <p className="mt-1 text-xs text-slate-500">
-          Shown as the <span className="font-medium">Recruiter</span> card on the public job page
-          (name, photo, designation). Use the hide pill to keep this internal.
+          Choose organization → manager → team. The first selected member is the primary recruiter;
+          others are supporting assignees and can also see this job.
         </p>
       </div>
     </div>

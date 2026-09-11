@@ -15,6 +15,11 @@ import { useAssignableMembers } from '../../hooks/useAssignableMembers';
 import { AssignCompanySelect } from '../assign/AssignCompanySelect';
 import { formatAssigneeDisplayName } from '../../lib/assigneeDisplay';
 import { cleanDisplayText } from '../../lib/sanitizeMojibake';
+import {
+  businessValueInputValue,
+  normalizeBusinessValueForSave,
+  sanitizeBusinessValueInput,
+} from '../../lib/businessValue';
 import { visibleContactEmail, visiblePreferredChannel } from '../../lib/contactEmail';
 import { dedupeVisibleContacts } from '../../lib/clientContactDedupe';
 import { ServicesNeededSelect } from '../forms/ServicesNeededSelect';
@@ -46,6 +51,11 @@ import {
   isDirectorDetailLabel,
   mergeDirectorIntoOtherDetails,
 } from '../../lib/clientDirectorDetails';
+import {
+  normalizeDirectorList,
+  resolveDirectorList,
+  type DirectorListItem,
+} from '../../lib/directorFormDetails';
 import {
   directorNameFromContact,
   isClientTeamMemberContact,
@@ -583,6 +593,8 @@ type ClientOverviewForm = {
   country: string;
   countryCode: string;
   directorName: string;
+  /** Extra directors (name + email + phone). Primary is also mirrored in directorName/contactEmails/contactPhones. */
+  directors: DirectorListItem[];
   contactEmail: string;
   contactPhone: string;
   contactEmails: string[];
@@ -1263,6 +1275,7 @@ export function ClientDetailsDrawer({
     country: '',
     countryCode: '',
     directorName: '',
+    directors: normalizeDirectorList(),
     contactEmail: '',
     contactPhone: '',
     contactEmails: [''],
@@ -1435,6 +1448,14 @@ export function ClientDetailsDrawer({
         companyName: generated.companyName || form.companyName,
         directorSalutation: generated.directorSalutation || form.directorSalutation,
         directorName: generated.directorName || form.directorName,
+        directors: resolveDirectorList({
+          directorSalutation: generated.directorSalutation || form.directorSalutation,
+          directorName: generated.directorName || form.directorName,
+          email: primaryEmail,
+          phone: primaryPhone,
+          emails: contactListForForm(g.emails, primaryEmail),
+          phones: contactListForForm(g.phones, primaryPhone),
+        }),
         designation: generated.designation || form.designation,
         contactEmail: primaryEmail,
         contactPhone: primaryPhone,
@@ -1458,7 +1479,8 @@ export function ClientDetailsDrawer({
         status: leadStatusValue ? clientStatusLabelToBackend(leadStatusValue) : form.status,
         priority: generated.priority || form.priority,
         servicesNeeded: generated.servicesNeeded || form.servicesNeeded,
-        expectedBusinessValue: generated.expectedBusinessValue || form.expectedBusinessValue,
+        expectedBusinessValue:
+          businessValueInputValue(generated.expectedBusinessValue) || form.expectedBusinessValue,
         nextFollowUpDue: normalizeClientAiDateInput(generated.nextFollowUpDue || form.nextFollowUpDue),
         assignedToId,
         assignedToIds: assignedToId ? [assignedToId] : form.assignedToIds,
@@ -2551,6 +2573,31 @@ export function ClientDetailsDrawer({
       fetchedPrimaryName || storedDirector.directorName || primaryClientContact?.name || '';
     const contactEmailValue = fetchedPrimaryEmail || primaryClientContactEmail;
     const contactPhoneValue = fetchedPrimaryPhone || primaryClientContactPhone;
+    const otherDetailsForDirectors =
+      (fetchedClient as BackendClient | null)?.otherDetails ?? client?.otherDetails ?? null;
+    const contactEmailsForForm = contactListForForm(
+      (fetchedClient as { emails?: string[] })?.emails || client?.emails,
+      contactEmailValue,
+    );
+    const contactPhonesForForm = contactListForForm(
+      (fetchedClient as { phones?: string[] })?.phones || client?.phones,
+      contactPhoneValue,
+    );
+    const directorSalutationValue =
+      fetchedClient?.directorSalutation ||
+      client?.directorSalutation ||
+      storedDirector.directorSalutation ||
+      fetchedDirector?.salutation ||
+      '';
+    const directorsForForm = resolveDirectorList({
+      directorSalutation: directorSalutationValue,
+      directorName: directorNameValue,
+      email: contactEmailValue,
+      phone: contactPhoneValue,
+      emails: contactEmailsForForm,
+      phones: contactPhonesForForm,
+      otherDetails: otherDetailsForDirectors,
+    });
     
     const statusMap: Record<string, 'ACTIVE' | 'ON_HOLD' | 'INACTIVE'> = {
       'Active': 'ACTIVE',
@@ -2596,21 +2643,18 @@ export function ClientDetailsDrawer({
         (client as { countryCode?: string }).countryCode ||
         '',
       directorName: directorNameValue,
+      directors: directorsForForm,
       contactEmail: contactEmailValue,
       contactPhone: contactPhoneValue,
-      contactEmails: contactListForForm(
-        (fetchedClient as { emails?: string[] })?.emails || client?.emails,
-        contactEmailValue,
-      ),
-      contactPhones: contactListForForm(
-        (fetchedClient as { phones?: string[] })?.phones || client?.phones,
-        contactPhoneValue,
-      ),
+      contactEmails: contactEmailsForForm,
+      contactPhones: contactPhonesForForm,
       hiringLocations: fetchedClient?.hiringLocations || client.hiringLocations || '',
       timezone: fetchedClient?.timezone || client.timezone || '',
       priority: fetchedClient?.priority || client.priority || '',
       servicesNeeded: fetchedClient?.servicesNeeded || client.servicesNeeded || '',
-      expectedBusinessValue: fetchedClient?.expectedBusinessValue || client.expectedBusinessValue || '',
+      expectedBusinessValue: businessValueInputValue(
+        fetchedClient?.expectedBusinessValue || client.expectedBusinessValue || '',
+      ),
       nextFollowUpDue: normalizeClientAiDateInput(
         fetchedClient?.nextFollowUpDue || client?.nextFollowUpDue || '',
       ),
@@ -2627,12 +2671,7 @@ export function ClientDetailsDrawer({
         website: fetchedClient?.website || client.website,
         linkedin: fetchedClient?.linkedin || client.linkedin,
       }),
-      directorSalutation:
-        fetchedClient?.directorSalutation ||
-        client?.directorSalutation ||
-        storedDirector.directorSalutation ||
-        fetchedDirector?.salutation ||
-        '',
+      directorSalutation: directorSalutationValue,
       designation: fetchedDirector?.designation || client?.contacts?.[0]?.designation || '',
       state: fetchedClient?.state || client.state || locationFields.state,
       latitude: typeof fetchedClient?.latitude === 'number'
@@ -2752,7 +2791,8 @@ export function ClientDetailsDrawer({
           timezone: overviewEditForm.timezone || undefined,
           priority: overviewEditForm.priority || undefined,
           servicesNeeded: overviewEditForm.servicesNeeded || undefined,
-          expectedBusinessValue: overviewEditForm.expectedBusinessValue || undefined,
+          expectedBusinessValue:
+            normalizeBusinessValueForSave(overviewEditForm.expectedBusinessValue) || undefined,
           nextFollowUpDue: overviewEditForm.nextFollowUpDue || undefined,
           sla: overviewEditForm.sla || undefined,
           status: clientStatusLabelToBackend(
@@ -2777,10 +2817,15 @@ export function ClientDetailsDrawer({
                 curatedDynamicPairsForSave(overviewEditForm.dynamicOtherDetails),
                 overviewEditForm.teamMembers,
               ),
-              {
-                directorSalutation: overviewEditForm.directorSalutation,
-                directorName: overviewEditForm.directorName,
-              },
+              overviewEditForm.directors ||
+                resolveDirectorList({
+                  directorSalutation: overviewEditForm.directorSalutation,
+                  directorName: overviewEditForm.directorName,
+                  email: overviewEditForm.contactEmail,
+                  phone: overviewEditForm.contactPhone,
+                  emails: overviewEditForm.contactEmails,
+                  phones: overviewEditForm.contactPhones,
+                }),
             ),
             overviewEditForm.occasions || emptyLeadOccasionForm(),
           ),
@@ -3017,7 +3062,10 @@ export function ClientDetailsDrawer({
         if (overviewEditForm.timezone !== undefined) updateData.timezone = overviewEditForm.timezone || null;
         if (overviewEditForm.priority !== undefined) updateData.priority = overviewEditForm.priority || null;
         if (overviewEditForm.servicesNeeded !== undefined) updateData.servicesNeeded = overviewEditForm.servicesNeeded || null;
-        if (overviewEditForm.expectedBusinessValue !== undefined) updateData.expectedBusinessValue = overviewEditForm.expectedBusinessValue || null;
+        if (overviewEditForm.expectedBusinessValue !== undefined) {
+          updateData.expectedBusinessValue =
+            normalizeBusinessValueForSave(overviewEditForm.expectedBusinessValue) || null;
+        }
         if (overviewEditForm.nextFollowUpDue !== undefined) updateData.nextFollowUpDue = overviewEditForm.nextFollowUpDue || null;
         if (overviewEditForm.sla !== undefined) updateData.sla = overviewEditForm.sla || null;
         if (overviewEditForm.leadStatusValue !== undefined) {
@@ -3059,10 +3107,15 @@ export function ClientDetailsDrawer({
               curatedDynamicPairsForSave(overviewEditForm.dynamicOtherDetails),
               overviewEditForm.teamMembers,
             ),
-            {
-              directorSalutation: overviewEditForm.directorSalutation,
-              directorName: overviewEditForm.directorName,
-            },
+            overviewEditForm.directors ||
+              resolveDirectorList({
+                directorSalutation: overviewEditForm.directorSalutation,
+                directorName: overviewEditForm.directorName,
+                email: overviewEditForm.contactEmail,
+                phone: overviewEditForm.contactPhone,
+                emails: overviewEditForm.contactEmails,
+                phones: overviewEditForm.contactPhones,
+              }),
           ),
           overviewEditForm.occasions || emptyLeadOccasionForm(),
         );
@@ -4017,6 +4070,7 @@ export function ClientDetailsDrawer({
         country: '',
         countryCode: '',
         directorName: '',
+        directors: normalizeDirectorList(),
         contactEmail: '',
         contactPhone: '',
         contactEmails: [''],
@@ -4724,6 +4778,13 @@ export function ClientDetailsDrawer({
                           <DirectorContactFields
                             directorSalutation={overviewEditForm.directorSalutation}
                             contactPerson={overviewEditForm.directorName}
+                            directors={overviewEditForm.directors}
+                            onDirectorsChange={(directors) =>
+                              setOverviewEditForm((p) => ({
+                                ...p,
+                                directors: normalizeDirectorList(directors),
+                              }))
+                            }
                             emails={overviewEditForm.contactEmails}
                             phones={overviewEditForm.contactPhones}
                             email={overviewEditForm.contactEmail}
@@ -4962,12 +5023,18 @@ export function ClientDetailsDrawer({
                               </div>
                               <div>
                                 <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Expected Business Value</label>
-                                <textarea
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
                                   value={overviewEditForm.expectedBusinessValue}
-                                  onChange={(e) => setOverviewEditForm((p) => ({ ...p, expectedBusinessValue: e.target.value }))}
-                                  rows={3}
-                                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-none"
-                                  placeholder="e.g. Potential annual business of $50,000"
+                                  onChange={(e) =>
+                                    setOverviewEditForm((p) => ({
+                                      ...p,
+                                      expectedBusinessValue: sanitizeBusinessValueInput(e.target.value),
+                                    }))
+                                  }
+                                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                  placeholder="e.g. 50000"
                                 />
                               </div>
                               <div className="sm:col-span-2 rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-4 space-y-3">
@@ -5887,6 +5954,13 @@ export function ClientDetailsDrawer({
                                   boxed
                                   directorSalutation={overviewEditForm.directorSalutation}
                                   contactPerson={overviewEditForm.directorName}
+                                  directors={overviewEditForm.directors}
+                                  onDirectorsChange={(directors) =>
+                                    setOverviewEditForm((p) => ({
+                                      ...p,
+                                      directors: normalizeDirectorList(directors),
+                                    }))
+                                  }
                                   emails={overviewEditForm.contactEmails}
                                   phones={overviewEditForm.contactPhones}
                                   email={overviewEditForm.contactEmail}
@@ -6130,12 +6204,18 @@ export function ClientDetailsDrawer({
                               </div>
                               <div>
                                 <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Expected Business Value</label>
-                                <textarea
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
                                   value={overviewEditForm.expectedBusinessValue}
-                                  onChange={(e) => setOverviewEditForm((p) => ({ ...p, expectedBusinessValue: e.target.value }))}
-                                  rows={3}
-                                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-none"
-                                  placeholder="e.g. Potential annual business of $50,000"
+                                  onChange={(e) =>
+                                    setOverviewEditForm((p) => ({
+                                      ...p,
+                                      expectedBusinessValue: sanitizeBusinessValueInput(e.target.value),
+                                    }))
+                                  }
+                                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                  placeholder="e.g. 50000"
                                 />
                               </div>
                               <div className="sm:col-span-2 rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-4 space-y-3">

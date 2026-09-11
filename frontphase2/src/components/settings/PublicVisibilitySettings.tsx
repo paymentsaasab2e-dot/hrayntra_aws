@@ -1,9 +1,10 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Eye, EyeOff, Linkedin, Loader2, Save, Send } from 'lucide-react';
+import { Eye, EyeOff, Linkedin, Loader2, Mail, Save, Send } from 'lucide-react';
 import { toast } from 'sonner';
 import { PublicVisibilityToggle } from '../forms/PublicVisibilityToggle';
+import { SubmitToClientMailTemplateSettings } from './SubmitToClientMailTemplateSettings';
 import {
   JOB_PUBLIC_VISIBILITY_FIELD_LABELS,
   JOB_PUBLIC_VISIBILITY_FIELDS,
@@ -409,6 +410,14 @@ export function PublicVisibilitySettings() {
             )}
           </div>
         )}
+      </SettingsPanel>
+
+      <SettingsPanel
+        title="Submit to Client email templates"
+        description="Create subject and body templates for client emails. The default template fills Gmail or Outlook compose when you share a preview link."
+        icon={<Mail className="h-4 w-4 text-indigo-600" />}
+      >
+        <SubmitToClientMailTemplateSettings />
       </SettingsPanel>
 
       <SettingsPanel

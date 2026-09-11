@@ -773,6 +773,9 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
       expired: !!account.expired,
       organizationId: account.organizationId,
       parentAccountId: account.parentAccountId,
+      ownerUserId: account.ownerUserId || null,
+      ownerName: account.ownerName || null,
+      isOwn: account.isOwn !== false,
     }));
   }, []);
 

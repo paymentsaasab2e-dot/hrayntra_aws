@@ -700,6 +700,8 @@ function filterLayoutByPermissions(layout, req) {
     enterprise:
       layout?.enterprise && typeof layout.enterprise === 'object' ? layout.enterprise : undefined,
     crm: layout?.crm && typeof layout.crm === 'object' ? layout.crm : undefined,
+    recruitment:
+      layout?.recruitment && typeof layout.recruitment === 'object' ? layout.recruitment : undefined,
   };
 }
 
@@ -745,6 +747,8 @@ function normalizeDashboardLayoutPayload(raw) {
       enterprise:
         raw.enterprise && typeof raw.enterprise === 'object' ? raw.enterprise : undefined,
       crm: raw.crm && typeof raw.crm === 'object' ? raw.crm : undefined,
+      recruitment:
+        raw.recruitment && typeof raw.recruitment === 'object' ? raw.recruitment : undefined,
     };
   }
   return { version: 2, modules: {}, hiddenTabs: [] };

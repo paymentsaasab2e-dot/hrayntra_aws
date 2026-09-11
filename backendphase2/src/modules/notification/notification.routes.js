@@ -9,6 +9,7 @@ router.use(authMiddleware);
 router.get('/', notificationController.list);
 router.get('/unread-count', notificationController.unreadCount);
 router.post('/', notificationController.createForCurrentUser);
+router.post('/sync-follow-up-alerts', notificationController.syncFollowUpAlerts);
 router.put('/mark-all-read', notificationController.markAllRead);
 router.put('/:id/read', notificationController.markRead);
 router.delete('/:id', notificationController.remove);

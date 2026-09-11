@@ -146,4 +146,24 @@ export const notificationController = {
         .json({ success: false, message: 'Failed to create notification' });
     }
   },
+
+  /** Sync lead/client follow-up reminders into Alerts + email for the current user. */
+  async syncFollowUpAlerts(req, res) {
+    try {
+      const userId = getCurrentUserId(req);
+      if (!userId) {
+        return res.status(401).json({ success: false, message: 'Unauthorized' });
+      }
+      const { syncMyFollowUpAlerts } = await import(
+        '../setting/alert-scheduler.service.js'
+      );
+      const result = await syncMyFollowUpAlerts(userId);
+      return res.json({ success: true, data: result });
+    } catch (error) {
+      console.error('[notification] syncFollowUpAlerts failed:', error);
+      return res
+        .status(500)
+        .json({ success: false, message: 'Failed to sync follow-up alerts' });
+    }
+  },
 };

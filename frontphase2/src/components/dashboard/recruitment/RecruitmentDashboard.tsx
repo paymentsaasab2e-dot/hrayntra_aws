@@ -16,6 +16,7 @@ import { crmTextFont, dashFontVars } from '@/components/dashboard/crm/crmStatNum
 import {
   REC_CATEGORY_TABS,
   RecDashboardProvider,
+  normalizeRecHiddenSections,
   type RecCategoryTabId,
   useRecDashboard,
 } from './recShared';
@@ -154,7 +155,7 @@ function RecDrillDownModal() {
 }
 
 function RecruitmentDashboardInner() {
-  const { filters, refreshKey } = useRecDashboard();
+  const { filters, refreshKey, hiddenSections } = useRecDashboard();
   const access = useDashboardAccess();
   const [overview, setOverview] = useState<RecruitmentOverview | null>(() => {
     const cached = readRecOverviewCache({ dateRange: 'last_30_days', category: 'insights' });
@@ -164,12 +165,14 @@ function RecruitmentDashboardInner() {
     () => !readRecOverviewCache({ dateRange: 'last_30_days', category: 'insights' })?.data,
   );
   const [category, setCategory] = useState<RecCategoryTabId>('insights');
-  const visibleTabs = REC_CATEGORY_TABS.filter((tab) => access.recTabs[tab.id]);
+  const visibleTabs = REC_CATEGORY_TABS.filter(
+    (tab) => access.recTabs[tab.id] && !hiddenSections.has(tab.id),
+  );
 
   useEffect(() => {
     if (!visibleTabs.length) return;
-    if (!access.recTabs[category]) setCategory(visibleTabs[0].id);
-  }, [access.recTabs, category, visibleTabs]);
+    if (!visibleTabs.some((tab) => tab.id === category)) setCategory(visibleTabs[0].id);
+  }, [category, visibleTabs]);
 
   useEffect(() => {
     const query =
@@ -250,18 +253,26 @@ function RecruitmentDashboardInner() {
 
       {visibleTabs.length === 0 ? (
         <p className="rounded-2xl border border-slate-100 bg-white px-5 py-10 text-center text-sm text-slate-500">
-          No recruitment dashboard tabs are assigned to this role. Ask an admin to enable Insights, Pipeline, Team, or Hours & scores in Team → Roles.
+          No recruitment sections are visible. Use Customize to show Insights, Pipeline, Team, or Hours & scores — or ask an admin to enable them for this role.
         </p>
       ) : null}
 
-      {category === 'mine' && access.recTabs.mine ? (
+      {category === 'mine' && access.recTabs.mine && !hiddenSections.has('mine') ? (
         <RecMineWorkPanel overview={overview} loading={loading} />
       ) : null}
 
-      {category === 'insights' && access.recTabs.insights ? <RecDecisionInsights overview={overview} loading={loading} /> : null}
-      {category === 'pipeline' && access.recTabs.pipeline ? <RecPipelineSection overview={overview} loading={loading} /> : null}
-      {category === 'team' && access.recTabs.team ? <RecTeamIntelligence overview={overview} /> : null}
-      {category === 'people' && access.recTabs.people ? <PeoplePerfPanel product="recruitment" /> : null}
+      {category === 'insights' && access.recTabs.insights && !hiddenSections.has('insights') ? (
+        <RecDecisionInsights overview={overview} loading={loading} />
+      ) : null}
+      {category === 'pipeline' && access.recTabs.pipeline && !hiddenSections.has('pipeline') ? (
+        <RecPipelineSection overview={overview} loading={loading} />
+      ) : null}
+      {category === 'team' && access.recTabs.team && !hiddenSections.has('team') ? (
+        <RecTeamIntelligence overview={overview} />
+      ) : null}
+      {category === 'people' && access.recTabs.people && !hiddenSections.has('people') ? (
+        <PeoplePerfPanel product="recruitment" />
+      ) : null}
 
       {overview?.generatedAt ? (
         <p className="pb-2 text-center text-[11px] text-slate-400">
@@ -287,7 +298,10 @@ function RecruitmentDashboardWithLayout() {
       const next = {
         ...layout,
         version: 2 as const,
-        recruitment: { ...(layout.recruitment || {}), hiddenSections },
+        recruitment: {
+          ...(layout.recruitment || {}),
+          hiddenSections: normalizeRecHiddenSections(hiddenSections),
+        },
       };
       setLayout(next);
       void saveLayout(next);
@@ -310,7 +324,7 @@ function RecruitmentDashboardWithLayout() {
 
   return (
     <RecDashboardProvider
-      initialHidden={Array.isArray(layout.recruitment?.hiddenSections) ? layout.recruitment.hiddenSections : []}
+      initialHidden={normalizeRecHiddenSections(layout.recruitment?.hiddenSections)}
       onHiddenChange={onHiddenChange}
     >
       <RecruitmentDashboardInner />

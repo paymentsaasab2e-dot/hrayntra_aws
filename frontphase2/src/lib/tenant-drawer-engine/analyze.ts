@@ -5,6 +5,9 @@ import type {
   TenantOverdueScanResult,
 } from './types';
 
+/** Upcoming window: due within the next 48 hours (inclusive of later today). */
+export const UPCOMING_FOLLOW_UP_WINDOW_MS = 48 * 60 * 60 * 1000;
+
 function trim(value: unknown): string {
   return String(value ?? '').trim();
 }
@@ -26,6 +29,38 @@ export function isDateOverdue(iso?: string | null): boolean {
   return d.getTime() < Date.now();
 }
 
+export function isDateUpcoming(
+  iso?: string | null,
+  withinMs: number = UPCOMING_FOLLOW_UP_WINDOW_MS,
+): boolean {
+  if (!iso) return false;
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return false;
+  const now = Date.now();
+  return t >= now && t <= now + withinMs;
+}
+
+/** True when this lead/client is assigned to (or created by) the given team member. */
+export function isRecordAssignedToUser(
+  record: Record<string, unknown> | null | undefined,
+  userId?: string | null,
+): boolean {
+  const uid = trim(userId);
+  if (!uid || !record) return false;
+  if (trim(record.assignedToId) === uid) return true;
+  if (Array.isArray(record.assignedToIds) && record.assignedToIds.some((id) => trim(id) === uid)) {
+    return true;
+  }
+  if (trim(record.createdById) === uid) return true;
+  if (
+    Array.isArray(record.participantIds) &&
+    record.participantIds.some((id) => trim(id) === uid)
+  ) {
+    return true;
+  }
+  return false;
+}
+
 function leadContactName(lead: Record<string, unknown>): string {
   return (
     trim(lead.directorName) ||
@@ -43,7 +78,7 @@ function clientDisplayName(client: Record<string, unknown>): string {
   return trim(client.companyName) || trim(client.name) || 'Client';
 }
 
-/** Analyze a lead drawer record for missing mandatory fields + overdue follow-up. */
+/** Analyze a lead drawer record for missing mandatory fields + follow-up reminders. */
 export function analyzeLeadDrawer(lead: Record<string, unknown> | null | undefined): DrawerAnalysisResult | null {
   if (!lead || !trim(lead.id)) return null;
 
@@ -80,17 +115,23 @@ export function analyzeLeadDrawer(lead: Record<string, unknown> | null | undefin
   const status = trim(lead.status).toLowerCase();
   const skipFollowUp = status === 'converted' || status === 'lost' || status === 'won';
   const overdueMeetings: OverdueMeetingIssue[] = [];
+  const upcomingMeetings: OverdueMeetingIssue[] = [];
   const nextFollowUp = trim(lead.nextFollowUp) || trim(lead.nextFollowUpAt);
-  if (!skipFollowUp && isDateOverdue(nextFollowUp)) {
-    overdueMeetings.push({
+  if (!skipFollowUp && nextFollowUp) {
+    const base = {
       id: `lead-fu-${trim(lead.id)}`,
       title: `${trim(lead.followUpType) || 'Follow-up'} with ${leadDisplayName(lead)}`,
       at: nextFollowUp,
-      kind: 'followup',
-      entityKind: 'lead',
+      kind: 'followup' as const,
+      entityKind: 'lead' as const,
       entityId: trim(lead.id),
       entityName: leadDisplayName(lead),
-    });
+    };
+    if (isDateOverdue(nextFollowUp)) {
+      overdueMeetings.push({ ...base, urgency: 'overdue' });
+    } else if (isDateUpcoming(nextFollowUp)) {
+      upcomingMeetings.push({ ...base, urgency: 'upcoming' });
+    }
   }
 
   return {
@@ -99,10 +140,11 @@ export function analyzeLeadDrawer(lead: Record<string, unknown> | null | undefin
     entityName: leadDisplayName(lead),
     missingFields,
     overdueMeetings,
+    upcomingMeetings,
   };
 }
 
-/** Analyze a client drawer record for missing mandatory fields + overdue follow-up/meetings. */
+/** Analyze a client drawer record for missing mandatory fields + follow-up/meetings. */
 export function analyzeClientDrawer(
   client: Record<string, unknown> | null | undefined,
   meetings?: Array<Record<string, unknown>> | null,
@@ -119,33 +161,44 @@ export function analyzeClientDrawer(
   }
 
   const overdueMeetings: OverdueMeetingIssue[] = [];
+  const upcomingMeetings: OverdueMeetingIssue[] = [];
   const nextFollowUpDue = trim(client.nextFollowUpDue) || trim(client.nextFollowUp);
-  if (isDateOverdue(nextFollowUpDue)) {
-    overdueMeetings.push({
+  if (nextFollowUpDue) {
+    const base = {
       id: `client-fu-${trim(client.id)}`,
       title: `Follow-up with ${clientDisplayName(client)}`,
       at: nextFollowUpDue,
-      kind: 'followup',
-      entityKind: 'client',
+      kind: 'followup' as const,
+      entityKind: 'client' as const,
       entityId: trim(client.id),
       entityName: clientDisplayName(client),
-    });
+    };
+    if (isDateOverdue(nextFollowUpDue)) {
+      overdueMeetings.push({ ...base, urgency: 'overdue' });
+    } else if (isDateUpcoming(nextFollowUpDue)) {
+      upcomingMeetings.push({ ...base, urgency: 'upcoming' });
+    }
   }
 
   for (const meeting of meetings || []) {
     const status = trim(meeting.status).toUpperCase();
     if (status !== 'SCHEDULED' && status !== 'RESCHEDULED') continue;
     const at = trim(meeting.scheduledAt);
-    if (!isDateOverdue(at)) continue;
-    overdueMeetings.push({
+    if (!at) continue;
+    const base = {
       id: `client-mtg-${trim(meeting.id) || at}`,
       title: `${trim(meeting.meetingType) || 'Meeting'} with ${clientDisplayName(client)}`,
       at,
-      kind: 'meeting',
-      entityKind: 'client',
+      kind: 'meeting' as const,
+      entityKind: 'client' as const,
       entityId: trim(client.id),
       entityName: clientDisplayName(client),
-    });
+    };
+    if (isDateOverdue(at)) {
+      overdueMeetings.push({ ...base, urgency: 'overdue' });
+    } else if (isDateUpcoming(at)) {
+      upcomingMeetings.push({ ...base, urgency: 'upcoming' });
+    }
   }
 
   return {
@@ -154,6 +207,7 @@ export function analyzeClientDrawer(
     entityName: clientDisplayName(client),
     missingFields,
     overdueMeetings,
+    upcomingMeetings,
   };
 }
 
@@ -167,9 +221,8 @@ export function buildDrawerAlertMessage(result: DrawerAnalysisResult): string {
   const name = result.entityName || (result.entityKind === 'lead' ? 'this lead' : 'this client');
 
   if (result.missingFields.length) {
-    const labels = result.missingFields.map((f) => f.label).join(', ');
     parts.push(
-      `Missing mandatory data for ${name}:\n• ${result.missingFields.map((f) => f.message).join('\n• ')}\n\nPlease fill: ${labels}.`,
+      `Missing mandatory data for ${name}:\n• ${result.missingFields.map((f) => f.message).join('\n• ')}\n\nPlease fill: ${result.missingFields.map((f) => f.label).join(', ')}.`,
     );
   }
 
@@ -218,26 +271,38 @@ export function buildTenantOverdueAlertMessage(scan: TenantOverdueScanResult): s
   }. Please complete them:\n\n${lines.join('\n')}${extra}`;
 }
 
-/** Scan lead + client lists for overdue follow-ups (tenant-wide). */
+/**
+ * Scan lead + client lists for overdue + upcoming follow-ups.
+ * When `userId` is set, only records assigned to that team member are included.
+ */
 export function scanTenantOverdueFromLists(input: {
   leads?: Array<Record<string, unknown>> | null;
   clients?: Array<Record<string, unknown>> | null;
+  userId?: string | null;
 }): TenantOverdueScanResult {
   const overdueMeetings: OverdueMeetingIssue[] = [];
+  const upcomingMeetings: OverdueMeetingIssue[] = [];
+  const uid = trim(input.userId);
 
   for (const lead of input.leads || []) {
+    if (uid && !isRecordAssignedToUser(lead, uid)) continue;
     const analysis = analyzeLeadDrawer(lead);
     if (analysis?.overdueMeetings.length) overdueMeetings.push(...analysis.overdueMeetings);
+    if (analysis?.upcomingMeetings.length) upcomingMeetings.push(...analysis.upcomingMeetings);
   }
   for (const client of input.clients || []) {
+    if (uid && !isRecordAssignedToUser(client, uid)) continue;
     const analysis = analyzeClientDrawer(client);
     if (analysis?.overdueMeetings.length) overdueMeetings.push(...analysis.overdueMeetings);
+    if (analysis?.upcomingMeetings.length) upcomingMeetings.push(...analysis.upcomingMeetings);
   }
 
   overdueMeetings.sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
+  upcomingMeetings.sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
 
   return {
     overdueMeetings,
+    upcomingMeetings,
     scannedAt: new Date().toISOString(),
   };
 }

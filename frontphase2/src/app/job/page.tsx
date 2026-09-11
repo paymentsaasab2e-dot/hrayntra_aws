@@ -810,6 +810,7 @@ const JobsListView = ({
     (show('location') ? 1 : 0) +
     (show('openings') ? 1 : 0) +
     (show('owner') ? 1 : 0) +
+    (show('manager') ? 1 : 0) +
     (show('createdDate') ? 1 : 0) +
     (show('priority') ? 1 : 0) +
     (show('employmentType') ? 1 : 0) +
@@ -839,7 +840,8 @@ const JobsListView = ({
             {show('details') ? <th className="px-3 py-2 sm:px-4">Details</th> : null}
             {show('location') ? <th className="px-3 py-2 sm:px-4">Location</th> : null}
             {show('openings') ? <th className="px-3 py-2 sm:px-4">Openings</th> : null}
-            {show('owner') ? <th className="px-3 py-2 sm:px-4">Team member</th> : null}
+            {show('owner') ? <th className="px-3 py-2 sm:px-4">Recruiter</th> : null}
+            {show('manager') ? <th className="px-3 py-2 sm:px-4">Manager</th> : null}
             {show('createdDate') ? <th className="px-3 py-2 sm:px-4">Created</th> : null}
             {show('priority') ? <th className="px-3 py-2 sm:px-4">Priority</th> : null}
             {show('employmentType') ? <th className="px-3 py-2 sm:px-4">Employment type</th> : null}
@@ -953,8 +955,10 @@ const JobsListView = ({
                 {show('details') ? (
                 <td className="px-3 py-2 sm:px-4">
                   <div className="flex flex-col gap-0.5">
-                    <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Team Member</span>
-                    <span className="text-xs text-slate-700">{job.owner}</span>
+                    <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Recruiter</span>
+                    <span className="text-xs text-slate-700">{job.owner || '—'}</span>
+                    <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Manager</span>
+                    <span className="text-xs text-slate-700">{job.managerName || '—'}</span>
                     <span className="text-[10px] text-slate-500">{formatDateDMY(job.createdDate)}</span>
               </div>
             </td>
@@ -974,6 +978,11 @@ const JobsListView = ({
                 {show('owner') ? (
                   <td className="px-3 py-2 sm:px-4">
                     <span className="max-w-[100px] truncate text-xs text-slate-700">{job.owner || '—'}</span>
+                  </td>
+                ) : null}
+                {show('manager') ? (
+                  <td className="px-3 py-2 sm:px-4">
+                    <span className="max-w-[100px] truncate text-xs text-slate-700">{job.managerName || '—'}</span>
                   </td>
                 ) : null}
                 {show('createdDate') ? (
