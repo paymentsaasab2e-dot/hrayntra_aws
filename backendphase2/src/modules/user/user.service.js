@@ -388,11 +388,6 @@ export const userService = {
             id: true,
             roleName: true,
             color: true,
-            rolePermissions: {
-              select: {
-                permission: { select: { permissionName: true } },
-              },
-            },
           },
         },
       },
@@ -400,29 +395,29 @@ export const userService = {
 
     if (!user) return null;
 
-    const roleName = user.systemRole?.roleName || '';
-    const isSuperAdmin =
-      user.role === 'SUPER_ADMIN' ||
-      String(roleName).trim().toLowerCase().replace(/\s+/g, '_') === 'super_admin';
-
-    const permissionNames = isSuperAdmin
-      ? ['all']
-      : Array.from(
-          new Set(
-            (user.systemRole?.rolePermissions || [])
-              .map((rp) => rp.permission?.permissionName)
-              .filter(Boolean)
-          )
-        );
+    const { resolveEffectivePermissionNames } = await import(
+      '../role/effectivePermissions.service.js'
+    );
+    const resolved = await resolveEffectivePermissionNames(user);
 
     return {
       id: user.id,
-      role: user.role || (isSuperAdmin ? 'SUPER_ADMIN' : ''),
-      roleName,
-      roleColor: user.systemRole?.color || '',
-      isSuperAdmin,
+      role: user.role,
+      roleId: user.roleId,
       isActive: user.isActive,
-      permissions: permissionNames,
+      systemRole: user.systemRole
+        ? {
+            id: user.systemRole.id,
+            roleName: user.systemRole.roleName,
+            color: user.systemRole.color,
+          }
+        : null,
+      isSuperAdmin: resolved.isSuperAdmin,
+      permissions: resolved.permissions,
+      rolePermissions: resolved.rolePermissions,
+      overrideCount: resolved.overrides?.length || 0,
+      roleName: resolved.roleName || user.systemRole?.roleName || '',
+      roleColor: user.systemRole?.color || '',
     };
   },
 

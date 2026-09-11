@@ -20,6 +20,7 @@ import {
   saveMemberTargets,
   impersonateTeamMember,
 } from '../controllers/teamController.js';
+import { teamController } from '../modules/team/team.controller.js';
 
 const router = express.Router();
 
@@ -56,6 +57,36 @@ const PERMISSIONS_TEAM_DIRECTORY_READ = [
 
 // Apply auth middleware to all routes
 router.use(authMiddleware);
+
+// Sales / named groups (before /:id)
+router.get(
+  '/groups',
+  requireAnyPermission(['edit_team_member', 'add_team_member', 'view_team', 'assign_roles', ...PERMISSIONS_TEAM_DIRECTORY_READ]),
+  teamController.getAll,
+);
+router.get(
+  '/groups/sales-candidates',
+  requireAnyPermission(['edit_team_member', 'add_team_member', 'view_team', 'assign_roles']),
+  teamController.salesCandidates,
+);
+router.get(
+  '/groups/:id',
+  requireAnyPermission(['edit_team_member', 'add_team_member', 'view_team', 'assign_roles']),
+  teamController.getById,
+);
+router.post('/groups', requireAnyPermission(['edit_team_member', 'add_team_member']), teamController.create);
+router.patch('/groups/:id', requireAnyPermission(['edit_team_member', 'add_team_member']), teamController.update);
+router.post(
+  '/groups/:id/members',
+  requireAnyPermission(['edit_team_member', 'add_team_member']),
+  teamController.addMember,
+);
+router.delete(
+  '/groups/:id/members/:userId',
+  requireAnyPermission(['edit_team_member', 'add_team_member']),
+  teamController.removeMember,
+);
+router.delete('/groups/:id', requireAnyPermission(['edit_team_member', 'add_team_member']), teamController.delete);
 
 // Tenant member list for assignment pickers — Super Admin / HQ can assign across companies.
 router.get('/assignable', (req, res) => {

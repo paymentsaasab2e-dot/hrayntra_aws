@@ -64,6 +64,10 @@ model User {
   orgUnitId String? @db.ObjectId
   /// Internal purpose on that node — not a SystemRole. member | company_head | site_head
   hierarchyPurpose String? @default("member")
+  /// Rank within the org company/branch (1 = top). Used for sales-team defaults.
+  orgRank Int?
+  /// Legacy JSON deltas; preferred store is user_permission_overrides collection.
+  permissionOverrides Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -130,6 +134,7 @@ model User {
   contactActivities      ContactActivity[]      @relation("ContactActivityUser")
   assistantPageHistories AssistantPageHistory[]
   undoActions            Undo[]
+  permissionOverrideRows UserPermissionOverride[]
 
   userOAuthTokens              UserOAuthTokens?
   userCommunicationPreferences UserCommunicationPreferences?
@@ -145,14 +150,23 @@ model User {
 // Serves: team
 
 model Team {
-  id         String   @id @default(auto()) @map("_id") @db.ObjectId
-  name       String
-  department String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  name        String
+  /// GENERAL | SALES — SALES groups control CRM lead/client assignee pickers.
+  kind        String   @default("GENERAL")
+  department  String?
+  description String?
+  /// Optional company/branch scope for this group.
+  orgUnitId   String?  @db.ObjectId
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   members TeamMember[]
+  orgUnit OrgUnit? @relation(fields: [orgUnitId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
+  @@index([kind])
+  @@index([orgUnitId])
   @@map("teams")
 }
 
@@ -160,7 +174,7 @@ model TeamMember {
   id        String   @id @default(auto()) @map("_id") @db.ObjectId
   userId    String   @db.ObjectId
   teamId    String   @db.ObjectId
-  role      String
+  role      String   @default("MEMBER")
   joinedAt  DateTime @default(now())
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2238,7 +2252,8 @@ model Permission {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  rolePermissions RolePermission[]
+  rolePermissions         RolePermission[]
+  userPermissionOverrides UserPermissionOverride[]
 
   @@index([module])
   @@map("permissions")
@@ -2255,6 +2270,25 @@ model RolePermission {
 
   @@unique([roleId, permissionId])
   @@map("role_permissions")
+}
+
+/// Per-member permission delta on top of the assigned SystemRole.
+/// GRANT = extra beyond the role; DENY = remove a role permission for this user only.
+model UserPermissionOverride {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId       String   @db.ObjectId
+  permissionId String   @db.ObjectId
+  /// GRANT | DENY
+  effect       String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, permissionId])
+  @@index([userId])
+  @@map("user_permission_overrides")
 }
 
 model UserCredential {
@@ -2758,6 +2792,7 @@ model OrgUnit {
   parent   OrgUnit?  @relation("OrgUnitTree", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   children OrgUnit[] @relation("OrgUnitTree")
   members  User[]
+  salesTeams Team[]
 
   @@index([parentId])
   @@index([status])

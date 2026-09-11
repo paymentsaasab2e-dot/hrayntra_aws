@@ -379,6 +379,27 @@ export const linkedinService = {
       jobData.postText ||
       `We're hiring a ${jobData.jobTitle} at ${jobData.company}!\n\n${jobData.description?.substring(0, 200) || ''}${jobData.description?.length > 200 ? '...' : ''}\n\n${jobData.location ? `Location: ${jobData.location}\n\n` : ''}Apply here: ${jobData.applyUrl}\n\n#hiring #jobs #careers`;
 
+    const resolvedJobTitle = String(jobData.jobTitle || '').trim();
+    const resolvedCompany = String(jobData.company || '').trim();
+    // If a custom post text was supplied but somehow lost the role/company, prepend them.
+    if (resolvedJobTitle && jobData.postText) {
+      const lower = String(shareText).toLowerCase();
+      const missingTitle = !lower.includes(resolvedJobTitle.toLowerCase());
+      const missingCompany =
+        Boolean(resolvedCompany) && !lower.includes(resolvedCompany.toLowerCase());
+      if (missingTitle || missingCompany) {
+        const hiringLine =
+          resolvedCompany
+            ? `We're hiring: ${resolvedJobTitle} at ${resolvedCompany}!`
+            : `We're hiring: ${resolvedJobTitle}!`;
+        if (missingTitle) {
+          shareText = `${hiringLine}\n\n${shareText}`;
+        } else if (missingCompany && !/we're hiring:/i.test(shareText)) {
+          shareText = `${hiringLine}\n\n${shareText}`;
+        }
+      }
+    }
+
     const applyUrl = String(jobData.applyUrl || '').trim();
     if (applyUrl && shareText.includes('[link-on-save]')) {
       shareText = shareText.replace(
@@ -409,9 +430,9 @@ export const linkedinService = {
       shareContent.media = [
         {
           status: 'READY',
-          description: { text: String(jobData.jobTitle || 'Job opening').slice(0, 200) },
+          description: { text: String(resolvedJobTitle || 'Job opening').slice(0, 200) },
           media: assetUrn,
-          title: { text: String(jobData.jobTitle || 'We\'re hiring').slice(0, 200) },
+          title: { text: String(resolvedJobTitle || "We're hiring").slice(0, 200) },
         },
       ];
     }

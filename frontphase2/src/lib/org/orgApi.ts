@@ -9,6 +9,7 @@ export type OrgPerson = {
   purposeLabel?: string;
   roleName?: string;
   roleId?: string;
+  orgRank?: number | null;
   unassigned?: boolean;
 };
 
@@ -312,6 +313,15 @@ export async function apiAssignOrgMember(body: {
   const res = await apiFetch<
     OrgPerson & { credentialData?: { loginId?: string; tempPassword?: string } | null }
   >('/org-units/assign', {
+    auth: true,
+    method: 'POST',
+    body,
+  });
+  return res.data;
+}
+
+export async function apiUpdateOrgMemberRank(body: { userId: string; orgRank: number }) {
+  const res = await apiFetch<OrgPerson>('/org-units/rank', {
     auth: true,
     method: 'POST',
     body,

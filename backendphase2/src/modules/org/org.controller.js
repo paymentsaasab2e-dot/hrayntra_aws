@@ -4,6 +4,7 @@ import {
   updateOrgUnit,
   deleteOrgUnit,
   assignOrgMember,
+  updateOrgMemberRank,
   adoptWorkspaceIntoUnit,
   stampUntaggedRecordsForUnit,
   getOrgTreeStats,
@@ -93,6 +94,15 @@ export const orgController = {
     try {
       const member = await assignOrgMember(req, req.body || {});
       sendResponse(res, 200, 'Assigned', member);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async updateRank(req, res) {
+    try {
+      const member = await updateOrgMemberRank(req, req.body || {});
+      sendResponse(res, 200, 'Rank updated', member);
     } catch (error) {
       sendError(res, 400, error.message, error);
     }

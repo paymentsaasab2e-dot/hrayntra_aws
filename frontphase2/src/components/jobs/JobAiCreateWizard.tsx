@@ -89,7 +89,7 @@ import type { JobPreScreenAssessmentLink } from '@/lib/preScreenAssessmentTypes'
 import { buildJobContactPersonOptions } from '@/lib/jobClientContacts';
 import {
   DEFAULT_JOB_PUBLIC_FIELD_VISIBILITY,
-  isJobFieldPubliclyVisible,
+  resolvePostedCompanyNameForSocial,
   type JobPublicFieldVisibility,
 } from '@/lib/jobPublicFieldVisibility';
 import { buildCandidatePortalApplyUrlPreview, buildLinkedInJobPost, replaceApplyUrlInSocialPostText, stripHtml } from '@/lib/jobSocialPost';
@@ -1434,7 +1434,11 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
   const linkedInPostInputBase = useMemo(
     () => ({
       jobTitle: draft.jobTitle.trim(),
-      companyName: draft.postingCompanyName || draft.clientName,
+      companyName: resolvePostedCompanyNameForSocial({
+        postingCompanyName: draft.postingCompanyName,
+        clientCompanyName: draft.clientName,
+        showClientNamePublicly: draft.showClientNamePublicly,
+      }),
       contactPersonName: draft.contactPersonName,
       numberOfOpenings: draft.numberOfOpenings,
       priority: draft.priority,
@@ -1842,13 +1846,11 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
             applyUrl = '';
           }
 
-          const companyName = isJobFieldPubliclyVisible(
-            draft.publicFieldVisibility,
-            'companyName',
-            draft.showClientNamePublicly,
-          )
-            ? draft.postingCompanyName || draft.clientName || ''
-            : '';
+          const companyName = resolvePostedCompanyNameForSocial({
+            postingCompanyName: draft.postingCompanyName,
+            clientCompanyName: draft.clientName,
+            showClientNamePublicly: draft.showClientNamePublicly,
+          });
           const locationLine =
             locationParts.join(', ') || draft.locationQuery.trim() || '';
           const plainDescription = stripHtml(descriptionHtml || draft.jobDescriptionHtml || '')
@@ -3030,15 +3032,11 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
             : selectedLinkedInPreviewAccount?.accountEmail || 'Posting to your LinkedIn feed'
         }
         jobTitle={draft.jobTitle}
-        company={
-          isJobFieldPubliclyVisible(
-            draft.publicFieldVisibility,
-            'companyName',
-            draft.showClientNamePublicly,
-          )
-            ? draft.postingCompanyName || draft.clientName
-            : ''
-        }
+        company={resolvePostedCompanyNameForSocial({
+          postingCompanyName: draft.postingCompanyName,
+          clientCompanyName: draft.clientName,
+          showClientNamePublicly: draft.showClientNamePublicly,
+        })}
         applyUrl={previewApplyUrl}
         location={[draft.city, draft.state, draft.country].filter(Boolean).join(', ') || draft.locationQuery}
         postingTo={linkedInPostingToLabel}

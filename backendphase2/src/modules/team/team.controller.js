@@ -43,12 +43,12 @@ export const teamController = {
 
   async addMember(req, res) {
     try {
-      const member = await teamService.addMember(
+      const team = await teamService.addMember(
         req.params.id,
         req.body.userId,
         req.body.role
       );
-      sendResponse(res, 201, 'Member added successfully', member);
+      sendResponse(res, 201, 'Member added successfully', team);
     } catch (error) {
       sendError(res, 400, error.message, error);
     }
@@ -69,6 +69,21 @@ export const teamController = {
       sendResponse(res, 200, result.message);
     } catch (error) {
       sendError(res, 500, error.message, error);
+    }
+  },
+
+  async salesCandidates(req, res) {
+    try {
+      const data = await teamService.listSalesCandidateMembers({
+        orgUnitId: req.query.orgUnitId || req.body?.orgUnitId,
+        includeLowerRanks:
+          String(req.query.includeLowerRanks || req.body?.includeLowerRanks || '') === 'true' ||
+          req.query.includeLowerRanks === '1',
+        teamId: req.query.teamId || req.params.id || null,
+      });
+      sendResponse(res, 200, 'Sales team candidates retrieved', data);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
     }
   },
 };

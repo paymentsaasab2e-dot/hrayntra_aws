@@ -130,6 +130,7 @@ import {
   mergeClientVisibility,
   parseJobPublicFieldVisibility,
   buildPublicFieldVisibilityPayload,
+  resolvePostedCompanyNameForSocial,
 } from '../../lib/jobPublicFieldVisibility';
 import {
   DrawerSectionCard,
@@ -1691,7 +1692,13 @@ export function CreateJobDrawer({
     const company = clients.find((c) => c.id === formData.companyId);
     return {
       jobTitle: formData.jobTitle,
-      companyName: formData.postingCompanyName || company?.companyName || '',
+      // When the real client is hidden, use the posting/agency name the recruiter
+      // selected — never leak the original client name onto LinkedIn.
+      companyName: resolvePostedCompanyNameForSocial({
+        postingCompanyName: formData.postingCompanyName,
+        clientCompanyName: company?.companyName,
+        showClientNamePublicly: formData.showClientNamePublicly,
+      }),
       contactPersonName: formData.contactPersonName,
       numberOfOpenings: formData.numberOfOpenings,
       priority: formData.priority,
@@ -1791,7 +1798,8 @@ export function CreateJobDrawer({
 
   useEffect(() => {
     if (!formData.jobTitle || !formData.companyId) return;
-    if (!formData.linkedInJobTitle) {
+    // Keep LinkedIn title in sync with the job title (no separate LinkedIn title field in UI).
+    if (formData.linkedInJobTitle !== formData.jobTitle) {
       setFormData((prev) => ({ ...prev, linkedInJobTitle: prev.jobTitle }));
     }
     if (!linkedInPostTextTouched) {
@@ -3574,13 +3582,13 @@ export function CreateJobDrawer({
       if (Object.values(platformsToPublish).some(Boolean) && createdJobId) {
         try {
           const company = clients.find(c => c.id === formData.companyId);
-          const companyName = isJobFieldPubliclyVisible(
-            formData.publicFieldVisibility,
-            'companyName',
-            formData.showClientNamePublicly,
-          )
-            ? formData.postingCompanyName || company?.companyName || ''
-            : '';
+          // Prefer posting/agency name; if client is hidden and no posting name
+          // was chosen, company stays blank (never the original client).
+          const companyName = resolvePostedCompanyNameForSocial({
+            postingCompanyName: formData.postingCompanyName,
+            clientCompanyName: company?.companyName,
+            showClientNamePublicly: formData.showClientNamePublicly,
+          });
           let applyUrl = String(formData.linkedInExternalUrl || '').trim();
           if (!applyUrl) {
             try {
@@ -3614,8 +3622,6 @@ export function CreateJobDrawer({
             applyUrl,
             previewApplyUrl,
           );
-          const showTitle = isJobFieldPubliclyVisible(formData.publicFieldVisibility, 'jobTitle');
-          const showLocation = isJobFieldPubliclyVisible(formData.publicFieldVisibility, 'location');
           const resolvedFacebookPostText = replaceApplyUrlInSocialPostText(
             facebookCaptionTouched && (formData.facebookCaption || '').trim()
               ? formData.facebookCaption
@@ -3624,20 +3630,27 @@ export function CreateJobDrawer({
             previewApplyUrl,
           );
 
+          // Always send real title / location / description for LinkedIn metadata
+          // and fallbacks. The post body already respects the LinkedIn template.
+          const linkedInTitle = String(
+            formData.linkedInJobTitle || formData.jobTitle || '',
+          ).trim();
+          const locationLine =
+            [formData.city, formData.state, formData.country].filter(Boolean).join(', ') ||
+            formData.fullAddress ||
+            undefined;
+          const plainDescription = formData.jobDescriptionHtml
+            ? formData.jobDescriptionHtml.replace(/<[^>]*>/g, '').trim()
+            : formData.jobSummary?.trim() || undefined;
+
           const result = await apiPublishSocialJob({
             jobId: createdJobId,
-            title: showTitle ? formData.jobTitle : '',
+            title: linkedInTitle || formData.jobTitle.trim(),
             companyName,
             showClientNamePublicly: formData.showClientNamePublicly,
-            description:
-              isJobFieldPubliclyVisible(formData.publicFieldVisibility, 'jobDescription') &&
-              formData.jobDescriptionHtml
-                ? formData.jobDescriptionHtml.replace(/<[^>]*>/g, '')
-                : undefined,
+            description: plainDescription || undefined,
             applyUrl,
-            location: showLocation
-              ? formData.city || formData.fullAddress || undefined
-              : undefined,
+            location: locationLine,
             platforms: platformsToPublish,
             linkedinPostText: linkedInPublishText,
             twitterPostText: twitterPublishText,
@@ -5044,17 +5057,12 @@ export function CreateJobDrawer({
                                     ? formData.jobTitle
                                     : ''
                                 }
-                                company={
-                                  isJobFieldPubliclyVisible(
-                                    formData.publicFieldVisibility,
-                                    'companyName',
-                                    formData.showClientNamePublicly,
-                                  )
-                                    ? formData.postingCompanyName ||
-                                      clients.find((c) => c.id === formData.companyId)?.companyName ||
-                                      ''
-                                    : ''
-                                }
+                                company={resolvePostedCompanyNameForSocial({
+                                  postingCompanyName: formData.postingCompanyName,
+                                  clientCompanyName: clients.find((c) => c.id === formData.companyId)
+                                    ?.companyName,
+                                  showClientNamePublicly: formData.showClientNamePublicly,
+                                })}
                                 description={
                                   isJobFieldPubliclyVisible(formData.publicFieldVisibility, 'jobDescription') &&
                                   formData.jobDescriptionHtml

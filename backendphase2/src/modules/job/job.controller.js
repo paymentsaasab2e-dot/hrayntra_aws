@@ -328,4 +328,34 @@ export const jobController = {
       sendError(res, 500, error.message, error);
     }
   },
+
+  async listPortalAccessMembers(req, res) {
+    try {
+      const data = await jobService.listPortalAccessMembers(req);
+      sendResponse(res, 200, 'Portal access members retrieved', data);
+    } catch (error) {
+      sendError(res, error.statusCode || 500, error.message, error);
+    }
+  },
+
+  async listPortalAccessJobsForMember(req, res) {
+    try {
+      const data = await jobService.listPortalAccessJobsForMember(req.params.userId, req);
+      sendResponse(res, 200, 'Member jobs for portal access retrieved', data);
+    } catch (error) {
+      sendError(res, error.statusCode || 500, error.message, error);
+    }
+  },
+
+  async setJobsHryantraPortalAccess(req, res) {
+    try {
+      const data = await jobService.setJobsHryantraPortalAccess(req, {
+        jobIds: req.body?.jobIds,
+        enabled: req.body?.enabled !== false,
+      });
+      sendResponse(res, 200, 'HRyantra portal access updated', data);
+    } catch (error) {
+      sendError(res, error.statusCode || 500, error.message, error);
+    }
+  },
 };

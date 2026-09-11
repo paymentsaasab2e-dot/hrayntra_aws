@@ -1,4 +1,4 @@
-﻿import { prisma, getActiveTenantDbName } from '../../config/prisma.js';
+import { prisma, getActiveTenantDbName } from '../../config/prisma.js';
 import { getPaginationParams, formatPaginationResponse } from '../../utils/pagination.js';
 import {
   generateLoginId,
@@ -449,6 +449,11 @@ export const teamMemberService = {
       }
     }
 
+    const existingMember =
+      roleId !== undefined
+        ? await prisma.user.findUnique({ where: { id }, select: { roleId: true } })
+        : null;
+
     const updateData = {};
     if (firstName !== undefined) updateData.firstName = firstName;
     if (lastName !== undefined) updateData.lastName = lastName;
@@ -483,6 +488,26 @@ export const teamMemberService = {
       },
     });
 
+    // Role change: drop sticky per-user deltas so the member starts from the new role baseline.
+    if (
+      roleId !== undefined &&
+      existingMember &&
+      String(existingMember.roleId || '') !== String(roleId || '')
+    ) {
+      const { clearUserPermissionOverrides } = await import(
+        '../role/effectivePermissions.service.js'
+      );
+      await clearUserPermissionOverrides(id);
+    }
+
+    try {
+      const { deleteCache } = await import('../../cache/redis.js');
+      const { buildPermissionCacheKey } = await import('../../middleware/permission.middleware.js');
+      await deleteCache(buildPermissionCacheKey(id));
+    } catch {
+      /* cache best-effort */
+    }
+
     // Log activity
     await prisma.userActivity.create({
       data: {
@@ -494,6 +519,51 @@ export const teamMemberService = {
     });
 
     return updated;
+  },
+
+  async getPermissionDetail(id) {
+    const { getMemberPermissionDetail } = await import('../role/effectivePermissions.service.js');
+    return getMemberPermissionDetail(id);
+  },
+
+  async savePermissionOverrides(id, selectedPermissionIds = []) {
+    const member = await prisma.user.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!member) {
+      const err = new Error('Team member not found');
+      err.statusCode = 404;
+      throw err;
+    }
+
+    const {
+      replaceUserPermissionOverrides,
+      getMemberPermissionDetail,
+    } = await import('../role/effectivePermissions.service.js');
+
+    await replaceUserPermissionOverrides(id, selectedPermissionIds);
+
+    try {
+      const { deleteCache } = await import('../../cache/redis.js');
+      const { buildPermissionCacheKey } = await import('../../middleware/permission.middleware.js');
+      await deleteCache(buildPermissionCacheKey(id));
+    } catch {
+      /* cache best-effort */
+    }
+
+    await prisma.userActivity.create({
+      data: {
+        userId: id,
+        action: 'Member permissions updated',
+        module: 'Team',
+        metadata: {
+          selectedCount: Array.isArray(selectedPermissionIds) ? selectedPermissionIds.length : 0,
+        },
+      },
+    });
+
+    return getMemberPermissionDetail(id);
   },
 
   async delete(id) {

@@ -216,8 +216,24 @@ export async function listCrmAssigneeCandidates(actorUserId, { req = null, modul
     });
     labeled = filterUsersByAssignableCompany(labeled, requestedCompany, orgUnits);
   }
-  if (!requiredModules.length) return labeled;
-  return filterUsersByAssignmentAccess(labeled, { modules: requiredModules });
+  if (!requiredModules.length) {
+    return filterBySalesTeams(labeled, requestedCompany);
+  }
+  const moduleFiltered = filterUsersByAssignmentAccess(labeled, { modules: requiredModules });
+  return filterBySalesTeams(moduleFiltered, requestedCompany);
+}
+
+async function filterBySalesTeams(members, orgUnitId = null) {
+  try {
+    const { getActiveSalesTeamMemberIdSet } = await import('../modules/team/team.service.js');
+    const allowed = await getActiveSalesTeamMemberIdSet({ orgUnitId });
+    if (!allowed) return members;
+    if (!allowed.size) return [];
+    return (members || []).filter((member) => allowed.has(String(member.id)));
+  } catch (error) {
+    console.warn('[crm-assign] sales team filter skipped:', error?.message || error);
+    return members;
+  }
 }
 
 export async function canAssignCrmTo(actorUserId, assigneeUserId, { req = null, modules = [] } = {}) {

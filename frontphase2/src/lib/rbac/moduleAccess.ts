@@ -77,6 +77,7 @@ export const ROUTE_PERMISSION_GUARDS: Record<string, string[]> = {
   '/billing': MODULE_ACCESS_MAP.Billing,
   '/team': MODULE_ACCESS_MAP.Team,
   '/organization': MODULE_ACCESS_MAP.Organization,
+  '/access': ['all'],
   '/request': MODULE_ACCESS_MAP.Request,
   '/request/approval': MODULE_ACCESS_MAP.Request,
   '/inbox': MODULE_ACCESS_MAP.Inbox,

@@ -19,9 +19,12 @@ import {
   getDepartmentReportingManagers,
   getAllTeamMembersForDirectory,
   deleteTeamMember,
+  getAllPermissions,
+  getMemberPermissions,
+  updateMemberPermissions,
 } from '../../lib/api/teamApi';
 import { requestConfirm } from '../../lib/appDialog';
-import type { TeamMember, Role, UpdateMemberPayload, UserStatus } from '../../types/team';
+import type { TeamMember, Role, UpdateMemberPayload, UserStatus, Permission, SystemRole } from '../../types/team';
 import {
   filterReportingManagers,
   getRoleRankInDepartment,
@@ -34,6 +37,11 @@ import {
 } from '../../lib/teamReporting';
 import { startAsyncLoad } from '../../lib/asyncLoadGuard';
 import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
+import { PermissionPicker } from './PermissionPicker';
+import {
+  buildFallbackPermissionsMap,
+  mergePermissionMaps,
+} from './permissionCatalog';
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const KNOWN_DOMAINS = [
   'gmail.com',
@@ -123,17 +131,15 @@ export const EditMemberDrawer: React.FC<EditMemberDrawerProps> = ({ isOpen, memb
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loadingOptions, setLoadingOptions] = useState(true);
   const [roleChanged, setRoleChanged] = useState(false);
+  const [permissionsByModule, setPermissionsByModule] = useState<Record<string, Permission[]>>({});
+  const [selectedPermissions, setSelectedPermissions] = useState<Set<string>>(new Set());
+  const [overrideCount, setOverrideCount] = useState(0);
+  const [permissionsLoading, setPermissionsLoading] = useState(false);
+  const [memberIsSuperAdmin, setMemberIsSuperAdmin] = useState(false);
 
   // Load options
   useEffect(() => {
     if (isOpen && member) {
-      console.log('📋 Loading member data for edit:', {
-        member,
-        department: member.department,
-        role: member.role,
-        manager: member.manager,
-        location: member.location,
-      });
       loadOptions();
       setFormData({
         firstName: member.firstName || '',
@@ -148,19 +154,47 @@ export const EditMemberDrawer: React.FC<EditMemberDrawerProps> = ({ isOpen, memb
         status: member.status || 'ACTIVE',
       });
       setRoleChanged(false);
+      void loadMemberPermissions(member.id);
     }
   }, [isOpen, member]);
+
+  const loadMemberPermissions = async (memberId: string) => {
+    setPermissionsLoading(true);
+    try {
+      const detailRes = await getMemberPermissions(memberId);
+      const detail = detailRes.data;
+      setMemberIsSuperAdmin(Boolean(detail?.isSuperAdmin));
+      setOverrideCount(Number(detail?.overrideCount || 0));
+      setSelectedPermissions(new Set(detail?.effectivePermissionIds || []));
+    } catch {
+      setOverrideCount(0);
+      setSelectedPermissions(new Set());
+    } finally {
+      setPermissionsLoading(false);
+    }
+  };
 
   const loadOptions = async () => {
     setLoadingOptions(true);
     try {
-      const [rolesRes, deptsRes] = await Promise.all([getRoles(), getDepartments()]);
+      const [rolesRes, deptsRes, permsRes] = await Promise.all([
+        getRoles(),
+        getDepartments(),
+        getAllPermissions(),
+      ]);
       const departmentList = deptsRes.data || [];
       const mergedRoles = mergeRolesWithDepartmentEmbedded(rolesRes.data || [], departmentList);
 
       setRoles(mergedRoles);
       setDepartments(departmentList);
       setReportingManagers([]);
+      setPermissionsByModule(
+        mergePermissionMaps(
+          Object.keys(permsRes.data || {}).length > 0
+            ? permsRes.data
+            : buildFallbackPermissionsMap(),
+        ),
+      );
     } catch (error: any) {
       toast.error('Failed to load options');
     } finally {
@@ -174,8 +208,51 @@ export const EditMemberDrawer: React.FC<EditMemberDrawerProps> = ({ isOpen, memb
   );
 
   const selectedRole =
-    availableRoles.find((r) => String(r.id) === String(formData.roleId)) ||
-    roles.find((r) => String(r.id) === String(formData.roleId));
+    (availableRoles.find((r) => String(r.id) === String(formData.roleId)) ||
+      roles.find((r) => String(r.id) === String(formData.roleId))) as SystemRole | undefined;
+
+  const effectivePermissions = useMemo(
+    () =>
+      mergePermissionMaps(
+        Object.keys(permissionsByModule).length > 0
+          ? permissionsByModule
+          : buildFallbackPermissionsMap(),
+      ),
+    [permissionsByModule],
+  );
+
+  const seedPermissionsFromRole = (role?: SystemRole | null) => {
+    const next = new Set<string>();
+    (role?.rolePermissions || []).forEach((rp) => {
+      if (rp.permission?.id) next.add(rp.permission.id);
+    });
+    setSelectedPermissions(next);
+    setOverrideCount(0);
+  };
+
+  const handlePermissionToggle = (permissionId: string) => {
+    if (memberIsSuperAdmin) return;
+    setSelectedPermissions((prev) => {
+      const next = new Set(prev);
+      if (next.has(permissionId)) next.delete(permissionId);
+      else next.add(permissionId);
+      return next;
+    });
+  };
+
+  const handleModuleSelectAll = (module: string) => {
+    if (memberIsSuperAdmin) return;
+    const modulePermissions = effectivePermissions[module] || [];
+    setSelectedPermissions((prev) => {
+      const next = new Set(prev);
+      const allSelected = modulePermissions.every((p) => next.has(p.id));
+      modulePermissions.forEach((p) => {
+        if (allSelected) next.delete(p.id);
+        else next.add(p.id);
+      });
+      return next;
+    });
+  };
 
   useEffect(() => {
     if (loadingOptions) return;
@@ -324,6 +401,9 @@ export const EditMemberDrawer: React.FC<EditMemberDrawerProps> = ({ isOpen, memb
 
       console.log('📝 Updating team member:', member.id, payload);
       const result = await updateTeamMember(member.id, payload);
+      if (!memberIsSuperAdmin) {
+        await updateMemberPermissions(member.id, Array.from(selectedPermissions));
+      }
       console.log('✅ Update result:', result);
       toast.success('Team member updated successfully');
       onSuccess((result as any)?.data || member);
@@ -508,13 +588,21 @@ export const EditMemberDrawer: React.FC<EditMemberDrawerProps> = ({ isOpen, memb
                     <label className="text-xs font-semibold text-slate-700">Department Role *</label>
                     <select
                       value={formData.roleId || ''}
-                      onChange={(e) =>
+                      onChange={(e) => {
+                        const nextRoleId = e.target.value;
+                        const nextRole =
+                          (availableRoles.find((r) => String(r.id) === String(nextRoleId)) ||
+                            roles.find((r) => String(r.id) === String(nextRoleId))) as
+                            | SystemRole
+                            | undefined;
                         setFormData((prev) => ({
                           ...prev,
-                          roleId: e.target.value,
+                          roleId: nextRoleId,
                           managerId: '',
-                        }))
-                      }
+                        }));
+                        setRoleChanged(nextRoleId !== (getMemberRoleId(member) || ''));
+                        seedPermissionsFromRole(nextRole);
+                      }}
                       className={`w-full px-3 py-2 bg-white border rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all ${
                         errors.roleId ? 'border-red-300' : 'border-slate-200'
                       }`}
@@ -534,7 +622,7 @@ export const EditMemberDrawer: React.FC<EditMemberDrawerProps> = ({ isOpen, memb
                     {roleChanged && (
                       <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mt-2">
                         <p className="text-xs text-amber-800">
-                          Changing this role will update the member's portal access immediately.
+                          Changing this role resets personal permission tweaks and starts from the new role&apos;s defaults. You can still adjust ticks for this member only before saving.
                         </p>
                       </div>
                     )}
@@ -591,6 +679,55 @@ export const EditMemberDrawer: React.FC<EditMemberDrawerProps> = ({ isOpen, memb
                     </select>
                   </div>
                 </div>
+              </DrawerSectionCard>
+
+              <DrawerSectionCard
+                title="Member permissions"
+                subtitle="Defaults follow the role. Changes here apply only to this member; role updates still flow through for unticked deltas."
+                icon={Shield}
+                accent="indigo"
+              >
+                {memberIsSuperAdmin ? (
+                  <p className="text-sm text-slate-600">
+                    Super Admin always has full access. Per-member permission edits are not applied.
+                  </p>
+                ) : permissionsLoading || loadingOptions ? (
+                  <p className="text-sm text-slate-500">Loading permissions…</p>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                      <span>
+                        Role baseline: {selectedRole?.roleName || '—'} · {selectedPermissions.size}{' '}
+                        selected
+                      </span>
+                      {overrideCount > 0 && !roleChanged ? (
+                        <span className="rounded-full bg-amber-50 px-2 py-0.5 text-amber-800 border border-amber-200">
+                          {overrideCount} personal override{overrideCount === 1 ? '' : 's'}
+                        </span>
+                      ) : (
+                        <span className="rounded-full bg-slate-50 px-2 py-0.5 text-slate-600 border border-slate-200">
+                          Using role defaults
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        className="ml-auto text-blue-600 hover:underline"
+                        onClick={() => seedPermissionsFromRole(selectedRole)}
+                      >
+                        Reset to role defaults
+                      </button>
+                    </div>
+                    <PermissionPicker
+                      permissionsByModule={effectivePermissions}
+                      selectedIds={selectedPermissions}
+                      onToggle={handlePermissionToggle}
+                      onModuleSelectAll={handleModuleSelectAll}
+                      onSelectionChange={setSelectedPermissions}
+                      disabled={isSubmitting}
+                      maxHeightClass="max-h-[360px]"
+                    />
+                  </div>
+                )}
               </DrawerSectionCard>
             </form>
 

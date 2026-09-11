@@ -22,6 +22,7 @@ import type { Department, Role, TeamMember } from '../../types/team';
 import {
   apiAdoptWorkspace,
   apiAssignOrgMember,
+  apiUpdateOrgMemberRank,
   apiCreateOrgUnit,
   apiDeleteOrgUnit,
   apiOrgTree,
@@ -221,6 +222,7 @@ function StructureUnitRow({
   onDelete,
   onAdopt,
   onStampData,
+  onRankChange,
 }: {
   unit: OrgUnitNode;
   depth: number;
@@ -238,6 +240,7 @@ function StructureUnitRow({
   onDelete: (id: string) => void;
   onAdopt: (id: string) => void;
   onStampData: (id: string) => void;
+  onRankChange: (userId: string, orgRank: number) => void;
 }) {
   const isHq = !unit.parentId;
   const isCompany = unit.levelOrder === 2 && !unit.isLeaf;
@@ -410,21 +413,46 @@ function StructureUnitRow({
                       {p.email ? <p className="truncate text-[11px] text-slate-400">{p.email}</p> : null}
                     </div>
                   </div>
-                  <span
-                    className={`shrink-0 rounded-md px-2 py-0.5 text-[11px] ${
-                      p.purposeLabel === 'HQ'
-                        ? 'bg-violet-50 text-violet-700'
-                        : p.unassigned
-                          ? 'bg-amber-50 text-amber-800'
-                          : 'bg-slate-50 text-slate-500'
-                    }`}
-                  >
-                    {p.unassigned
-                      ? 'HQ · not in a company'
-                      : p.purposeLabel === 'HQ'
-                        ? `${p.roleName || 'Super Admin'} · HQ`
-                        : `${p.roleName || 'No role'} · ${p.purposeLabel || 'Member'}`}
-                  </span>
+                  <div className="flex shrink-0 items-center gap-2">
+                    {canWrite && !isHq && !p.unassigned && p.purposeLabel !== 'HQ' ? (
+                      <label className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                        Rank
+                        <input
+                          type="number"
+                          min={1}
+                          defaultValue={p.orgRank ?? ''}
+                          key={`${p.id}-${p.orgRank ?? 'x'}`}
+                          placeholder="—"
+                          className="h-7 w-14 rounded-md border border-slate-200 px-1.5 text-[12px] font-semibold text-slate-700 outline-none focus:border-sky-400"
+                          onBlur={(e) => {
+                            const next = Number(e.target.value);
+                            if (!Number.isFinite(next) || next < 1) return;
+                            if (Number(p.orgRank) === Math.floor(next)) return;
+                            onRankChange(p.id, Math.floor(next));
+                          }}
+                        />
+                      </label>
+                    ) : p.orgRank != null && !p.unassigned ? (
+                      <span className="rounded-md bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-700">
+                        Rank {p.orgRank}
+                      </span>
+                    ) : null}
+                    <span
+                      className={`shrink-0 rounded-md px-2 py-0.5 text-[11px] ${
+                        p.purposeLabel === 'HQ'
+                          ? 'bg-violet-50 text-violet-700'
+                          : p.unassigned
+                            ? 'bg-amber-50 text-amber-800'
+                            : 'bg-slate-50 text-slate-500'
+                      }`}
+                    >
+                      {p.unassigned
+                        ? 'HQ · not in a company'
+                        : p.purposeLabel === 'HQ'
+                          ? `${p.roleName || 'Super Admin'} · HQ`
+                          : `${p.roleName || 'No role'} · ${p.purposeLabel || 'Member'}`}
+                    </span>
+                  </div>
                 </li>
               ))}
             </ul>
@@ -465,6 +493,7 @@ function StructureUnitRow({
               onDelete={onDelete}
               onAdopt={onAdopt}
               onStampData={onStampData}
+              onRankChange={onRankChange}
             />
               ))
             : null}
@@ -1073,6 +1102,16 @@ export default function OrganizationPage() {
     }
   };
 
+  const saveOrgRank = async (userId: string, orgRank: number) => {
+    try {
+      await apiUpdateOrgMemberRank({ userId, orgRank });
+      toast.success(`Rank set to ${orgRank}`);
+      await load();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not update rank');
+    }
+  };
+
   const savePeople = async () => {
     if (!assignUnitId) {
       toast.error('Pick a company or branch.');
@@ -1323,6 +1362,7 @@ export default function OrganizationPage() {
                 onDelete={(id) => void removeUnit(id)}
                 onAdopt={(id) => void adoptInto(id)}
                 onStampData={(id) => void stampDataInto(id)}
+                onRankChange={(userId, orgRank) => void saveOrgRank(userId, orgRank)}
               />
             ) : (
               <div className="p-10 text-center">

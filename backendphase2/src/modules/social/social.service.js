@@ -9,8 +9,9 @@ export const socialService = {
   async publishJob(userId, jobId, platforms, jobData) {
     const results = {};
     const jobTitle = String(jobData.title || '').trim();
-    const showClientName = jobData.showClientNamePublicly !== false;
-    const companyName = showClientName ? String(jobData.companyName || '').trim() : '';
+    // Display name is already resolved by the publisher (posting/agency name when
+    // the real client is hidden). Do not blank it again here.
+    const companyName = String(jobData.companyName || '').trim();
 
     console.log('[social] Publishing job to social platforms', {
       jobId,

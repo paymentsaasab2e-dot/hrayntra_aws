@@ -185,16 +185,19 @@ function hasStructuredJdContent(input: JobSocialPostInput): boolean {
 }
 
 function socialHeadline(input: JobSocialPostInput): { title: string; company: string; header: string } {
-  const visibility = parseJobPublicFieldVisibility(input.publicFieldVisibility);
+  const usingTemplate = hasCustomLinkedInTemplate(input);
   const showRole = isSocialSectionIncluded(input, 'role');
-  const showTitle = hasCustomLinkedInTemplate(input)
-    ? showRole
-    : isJobFieldPubliclyVisible(visibility, 'jobTitle');
-  const showCompany = hasCustomLinkedInTemplate(input)
-    ? showRole
-    : isJobFieldPubliclyVisible(visibility, 'companyName', input.showClientNamePublicly !== false);
-  const title = showTitle ? String(input.jobTitle || '').trim() : '';
-  const company = showCompany ? String(input.companyName || '').trim() : '';
+
+  // Job title always belongs in the LinkedIn hiring line.
+  const title = String(input.jobTitle || '').trim();
+
+  // Callers resolve companyName via resolvePostedCompanyNameForSocial:
+  // posting/agency name when set, else real client only if not hidden.
+  // Template Role section can still omit company from the body header.
+  const companyRaw = String(input.companyName || '').trim();
+  const showCompany = Boolean(companyRaw) && (usingTemplate ? showRole : true);
+  const company = showCompany ? companyRaw : '';
+
   const header =
     title && company
       ? `We're hiring: ${title} at ${company}!`
@@ -335,11 +338,12 @@ export function buildLinkedInJobPost(
     ? `\n\nApply now:\n${applyUrl}\n\n#hiring #jobs #careers`
     : '\n\n#hiring #jobs #careers';
 
-  const usingTemplate = hasCustomLinkedInTemplate(input);
-  const { header } = socialHeadline(input);
-  const post = usingTemplate
-    ? `${body}${footer}`
-    : `${header}\n\n${body}${footer}`;
+  const { header, title, company } = socialHeadline(input);
+  // Always lead with the hiring line so LinkedIn posts keep the job title
+  // (and company when allowed). Custom templates used to drop this header.
+  const lead =
+    title || company || !hasCustomLinkedInTemplate(input) ? `${header}\n\n` : '';
+  const post = `${lead}${body}${footer}`;
   if (post.length <= maxLength) return post;
   return `${post.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
 }

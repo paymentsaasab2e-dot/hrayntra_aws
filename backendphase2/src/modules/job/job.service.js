@@ -12,7 +12,7 @@ import activityService from '../../services/activityService.js';
 import { sendJobAssignmentEmail, sendJobClosedEmail } from '../../services/emailService.js';
 import { createAlertNotification } from '../setting/alert-dispatch.service.js';
 import { notifyJobClosed, personName } from '../setting/alert-notify.helpers.js';
-import { buildSuperAdminOwnerScope, mergeWhereWithScope } from '../../utils/superAdminScope.js';
+import { buildSuperAdminOwnerScope, mergeWhereWithScope, isSuperAdminUser } from '../../utils/superAdminScope.js';
 import { canViewAllAssignments, canViewAllJobs } from '../../utils/permissionScope.js';
 import {
   applyOrgCompanyAssigneeWhere,
@@ -23,6 +23,7 @@ import {
   isOrgHeadPurpose,
   resolveWriteOrgUnitId,
 } from '../../services/orgListScope.service.js';
+import { hqPlatformUserEmailNotClause } from '../../utils/hqPlatformUser.js';
 import { transferIdentityKey } from '../org/orgTransferIdentity.js';
 import { findWorkspaceClient } from '../setting/workspace-client.service.js';
 import {
@@ -3087,4 +3088,238 @@ export const jobService = {
       candidates,
     };
   },
+
+  /**
+   * Super Admin: list active members who have jobs (created or assigned).
+   */
+  async listPortalAccessMembers(req) {
+    assertPortalAccessSuperAdmin(req);
+    const emailExclude = hqPlatformUserEmailNotClause();
+    const members = await prisma.user.findMany({
+      where: {
+        AND: [
+          { OR: [{ status: 'ACTIVE' }, { status: null }] },
+          ...(Object.keys(emailExclude).length ? [emailExclude] : []),
+        ],
+      },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        name: true,
+        email: true,
+        systemRole: { select: { roleName: true } },
+      },
+      orderBy: [{ firstName: 'asc' }, { name: 'asc' }],
+    });
+
+    const jobGroups = await prisma.job.groupBy({
+      by: ['createdById'],
+      where: {
+        isDeleted: { not: true },
+        createdById: { not: null },
+      },
+      _count: { _all: true },
+    });
+    const assignedGroups = await prisma.job.groupBy({
+      by: ['assignedToId'],
+      where: {
+        isDeleted: { not: true },
+        assignedToId: { not: null },
+      },
+      _count: { _all: true },
+    });
+
+    const createdCount = new Map(
+      jobGroups.map((row) => [String(row.createdById), Number(row._count?._all || 0)]),
+    );
+    const assignedCount = new Map(
+      assignedGroups.map((row) => [String(row.assignedToId), Number(row._count?._all || 0)]),
+    );
+
+    return members
+      .map((user) => {
+        const id = String(user.id);
+        const jobsCreated = createdCount.get(id) || 0;
+        const jobsAssigned = assignedCount.get(id) || 0;
+        const jobCount = Math.max(jobsCreated, jobsAssigned); // rough; detail view is exact
+        const name =
+          String(user.name || '').trim() ||
+          [user.firstName, user.lastName].filter(Boolean).join(' ').trim() ||
+          user.email ||
+          'User';
+        return {
+          id,
+          name,
+          email: user.email || '',
+          roleName: user.systemRole?.roleName || '',
+          jobsCreated,
+          jobsAssigned,
+          jobCount: jobsCreated + jobsAssigned,
+        };
+      })
+      .filter((row) => row.jobsCreated > 0 || row.jobsAssigned > 0)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  },
+
+  /**
+   * Super Admin: jobs for one member with HRyantra portal flag.
+   */
+  async listPortalAccessJobsForMember(userId, req) {
+    assertPortalAccessSuperAdmin(req);
+    const id = String(userId || '').trim();
+    if (!id) throw Object.assign(new Error('Pick a team member.'), { statusCode: 400 });
+
+    const member = await prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        name: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        systemRole: { select: { roleName: true } },
+      },
+    });
+    if (!member) throw Object.assign(new Error('Member not found.'), { statusCode: 404 });
+
+    const jobs = await prisma.job.findMany({
+      where: {
+        isDeleted: { not: true },
+        OR: [{ createdById: id }, { assignedToId: id }],
+      },
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        location: true,
+        createdAt: true,
+        postedDate: true,
+        distributionPlatforms: true,
+        createdById: true,
+        assignedToId: true,
+        client: { select: { id: true, companyName: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const items = jobs.map((job) => {
+      const platforms =
+        job.distributionPlatforms && typeof job.distributionPlatforms === 'object'
+          ? job.distributionPlatforms
+          : null;
+      const onHryantraPortal = shouldPublishJobToHryantraPortal(platforms);
+      return {
+        id: String(job.id),
+        title: job.title || 'Untitled job',
+        status: job.status || '',
+        location: job.location || '',
+        clientName: job.client?.companyName || '',
+        createdAt: job.createdAt,
+        postedDate: job.postedDate,
+        createdByMe: String(job.createdById || '') === id,
+        assignedToMe: String(job.assignedToId || '') === id,
+        onHryantraPortal,
+        distributionPlatforms: platforms,
+      };
+    });
+
+    const name =
+      String(member.name || '').trim() ||
+      [member.firstName, member.lastName].filter(Boolean).join(' ').trim() ||
+      member.email;
+
+    return {
+      member: {
+        id: String(member.id),
+        name,
+        email: member.email || '',
+        roleName: member.systemRole?.roleName || '',
+      },
+      jobs: items,
+      missingCount: items.filter((row) => !row.onHryantraPortal).length,
+      publishedCount: items.filter((row) => row.onHryantraPortal).length,
+    };
+  },
+
+  /**
+   * Super Admin override: turn HRyantra job-board on/off for existing jobs and sync portal.
+   */
+  async setJobsHryantraPortalAccess(req, { jobIds = [], enabled = true } = {}) {
+    assertPortalAccessSuperAdmin(req);
+    const ids = (Array.isArray(jobIds) ? jobIds : [])
+      .map((value) => String(value || '').trim())
+      .filter(Boolean);
+    if (!ids.length) throw Object.assign(new Error('Select at least one job.'), { statusCode: 400 });
+
+    const wantOn = enabled !== false;
+    const results = [];
+
+    for (const jobId of ids) {
+      const job = await prisma.job.findUnique({
+        where: { id: jobId },
+        select: {
+          id: true,
+          title: true,
+          isDeleted: true,
+          distributionPlatforms: true,
+        },
+      });
+      if (!job || job.isDeleted) {
+        results.push({ id: jobId, ok: false, error: 'Job not found' });
+        continue;
+      }
+
+      const prev =
+        job.distributionPlatforms && typeof job.distributionPlatforms === 'object'
+          ? { ...job.distributionPlatforms }
+          : {};
+      const nextPlatforms = {
+        ...prev,
+        hryantra: wantOn,
+        hryantra_job_board: wantOn,
+      };
+
+      const updated = await prisma.job.update({
+        where: { id: jobId },
+        data: { distributionPlatforms: nextPlatforms },
+      });
+
+      try {
+        if (wantOn) {
+          await syncJobToPortal(updated, { distributionPlatforms: nextPlatforms });
+        } else {
+          await removeJobFromPortalDatabases(jobId);
+        }
+        results.push({
+          id: jobId,
+          title: job.title,
+          ok: true,
+          onHryantraPortal: wantOn,
+        });
+      } catch (error) {
+        results.push({
+          id: jobId,
+          title: job.title,
+          ok: false,
+          error: error?.message || 'Portal sync failed',
+        });
+      }
+    }
+
+    return {
+      enabled: wantOn,
+      updated: results.filter((row) => row.ok).length,
+      failed: results.filter((row) => !row.ok).length,
+      results,
+    };
+  },
 };
+
+function assertPortalAccessSuperAdmin(req) {
+  if (!isSuperAdminUser(req)) {
+    const err = new Error('Only the tenant Super Admin can manage HRyantra portal access.');
+    err.statusCode = 403;
+    throw err;
+  }
+}

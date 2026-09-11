@@ -26,6 +26,7 @@ router.get('/duplicates', orgWrite, orgController.duplicates);
 router.post('/duplicates/remove', orgWrite, orgController.removeDuplicates);
 router.post('/', orgWrite, orgController.create);
 router.post('/assign', orgWrite, orgController.assign);
+router.post('/rank', orgWrite, orgController.updateRank);
 // Body-based aliases (avoid nested-path 404s behind some proxies).
 router.post('/adopt-workspace', orgWrite, orgController.adoptByBody);
 router.post('/stamp-untagged', orgWrite, orgController.stampUntaggedByBody);

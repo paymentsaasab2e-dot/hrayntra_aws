@@ -1518,32 +1518,13 @@ export function JobDetailsDrawer({
   }, [displayJobCandidates, job, openBulkSubmit, pickerCvModeById, pickerSelectedIds]);
 
   const openBulkSubmitToClient = useCallback(() => {
-    if (!job?.id) return;
-    const selectedRows = displayJobCandidates.filter((row) => selectedCandidateIds.includes(row.id));
-    const rows =
-      selectedRows.length > 0
-        ? selectedRows
-        : displayJobCandidates.length === 1
-          ? displayJobCandidates
-          : [];
-    if (!rows.length) {
-      setActiveTab('candidates');
-      void requestError('Select at least one candidate to submit to the client.');
-      return;
-    }
-    openBulkSubmit(
-      rows.map((row) => ({
-        candidateId: row.id,
-        jobId: job.id,
-        candidateName: row.candidateName,
-        jobTitle: job.title,
-        clientId: job.clientId ?? undefined,
-        matchScore: parseJobCandidateScore(row.score),
-        cvShareMode: pickerCvModeById[row.id],
-      })),
-    );
-    setSelectedCandidateIds([]);
-  }, [displayJobCandidates, job, openBulkSubmit, pickerCvModeById, selectedCandidateIds]);
+    // Same flow as the header button: CV picker (Original vs HRYantra) then submit.
+    openSubmitCandidatePicker();
+  }, [openSubmitCandidatePicker]);
+
+  /** When rows are checked, only the selection-bar Submit shows — avoids two CTAs. */
+  const showHeaderSubmitToClient =
+    Boolean(job?.id) && selectedCandidateIds.length === 0;
 
   const stageOptionsFromJobPipeline = useMemo(() => {
     if (!job?.id) return {} as Record<string, Array<{ id: string; name: string }>>;
@@ -2749,7 +2730,7 @@ export function JobDetailsDrawer({
               )}
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              {job?.id ? (
+              {showHeaderSubmitToClient ? (
                 <button
                   type="button"
                   onClick={openSubmitCandidatePicker}
@@ -2987,9 +2968,10 @@ export function JobDetailsDrawer({
                           type="button"
                           onClick={openBulkSubmitToClient}
                           className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-indigo-700"
+                          title="Choose CV type, then submit selected candidates to the client"
                         >
                           <Send size={14} strokeWidth={2.25} />
-                          Submit to Client
+                          Submit {selectedCandidateIds.length} to Client
                         </button>
                         <button
                           type="button"
@@ -3071,23 +3053,6 @@ export function JobDetailsDrawer({
                         onMoveStage={
                           onAddToPipeline && job?.id ? openMoveStageFromTable : undefined
                         }
-                        onSubmitToClient={
-                          job?.id
-                            ? (row) => {
-                                const source = displayJobCandidates.find((c) => c.id === row.id);
-                                if (!source) return;
-                                setSubmitClientRowId(row.id);
-                                openFromJobDrawerRow(
-                                  source,
-                                  job.id,
-                                  job.title,
-                                  job.clientId,
-                                );
-                              }
-                            : undefined
-                        }
-                        submittingToClientCandidateId={submitClientRowId}
-                        labeledSubmitToClient
                         isColumnVisible={candidateColumnVisibility.isVisible}
                       />
                     <div className={PH2_TABLE_CARD_FOOTER_CLASS}>

@@ -95,6 +95,7 @@ function mapPerson(user) {
     purposeLabel: purposeLabel(user.hierarchyPurpose),
     roleName: user.systemRole?.roleName || '',
     roleId: user.systemRole?.id || '',
+    orgRank: user.orgRank ?? null,
   };
 }
 
@@ -452,6 +453,7 @@ export async function listOrgStructure(req) {
       role: true,
       orgUnitId: true,
       hierarchyPurpose: true,
+      orgRank: true,
       systemRole: { select: { id: true, roleName: true, color: true } },
     },
   });
@@ -476,6 +478,15 @@ export async function listOrgStructure(req) {
     }
     if (!peopleByUnit.has(uid)) peopleByUnit.set(uid, []);
     peopleByUnit.get(uid).push(person);
+  }
+
+  for (const [, list] of peopleByUnit) {
+    list.sort((a, b) => {
+      const ra = Number(a.orgRank) || 9999;
+      const rb = Number(b.orgRank) || 9999;
+      if (ra !== rb) return ra - rb;
+      return String(a.name || '').localeCompare(String(b.name || ''));
+    });
   }
 
   const mapped = units
@@ -1004,6 +1015,20 @@ export async function assignOrgMember(req, body) {
     hierarchyPurpose: purpose,
   };
   if (body?.roleId) data.roleId = oid(body.roleId);
+  if (body?.orgRank !== undefined && body?.orgRank !== null && body?.orgRank !== '') {
+    const rank = Number(body.orgRank);
+    if (!Number.isFinite(rank) || rank < 1) throw new Error('Org rank must be 1 or higher.');
+    data.orgRank = Math.floor(rank);
+  } else if (purpose === 'company_head' || purpose === 'site_head') {
+    data.orgRank = 1;
+  } else {
+    const siblings = await prisma.user.findMany({
+      where: { orgUnitId: unit.id, orgRank: { not: null } },
+      select: { orgRank: true },
+    });
+    const maxRank = siblings.reduce((max, row) => Math.max(max, Number(row.orgRank) || 0), 0);
+    data.orgRank = maxRank > 0 ? maxRank + 1 : 3;
+  }
 
   const user = await prisma.user.update({
     where: { id: userId },
@@ -1020,7 +1045,48 @@ export async function assignOrgMember(req, body) {
     hierarchyPurpose: user.hierarchyPurpose,
     purposeLabel: purposeLabel(user.hierarchyPurpose),
     roleName: user.systemRole?.roleName || '',
+    orgRank: user.orgRank ?? null,
     credentialData,
+  };
+}
+
+/**
+ * Set numeric rank for a person inside their company/branch (1 = top).
+ */
+export async function updateOrgMemberRank(req, body) {
+  const scope = await resolveViewerOrgScope(req);
+  const userId = oid(body?.userId);
+  const rank = Number(body?.orgRank);
+  if (!userId) throw new Error('Pick a team member.');
+  if (!Number.isFinite(rank) || rank < 1) throw new Error('Org rank must be 1 or higher.');
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      orgUnitId: true,
+      hierarchyPurpose: true,
+      systemRole: { select: { id: true, roleName: true } },
+    },
+  });
+  if (!user?.orgUnitId) throw new Error('Assign this person to a company or branch first.');
+  if (!scope.isTenantAdmin && !scope.unitIds.includes(String(user.orgUnitId))) {
+    throw new Error('You can only rank people under your company.');
+  }
+
+  const updated = await prisma.user.update({
+    where: { id: userId },
+    data: { orgRank: Math.floor(rank) },
+    include: { systemRole: { select: { id: true, roleName: true } } },
+  });
+
+  return {
+    id: String(updated.id),
+    orgUnitId: String(updated.orgUnitId || ''),
+    hierarchyPurpose: updated.hierarchyPurpose || 'member',
+    purposeLabel: purposeLabel(updated.hierarchyPurpose),
+    roleName: updated.systemRole?.roleName || '',
+    orgRank: updated.orgRank ?? null,
   };
 }
 

@@ -5589,6 +5589,58 @@ export async function apiGetJobs(params: {
   return apiFetch<BackendJob[]>(path, { auth: true });
 }
 
+export type PortalAccessMember = {
+  id: string;
+  name: string;
+  email: string;
+  roleName?: string;
+  jobsCreated: number;
+  jobsAssigned: number;
+  jobCount: number;
+};
+
+export type PortalAccessJobRow = {
+  id: string;
+  title: string;
+  status?: string;
+  location?: string;
+  clientName?: string;
+  createdAt?: string;
+  postedDate?: string;
+  createdByMe?: boolean;
+  assignedToMe?: boolean;
+  onHryantraPortal: boolean;
+};
+
+export async function apiGetPortalAccessMembers() {
+  return apiFetch<PortalAccessMember[]>('/jobs/portal-access/members', { auth: true });
+}
+
+export async function apiGetPortalAccessJobsForMember(userId: string) {
+  return apiFetch<{
+    member: { id: string; name: string; email: string; roleName?: string };
+    jobs: PortalAccessJobRow[];
+    missingCount: number;
+    publishedCount: number;
+  }>(`/jobs/portal-access/members/${encodeURIComponent(userId)}/jobs`, { auth: true });
+}
+
+export async function apiSetJobsHryantraPortalAccess(body: {
+  jobIds: string[];
+  enabled?: boolean;
+}) {
+  return apiFetch<{
+    enabled: boolean;
+    updated: number;
+    failed: number;
+    results: Array<{ id: string; title?: string; ok: boolean; error?: string; onHryantraPortal?: boolean }>;
+  }>('/jobs/portal-access/publish', {
+    auth: true,
+    method: 'POST',
+    body,
+  });
+}
+
 export interface CreateJobData {
   title: string;
   description?: string;

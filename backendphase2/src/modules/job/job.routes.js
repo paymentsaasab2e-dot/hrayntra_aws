@@ -57,6 +57,10 @@ router.post(
 
 router.get('/', requireAnyPermission(['jobs_read', 'view_jobs']), jobController.getAll);
 router.get('/metrics', requireAnyPermission(['jobs_read', 'view_jobs']), jobController.getMetrics);
+// Super Admin: retroactively publish member jobs to HRyantra portal (before /:id)
+router.get('/portal-access/members', jobController.listPortalAccessMembers);
+router.get('/portal-access/members/:userId/jobs', jobController.listPortalAccessJobsForMember);
+router.post('/portal-access/publish', jobController.setJobsHryantraPortalAccess);
 // Recycle Bin endpoints — registered BEFORE the `/:id` routes so '/trash' isn't read as an id.
 router.get('/trash', requireAnyPermission(['jobs_read', 'view_jobs', 'jobs_delete', 'delete_job']), jobController.listTrash);
 router.post('/trash/bulk-purge', requireAnyPermission(['jobs_delete', 'delete_job']), jobController.bulkPurge);

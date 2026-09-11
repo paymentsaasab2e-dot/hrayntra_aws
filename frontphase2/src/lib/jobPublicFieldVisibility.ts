@@ -164,6 +164,23 @@ export function resolveShowClientNamePublicly(
   return isJobFieldPubliclyVisible(visibility, 'client', legacyShowClient ?? true);
 }
 
+/**
+ * Company name shown on LinkedIn / social / public job cards.
+ * - Prefer the posting / agency name the recruiter selected.
+ * - If the real client is hidden, never fall back to the original client name —
+ *   only the posting name (or blank if none was set).
+ */
+export function resolvePostedCompanyNameForSocial(options: {
+  postingCompanyName?: string | null;
+  clientCompanyName?: string | null;
+  showClientNamePublicly?: boolean | null;
+}): string {
+  const posted = String(options.postingCompanyName || '').trim();
+  if (posted) return posted;
+  if (options.showClientNamePublicly === false) return '';
+  return String(options.clientCompanyName || '').trim();
+}
+
 /** Strip hidden job fields for public / Phase 1 views — no confidential placeholders. */
 export function redactPublicJobPayload<T extends Record<string, unknown>>(
   job: T,

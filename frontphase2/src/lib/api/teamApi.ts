@@ -395,6 +395,189 @@ export async function updateTeamMember(id: string, payload: UpdateMemberPayload)
   return { data: json.data, success: json.success };
 }
 
+export type MemberPermissionDetail = {
+  userId: string;
+  roleId: string | null;
+  roleName: string;
+  isSuperAdmin: boolean;
+  rolePermissionIds: string[];
+  rolePermissionNames: string[];
+  overrideCount: number;
+  overrides: Array<{
+    id: string;
+    permissionId: string;
+    effect: 'GRANT' | 'DENY';
+    permissionName: string;
+    module: string;
+  }>;
+  effectivePermissionIds: string[];
+  effectivePermissionNames: string[];
+};
+
+/** Role baseline + per-user GRANT/DENY effective ticks for Edit Member. */
+export async function getMemberPermissions(id: string) {
+  const path = buildPath(`/team/${id}/permissions`);
+  const res = await fetch(`${API_BASE_NEW}${path}`, {
+    method: 'GET',
+    headers: getTeamAuthHeaders(),
+    cache: 'no-store',
+  });
+  const json = await parseTeamFetchJson(res);
+  if (!res.ok || json?.success === false) {
+    throwTeamApiError(json, res);
+  }
+  return { data: json.data as MemberPermissionDetail, success: json.success };
+}
+
+/** Save member effective permission ids (stored as GRANT/DENY deltas vs role). */
+export async function updateMemberPermissions(id: string, permissionIds: string[]) {
+  const path = buildPath(`/team/${id}/permissions`);
+  const res = await fetch(`${API_BASE_NEW}${path}`, {
+    method: 'PUT',
+    headers: getTeamAuthHeaders(),
+    body: JSON.stringify({ permissionIds }),
+    cache: 'no-store',
+  });
+  const json = await parseTeamFetchJson(res);
+  if (!res.ok || json?.success === false) {
+    throwTeamApiError(json, res);
+  }
+  void refreshLocalUserPermissions();
+  return { data: json.data as MemberPermissionDetail, success: json.success };
+}
+
+export type SalesGroupMember = {
+  id: string;
+  name: string;
+  email?: string;
+  orgUnitId?: string | null;
+  orgRank?: number | null;
+  hierarchyPurpose?: string;
+  roleName?: string;
+  departmentName?: string;
+};
+
+export type SalesGroup = {
+  id: string;
+  name: string;
+  kind: string;
+  description?: string | null;
+  orgUnitId?: string | null;
+  orgUnitName?: string | null;
+  isActive?: boolean;
+  memberCount?: number;
+  members?: SalesGroupMember[];
+};
+
+export async function getSalesGroups() {
+  const path = buildPath('/team/groups?kind=SALES&limit=100');
+  const res = await fetch(`${API_BASE_NEW}${path}`, {
+    method: 'GET',
+    headers: getTeamAuthHeaders(),
+    cache: 'no-store',
+  });
+  const json = await parseTeamFetchJson(res);
+  if (!res.ok || json?.success === false) {
+    throwTeamApiError(json, res);
+  }
+  const payload = json.data;
+  const list = normalizeArrayPayload<SalesGroup>(payload);
+  return { data: list, success: json.success };
+}
+
+export async function createSalesGroup(payload: {
+  name: string;
+  kind?: 'SALES' | 'GENERAL';
+  description?: string;
+  orgUnitId?: string;
+  memberIds?: string[];
+  isActive?: boolean;
+}) {
+  const path = buildPath('/team/groups');
+  const res = await fetch(`${API_BASE_NEW}${path}`, {
+    method: 'POST',
+    headers: getTeamAuthHeaders(),
+    body: JSON.stringify({ ...payload, kind: payload.kind || 'SALES' }),
+    cache: 'no-store',
+  });
+  const json = await parseTeamFetchJson(res);
+  if (!res.ok || json?.success === false) {
+    throwTeamApiError(json, res);
+  }
+  return { data: json.data as SalesGroup, success: json.success };
+}
+
+export async function updateSalesGroup(
+  id: string,
+  payload: {
+    name?: string;
+    kind?: 'SALES' | 'GENERAL';
+    description?: string;
+    orgUnitId?: string | null;
+    memberIds?: string[];
+    isActive?: boolean;
+  },
+) {
+  const path = buildPath(`/team/groups/${id}`);
+  const res = await fetch(`${API_BASE_NEW}${path}`, {
+    method: 'PATCH',
+    headers: getTeamAuthHeaders(),
+    body: JSON.stringify(payload),
+    cache: 'no-store',
+  });
+  const json = await parseTeamFetchJson(res);
+  if (!res.ok || json?.success === false) {
+    throwTeamApiError(json, res);
+  }
+  return { data: json.data as SalesGroup, success: json.success };
+}
+
+export async function deleteSalesGroup(id: string) {
+  const path = buildPath(`/team/groups/${id}`);
+  const res = await fetch(`${API_BASE_NEW}${path}`, {
+    method: 'DELETE',
+    headers: getTeamAuthHeaders(),
+    cache: 'no-store',
+  });
+  const json = await parseTeamFetchJson(res);
+  if (!res.ok || json?.success === false) {
+    throwTeamApiError(json, res);
+  }
+  return { success: json.success };
+}
+
+export async function getSalesGroupCandidates(opts: {
+  orgUnitId?: string;
+  includeLowerRanks?: boolean;
+  teamId?: string;
+} = {}) {
+  const params = new URLSearchParams();
+  if (opts.orgUnitId) params.set('orgUnitId', opts.orgUnitId);
+  if (opts.includeLowerRanks) params.set('includeLowerRanks', 'true');
+  if (opts.teamId) params.set('teamId', opts.teamId);
+  const q = params.toString();
+  const path = buildPath(`/team/groups/sales-candidates${q ? `?${q}` : ''}`);
+  const res = await fetch(`${API_BASE_NEW}${path}`, {
+    method: 'GET',
+    headers: getTeamAuthHeaders(),
+    cache: 'no-store',
+  });
+  const json = await parseTeamFetchJson(res);
+  if (!res.ok || json?.success === false) {
+    throwTeamApiError(json, res);
+  }
+  return {
+    data: json.data as {
+      recommended: SalesGroupMember[];
+      lower: SalesGroupMember[];
+      members: SalesGroupMember[];
+      includeLowerRanks: boolean;
+      defaultRankMax: number;
+    },
+    success: json.success,
+  };
+}
+
 /**
  * Deactivate team member (soft delete)
  */

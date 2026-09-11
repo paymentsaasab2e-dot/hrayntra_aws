@@ -2,6 +2,7 @@ import { sendResponse, sendError } from '../../utils/response.js';
 import { socialService } from './social.service.js';
 import { integrationService } from '../integration/integration.service.js';
 import { linkedinService } from '../linkedin/linkedin.service.js';
+import { prisma } from '../../config/prisma.js';
 
 export const socialController = {
   /**
@@ -31,17 +32,64 @@ export const socialController = {
         imageUrl,
       } = req.body;
 
-      if (!jobId || !title || !applyUrl) {
+      // Prefer request fields; fall back to the saved job so LinkedIn never loses
+      // title / company / location when an older client blanked them via Public Visibility.
+      let resolvedTitle = String(title || '').trim();
+      let resolvedCompany = String(companyName || '').trim();
+      let resolvedLocation = String(location || '').trim();
+      let resolvedDescription = String(description || '').trim();
+
+      if (
+        jobId &&
+        (!resolvedTitle || !resolvedCompany || !resolvedLocation || !resolvedDescription)
+      ) {
+        try {
+          const job = await prisma.job.findUnique({
+            where: { id: String(jobId) },
+            select: {
+              title: true,
+              description: true,
+              location: true,
+              overview: true,
+              postingCompanyName: true,
+              showClientNamePublicly: true,
+              client: { select: { companyName: true } },
+            },
+          });
+          if (!resolvedTitle) resolvedTitle = String(job?.title || '').trim();
+          if (!resolvedCompany) {
+            // Same agency rule: posting/agency name first; real client only when allowed.
+            const posted = String(job?.postingCompanyName || '').trim();
+            const allowClient =
+              showClientNamePublicly !== false && job?.showClientNamePublicly !== false;
+            resolvedCompany =
+              posted || (allowClient ? String(job?.client?.companyName || '').trim() : '');
+          }
+          if (!resolvedLocation) resolvedLocation = String(job?.location || '').trim();
+          if (!resolvedDescription) {
+            resolvedDescription = String(job?.overview || job?.description || '')
+              .replace(/<[^>]*>/g, ' ')
+              .replace(/\s+/g, ' ')
+              .trim()
+              .slice(0, 500);
+          }
+        } catch {
+          /* ignore — validation below will catch empty title */
+        }
+      }
+
+      if (!jobId || !resolvedTitle || !applyUrl) {
         return sendError(res, 400, 'Job ID, title, and apply URL are required');
       }
 
       const postData = {
-        title,
-        companyName: showClientNamePublicly === false ? '' : companyName,
+        title: resolvedTitle,
+        companyName: resolvedCompany,
+        // Keep flag for platforms that still care; display name is already resolved.
         showClientNamePublicly: showClientNamePublicly !== false,
-        description,
+        description: resolvedDescription || undefined,
         applyUrl,
-        location,
+        location: resolvedLocation || undefined,
         linkedinPostText,
         twitterPostText,
         facebookPostText,

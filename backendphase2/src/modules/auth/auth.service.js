@@ -11,6 +11,7 @@ import {
 } from '../setting/recruitmentMode.service.js';
 import { DEFAULT_SYSTEM_ROLES } from '../role/default-permissions.js';
 import { ensureSuperAdminHasAllPermissions, syncDefaultPermissions, syncDefaultRolePresets, syncMissingRolePresetPermissions, syncEveryoneDefaultPermissions } from '../role/permission-sync.service.js';
+import { resolveEffectivePermissionNames } from '../role/effectivePermissions.service.js';
 import { revokeAllSessionsForUser, sessionService } from '../session/session.service.js';
 import { verifyHqImpersonationToken } from '../../utils/hqImpersonationToken.js';
 import {
@@ -1027,26 +1028,16 @@ export const authService = {
 
       await assertTrialNotExpired(user.email);
 
-      // Fetch user's role and permissions
+      // Fetch user's role and effective permissions (role ∪ GRANT − DENY)
       const userWithRole = await prisma.user.findUnique({
         where: { id: user.id },
         include: {
-          systemRole: {
-            include: {
-              rolePermissions: {
-                include: {
-                  permission: true,
-                },
-              },
-            },
-          },
+          systemRole: { select: { id: true, roleName: true, color: true } },
         },
       });
 
-      // Build permissions array
-      const permissions = userWithRole.systemRole
-        ? userWithRole.systemRole.rolePermissions.map((rp) => rp.permission.permissionName)
-        : [];
+      const resolvedPerms = await resolveEffectivePermissionNames(userWithRole);
+      const permissions = resolvedPerms.permissions || [];
       const tenantRerun = await rerunLoginInResolvedTenant(
         loginIdOrEmail,
         user,
@@ -1226,10 +1217,9 @@ export const authService = {
 
       await assertTrialNotExpired(user.email);
 
-      // Build JWT payload with permissions
-      const permissions = user.systemRole
-        ? user.systemRole.rolePermissions.map((rp) => rp.permission.permissionName)
-        : [];
+      // Build JWT payload with effective permissions (role ∪ GRANT − DENY)
+      const resolvedPerms = await resolveEffectivePermissionNames(user);
+      const permissions = resolvedPerms.permissions || [];
       const tenantRerun = await rerunLoginInResolvedTenant(
         loginIdOrEmail,
         user,

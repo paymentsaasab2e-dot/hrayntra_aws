@@ -8,9 +8,49 @@ const router = express.Router();
 
 router.use(authMiddleware);
 
+// Sales / named groups — must be registered BEFORE /:id member routes.
+router.get(
+  '/groups',
+  requireAnyPermission(['edit_team_member', 'add_team_member', 'view_team', 'assign_roles']),
+  teamController.getAll,
+);
+router.get(
+  '/groups/sales-candidates',
+  requireAnyPermission(['edit_team_member', 'add_team_member', 'view_team']),
+  teamController.salesCandidates,
+);
+router.get(
+  '/groups/:id',
+  requireAnyPermission(['edit_team_member', 'add_team_member', 'view_team', 'assign_roles']),
+  teamController.getById,
+);
+router.post(
+  '/groups',
+  requireAnyPermission(['edit_team_member', 'add_team_member']),
+  teamController.create,
+);
+router.patch(
+  '/groups/:id',
+  requireAnyPermission(['edit_team_member', 'add_team_member']),
+  teamController.update,
+);
+router.post(
+  '/groups/:id/members',
+  requireAnyPermission(['edit_team_member', 'add_team_member']),
+  teamController.addMember,
+);
+router.delete(
+  '/groups/:id/members/:userId',
+  requireAnyPermission(['edit_team_member', 'add_team_member']),
+  teamController.removeMember,
+);
+router.delete(
+  '/groups/:id',
+  requireAnyPermission(['edit_team_member', 'add_team_member']),
+  teamController.delete,
+);
+
 // Team Member routes (individual users as team members)
-// Viewing team members - allow all authenticated users (or require view_team_members if it exists)
-// For now, we'll allow authenticated users to view, but require permissions for modifications
 router.get('/', teamMemberController.getAll);
 router.get('/:id', teamMemberController.getById);
 router.post('/', requireAnyPermission(['add_team_member']), teamMemberController.create);
@@ -27,14 +67,15 @@ router.get('/:id/login-history', requirePermission('add_team_member'), teamMembe
 router.get('/:id/activity', teamMemberController.getActivity);
 router.get('/:id/targets', requirePermission('manage_targets'), teamMemberController.getTargets);
 router.post('/:id/targets', requirePermission('manage_targets'), teamMemberController.saveTargets);
-
-// Legacy Team routes (for team groups - keeping for backward compatibility)
-router.get('/groups', teamController.getAll);
-router.get('/groups/:id', teamController.getById);
-router.post('/groups', teamController.create);
-router.patch('/groups/:id', teamController.update);
-router.post('/groups/:id/members', teamController.addMember);
-router.delete('/groups/:id/members/:userId', teamController.removeMember);
-router.delete('/groups/:id', teamController.delete);
+router.get(
+  '/:id/permissions',
+  requireAnyPermission(['edit_team_member', 'add_team_member', 'view_team']),
+  teamMemberController.getPermissions,
+);
+router.put(
+  '/:id/permissions',
+  requireAnyPermission(['edit_team_member', 'add_team_member']),
+  teamMemberController.savePermissions,
+);
 
 export default router;

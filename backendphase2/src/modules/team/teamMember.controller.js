@@ -179,4 +179,23 @@ export const teamMemberController = {
       sendError(res, error.statusCode || 400, error.message, error);
     }
   },
+
+  async getPermissions(req, res) {
+    try {
+      const detail = await teamMemberService.getPermissionDetail(req.params.id);
+      sendResponse(res, 200, 'Member permissions retrieved successfully', detail);
+    } catch (error) {
+      sendError(res, error.statusCode || 500, error.message, error);
+    }
+  },
+
+  async savePermissions(req, res) {
+    try {
+      const permissionIds = Array.isArray(req.body?.permissionIds) ? req.body.permissionIds : [];
+      const detail = await teamMemberService.savePermissionOverrides(req.params.id, permissionIds);
+      sendResponse(res, 200, 'Member permissions updated successfully', detail);
+    } catch (error) {
+      sendError(res, error.statusCode || 500, error.message, error);
+    }
+  },
 };
