@@ -15,6 +15,76 @@ function stripHtmlToText(html = '') {
     .trim();
 }
 
+function escapeHtml(value = '') {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function normalizeHref(raw = '') {
+  const url = String(raw || '').trim();
+  if (!url) return '';
+  if (/^https?:\/\//i.test(url)) return url;
+  if (/^www\./i.test(url)) return `https://${url}`;
+  return url;
+}
+
+function linkLabelForUrl(href = '') {
+  const lower = String(href || '').toLowerCase();
+  if (lower.includes('/client-review/')) return 'Open candidate preview';
+  if (lower.includes('/login') || lower.includes('reset')) return 'Open link';
+  try {
+    const u = new URL(href);
+    const path = `${u.host}${u.pathname}`.replace(/\/$/, '');
+    return path.length > 64 ? `${path.slice(0, 61)}…` : path || href;
+  } catch {
+    return href.length > 64 ? `${href.slice(0, 61)}…` : href;
+  }
+}
+
+const URL_RE =
+  /((?:https?:\/\/|www\.)[^\s<>"'{}|\\^`\[\]]+[^\s<>"'{}|\\^`\[\].,;:!?)]+)/gi;
+
+/** Plain text → HTML with clickable <a> links (Gmail/Outlook style). */
+function plainTextToEmailHtml(text = '') {
+  const raw = String(text || '');
+  if (!raw.trim()) {
+    return '<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#202124;"></div>';
+  }
+
+  // Already HTML with anchors — keep as-is.
+  if (/<[a-z][\s\S]*>/i.test(raw) && /<a\s/i.test(raw)) {
+    return raw;
+  }
+
+  const parts = [];
+  let last = 0;
+  URL_RE.lastIndex = 0;
+  let match = URL_RE.exec(raw);
+  while (match) {
+    const start = match.index;
+    const matched = match[1] || match[0];
+    if (start > last) {
+      parts.push(escapeHtml(raw.slice(last, start)).replace(/\r\n|\n|\r/g, '<br/>'));
+    }
+    const href = normalizeHref(matched);
+    const label = escapeHtml(linkLabelForUrl(href));
+    parts.push(
+      `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" style="color:#1a73e8;text-decoration:underline;word-break:break-all;">${label}</a>`
+    );
+    last = start + matched.length;
+    match = URL_RE.exec(raw);
+  }
+  if (last < raw.length) {
+    parts.push(escapeHtml(raw.slice(last)).replace(/\r\n|\n|\r/g, '<br/>'));
+  }
+
+  return `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#202124;">${parts.join('')}</div>`;
+}
+
 function sanitizeHtmlDocument(html = '') {
   let clean = String(html || '');
   clean = clean.replace(/<script[\s\S]*?<\/script>/gi, '');
@@ -534,8 +604,8 @@ export async function sendOutlookComposeMail(userId, { to = '', subject = '', bo
       message: {
         subject: String(subject || '').trim() || '(No subject)',
         body: {
-          contentType: 'Text',
-          content: String(body || ''),
+          contentType: 'HTML',
+          content: plainTextToEmailHtml(body),
         },
         toRecipients: [{ emailAddress: { address: toAddress } }],
       },
@@ -563,8 +633,8 @@ export async function createOutlookComposeDraft(userId, { to = '', subject = '',
   const payload = {
     subject: String(subject || '').trim() || '(No subject)',
     body: {
-      contentType: 'Text',
-      content: String(body || ''),
+      contentType: 'HTML',
+      content: plainTextToEmailHtml(body),
     },
     toRecipients: toAddress
       ? [{ emailAddress: { address: toAddress } }]

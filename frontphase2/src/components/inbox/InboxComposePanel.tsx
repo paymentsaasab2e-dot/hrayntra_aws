@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Loader2, Minimize2, Send, X } from 'lucide-react';
 import { apiSendOutlookComposeMail } from '../../lib/api';
 import {
@@ -8,6 +8,7 @@ import {
   openMailboxComposeTab,
   type MailboxComposeProvider,
 } from '../../lib/mailboxCompose';
+import { linkifyPlainTextToReactNodes } from '../../lib/emailLinkify';
 
 export type InboxComposeValues = {
   to: string;
@@ -32,6 +33,8 @@ export function InboxComposePanel({ provider, fromEmail, initial, onClose }: Pro
   const [minimized, setMinimized] = useState(false);
 
   const brand = provider === 'outlook' ? 'Outlook' : 'Gmail';
+  const linkPreview = useMemo(() => linkifyPlainTextToReactNodes(body), [body]);
+  const hasLinks = linkPreview.some((node) => typeof node !== 'string');
 
   const handleSend = async () => {
     const toAddress = to.trim();
@@ -155,6 +158,24 @@ export function InboxComposePanel({ provider, fromEmail, initial, onClose }: Pro
           className="min-h-0 flex-1 resize-none px-4 py-3 text-sm leading-6 outline-none"
           placeholder="Write your message…"
         />
+        {hasLinks ? (
+          <div className="border-t border-[#e8eaed] bg-[#f8f9fa] px-4 py-2 text-[11px] leading-5 text-[#5f6368]">
+            <span className="font-medium text-[#202124]">Links will send as clickable: </span>
+            {linkPreview.map((node, index) =>
+              typeof node === 'string' ? null : (
+                <a
+                  key={`${node.href}-${index}`}
+                  href={node.href}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mr-2 text-[#1a73e8] underline"
+                >
+                  {node.label}
+                </a>
+              ),
+            )}
+          </div>
+        ) : null}
       </div>
 
       <div className="flex flex-wrap items-center gap-3 border-t border-[#e0e0e0] px-4 py-3">

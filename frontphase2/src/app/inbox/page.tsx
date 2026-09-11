@@ -54,6 +54,7 @@ import {
   clearInboxComposeDraftStorage,
   readInboxComposeDraft,
 } from '../../lib/mailboxCompose';
+import { linkifyPlainTextToReactNodes } from '../../lib/emailLinkify';
 
 type MailTab = 'Primary' | 'Promotions' | 'Social' | 'Updates';
 type ResizeSection = 'left' | null;
@@ -888,7 +889,21 @@ function MailDetail({
           />
         ) : (
           <div className="whitespace-pre-wrap text-[14px] leading-7 text-[#202124]">
-            {email.body || email.preview}
+            {linkifyPlainTextToReactNodes(email.body || email.preview || '').map((node, index) =>
+              typeof node === 'string' ? (
+                <React.Fragment key={`t-${index}`}>{node}</React.Fragment>
+              ) : (
+                <a
+                  key={`l-${index}`}
+                  href={node.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="break-all text-[#1a73e8] underline"
+                >
+                  {node.label}
+                </a>
+              ),
+            )}
           </div>
         )}
 

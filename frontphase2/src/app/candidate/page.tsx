@@ -180,8 +180,11 @@ export const dynamic = 'force-dynamic';
 
 type CandidateListTab = 'all' | 'mine';
 
-/** Full pool: tenant + job portal + Phase 1 common DB. */
-const ALL_CANDIDATES_LIST_PARAMS = { page: 1, limit: 500, includeCommonPool: true };
+/** Full pool: tenant + job portal + Phase 1 common DB (location options bootstrap). */
+const ALL_CANDIDATES_LIST_PARAMS = { page: 1, limit: 100, includeCommonPool: true };
+
+/** Progressive list fetch size — first batch paints fast; more batches fill cache. */
+const CANDIDATE_FETCH_BATCH = 100;
 
 const CANDIDATE_TABLE_TAB_CLASS =
   'px-4 py-3 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap';
@@ -391,7 +394,7 @@ function CandidatesPageContent() {
   });
   const [candidates, setCandidates] = useState<Candidate[]>(() => {
     const tab = searchParams.get('tab') === 'mine' ? 'mine' : 'all';
-    const cached = readCandidatesListCache(tab, 1, 10, searchParams.get('search') || '');
+    const cached = readCandidatesListCache(tab, 1, 100, searchParams.get('search') || '');
     return Array.isArray(cached?.data?.candidates) ? (cached.data.candidates as Candidate[]) : [];
   });
   const [exportModalOpen, setExportModalOpen] = useState(false);
@@ -399,7 +402,7 @@ function CandidatesPageContent() {
   const [exportCandidatesLoading, setExportCandidatesLoading] = useState(false);
   const [loading, setLoading] = useState(() => {
     const tab = searchParams.get('tab') === 'mine' ? 'mine' : 'all';
-    const cached = readCandidatesListCache(tab, 1, 10, searchParams.get('search') || '');
+    const cached = readCandidatesListCache(tab, 1, 100, searchParams.get('search') || '');
     return !cached?.data?.candidates?.length;
   });
   const [tableLoading, setTableLoading] = useState(false);
@@ -407,7 +410,7 @@ function CandidatesPageContent() {
   const hasLoadedCandidatesOnceRef = useRef(
     (() => {
       const tab = searchParams.get('tab') === 'mine' ? 'mine' : 'all';
-      const cached = readCandidatesListCache(tab, 1, 10, searchParams.get('search') || '');
+      const cached = readCandidatesListCache(tab, 1, 100, searchParams.get('search') || '');
       return Boolean(cached?.data?.candidates?.length);
     })(),
   );
@@ -442,6 +445,7 @@ function CandidatesPageContent() {
   const [candidateEditOpenToken, setCandidateEditOpenToken] = useState<number | null>(null);
   const pendingDeepLinkCandidateIdRef = useRef<string | null>(null);
   const loadCandidatesRequestIdRef = useRef(0);
+  const candidatePrefetchGenRef = useRef(0);
   const [loadingCandidateProfile, setLoadingCandidateProfile] = useState(false);
   const [availableDrawerTags, setAvailableDrawerTags] = useState<CandidateTagItem[]>([]);
   const [pipelineJobs, setPipelineJobs] = useState<CandidatePipelineJobOption[]>([]);
@@ -479,15 +483,28 @@ function CandidatesPageContent() {
     let cancelled = false;
     void (async () => {
       try {
-        const res = await apiGetCandidates(ALL_CANDIDATES_LIST_PARAMS);
-        if (cancelled) return;
-        const rows = extractBackendCandidatesList(
-          res.data as BackendCandidate[] | { data?: BackendCandidate[]; items?: BackendCandidate[] } | undefined,
-        );
-        const mapped = rows.map(mapBackendCandidate);
-        setLocationFilterOptions(
-          buildLocationFilterOptions(mapped, rows, locationFilterOptionsRef.current),
-        );
+        let page = 1;
+        let accumulated: BackendCandidate[] = [];
+        // Progressive batches so country filter options appear without a huge first wait.
+        while (page <= 10 && !cancelled) {
+          const res = await apiGetCandidates({
+            ...ALL_CANDIDATES_LIST_PARAMS,
+            page,
+            limit: CANDIDATE_FETCH_BATCH,
+          });
+          if (cancelled) return;
+          const rows = extractBackendCandidatesList(
+            res.data as BackendCandidate[] | { data?: BackendCandidate[]; items?: BackendCandidate[] } | undefined,
+          );
+          if (!rows.length) break;
+          accumulated = accumulated.concat(rows);
+          const mapped = accumulated.map(mapBackendCandidate);
+          setLocationFilterOptions(
+            buildLocationFilterOptions(mapped, accumulated, locationFilterOptionsRef.current),
+          );
+          if (rows.length < CANDIDATE_FETCH_BATCH) break;
+          page += 1;
+        }
       } catch {
         // Location options still accumulate from paginated list loads.
       }
@@ -545,10 +562,10 @@ function CandidatesPageContent() {
   const [bulkAssignJobSaving, setBulkAssignJobSaving] = useState(false);
   const [deletingCandidateId, setDeletingCandidateId] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState<TablePageSize>(10);
+  const [pageSize, setPageSize] = useState<TablePageSize>(100);
   const [totalEntries, setTotalEntries] = useState(() => {
     const tab = searchParams.get('tab') === 'mine' ? 'mine' : 'all';
-    const cached = readCandidatesListCache(tab, 1, 10, searchParams.get('search') || '');
+    const cached = readCandidatesListCache(tab, 1, 100, searchParams.get('search') || '');
     return typeof cached?.data?.totalEntries === 'number' ? cached.data.totalEntries : 0;
   });
   const [inlineStageOptionsByJobId, setInlineStageOptionsByJobId] = useState<
@@ -764,6 +781,10 @@ function CandidatesPageContent() {
     const activePage = opts?.page ?? currentPage;
     const isFirstLoad = !hasLoadedCandidatesOnceRef.current;
     const requestId = ++loadCandidatesRequestIdRef.current;
+    // Cancel in-flight progressive prefetch on user-visible reloads (tab/filter/page).
+    if (!silent) {
+      candidatePrefetchGenRef.current += 1;
+    }
     try {
       if (!silent) {
         if (isFirstLoad) {
@@ -777,9 +798,7 @@ function CandidatesPageContent() {
       const stageKey = debouncedColumnFilters.stage
         ? debouncedColumnFilters.stage.toLowerCase()
         : '';
-      const queryParams = buildCandidatesListApiParams({
-        page: activePage,
-        limit: pageSize,
+      const listFilterBits = {
         search: filters.search || undefined,
         company: debouncedColumnFilters.company || undefined,
         location: debouncedColumnFilters.location || undefined,
@@ -792,6 +811,11 @@ function CandidatesPageContent() {
         mine: activeListTab === 'mine',
         ...(shouldIncludePhase1CommonPool() ? { includeCommonPool: true } : {}),
         matchingCandidateIds: smartSearchCandidateIds,
+      };
+      const queryParams = buildCandidatesListApiParams({
+        page: activePage,
+        limit: pageSize,
+        ...listFilterBits,
       });
 
       const res = await apiGetCandidates(queryParams);
@@ -829,6 +853,7 @@ function CandidatesPageContent() {
       const mapped = backendCandidates.map(mapBackendCandidate);
       setCandidates(mapped);
       hasLoadedCandidatesOnceRef.current = true;
+      const total = pagination?.total ?? mapped.length;
       if (pagination) {
         setTotalEntries(pagination.total || 0);
       } else {
@@ -839,9 +864,82 @@ function CandidatesPageContent() {
         page: activePage,
         pageSize,
         search: filters.search || '',
-        totalEntries: pagination?.total || mapped.length,
+        totalEntries: total,
         candidates: mapped,
       });
+
+      // Background: keep pulling batches of 100 into the page cache so later
+      // pages feel instant. First paint already happened above.
+      // Skip on silent auto-refresh so we don't thrash the network.
+      const searchKey = filters.search || '';
+      const totalForPrefetch = Number(total) || 0;
+      if (!silent && totalForPrefetch > pageSize) {
+        const prefetchGen = ++candidatePrefetchGenRef.current;
+        void (async () => {
+          const batchLimit = CANDIDATE_FETCH_BATCH;
+          const maxBatches = Math.min(Math.ceil(totalForPrefetch / batchLimit), 40);
+          for (let batchPage = 1; batchPage <= maxBatches; batchPage++) {
+            if (prefetchGen !== candidatePrefetchGenRef.current) return;
+            if (requestId !== loadCandidatesRequestIdRef.current) return;
+
+            const batchStartIdx = (batchPage - 1) * batchLimit;
+            const uiPagesInBatch: number[] = [];
+            for (let i = 0; i < batchLimit; i += pageSize) {
+              const uiPage = Math.floor((batchStartIdx + i) / pageSize) + 1;
+              if (uiPage <= Math.ceil(totalForPrefetch / pageSize)) {
+                uiPagesInBatch.push(uiPage);
+              }
+            }
+            const allFresh = uiPagesInBatch.every((uiPage) => {
+              const cached = readCandidatesListCache(
+                activeListTab,
+                uiPage,
+                pageSize,
+                searchKey,
+              );
+              return (
+                isCandidatesListCacheFresh(cached) &&
+                Boolean(cached?.data?.candidates?.length)
+              );
+            });
+            if (allFresh) continue;
+
+            try {
+              const batchRes = await apiGetCandidates(
+                buildCandidatesListApiParams({
+                  page: batchPage,
+                  limit: batchLimit,
+                  ...listFilterBits,
+                }),
+              );
+              if (prefetchGen !== candidatePrefetchGenRef.current) return;
+              const batchPayload = batchRes.data as
+                | BackendCandidate[]
+                | { data?: BackendCandidate[]; items?: BackendCandidate[]; pagination?: any }
+                | undefined;
+              const batchRows = extractBackendCandidatesList(batchPayload);
+              if (!batchRows.length) break;
+              const batchMapped = batchRows.map(mapBackendCandidate);
+              for (let i = 0; i < batchMapped.length; i += pageSize) {
+                const chunk = batchMapped.slice(i, i + pageSize);
+                const uiPage = Math.floor((batchStartIdx + i) / pageSize) + 1;
+                writeCandidatesListCache({
+                  tab: activeListTab,
+                  page: uiPage,
+                  pageSize,
+                  search: searchKey,
+                  totalEntries: totalForPrefetch,
+                  candidates: chunk,
+                });
+              }
+            } catch {
+              // Prefetch is best-effort; user can still page-load on demand.
+              break;
+            }
+            await new Promise((r) => setTimeout(r, 0));
+          }
+        })();
+      }
     } catch (err: any) {
       if (requestId !== loadCandidatesRequestIdRef.current) return;
       const message = err?.message || 'Failed to load candidates.';
@@ -907,7 +1005,16 @@ function CandidatesPageContent() {
 
   useEffect(() => {
     const cached = readCandidatesListCache(listTab, currentPage, pageSize, filters.search || '');
-    void loadCandidates({ silent: Boolean(cached?.data?.candidates?.length) });
+    const cachedRows = cached?.data?.candidates;
+    if (Array.isArray(cachedRows) && cachedRows.length > 0) {
+      setCandidates(cachedRows as Candidate[]);
+      if (typeof cached?.data?.totalEntries === 'number') {
+        setTotalEntries(cached.data.totalEntries);
+      }
+      setLoading(false);
+      setTableLoading(false);
+    }
+    void loadCandidates({ silent: Boolean(cachedRows?.length) });
   }, [loadCandidates]);
 
   // Reusable auto-refresh: polls while visible, refreshes on tab focus and on

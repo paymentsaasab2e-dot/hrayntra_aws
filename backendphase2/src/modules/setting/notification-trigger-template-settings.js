@@ -112,8 +112,25 @@ export async function getWorkspaceEffectiveTriggerTemplates(triggerIds = []) {
 export async function renderNotificationTriggerEmail(triggerId, userId = null, variables = {}) {
   const effective = await getEffectiveNotificationTriggerTemplate(triggerId, userId);
   const subject = sanitizeEmailSubject(interpolateTemplate(effective.subject, variables));
-  const html = interpolateTemplate(effective.bodyHtml, variables);
+  const html = linkifyBareUrlsInHtml(interpolateTemplate(effective.bodyHtml, variables));
   return { subject, html, effective };
+}
+
+/** Convert bare http(s) URLs in HTML email bodies into clickable anchors (skip existing href=). */
+function linkifyBareUrlsInHtml(html = '') {
+  return String(html || '').replace(/https?:\/\/[^\s<"']+/gi, (url, offset, full) => {
+    const before = full.slice(Math.max(0, offset - 10), offset).toLowerCase();
+    if (before.includes('href="') || before.includes("href='") || /href\s*=\s*$/.test(before)) {
+      return url;
+    }
+    const safe = url
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+    const label = /\/client-review\//i.test(url) ? 'Open candidate preview' : safe;
+    return `<a href="${safe}" target="_blank" rel="noopener noreferrer" style="color:#1a73e8;text-decoration:underline;word-break:break-all;">${label}</a>`;
+  });
 }
 
 // Used by the UI settings page to load/save workspace defaults (scope ORG).

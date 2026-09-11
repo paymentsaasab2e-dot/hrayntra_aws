@@ -3401,9 +3401,63 @@ async function fetchPortalCandidatesForTenant(req, { status, assignedToId, searc
   });
 }
 
+/** Short-lived merged list cache so page 2+ / batch prefetch stay fast after the first merge. */
+const CANDIDATE_LIST_MERGE_CACHE = new Map();
+const CANDIDATE_LIST_MERGE_CACHE_TTL_MS = 45_000;
+const CANDIDATE_LIST_MERGE_CACHE_MAX = 6;
+
+function buildCandidateListMergeCacheKey(req, { loadCommonPool, mine }) {
+  const q = req.query || {};
+  let tenant = '';
+  try {
+    tenant = String(getActiveTenantDbName?.() || '');
+  } catch {
+    tenant = '';
+  }
+  return [
+    tenant,
+    String(req.user?.id || ''),
+    mine ? '1' : '0',
+    loadCommonPool ? '1' : '0',
+    String(q.status || ''),
+    String(q.assignedToId || ''),
+    String(q.search || ''),
+    String(q.ids || ''),
+    String(q.company || ''),
+    String(q.location || ''),
+    String(q.jobId || ''),
+    String(q.experienceRange || q.experience || ''),
+    String(q.stage || ''),
+    String(q.minExperience || ''),
+    String(q.maxExperience || ''),
+  ].join('\u0001');
+}
+
+function readCandidateListMergeCache(key) {
+  const hit = CANDIDATE_LIST_MERGE_CACHE.get(key);
+  if (!hit) return null;
+  if (Date.now() - hit.at > CANDIDATE_LIST_MERGE_CACHE_TTL_MS) {
+    CANDIDATE_LIST_MERGE_CACHE.delete(key);
+    return null;
+  }
+  return hit.merged;
+}
+
+function writeCandidateListMergeCache(key, merged) {
+  CANDIDATE_LIST_MERGE_CACHE.set(key, { at: Date.now(), merged });
+  while (CANDIDATE_LIST_MERGE_CACHE.size > CANDIDATE_LIST_MERGE_CACHE_MAX) {
+    const oldest = CANDIDATE_LIST_MERGE_CACHE.keys().next().value;
+    CANDIDATE_LIST_MERGE_CACHE.delete(oldest);
+  }
+}
+
 export const candidateService = {
   async getAll(req) {
-    const { page, limit, skip } = getPaginationParams(req);
+    const pagination = getPaginationParams(req);
+    // Prefer batches ≤100 for list UX; allow larger for export (limit up to 500).
+    const page = pagination.page;
+    const limit = Math.min(Math.max(1, pagination.limit || 10), 500);
+    const skip = (page - 1) * limit;
     const { status, assignedToId, search, ids } = req.query;
     const listFilters = parseCandidateListFilters(req.query);
     const loadCommonPool = await resolveLoadCommonPool(req.query);
@@ -3475,8 +3529,17 @@ export const candidateService = {
 
     let candidates = [];
     let total = 0;
+    const mergeCacheKey = buildCandidateListMergeCacheKey(req, { loadCommonPool, mine });
+    const cachedMerged = readCandidateListMergeCache(mergeCacheKey);
 
-    if (isTenantScopedRequest()) {
+    const sliceMerged = (merged) => {
+      total = merged.length;
+      return merged.slice(skip, skip + limit);
+    };
+
+    if (cachedMerged) {
+      candidates = await attachPlacementsToCandidates(sliceMerged(cachedMerged));
+    } else if (isTenantScopedRequest()) {
       let commonCandidates = [];
       if (loadCommonPool) {
         commonCandidates = await fetchCandidateCommonForCandidatesList(req);
@@ -3542,69 +3605,68 @@ export const candidateService = {
       }
 
       merged.sort((a, b) => candidateListSortTimestamp(b) - candidateListSortTimestamp(a));
-
-      total = merged.length;
-      candidates = merged.slice(skip, skip + limit);
-      candidates = await attachPlacementsToCandidates(candidates);
-    } else {
+      writeCandidateListMergeCache(mergeCacheKey, merged);
+      candidates = await attachPlacementsToCandidates(sliceMerged(merged));
+    } else if (loadCommonPool) {
       const tenantRows = await prisma.candidate.findMany({
         where,
         include: candidateListInclude,
         orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
       });
-
-      if (loadCommonPool) {
-        const commonCandidates = await fetchCandidateCommonForCandidatesList(req);
-        const softDeletedTenantIds = commonCandidates.length
-          ? await collectSoftDeletedTenantCandidateIds(commonCandidates.map((c) => c.id))
-          : new Set();
-        const mergedById = new Map();
-        for (const commonRow of commonCandidates) {
-          mergedById.set(commonRow.id, commonRow);
-        }
-        for (const candidate of tenantRows) {
-          if (softDeletedTenantIds.has(candidate.id) && !mergedById.has(candidate.id)) continue;
-          const prior = mergedById.get(candidate.id);
-          mergedById.set(
-            candidate.id,
-            prior ? mergePortalAndTenantCandidateRow(prior, candidate) : candidate
-          );
-        }
-        const tenantCandidateIds = new Set(tenantRows.map((candidate) => candidate.id));
-
-        let merged = Array.from(mergedById.values())
-          .filter((original) =>
-            shouldIncludeCandidateAfterTenantScope(
-              original,
-              scopeCandidateForActiveTenant(original, tenantJobIdSet),
-              { includeCommonPool: loadCommonPool, inTenantDb: tenantCandidateIds.has(original.id) }
-            )
-          )
-          .map((candidate) => scopeCandidateForActiveTenant(candidate, tenantJobIdSet))
-          .filter((candidate) => shouldShowOnCrmCandidatesList(candidate, { includeCommonPool: loadCommonPool }))
-          .filter((candidate) => candidateMatchesSearch(candidate, search))
-          .filter((candidate) => candidateMatchesListFilters(candidate, listFilters, tenantJobIdSet));
-
-        if (mine && req.user?.id) {
-          merged = merged.filter((candidate) =>
-            candidateMatchesMineScope(candidate, req.user.id, myJobIds)
-          );
-        }
-
-        merged.sort((a, b) => candidateListSortTimestamp(b) - candidateListSortTimestamp(a));
-
-        total = merged.length;
-        candidates = merged.slice(skip, skip + limit);
-        candidates = await attachPlacementsToCandidates(candidates);
-      } else {
-        let rows = tenantRows;
-        if (search) {
-          rows = rows.filter((candidate) => candidateMatchesSearch(candidate, search));
-        }
-        total = rows.length;
-        candidates = rows.slice(skip, skip + limit);
-        candidates = await attachPlacementsToCandidates(candidates);
+      const commonCandidates = await fetchCandidateCommonForCandidatesList(req);
+      const softDeletedTenantIds = commonCandidates.length
+        ? await collectSoftDeletedTenantCandidateIds(commonCandidates.map((c) => c.id))
+        : new Set();
+      const mergedById = new Map();
+      for (const commonRow of commonCandidates) {
+        mergedById.set(commonRow.id, commonRow);
       }
+      for (const candidate of tenantRows) {
+        if (softDeletedTenantIds.has(candidate.id) && !mergedById.has(candidate.id)) continue;
+        const prior = mergedById.get(candidate.id);
+        mergedById.set(
+          candidate.id,
+          prior ? mergePortalAndTenantCandidateRow(prior, candidate) : candidate
+        );
+      }
+      const tenantCandidateIds = new Set(tenantRows.map((candidate) => candidate.id));
+
+      let merged = Array.from(mergedById.values())
+        .filter((original) =>
+          shouldIncludeCandidateAfterTenantScope(
+            original,
+            scopeCandidateForActiveTenant(original, tenantJobIdSet),
+            { includeCommonPool: loadCommonPool, inTenantDb: tenantCandidateIds.has(original.id) }
+          )
+        )
+        .map((candidate) => scopeCandidateForActiveTenant(candidate, tenantJobIdSet))
+        .filter((candidate) => shouldShowOnCrmCandidatesList(candidate, { includeCommonPool: loadCommonPool }))
+        .filter((candidate) => candidateMatchesSearch(candidate, search))
+        .filter((candidate) => candidateMatchesListFilters(candidate, listFilters, tenantJobIdSet));
+
+      if (mine && req.user?.id) {
+        merged = merged.filter((candidate) =>
+          candidateMatchesMineScope(candidate, req.user.id, myJobIds)
+        );
+      }
+
+      merged.sort((a, b) => candidateListSortTimestamp(b) - candidateListSortTimestamp(a));
+      writeCandidateListMergeCache(mergeCacheKey, merged);
+      candidates = await attachPlacementsToCandidates(sliceMerged(merged));
+    } else {
+      // Fast path: tenant CRM only — true DB pagination (no full-table load).
+      const [rowTotal, pageRows] = await Promise.all([
+        prisma.candidate.count({ where }),
+        prisma.candidate.findMany({
+          where,
+          include: candidateListInclude,
+          orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+          skip,
+          take: limit,
+        }),
+      ]);
+      total = rowTotal;
+      candidates = await attachPlacementsToCandidates(pageRows);
     }
 
     if (candidates.length) {
@@ -3620,24 +3682,31 @@ export const candidateService = {
           .map((row) => String(row?.id || '').trim())
           .filter(Boolean);
         if (candidateIds.length) {
-          const existingTenantRows = await prisma.candidate.findMany({
-            where: { id: { in: candidateIds } },
-            select: { id: true },
-          });
-          const existingTenantIds = new Set(existingTenantRows.map((row) => row.id));
-          await Promise.all(
-            candidates
-              .filter((row) => row?.id && !existingTenantIds.has(row.id))
-              .map((row) =>
-                persistCandidateCvProfileToTenant(row).catch((err) => {
-                  console.warn(
-                    '[candidate.service] list CV stub persist failed:',
-                    row?.id,
-                    err?.message || err,
-                  );
-                }),
-              ),
-          );
+          // Do not block the list response on CV stub writes — run in background.
+          void (async () => {
+            try {
+              const existingTenantRows = await prisma.candidate.findMany({
+                where: { id: { in: candidateIds } },
+                select: { id: true },
+              });
+              const existingTenantIds = new Set(existingTenantRows.map((row) => row.id));
+              await Promise.all(
+                candidates
+                  .filter((row) => row?.id && !existingTenantIds.has(row.id))
+                  .map((row) =>
+                    persistCandidateCvProfileToTenant(row).catch((err) => {
+                      console.warn(
+                        '[candidate.service] list CV stub persist failed:',
+                        row?.id,
+                        err?.message || err,
+                      );
+                    }),
+                  ),
+              );
+            } catch (err) {
+              console.warn('[candidate.service] list CV stub background failed:', err?.message || err);
+            }
+          })();
         }
       }
     }

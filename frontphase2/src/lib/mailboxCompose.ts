@@ -2,6 +2,7 @@ import {
   applySubmitToClientMailTemplate,
   getDefaultSubmitToClientMailTemplate,
 } from './submitToClientMailTemplate';
+import { plainTextToEmailHtml } from './emailLinkify';
 
 export type MailboxComposeProvider = 'gmail' | 'outlook';
 
@@ -84,11 +85,17 @@ export function buildSubmitToClientMailCopy(opts: {
       `Please review ${who}${role}.`,
       '',
       'Open this secure preview link to see the profile:',
-      opts.reviewUrl,
+      // Keep the full URL on its own line so Gmail/Outlook auto-linkify it.
+      String(opts.reviewUrl || '').trim(),
       '',
       'This preview includes only the fields marked Visible in Submit to Client settings.',
     ].join('\n'),
   };
+}
+
+/** HTML body for Graph / rich send (clickable preview links). */
+export function buildSubmitToClientMailHtml(body: string): string {
+  return plainTextToEmailHtml(body);
 }
 
 /**
