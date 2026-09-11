@@ -186,7 +186,7 @@ export function CommissionSlabSettings() {
             label="Salary range currency"
             hint="Min/max bands are entered in this currency."
             value={draft.salaryCurrency}
-            disabled={!canEdit}
+            disabled={!canManage}
             onChange={(salaryCurrency) => {
               setDraft((c) => ({
                 ...c,
@@ -203,7 +203,7 @@ export function CommissionSlabSettings() {
             label="Commission / invoice currency"
             hint="Placement fee and invoices are billed in this currency."
             value={draft.commissionCurrency}
-            disabled={!canEdit}
+            disabled={!canManage}
             onChange={(commissionCurrency) => {
               setDraft((c) => ({
                 ...c,

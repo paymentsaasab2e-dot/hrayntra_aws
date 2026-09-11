@@ -378,11 +378,11 @@ export function CreateJobDetailsForm({
   const needsOrganizationFirst = assignable.canSelectCompany && !assignable.companyId;
   const needsManagerFirst = !formData.managerId;
 
-  /** Team under the selected manager only (org → manager → team). */
+  /** Team under the selected manager only (org → manager → team). Manager is never listed as a recruiter. */
   const filteredRecruiterUsers = useMemo(() => {
     if (!formData.managerId) return [];
     return recruiterUsers.filter((user) => {
-      if (user.id === formData.managerId) return true;
+      if (user.id === formData.managerId) return false;
       const member = assignable.members.find((row) => row.id === user.id);
       const reportsTo = member?.manager?.id || member?.managerId || user.managerId || '';
       return reportsTo === formData.managerId;
@@ -404,7 +404,9 @@ export function CreateJobDetailsForm({
   }, [formData.assignedToId, formData.assignedToIds]);
 
   const selectedAssignees = useMemo(() => {
+    const managerId = String(formData.managerId || '').trim();
     return selectedAssigneeIds
+      .filter((id) => id !== managerId)
       .map((id) => {
         const fromFiltered = filteredRecruiterUsers.find((u) => u.id === id);
         if (fromFiltered) return fromFiltered;
@@ -421,6 +423,7 @@ export function CreateJobDetailsForm({
     filteredRecruiterUsers,
     formData.assignedToId,
     formData.assignedToName,
+    formData.managerId,
     recruiterUsers,
     selectedAssigneeIds,
     users,
@@ -437,7 +440,14 @@ export function CreateJobDetailsForm({
 
   const applyAssigneeIds = useCallback(
     (ids: string[]) => {
-      const unique = [...new Set(ids.map((id) => String(id || '').trim()).filter(Boolean))];
+      const selectedManagerId = String(formData.managerId || '').trim();
+      const unique = [
+        ...new Set(
+          ids
+            .map((id) => String(id || '').trim())
+            .filter((id) => id && id !== selectedManagerId),
+        ),
+      ];
       const primary = unique[0] || '';
       const primaryUser =
         filteredRecruiterUsers.find((u) => u.id === primary) ||
@@ -472,6 +482,7 @@ export function CreateJobDetailsForm({
     const patch: Partial<CreateJobDetailsFormData> = { managerId: userId };
     if (selectedAssigneeIds.length) {
       const kept = selectedAssigneeIds.filter((id) => {
+        if (userId && id === userId) return false; // manager cannot also be a recruiter
         const member = assignable.members.find((row) => row.id === id);
         const reportsTo = member?.manager?.id || member?.managerId || '';
         return !userId || reportsTo === userId;
@@ -479,8 +490,8 @@ export function CreateJobDetailsForm({
       if (kept.length !== selectedAssigneeIds.length) {
         const primary = kept[0] || '';
         const primaryUser =
-          filteredRecruiterUsers.find((u) => u.id === primary) ||
-          recruiterUsers.find((u) => u.id === primary);
+          recruiterUsers.find((u) => u.id === primary) ||
+          users.find((u) => u.id === primary);
         patch.assignedToIds = kept;
         patch.assignedToId = primary;
         patch.assignedToName = primaryUser
