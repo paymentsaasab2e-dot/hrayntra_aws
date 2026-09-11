@@ -27,6 +27,11 @@ function isEnabled() {
   return env.SINGLE_ACTIVE_SESSION_ENABLED !== false && env.SINGLE_ACTIVE_SESSION_ENABLED !== 'false';
 }
 
+/** Inactivity auto-logout is off unless explicitly enabled. */
+function isInactivityTimeoutEnabled() {
+  return env.SESSION_INACTIVITY_ENABLED === true || env.SESSION_INACTIVITY_ENABLED === 'true';
+}
+
 function inactivityMs() {
   return Number(env.SESSION_INACTIVITY_MS || 30 * 60 * 1000);
 }
@@ -93,6 +98,7 @@ function publicSessionView(session) {
 
 function isSessionFresh(row) {
   if (!row) return false;
+  if (!isInactivityTimeoutEnabled()) return true;
   const last = new Date(row.lastActivity).getTime();
   if (!Number.isFinite(last)) return false;
   return Date.now() - last <= inactivityMs();
@@ -103,7 +109,12 @@ async function evaluateSessionBlockingState(row) {
   if (!row || row.sessionStatus !== SESSION_STATUS_ACTIVE) return 'inactive';
 
   const inactiveForMs = Date.now() - new Date(row.lastActivity).getTime();
-  if (!Number.isFinite(inactiveForMs) || inactiveForMs > inactivityMs()) return 'inactivity_expired';
+  if (
+    isInactivityTimeoutEnabled() &&
+    (!Number.isFinite(inactiveForMs) || inactiveForMs > inactivityMs())
+  ) {
+    return 'inactivity_expired';
+  }
 
   const user = await prisma.user.findUnique({
     where: { id: row.userId },
@@ -388,7 +399,10 @@ export async function validateSessionFromToken(decoded) {
   if (!row) {
     return { ok: false, code: 'SESSION_SUPERSEDED', message: 'Session is no longer active' };
   }
-  if (Date.now() - new Date(row.lastActivity).getTime() > inactivityMs()) {
+  if (
+    isInactivityTimeoutEnabled() &&
+    Date.now() - new Date(row.lastActivity).getTime() > inactivityMs()
+  ) {
     await expireSession(row, 'INACTIVITY_TIMEOUT');
     return { ok: false, code: 'SESSION_EXPIRED', message: 'Session expired due to inactivity' };
   }
@@ -404,7 +418,10 @@ export async function heartbeat(userId, sessionId) {
   }
 
   const idleMs = Date.now() - new Date(row.lastActivity).getTime();
-  if (!Number.isFinite(idleMs) || idleMs > inactivityMs()) {
+  if (
+    isInactivityTimeoutEnabled() &&
+    (!Number.isFinite(idleMs) || idleMs > inactivityMs())
+  ) {
     await expireSession(row, 'INACTIVITY_TIMEOUT');
     await prisma.user.update({
       where: { id: userId },
@@ -421,13 +438,18 @@ export async function heartbeat(userId, sessionId) {
   await cacheActiveSession(userId, sessionId);
   await deleteCache(closeIntentKey(userId, sessionId));
 
-  const warn = idleMs >= inactivityMs() - warningBeforeMs();
+  const warn =
+    isInactivityTimeoutEnabled() &&
+    Number.isFinite(idleMs) &&
+    idleMs >= inactivityMs() - warningBeforeMs();
 
   return {
     ok: true,
     lastActivity: now.toISOString(),
-    inactivityWarning: warn,
-    expiresInMs: Math.max(0, inactivityMs() - idleMs),
+    inactivityWarning: Boolean(warn),
+    expiresInMs: isInactivityTimeoutEnabled()
+      ? Math.max(0, inactivityMs() - idleMs)
+      : null,
   };
 }
 
@@ -815,7 +837,7 @@ export async function completeTransferLogin({ requestId, loginIdentifier, passwo
 }
 
 export async function runInactivityCleanup() {
-  if (!isEnabled()) return { expired: 0 };
+  if (!isEnabled() || !isInactivityTimeoutEnabled()) return { expired: 0 };
   try {
     const cutoff = new Date(Date.now() - inactivityMs());
     const stale = await prisma.activeSession.findMany({
@@ -886,4 +908,5 @@ export const sessionService = {
   publicSessionView,
   inactivityMs,
   warningBeforeMs,
+  isInactivityTimeoutEnabled,
 };

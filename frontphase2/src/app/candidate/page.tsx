@@ -101,6 +101,7 @@ import {
   apiAddCandidateToPipeline,
   apiRemoveCandidateFromPipeline,
   apiBulkActionCandidates,
+  apiBulkCvListFailedResumes,
   apiDeleteCandidate,
   apiDeleteCandidateNote,
   apiGetCandidate,
@@ -373,6 +374,8 @@ function CandidatesPageContent() {
   const [tokensDrawerOpen, setTokensDrawerOpen] = useState(false);
   const [bulkCvTokenResumeCount, setBulkCvTokenResumeCount] = useState(0);
   const [pendingBulkRetryFile, setPendingBulkRetryFile] = useState<File | null>(null);
+  const [pendingBulkRetryFiles, setPendingBulkRetryFiles] = useState<File[] | null>(null);
+  const [pendingBulkRetryServerIds, setPendingBulkRetryServerIds] = useState<string[] | null>(null);
   const [failedBulkResumeCount, setFailedBulkResumeCount] = useState(0);
   const [recycleBinModuleOpen, setRecycleBinModuleOpen] = useState(false);
   const [phase1CommonPoolEnabled, setPhase1CommonPoolEnabled] = useState(() =>
@@ -578,7 +581,17 @@ function CandidatesPageContent() {
 
   const refreshFailedBulkResumeCount = useCallback(() => {
     if (typeof window === 'undefined') return;
-    setFailedBulkResumeCount(getActiveFailedBulkResumes().length);
+    const localCount = getActiveFailedBulkResumes().length;
+    setFailedBulkResumeCount(localCount);
+    void apiBulkCvListFailedResumes()
+      .then((listed) => {
+        const serverCount = Number(listed.count || listed.items?.length || 0);
+        // Prefer server count when available; keep local-only leftovers in the max.
+        setFailedBulkResumeCount(Math.max(serverCount, localCount));
+      })
+      .catch(() => {
+        /* keep local count */
+      });
   }, []);
 
   const refreshBulkCvTokenCount = useCallback(() => {
@@ -608,10 +621,24 @@ function CandidatesPageContent() {
 
   const handleBulkRetryFileConsumed = useCallback(() => {
     setPendingBulkRetryFile(null);
+    setPendingBulkRetryFiles(null);
+    setPendingBulkRetryServerIds(null);
   }, []);
 
   const handleFailedResumeReupload = useCallback((file: File) => {
+    setPendingBulkRetryFiles(null);
+    setPendingBulkRetryServerIds(null);
     setPendingBulkRetryFile(file);
+    setFailedResumesDrawerOpen(false);
+    setCandidateDrawerInitialTab('bulkResume');
+    setIsAddCandidateOpen(true);
+  }, []);
+
+  const handleFailedResumeRetryFiles = useCallback((files: File[], serverIds?: string[]) => {
+    if (!files.length) return;
+    setPendingBulkRetryFile(null);
+    setPendingBulkRetryFiles(files);
+    setPendingBulkRetryServerIds(Array.isArray(serverIds) ? serverIds : null);
     setFailedResumesDrawerOpen(false);
     setCandidateDrawerInitialTab('bulkResume');
     setIsAddCandidateOpen(true);
@@ -2634,6 +2661,8 @@ function CandidatesPageContent() {
         createWithAi={createCandidateMode === 'ai' && candidateDrawerInitialTab === 'manual'}
         showMethodTabs={false}
         pendingBulkRetryFile={pendingBulkRetryFile}
+        pendingBulkRetryFiles={pendingBulkRetryFiles}
+        pendingBulkRetryServerIds={pendingBulkRetryServerIds}
         onBulkRetryFileConsumed={handleBulkRetryFileConsumed}
       />
 
@@ -2642,6 +2671,7 @@ function CandidatesPageContent() {
           isOpen={failedResumesDrawerOpen}
           onClose={() => setFailedResumesDrawerOpen(false)}
           onReupload={handleFailedResumeReupload}
+          onRetryFiles={handleFailedResumeRetryFiles}
         />
       ) : null}
 

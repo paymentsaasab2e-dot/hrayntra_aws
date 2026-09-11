@@ -2,6 +2,17 @@ import { bulkCvPoolSize } from './bulkCvApiPool';
 
 /** Runtime tuning for Phase 2 bulk CV upload (parse + create). */
 
+/** True while Bulk CV parse/save is running — blocks silent tab close / session beacon. */
+let bulkCvUploadInProgress = false;
+
+export function setBulkCvUploadInProgress(active: boolean): void {
+  bulkCvUploadInProgress = Boolean(active);
+}
+
+export function isBulkCvUploadInProgress(): boolean {
+  return bulkCvUploadInProgress;
+}
+
 export function isLocalDevBrowser(): boolean {
   if (typeof window === 'undefined') return false;
   const host = window.location.hostname;

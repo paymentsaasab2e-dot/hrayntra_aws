@@ -627,6 +627,29 @@ model CandidateFile {
   @@map("candidate_files")
 }
 
+/// Bulk CV files that failed to create a candidate — durable S3 + DB for one-click reparse.
+model FailedBulkResume {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  userId     String    @db.ObjectId
+  orgUnitId  String?   @db.ObjectId
+  fileName   String
+  reason     String
+  fileUrl    String
+  s3Key      String?
+  mimeType   String?
+  sizeBytes  Int?
+  status     String    @default("active") // active | trash | resolved
+  failedAt   DateTime  @default(now())
+  trashedAt  DateTime?
+  resolvedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([userId, status])
+  @@index([status, failedAt])
+  @@map("failed_bulk_resumes")
+}
+
 // ── JOB ──
 // Serves: job, matches, pipeline
 

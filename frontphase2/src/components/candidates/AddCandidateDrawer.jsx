@@ -27,9 +27,12 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
+  apiBulkCvDownloadStoredFile,
   apiBulkCvExpandZip,
   apiBulkCvProcessFile,
   apiBulkCvReleaseZip,
+  apiBulkCvResolveFailedResumes,
+  apiBulkCvSaveFailedResumes,
   apiBulkImportCandidates,
   apiCheckCandidateDuplicate,
   apiCreateCandidateFromDrawer,
@@ -69,7 +72,7 @@ import {
   mapParsedEducationToRow,
 } from '@/lib/candidateEducation';
 import { MY_JOBS_LIST_PARAMS } from '@/lib/myJobsListParams';
-import { addFailedBulkResumeRecords, removeFailedBulkResumesByFileName } from '@/lib/failedBulkResumesStore';
+import { addFailedBulkResumeRecordsWithFiles, removeFailedBulkResumesByFileName } from '@/lib/failedBulkResumesStore';
 import { AddCandidateFormSections, CANDIDATE_FORM_STEPS, CandidatePhotoUpload } from './AddCandidateFormSections';
 import { CandidateAiChatDrawer } from './CandidateAiChatDrawer';
 import { CANDIDATE_AI_STRING_KEYS } from '@/lib/candidateAiHelpers';
@@ -84,6 +87,7 @@ import {
 } from '@/lib/bulkCvTokensStore';
 import { collectBulkCvFilesFromDataTransfer, filterBulkCvFiles } from '@/lib/bulkCvCollect';
 import { BULK_CV_ACCEPT_INPUT, BULK_CV_FORMAT_LABEL } from '@/lib/bulkCvFileTypes';
+import { releaseScreenWakeLock, requestScreenWakeLock } from '@/lib/screenWakeLock';
 import {
   normalizeCandidateEmailInput,
   validateCandidateEmail,
@@ -102,13 +106,13 @@ const MAX_RESUME_FILE_LABEL = `${Math.round(MAX_RESUME_FILE_BYTES / (1024 * 1024
 const MAX_AVATAR_FILE_BYTES = 5 * 1024 * 1024;
 /** Chrome/Edge on Windows often cap a single file-picker dialog at ~100 files (not an app limit). */
 const BROWSER_FILE_PICKER_SOFT_CAP = 100;
-/** Max CVs per bulk session (align with backend BULK_CV_MAX_FILES, default 2000). */
+/** Max CVs per bulk session (align with backend BULK_CV_MAX_FILES, default 5000). */
 const MAX_BULK_CV_FILES_PER_SESSION = (() => {
   if (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_MAX_BULK_CV_FILES) {
     const n = parseInt(String(process.env.NEXT_PUBLIC_MAX_BULK_CV_FILES).trim(), 10);
     if (Number.isFinite(n) && n > 0) return n;
   }
-  return 2000;
+  return 5000;
 })();
 const BULK_CV_PREVIEW_NAME_LIMIT = 40;
 const BULK_CV_DUPLICATE_POLICY_STORAGE_KEY = 'bulkCvDuplicatePolicy';
@@ -728,8 +732,11 @@ function AddCandidateDrawerInner({
   defaultJobId = '',
   lockJobSelection = false,
   showMethodTabs = true,
-  /** When set (e.g. from Failed resumes → Re-upload), opens Bulk CV with this single file once. */
+  /** When set (e.g. from Failed resumes → Retry), opens Bulk CV with these files once. */
   pendingBulkRetryFile = null,
+  pendingBulkRetryFiles = null,
+  /** Server FailedBulkResume ids paired with pendingBulkRetryFiles (same order). */
+  pendingBulkRetryServerIds = null,
   onBulkRetryFileConsumed,
   /** Inline bulk CV panel (e.g. /demoAi) — same parse pipeline, no drawer overlay. */
   embeddedBulkCv = false,
@@ -802,6 +809,7 @@ function AddCandidateDrawerInner({
   const leaveGuard = useBulkCvLeaveGuard();
   const stopBulkParsingRef = useRef(() => {});
   const bulkResumeAbortRef = useRef(null);
+  const bulkRetryServerIdsRef = useRef([]);
   const bulkCvSocketRef = useRef(null);
   /** One Socket.IO client per bulk CV API node (for load-balanced parse + duplicate resolution). */
   const bulkCvSocketsRef = useRef([]);
@@ -929,19 +937,34 @@ function AddCandidateDrawerInner({
   }, [drawerActive, createWithAi, initialTab, embeddedBulkCv]);
 
   useEffect(() => {
-    if (!drawerActive || !pendingBulkRetryFile) return;
-    const file = pendingBulkRetryFile;
+    if (!drawerActive) return;
+    const multi =
+      Array.isArray(pendingBulkRetryFiles) && pendingBulkRetryFiles.length
+        ? pendingBulkRetryFiles.filter((f) => f instanceof File)
+        : null;
+    const single = pendingBulkRetryFile instanceof File ? [pendingBulkRetryFile] : null;
+    const files = multi?.length ? multi : single;
+    if (!files?.length) return;
+    const serverIds = Array.isArray(pendingBulkRetryServerIds) ? pendingBulkRetryServerIds : [];
+    bulkRetryServerIdsRef.current = serverIds.filter(Boolean);
     setEntryError('');
     setActiveTab('bulkResume');
-    setBulkResumeFiles([file]);
+    setBulkResumeFiles(files);
+    setBulkCvStoredEntries([]);
     setBulkResumePhase('preview');
     setBulkResumeResults([]);
     setBulkCvSummary(null);
-    setBulkResumeProgress({ current: 0, total: 1 });
+    setBulkResumeProgress({ current: 0, total: files.length });
     if (typeof onBulkRetryFileConsumed === 'function') {
       onBulkRetryFileConsumed();
     }
-  }, [drawerActive, pendingBulkRetryFile, onBulkRetryFileConsumed]);
+  }, [
+    drawerActive,
+    pendingBulkRetryFile,
+    pendingBulkRetryFiles,
+    pendingBulkRetryServerIds,
+    onBulkRetryFileConsumed,
+  ]);
 
   useEffect(() => {
     if (!drawerActive || !normalizedDefaultJobId) return;
@@ -1110,6 +1133,38 @@ function AddCandidateDrawerInner({
         }
       : null
   );
+
+  // Keep the screen awake while Bulk CV runs (Wake Lock API). Re-acquire if the tab is hidden then shown again.
+  useEffect(() => {
+    if (!isBulkResumeBusy || typeof navigator === 'undefined') return undefined;
+
+    let cancelled = false;
+    let sentinel = null;
+
+    const acquire = async () => {
+      if (cancelled || document.visibilityState !== 'visible') return;
+      await releaseScreenWakeLock(sentinel);
+      sentinel = await requestScreenWakeLock();
+      if (cancelled) {
+        await releaseScreenWakeLock(sentinel);
+        sentinel = null;
+      }
+    };
+
+    void acquire();
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void acquire();
+    };
+
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      cancelled = true;
+      document.removeEventListener('visibilitychange', onVisibility);
+      void releaseScreenWakeLock(sentinel);
+      sentinel = null;
+    };
+  }, [isBulkResumeBusy]);
 
   const completeDrawerClose = () => {
     resetForNext(embeddedBulkCv ? 'bulkResume' : activeTab);
@@ -2220,6 +2275,64 @@ function AddCandidateDrawerInner({
         });
       }
     } finally {
+      // Persist failed CVs for Retry without re-upload BEFORE releasing the ZIP session.
+      const slotResults = workItems.map((wi, i) =>
+        outcomes[i] != null
+          ? outcomes[i]
+          : { fileName: wi.name, status: 'failed', message: 'Not processed' }
+      );
+      const failureIndexes = slotResults
+        .map((item, i) => (item.status === 'failed' ? i : -1))
+        .filter((i) => i >= 0);
+
+      if (failureIndexes.length) {
+        const zipNodeForDownload =
+          bulkCvZipNodeIndexRef.current != null
+            ? getBulkCvApiNode(bulkCvZipNodeIndexRef.current)
+            : pickBulkCvZipNode();
+        const failureInputs = [];
+        for (const i of failureIndexes) {
+          const wi = workItems[i];
+          const result = slotResults[i];
+          let file = wi.kind === 'local' && wi.file instanceof File ? wi.file : null;
+          if (!file && wi.kind === 'stored' && wi.storedFileId && sessionId) {
+            try {
+              file = await apiBulkCvDownloadStoredFile(sessionId, wi.storedFileId, {
+                apiBase: zipNodeForDownload.apiBase,
+              });
+            } catch (_downloadErr) {
+              file = null;
+            }
+          }
+          failureInputs.push({
+            fileName: result.fileName || wi.name,
+            reason: result.message || 'Unknown error',
+            file,
+          });
+        }
+        try {
+          await addFailedBulkResumeRecordsWithFiles(failureInputs);
+        } catch (_persistErr) {
+          /* metadata fallback skipped — store already best-effort */
+        }
+        // Durable server copy for one-click reparse from any browser.
+        const withFiles = failureInputs.filter((item) => item.file);
+        for (let offset = 0; offset < withFiles.length; offset += 20) {
+          const chunk = withFiles.slice(offset, offset + 20);
+          try {
+            await apiBulkCvSaveFailedResumes(
+              chunk.map((item) => ({
+                file: item.file,
+                fileName: item.fileName,
+                reason: item.reason,
+              }))
+            );
+          } catch (serverSaveErr) {
+            console.warn('[bulk-cv] server failed-resume save skipped', serverSaveErr?.message || serverSaveErr);
+          }
+        }
+      }
+
       if (bulkCvStoredEntries.length) {
         const zipNode =
           bulkCvZipNodeIndexRef.current != null
@@ -2268,13 +2381,26 @@ function AddCandidateDrawerInner({
       failures,
       durationMs: elapsed,
     });
-    if (failures.length) {
-      addFailedBulkResumeRecords(failures);
-    }
     console.log(
       `[bulk-cv] done in ${elapsed}ms | files=${workItems.length} ok=${succeeded} skip=${skipped} fail=${failed}`
     );
     logBulkCvSessionReport(getBulkCvTokenSession());
+
+    // Clear server-stored failed rows that succeeded on this retry.
+    const retryServerIds = bulkRetryServerIdsRef.current || [];
+    if (retryServerIds.length) {
+      const resolvedIds = [];
+      for (let i = 0; i < slotResults.length; i += 1) {
+        const status = slotResults[i]?.status;
+        if ((status === 'created' || status === 'skipped') && retryServerIds[i]) {
+          resolvedIds.push(retryServerIds[i]);
+        }
+      }
+      if (resolvedIds.length) {
+        apiBulkCvResolveFailedResumes(resolvedIds).catch(() => {});
+      }
+      bulkRetryServerIdsRef.current = [];
+    }
 
     setBulkResumePhase('complete');
     setBulkResumeStopRequested(false);
@@ -3216,7 +3342,7 @@ function AddCandidateDrawerInner({
                 >
                   <Upload size={26} className="mx-auto mb-3 text-slate-400" />
                   <p className="text-sm font-medium text-slate-700">
-                    Upload up to {MAX_BULK_CV_FILES_PER_SESSION} CVs (e.g. 1500 in one ZIP)
+                    Upload up to {MAX_BULK_CV_FILES_PER_SESSION} CVs (e.g. 4000 in one ZIP)
                   </p>
                   <p className="mt-1 text-xs text-slate-500">
                     {BULK_CV_FORMAT_LABEL} · max {MAX_RESUME_FILE_LABEL} each · drag folder or ZIP here
@@ -3256,7 +3382,7 @@ function AddCandidateDrawerInner({
                           Extracting ZIP…
                         </>
                       ) : (
-                        <>Upload ZIP (best for 1500+)</>
+                        <>Upload ZIP (best for 3000+)</>
                       )}
                       <input
                         ref={bulkCvZipInputRef}
@@ -3269,7 +3395,7 @@ function AddCandidateDrawerInner({
                     </label>
                   </div>
                   <p className="mt-3 text-xs text-amber-800">
-                    For 1500 CVs: zip all {BULK_CV_FORMAT_LABEL} files into one <strong>.zip</strong> (up to 2GB) and use Upload ZIP.
+                    For large batches (3000+ CVs): zip all {BULK_CV_FORMAT_LABEL} files into one <strong>.zip</strong> (up to 2GB) and use Upload ZIP.
                     File picker alone is limited to ~{BROWSER_FILE_PICKER_SOFT_CAP} per click in some browsers.
                   </p>
                 </div>
@@ -3294,7 +3420,7 @@ function AddCandidateDrawerInner({
                     {bulkCvStoredEntries.length + bulkResumeFiles.length >= BROWSER_FILE_PICKER_SOFT_CAP &&
                     !bulkCvStoredEntries.length ? (
                       <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                        Large list — use <strong>Upload ZIP</strong> for 1500+ CVs, or <strong>Add more CVs</strong>{' '}
+                        Large list — use <strong>Upload ZIP</strong> for 3000+ CVs, or <strong>Add more CVs</strong>{' '}
                         below.
                       </p>
                     ) : null}
@@ -3364,6 +3490,9 @@ function AddCandidateDrawerInner({
                         </p>
                         <p className="text-xs text-blue-600">
                           Processed {bulkResumeProgress.current} of {bulkResumeProgress.total}
+                        </p>
+                        <p className="mt-1 text-[11px] leading-snug text-blue-500/90">
+                          Keep this tab open. Screen sleep is blocked while uploading — also plug in the laptop and avoid closing the lid.
                         </p>
                       </div>
                     </div>

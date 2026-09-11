@@ -10,6 +10,7 @@ import React, {
   useState,
 } from 'react';
 import { requestConfirm } from '../lib/appDialog';
+import { setBulkCvUploadInProgress } from '../lib/bulkCvRuntime';
 
 type BulkCvGuardProgress = { current: number; total: number };
 
@@ -52,7 +53,7 @@ function buildBulkCvLeaveMessage(
     progress.total > 0
       ? `\n\nProcessed ${progress.current} of ${progress.total} so far.`
       : '';
-  return `CVs are still being parsed and saved. If you ${leaveActionLabel} now, parsing will stop and remaining files may not be processed.${progressLine}`;
+  return `CVs are still being parsed and saved. Do you want to stop this process?\n\nIf you ${leaveActionLabel} now, parsing will stop and remaining files may not be processed.${progressLine}`;
 }
 
 export function BulkCvLeaveGuardProvider({ children }: { children: React.ReactNode }) {
@@ -69,6 +70,11 @@ export function BulkCvLeaveGuardProvider({ children }: { children: React.ReactNo
   const register = useCallback((next: BulkCvGuardRegistration | null) => {
     registrationRef.current = next;
     setRegistration(next);
+    setBulkCvUploadInProgress(Boolean(next?.active));
+  }, []);
+
+  useEffect(() => {
+    return () => setBulkCvUploadInProgress(false);
   }, []);
 
   const requestLeave = useCallback((intent: LeaveIntent) => {
@@ -85,10 +91,10 @@ export function BulkCvLeaveGuardProvider({ children }: { children: React.ReactNo
     void requestConfirm(
       buildBulkCvLeaveMessage(intent.leaveActionLabel, progress),
       {
-        title: 'Bulk CV parsing in progress',
+        title: 'Stop bulk CV upload?',
         tone: 'warning',
-        confirmLabel: `Yes — stop & ${intent.leaveActionLabel}`,
-        cancelLabel: 'No — keep parsing',
+        confirmLabel: 'Yes — stop this process',
+        cancelLabel: 'No — keep uploading',
       },
     ).then((confirmed) => {
       leaveConfirmInFlightRef.current = false;
@@ -96,21 +102,37 @@ export function BulkCvLeaveGuardProvider({ children }: { children: React.ReactNo
         onStopRef.current?.();
         intent.onConfirmed();
       }
+      // No = stay; do not stop parsing.
     });
   }, []);
 
   const isActive = Boolean(registration?.active);
 
+  // Browser / tab close: show native leave prompt. Stay = keep process running.
   useEffect(() => {
     if (!isActive || typeof window === 'undefined') return;
 
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      // Modern browsers ignore custom text but still show a leave confirmation.
+      event.returnValue =
+        'Bulk CV upload is in progress. Do you want to stop this process?';
+      return event.returnValue;
+    };
+
+    // Only abort after the page is actually leaving (user confirmed leave).
     const onPageHide = (event: PageTransitionEvent) => {
       if (event.persisted) return;
+      setBulkCvUploadInProgress(false);
       onStopRef.current?.();
     };
 
+    window.addEventListener('beforeunload', onBeforeUnload);
     window.addEventListener('pagehide', onPageHide);
-    return () => window.removeEventListener('pagehide', onPageHide);
+    return () => {
+      window.removeEventListener('beforeunload', onBeforeUnload);
+      window.removeEventListener('pagehide', onPageHide);
+    };
   }, [isActive]);
 
   useEffect(() => {

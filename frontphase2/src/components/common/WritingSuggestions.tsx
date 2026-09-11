@@ -22,6 +22,10 @@ import {
 
 type FieldEl = HTMLTextAreaElement | HTMLInputElement;
 
+/** Hide unused tip quickly; Grammarly-style assist only while editing that word. */
+const IDLE_HIDE_MS = 2500;
+const SHOW_DEBOUNCE_MS = 280;
+
 function mergeRefs<T>(...refs: Array<Ref<T> | undefined>) {
   return (node: T | null) => {
     for (const ref of refs) {
@@ -37,35 +41,115 @@ function useWritingAssistTooltip(inputRef: React.RefObject<FieldEl | null>, valu
   const [focused, setFocused] = useState(false);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const [active, setActive] = useState<WritingSpanSuggestion | null>(null);
+  const [tipVisible, setTipVisible] = useState(false);
+
+  const lastActivityRef = useRef(Date.now());
+  const idleTimerRef = useRef<number | null>(null);
+  const showTimerRef = useRef<number | null>(null);
+  /** Spans the user typed past without applying — do not re-show until caret re-enters. */
+  const ignoredIdsRef = useRef<Set<string>>(new Set());
+  const lastShownIdRef = useRef<string | null>(null);
+
+  const clearTimers = useCallback(() => {
+    if (idleTimerRef.current != null) {
+      window.clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = null;
+    }
+    if (showTimerRef.current != null) {
+      window.clearTimeout(showTimerRef.current);
+      showTimerRef.current = null;
+    }
+  }, []);
+
+  const hideTip = useCallback(() => {
+    setTipVisible(false);
+    setActive(null);
+    setPos(null);
+    lastShownIdRef.current = null;
+  }, []);
+
+  const bumpActivity = useCallback(() => {
+    lastActivityRef.current = Date.now();
+  }, []);
+
+  const scheduleIdleHide = useCallback(() => {
+    if (idleTimerRef.current != null) {
+      window.clearTimeout(idleTimerRef.current);
+    }
+    idleTimerRef.current = window.setTimeout(() => {
+      if (Date.now() - lastActivityRef.current >= IDLE_HIDE_MS) {
+        // User ignored the tip — remember this span so it doesn't stick on word 1.
+        if (lastShownIdRef.current) {
+          ignoredIdsRef.current.add(lastShownIdRef.current);
+        }
+        hideTip();
+      }
+      idleTimerRef.current = null;
+    }, IDLE_HIDE_MS);
+  }, [hideTip]);
 
   const spans = useMemo(() => getWritingSpanSuggestions(value, { max: 14 }), [value]);
 
   const refresh = useCallback(() => {
     const el = inputRef.current;
     if (!el || !focused) {
-      setActive(null);
-      setPos(null);
+      hideTip();
       return;
     }
+
     const nextCaret = el.selectionStart ?? caret;
     setCaret(nextCaret);
-    const span = pickSpanNearCaret(spans, nextCaret);
-    setActive(span);
+
+    // Mark older issues as ignored once the user has typed past them.
+    for (const s of spans) {
+      if (nextCaret > s.end + 3) {
+        ignoredIdsRef.current.add(s.id);
+      }
+    }
+    // If caret returns into an issue, allow it again.
+    for (const s of spans) {
+      if (nextCaret >= s.start && nextCaret <= s.end) {
+        ignoredIdsRef.current.delete(s.id);
+      }
+    }
+
+    const eligible = spans.filter((s) => !ignoredIdsRef.current.has(s.id));
+    const span = pickSpanNearCaret(eligible, nextCaret);
     if (!span) {
-      setPos(null);
+      hideTip();
       return;
     }
-    // Anchor tooltip under the issue end (Grammarly-like, near the word)
-    const anchor = Math.min(Math.max(span.end, 0), value.length);
-    const rect = getCaretViewportRect(el, anchor);
-    const tooltipW = 220;
-    const left = Math.min(
-      Math.max(8, rect.left),
-      window.innerWidth - tooltipW - 8,
-    );
-    const top = Math.min(rect.top + rect.height + 6, window.innerHeight - 56);
-    setPos({ top, left });
-  }, [caret, focused, inputRef, spans, value.length]);
+
+    const place = () => {
+      const anchor = Math.min(Math.max(span.end, 0), value.length);
+      const rect = getCaretViewportRect(el, anchor);
+      const tooltipW = 220;
+      const left = Math.min(Math.max(8, rect.left), window.innerWidth - tooltipW - 8);
+      const top = Math.min(rect.top + rect.height + 6, window.innerHeight - 56);
+      setActive(span);
+      setPos({ top, left });
+      setTipVisible(true);
+      lastShownIdRef.current = span.id;
+      scheduleIdleHide();
+    };
+
+    // Debounce show so the tip follows live typing instead of flashing on every key.
+    if (showTimerRef.current != null) {
+      window.clearTimeout(showTimerRef.current);
+    }
+    // Same active word → update immediately; new word → short debounce.
+    if (lastShownIdRef.current === span.id && tipVisible) {
+      place();
+    } else {
+      setTipVisible(false);
+      setActive(null);
+      setPos(null);
+      showTimerRef.current = window.setTimeout(() => {
+        place();
+        showTimerRef.current = null;
+      }, SHOW_DEBOUNCE_MS);
+    }
+  }, [caret, focused, hideTip, inputRef, scheduleIdleHide, spans, tipVisible, value.length]);
 
   useLayoutEffect(() => {
     refresh();
@@ -75,45 +159,60 @@ function useWritingAssistTooltip(inputRef: React.RefObject<FieldEl | null>, valu
     const el = inputRef.current;
     if (!el) return;
 
-    const onFocus = () => setFocused(true);
+    const onFocus = () => {
+      bumpActivity();
+      setFocused(true);
+    };
     const onBlur = () => {
       window.setTimeout(() => {
-        const ae = document.activeElement;
-        if (ae && inputRef.current?.contains(ae)) return;
         setFocused(false);
-        setActive(null);
-        setPos(null);
-      }, 80);
+        hideTip();
+      }, 140);
     };
-    const onSelect = () => {
+    const onActivity = () => {
+      bumpActivity();
       setCaret(el.selectionStart ?? 0);
+      scheduleIdleHide();
       refresh();
     };
-    const onScroll = () => refresh();
-    const onResize = () => refresh();
+    const onScroll = () => {
+      if (tipVisible) refresh();
+    };
 
     el.addEventListener('focus', onFocus);
     el.addEventListener('blur', onBlur);
-    el.addEventListener('keyup', onSelect);
-    el.addEventListener('click', onSelect);
-    el.addEventListener('select', onSelect);
+    el.addEventListener('keyup', onActivity);
+    el.addEventListener('keydown', bumpActivity);
+    el.addEventListener('input', onActivity);
+    el.addEventListener('click', onActivity);
+    el.addEventListener('select', onActivity);
     el.addEventListener('scroll', onScroll);
-    window.addEventListener('resize', onResize);
-    window.addEventListener('scroll', onResize, true);
+    window.addEventListener('resize', onScroll);
+    window.addEventListener('scroll', onScroll, true);
 
     return () => {
       el.removeEventListener('focus', onFocus);
       el.removeEventListener('blur', onBlur);
-      el.removeEventListener('keyup', onSelect);
-      el.removeEventListener('click', onSelect);
-      el.removeEventListener('select', onSelect);
+      el.removeEventListener('keyup', onActivity);
+      el.removeEventListener('keydown', bumpActivity);
+      el.removeEventListener('input', onActivity);
+      el.removeEventListener('click', onActivity);
+      el.removeEventListener('select', onActivity);
       el.removeEventListener('scroll', onScroll);
-      window.removeEventListener('resize', onResize);
-      window.removeEventListener('scroll', onResize, true);
+      window.removeEventListener('resize', onScroll);
+      window.removeEventListener('scroll', onScroll, true);
+      clearTimers();
     };
-  }, [inputRef, refresh]);
+  }, [bumpActivity, clearTimers, hideTip, inputRef, refresh, scheduleIdleHide, tipVisible]);
 
-  return { active, pos, focused, spans };
+  useEffect(() => {
+    if (!focused) {
+      ignoredIdsRef.current.clear();
+      clearTimers();
+    }
+  }, [clearTimers, focused]);
+
+  return { active, pos, focused, tipVisible, bumpActivity, scheduleIdleHide };
 }
 
 type TooltipProps = {
@@ -122,29 +221,41 @@ type TooltipProps = {
   onApply: (next: string) => void;
 };
 
-/** Floating caret tooltip — shows only the corrected wording. */
+/** Floating caret tooltip — shows only the corrected wording near the caret. */
 export function WritingAssistTooltip({ inputRef, value, onApply }: TooltipProps) {
-  const { active, pos, focused } = useWritingAssistTooltip(inputRef, value);
-  if (!focused || !active || !pos) return null;
+  const { active, pos, focused, tipVisible, bumpActivity, scheduleIdleHide } = useWritingAssistTooltip(
+    inputRef,
+    value,
+  );
+  if (!focused || !tipVisible || !active || !pos) return null;
 
   return (
     <div
       className="pointer-events-auto fixed z-[9999] max-w-[240px] rounded-md border border-slate-200 bg-white px-2.5 py-1.5 shadow-lg shadow-slate-900/10"
       style={{ top: pos.top, left: pos.left }}
       onMouseDown={(e) => e.preventDefault()}
+      onMouseEnter={() => {
+        bumpActivity();
+        scheduleIdleHide();
+      }}
+      onPointerDown={() => {
+        bumpActivity();
+        scheduleIdleHide();
+      }}
     >
       <button
         type="button"
-        className="block w-full text-left text-[13px] font-medium leading-snug text-slate-900 hover:text-[#0A66C2]"
+        className="block w-full text-left text-[13px] font-medium leading-snug text-slate-900 hover:text-[#176F96]"
         onClick={() => {
+          bumpActivity();
           const next = applyWritingSpan(value, active);
           onApply(next);
           const el = inputRef.current;
           if (el) {
-            const caret = active.start + active.suggestion.length;
+            const nextCaret = active.start + active.suggestion.length;
             window.requestAnimationFrame(() => {
               el.focus();
-              el.setSelectionRange(caret, caret);
+              el.setSelectionRange(nextCaret, nextCaret);
             });
           }
         }}
@@ -230,11 +341,7 @@ export function WritingAssistField(props: TextareaProps | InputProps) {
           className={className}
         />
         {marks}
-        <WritingAssistTooltip
-          inputRef={localRef}
-          value={value}
-          onApply={onChange}
-        />
+        <WritingAssistTooltip inputRef={localRef} value={value} onApply={onChange} />
       </div>
     );
   }
@@ -259,11 +366,7 @@ export function WritingAssistField(props: TextareaProps | InputProps) {
         className={className}
       />
       {marks}
-      <WritingAssistTooltip
-        inputRef={localRef}
-        value={value}
-        onApply={onChange}
-      />
+      <WritingAssistTooltip inputRef={localRef} value={value} onApply={onChange} />
     </div>
   );
 }

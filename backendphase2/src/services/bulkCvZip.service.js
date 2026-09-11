@@ -42,7 +42,7 @@ export function expandBulkCvZipArchive(zipPath, options = {}) {
   const {
     userId,
     sessionId,
-    maxFiles = 2000,
+    maxFiles = 5000,
     maxPerFileBytes = 25 * 1024 * 1024,
   } = options;
 

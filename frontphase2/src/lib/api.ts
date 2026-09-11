@@ -4681,6 +4681,59 @@ export async function apiBulkCvReleaseZip(
   return json as ApiResponse<unknown>;
 }
 
+/** Download a ZIP-extracted CV still on the server (before release-zip). */
+export async function apiBulkCvDownloadStoredFile(
+  sessionId: string,
+  storedFileId: string,
+  options: { apiBase?: string; signal?: AbortSignal } = {}
+): Promise<File> {
+  const apiBase =
+    options.apiBase?.replace(/\/$/, '') || resolveApiBaseForPath('/candidates/bulk-cv/stored-file');
+  const qs = new URLSearchParams({
+    sessionId: String(sessionId || '').trim(),
+    storedFileId: String(storedFileId || '').trim(),
+  });
+  const url = `${apiBase}/candidates/bulk-cv/stored-file?${qs.toString()}`;
+  const headers: Record<string, string> = {};
+  const token = getAccessToken();
+  if (!token) throw new Error('Authentication required. Please log in.');
+  headers.Authorization = `Bearer ${token}`;
+  const tenantDbName = getTenantDbName();
+  if (tenantDbName) headers['x-tenant-db-name'] = tenantDbName;
+
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: 'GET',
+      headers,
+      credentials: 'include',
+      mode: 'cors',
+      cache: 'no-store',
+      signal: options.signal,
+    });
+  } catch (fetchError: unknown) {
+    throw normalizeFetchError(fetchError);
+  }
+
+  if (!res.ok) {
+    let message = `Request failed with status ${res.status}`;
+    try {
+      const json = await res.json();
+      if (json?.message) message = String(json.message);
+    } catch {
+      /* ignore */
+    }
+    throw createHttpApiError(res.status, message);
+  }
+
+  const blob = await res.blob();
+  const disposition = res.headers.get('Content-Disposition') || '';
+  const match = /filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i.exec(disposition);
+  const rawName = decodeURIComponent(match?.[1] || match?.[2] || 'resume');
+  const mime = res.headers.get('Content-Type') || blob.type || 'application/octet-stream';
+  return new File([blob], rawName, { type: mime });
+}
+
 export async function apiBulkCvProcessFile(
   payload: { file?: File; storedFileId?: string },
   sessionId: string,
@@ -4700,6 +4753,130 @@ export async function apiBulkCvProcessFile(
     auth: true,
     signal: options.signal,
     apiBase: options.apiBase,
+  });
+}
+
+export type ServerFailedBulkResume = {
+  id: string;
+  fileName: string;
+  reason: string;
+  fileUrl?: string | null;
+  mimeType?: string | null;
+  sizeBytes?: number | null;
+  status: string;
+  failedAt: string;
+  hasFile?: boolean;
+};
+
+/** Upload failed Bulk CV files to server storage (S3 + DB) for one-click reparse. */
+export async function apiBulkCvSaveFailedResumes(
+  items: Array<{ file: File | Blob; fileName?: string; reason: string }>,
+  options: { signal?: AbortSignal } = {}
+) {
+  if (!items.length) {
+    return { saved: [] as ServerFailedBulkResume[], errors: [] as Array<{ fileName: string; message: string }>, activeCount: 0 };
+  }
+  const formData = new FormData();
+  const reasons: string[] = [];
+  for (const item of items) {
+    const name = item.fileName || (item.file instanceof File ? item.file.name : 'resume');
+    const file =
+      item.file instanceof File
+        ? item.file
+        : new File([item.file], name, { type: (item.file as Blob).type || 'application/octet-stream' });
+    formData.append('resumes', file);
+    reasons.push(String(item.reason || 'Bulk CV processing failed'));
+  }
+  formData.append('reasons', JSON.stringify(reasons));
+  const res = await apiFetchFormData<{
+    saved: ServerFailedBulkResume[];
+    errors: Array<{ fileName: string; message: string }>;
+    activeCount: number;
+  }>('/candidates/bulk-cv/failed', formData, {
+    method: 'POST',
+    auth: true,
+    signal: options.signal,
+  });
+  return (
+    res.data || {
+      saved: [],
+      errors: [],
+      activeCount: 0,
+    }
+  );
+}
+
+export async function apiBulkCvListFailedResumes(options: { signal?: AbortSignal } = {}) {
+  const res = await apiFetch<{ items: ServerFailedBulkResume[]; count: number }>(
+    '/candidates/bulk-cv/failed',
+    {
+      method: 'GET',
+      auth: true,
+      signal: options.signal,
+    }
+  );
+  return res.data || { items: [], count: 0 };
+}
+
+export async function apiBulkCvDownloadFailedResumeFile(
+  id: string,
+  options: { signal?: AbortSignal } = {}
+): Promise<File> {
+  const apiBase = resolveApiBaseForPath('/candidates/bulk-cv/failed');
+  const url = `${apiBase}/candidates/bulk-cv/failed/${encodeURIComponent(id)}/file`;
+  const headers: Record<string, string> = {};
+  const token = getAccessToken();
+  if (!token) throw new Error('Authentication required. Please log in.');
+  headers.Authorization = `Bearer ${token}`;
+  const tenantDbName = getTenantDbName();
+  if (tenantDbName) headers['x-tenant-db-name'] = tenantDbName;
+
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: 'GET',
+      headers,
+      credentials: 'include',
+      mode: 'cors',
+      cache: 'no-store',
+      signal: options.signal,
+    });
+  } catch (fetchError: unknown) {
+    throw normalizeFetchError(fetchError);
+  }
+
+  if (!res.ok) {
+    let message = `Request failed with status ${res.status}`;
+    try {
+      const json = await res.json();
+      if (json?.message) message = String(json.message);
+    } catch {
+      /* ignore */
+    }
+    throw createHttpApiError(res.status, message);
+  }
+
+  const blob = await res.blob();
+  const disposition = res.headers.get('Content-Disposition') || '';
+  const match = /filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i.exec(disposition);
+  const rawName = decodeURIComponent(match?.[1] || match?.[2] || 'resume');
+  const mime = res.headers.get('Content-Type') || blob.type || 'application/octet-stream';
+  return new File([blob], rawName, { type: mime });
+}
+
+export async function apiBulkCvTrashFailedResumes(ids: string[]) {
+  return apiFetch<{ count: number; activeCount: number }>('/candidates/bulk-cv/failed/trash', {
+    method: 'POST',
+    auth: true,
+    body: { ids },
+  });
+}
+
+export async function apiBulkCvResolveFailedResumes(ids: string[]) {
+  return apiFetch<{ count: number; activeCount: number }>('/candidates/bulk-cv/failed/resolve', {
+    method: 'POST',
+    auth: true,
+    body: { ids },
   });
 }
 
