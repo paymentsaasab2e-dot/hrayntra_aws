@@ -224,10 +224,12 @@ export async function renderSaasaPdfPages(
     pageWrap.style.position = 'relative';
     pageWrap.style.width = '100%';
     pageWrap.style.maxWidth = `${pw}px`;
-    pageWrap.style.height = `${ph}px`;
+    pageWrap.style.aspectRatio = `${pw} / ${ph}`;
+    pageWrap.style.height = 'auto';
     pageWrap.style.margin = '0 auto';
     pageWrap.style.overflow = 'hidden';
     pageWrap.style.isolation = 'isolate';
+    pageWrap.style.flexShrink = '0';
 
     canvas.width = pw;
     canvas.height = ph;
@@ -247,5 +249,21 @@ export async function renderSaasaPdfPages(
 
   if (totalHeight < 1) throw new Error('PDF has no renderable pages');
 
+  host.style.width = '100%';
+  host.style.minHeight = `${totalHeight}px`;
+
   return { width, totalHeight, pageCount: pdf.numPages, pageHeightsPx };
+}
+
+/** Measure laid-out page heights after CSS/text-layer sync (keeps scroll + export in sync). */
+export function measureSaasaPdfPageHeightsPx(host: HTMLElement | null): number[] {
+  if (!host) return [];
+  return Array.from(host.querySelectorAll(':scope > .saasa-pdf-page')).map((node) => {
+    const el = node as HTMLElement;
+    const canvas = el.querySelector('canvas');
+    const fromLayout = Math.round(el.getBoundingClientRect().height || el.offsetHeight || 0);
+    if (fromLayout > 1) return fromLayout;
+    if (canvas instanceof HTMLCanvasElement && canvas.height > 0) return canvas.height;
+    return 1;
+  });
 }

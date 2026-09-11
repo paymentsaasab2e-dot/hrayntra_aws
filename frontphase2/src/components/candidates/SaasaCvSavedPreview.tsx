@@ -59,7 +59,7 @@ export function SaasaCvSavedPreview({
             key={viewerUrl}
             src={viewerUrl}
             title={`${candidateName} HRYantra CV`}
-            className="mx-auto block h-[min(78dvh,900px)] w-full max-w-[52rem] rounded-lg border border-slate-200 bg-white shadow-sm"
+            className="mx-auto block h-full min-h-[min(78dvh,900px)] w-full max-w-[52rem] rounded-lg border border-slate-200 bg-white shadow-sm"
           />
         </div>
       </div>

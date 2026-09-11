@@ -23,16 +23,29 @@ export interface SaasaCvAnnotation {
   createdAt: string;
 }
 
+export type SaasaCvLogoApplyTo = 'current' | 'all';
+
 export interface SaasaCvCompanyLogo {
   url: string;
-  /** Position on document (% 0–100) */
+  /** Horizontal position (% of document / page width, 0–100) */
   x: number;
+  /**
+   * Vertical position as % of full document height (0–100).
+   * Used when applyTo is `current` (logo sits on whichever page this Y falls on).
+   */
   y: number;
   /** Width as % of document width */
   width: number;
   /** Height as % of document height; auto from image aspect if omitted */
   height?: number;
   opacity?: number;
+  /**
+   * `current` = only the page containing `y`.
+   * `all` = same placement on every page (uses pageY, or derives it from `y`).
+   */
+  applyTo?: SaasaCvLogoApplyTo;
+  /** Vertical position within a single page (% 0–100). Used when applyTo is `all`. */
+  pageY?: number;
 }
 
 export const DEFAULT_SAASA_CV_COMPANY_LOGO: SaasaCvCompanyLogo = {
@@ -41,7 +54,104 @@ export const DEFAULT_SAASA_CV_COMPANY_LOGO: SaasaCvCompanyLogo = {
   y: 4,
   width: 16,
   opacity: 1,
+  applyTo: 'current',
+  pageY: 4,
 };
+
+/** Cumulative page top offsets in px (length = pageCount + 1). */
+export function buildSaasaCvPageOffsetsPx(pageHeightsPx: number[]): number[] {
+  const offsets = [0];
+  for (const h of pageHeightsPx) {
+    offsets.push(offsets[offsets.length - 1] + Math.max(0, h));
+  }
+  return offsets;
+}
+
+export function saasaCvPageIndexFromDocY(
+  yPct: number,
+  pageHeightsPx: number[],
+  docHeightPx: number,
+): number {
+  if (!pageHeightsPx.length || docHeightPx <= 0) return 0;
+  const yPx = (Math.min(100, Math.max(0, yPct)) / 100) * docHeightPx;
+  const offsets = buildSaasaCvPageOffsetsPx(pageHeightsPx);
+  for (let i = 0; i < pageHeightsPx.length; i++) {
+    const top = offsets[i];
+    const bottom = offsets[i + 1];
+    if (yPx >= top && yPx < bottom) return i;
+  }
+  return Math.max(0, pageHeightsPx.length - 1);
+}
+
+/** Page-local Y% for a document Y% on the page that contains it. */
+export function saasaCvPageLocalYFromDocY(
+  yPct: number,
+  pageHeightsPx: number[],
+  docHeightPx: number,
+): number {
+  if (!pageHeightsPx.length || docHeightPx <= 0) {
+    return Math.min(100, Math.max(0, yPct));
+  }
+  const pageIndex = saasaCvPageIndexFromDocY(yPct, pageHeightsPx, docHeightPx);
+  const offsets = buildSaasaCvPageOffsetsPx(pageHeightsPx);
+  const pageTop = offsets[pageIndex];
+  const pageHeight = Math.max(1, pageHeightsPx[pageIndex] || 1);
+  const yPx = (Math.min(100, Math.max(0, yPct)) / 100) * docHeightPx;
+  return Math.min(100, Math.max(0, ((yPx - pageTop) / pageHeight) * 100));
+}
+
+/** Document Y% for a page-local Y% on a given page. */
+export function saasaCvDocYFromPageLocal(
+  pageIndex: number,
+  pageY: number,
+  pageHeightsPx: number[],
+  docHeightPx: number,
+): number {
+  if (!pageHeightsPx.length || docHeightPx <= 0) {
+    return Math.min(100, Math.max(0, pageY));
+  }
+  const idx = Math.min(Math.max(0, pageIndex), pageHeightsPx.length - 1);
+  const offsets = buildSaasaCvPageOffsetsPx(pageHeightsPx);
+  const pageTop = offsets[idx];
+  const pageHeight = Math.max(1, pageHeightsPx[idx] || 1);
+  const yPx = pageTop + (Math.min(100, Math.max(0, pageY)) / 100) * pageHeight;
+  return Math.min(100, Math.max(0, (yPx / docHeightPx) * 100));
+}
+
+/** Resolved page-local Y% for logo stamping / preview. */
+export function resolveSaasaCvLogoPageY(
+  logo: SaasaCvCompanyLogo,
+  pageHeightsPx: number[],
+  docHeightPx: number,
+): number {
+  if (logo.pageY != null && Number.isFinite(Number(logo.pageY))) {
+    return Math.min(100, Math.max(0, Number(logo.pageY)));
+  }
+  return saasaCvPageLocalYFromDocY(logo.y, pageHeightsPx, docHeightPx);
+}
+
+/** Document Y% positions where the logo should appear (one per stamp). */
+export function saasaCvLogoDocPositions(
+  logo: SaasaCvCompanyLogo,
+  pageHeightsPx: number[],
+  docHeightPx: number,
+): Array<{ pageIndex: number; y: number }> {
+  if (!logo.url?.trim()) return [];
+  const applyTo = logo.applyTo === 'all' ? 'all' : 'current';
+  if (applyTo === 'all' && pageHeightsPx.length > 0 && docHeightPx > 0) {
+    const pageY = resolveSaasaCvLogoPageY(logo, pageHeightsPx, docHeightPx);
+    return pageHeightsPx.map((_, pageIndex) => ({
+      pageIndex,
+      y: saasaCvDocYFromPageLocal(pageIndex, pageY, pageHeightsPx, docHeightPx),
+    }));
+  }
+  return [
+    {
+      pageIndex: saasaCvPageIndexFromDocY(logo.y, pageHeightsPx, docHeightPx),
+      y: logo.y,
+    },
+  ];
+}
 
 export interface SaasaCvAnnotationsStored {
   resumeUrl?: string | null;
@@ -127,6 +237,7 @@ export function normalizeSaasaCvCompanyLogo(raw: unknown): SaasaCvCompanyLogo | 
   const o = raw as SaasaCvCompanyLogo;
   const url = typeof o.url === 'string' ? o.url.trim() : '';
   if (!url) return null;
+  const applyTo: SaasaCvLogoApplyTo = o.applyTo === 'all' ? 'all' : 'current';
   return {
     url,
     x: Number.isFinite(Number(o.x)) ? Math.min(100, Math.max(0, Number(o.x))) : DEFAULT_SAASA_CV_COMPANY_LOGO.x,
@@ -139,6 +250,11 @@ export function normalizeSaasaCvCompanyLogo(raw: unknown): SaasaCvCompanyLogo | 
         ? Math.min(40, Math.max(4, Number(o.height)))
         : undefined,
     opacity: clampOpacity(o.opacity, 1),
+    applyTo,
+    pageY:
+      o.pageY != null && Number.isFinite(Number(o.pageY))
+        ? Math.min(100, Math.max(0, Number(o.pageY)))
+        : undefined,
   };
 }
 

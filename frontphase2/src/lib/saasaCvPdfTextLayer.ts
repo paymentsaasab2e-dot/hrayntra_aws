@@ -568,25 +568,29 @@ function syncLayerToCanvas(layer: HTMLDivElement, canvas: HTMLCanvasElement): nu
   return displayScale;
 }
 
-/** Keep each PDF page at the correct rendered height (prevents collapse after text edits). */
+/** Keep each PDF page at the correct rendered aspect (prevents collapse / single-page clipping). */
 export function enforcePdfPageLayout(host: HTMLElement | null): void {
   if (!host) return;
   host.querySelectorAll(PAGE_SELECTOR).forEach((pageWrap) => {
     const canvas = pageWrap.querySelector('canvas');
-    if (!(canvas instanceof HTMLCanvasElement)) return;
-
-    const displayScale = getCanvasDisplayScale(canvas);
-    const displayW = Math.max(1, Math.round(canvas.width * displayScale));
-    const displayH = Math.max(1, Math.round(canvas.height * displayScale));
+    if (!(canvas instanceof HTMLCanvasElement) || canvas.width < 1 || canvas.height < 1) return;
 
     const wrap = pageWrap as HTMLElement;
+    const pw = canvas.width;
+    const ph = canvas.height;
     wrap.style.position = 'relative';
     wrap.style.width = '100%';
-    wrap.style.maxWidth = `${displayW}px`;
-    wrap.style.height = `${displayH}px`;
-    wrap.style.minHeight = `${displayH}px`;
+    wrap.style.maxWidth = `${pw}px`;
+    wrap.style.aspectRatio = `${pw} / ${ph}`;
+    wrap.style.height = 'auto';
+    wrap.style.minHeight = '0';
     wrap.style.margin = '0 auto';
     wrap.style.overflow = 'hidden';
+    wrap.style.flexShrink = '0';
+
+    canvas.style.width = '100%';
+    canvas.style.height = '100%';
+    canvas.style.display = 'block';
 
     const layer = wrap.querySelector(`.${TEXT_LAYER_CLASS}`);
     if (layer instanceof HTMLDivElement) {

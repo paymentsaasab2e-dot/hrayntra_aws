@@ -1,5 +1,6 @@
 import html2canvas from 'html2canvas';
 import type { SaasaCvAnnotation, SaasaCvCompanyLogo } from './saasaCvAnnotations';
+import { resolveSaasaCvLogoPageY } from './saasaCvAnnotations';
 import {
   fetchSaasaCvPdfBytes,
   loadSaasaPdfJs,
@@ -73,6 +74,7 @@ function translateAnnotationsForPage(
   companyLogo: SaasaCvCompanyLogo | null,
   pageIndex: number,
   pageOffsetsPx: number[],
+  pageHeightsPx: number[],
   docWidthPx: number,
   docHeightPx: number
 ): { annotations: SaasaCvAnnotation[]; companyLogo: SaasaCvCompanyLogo | null } {
@@ -113,8 +115,15 @@ function translateAnnotationsForPage(
   }
 
   let logo: SaasaCvCompanyLogo | null = null;
-  if (companyLogo?.url?.trim() && onPageY(companyLogo.y)) {
-    logo = { ...companyLogo, y: toLocalY(companyLogo.y) };
+  if (companyLogo?.url?.trim()) {
+    if (companyLogo.applyTo === 'all') {
+      logo = {
+        ...companyLogo,
+        y: resolveSaasaCvLogoPageY(companyLogo, pageHeightsPx, docHeightPx),
+      };
+    } else if (onPageY(companyLogo.y)) {
+      logo = { ...companyLogo, y: toLocalY(companyLogo.y) };
+    }
   }
 
   return { annotations: mapped, companyLogo: logo };
@@ -202,6 +211,7 @@ export async function buildSaasaCvPdfPreservingSource(options: {
       options.companyLogo,
       i,
       pageOffsetsPx,
+      heights,
       docWidthPx,
       docHeightPx
     );
@@ -309,7 +319,19 @@ async function buildCompositeCanvas(
   }
 
   if (companyLogo?.url?.trim()) {
-    await compositeCompanyLogoOnCanvas(off, companyLogo);
+    if (companyLogo.applyTo === 'all') {
+      const pageY = resolveSaasaCvLogoPageY(companyLogo, pageHeights, totalHeight);
+      let offsetY = 0;
+      for (let i = 0; i < pageHeights.length; i++) {
+        const ph = pageHeights[i];
+        const localYPct = pageY;
+        const docYPct = ((offsetY + (localYPct / 100) * ph) / totalHeight) * 100;
+        await compositeCompanyLogoOnCanvas(off, { ...companyLogo, y: docYPct });
+        offsetY += ph;
+      }
+    } else {
+      await compositeCompanyLogoOnCanvas(off, companyLogo);
+    }
   }
 
   drawPinAnnotationsOnCanvas(ctx, annotations, off.width, off.height);
@@ -491,8 +513,11 @@ export async function exportSaasaCvDocumentPdf(options: {
   });
 }
 
-/** Word / HTML surface → single-page PDF. */
-export async function captureSaasaCvSurfacePdf(element: HTMLElement): Promise<Blob | null> {
+/** Word / HTML / fallback surface → PDF (split into pages when heights are known). */
+export async function captureSaasaCvSurfacePdf(
+  element: HTMLElement,
+  pageHeightsPx?: number[]
+): Promise<Blob | null> {
   if (!element || element.offsetWidth < 2 || element.offsetHeight < 2) {
     return null;
   }
@@ -505,9 +530,22 @@ export async function captureSaasaCvSurfacePdf(element: HTMLElement): Promise<Bl
       allowTaint: true,
       logging: false,
       backgroundColor: '#ffffff',
+      height: element.scrollHeight || element.offsetHeight,
+      windowHeight: element.scrollHeight || element.offsetHeight,
     });
 
-    return canvasToSaasaCvPdfBlob(canvas, [canvas.height]);
+    const heights =
+      pageHeightsPx && pageHeightsPx.length > 1
+        ? pageHeightsPx.map((h) => Math.max(1, Math.round(h * scale)))
+        : [canvas.height];
+
+    // If measured page heights don't cover the capture, keep a single tall page rather than truncating.
+    const sum = heights.reduce((s, h) => s + h, 0);
+    if (heights.length > 1 && Math.abs(sum - canvas.height) > Math.max(24, canvas.height * 0.08)) {
+      return canvasToSaasaCvPdfBlob(canvas, [canvas.height]);
+    }
+
+    return canvasToSaasaCvPdfBlob(canvas, heights);
   } catch {
     return null;
   }

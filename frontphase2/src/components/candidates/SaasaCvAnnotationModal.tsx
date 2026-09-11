@@ -38,13 +38,18 @@ import {
   SAASA_CV_ANNOTATION_COLORS,
   SAASA_CV_COLOR_PRESETS,
   SAASA_CV_DEFAULT_OPACITY,
+  saasaCvDocYFromPageLocal,
+  saasaCvLogoDocPositions,
+  saasaCvPageLocalYFromDocY,
   type SaasaCvAnnotation,
   type SaasaCvAnnotationType,
   type SaasaCvCompanyLogo,
+  type SaasaCvLogoApplyTo,
   type SaasaCvPoint,
 } from '../../lib/saasaCvAnnotations';
 import {
   clearSaasaCvPdfBytesCache,
+  measureSaasaPdfPageHeightsPx,
   renderSaasaPdfPages,
   type SaasaCvPdfDocumentMeta,
 } from '../../lib/saasaCvPdfRender';
@@ -480,7 +485,17 @@ export function SaasaCvAnnotationModal({
       void renderSaasaPdfPages(host, viewerUrl)
         .then((meta) => {
           if (cancelled || gen !== pdfLoadGenRef.current) return;
-          setPdfDocMeta(meta);
+          enforcePdfPageLayout(host);
+          const measured = measureSaasaPdfPageHeightsPx(host);
+          const pageHeightsPx = measured.length ? measured : meta.pageHeightsPx;
+          const totalHeight = pageHeightsPx.reduce((sum, h) => sum + h, 0) || meta.totalHeight;
+          setPdfDocMeta({
+            ...meta,
+            pageHeightsPx,
+            totalHeight,
+            pageCount: Math.max(meta.pageCount, pageHeightsPx.length),
+          });
+          host.style.minHeight = `${totalHeight}px`;
           requestAnimationFrame(() => {
             enforcePdfPageLayout(host);
             paintRedrawRef.current();
@@ -597,9 +612,26 @@ export function SaasaCvAnnotationModal({
       frame = window.requestAnimationFrame(() => {
         if (canPdf && pdfHostRef.current) {
           resyncInPlacePdfTextLayers(pdfHostRef.current);
-        }
-        if (canPdf && pdfHostRef.current) {
           enforcePdfPageLayout(pdfHostRef.current);
+          const measured = measureSaasaPdfPageHeightsPx(pdfHostRef.current);
+          if (measured.length) {
+            const totalHeight = measured.reduce((sum, h) => sum + h, 0);
+            setPdfDocMeta((prev) => {
+              if (!prev) return prev;
+              const sameCount = prev.pageHeightsPx?.length === measured.length;
+              const sameHeights =
+                sameCount &&
+                prev.pageHeightsPx.every((h, i) => Math.abs(h - measured[i]) < 2);
+              if (sameHeights && Math.abs(prev.totalHeight - totalHeight) < 2) return prev;
+              pdfHostRef.current && (pdfHostRef.current.style.minHeight = `${totalHeight}px`);
+              return {
+                ...prev,
+                pageHeightsPx: measured,
+                totalHeight,
+                pageCount: Math.max(prev.pageCount, measured.length),
+              };
+            });
+          }
         }
         paintRedrawRef.current();
       });
@@ -677,6 +709,88 @@ export function SaasaCvAnnotationModal({
     const h = surface.offsetHeight || 1;
     return clientToPaintSurfacePercent(clientX, clientY, surface, scrollEl, w, h);
   };
+
+  const logoPageHeightsPx =
+    canPdf && pdfDocMeta?.pageHeightsPx?.length
+      ? pdfDocMeta.pageHeightsPx
+      : pdfDocMeta?.totalHeight
+        ? [pdfDocMeta.totalHeight]
+        : [];
+
+  const getVisibleLogoPageIndex = useCallback(() => {
+    const heights = logoPageHeightsPx;
+    const scrollEl = cvScrollRef.current;
+    if (!heights.length) return 0;
+    if (!scrollEl) return 0;
+    const mid = scrollEl.scrollTop + scrollEl.clientHeight * 0.3;
+    let acc = 0;
+    for (let i = 0; i < heights.length; i++) {
+      acc += heights[i];
+      if (mid < acc) return i;
+    }
+    return Math.max(0, heights.length - 1);
+  }, [logoPageHeightsPx]);
+
+  const resolveLogoDocHeight = useCallback(() => {
+    if (canPdf && pdfDocMeta?.totalHeight) return pdfDocMeta.totalHeight;
+    const fromPages = logoPageHeightsPx.reduce((s, h) => s + h, 0);
+    if (fromPages > 0) return fromPages;
+    return surfaceRef.current?.offsetHeight || 1;
+  }, [canPdf, logoPageHeightsPx, pdfDocMeta?.totalHeight]);
+
+  const syncLogoPlacement = useCallback(
+    (prev: SaasaCvCompanyLogo, patch: Partial<SaasaCvCompanyLogo>): SaasaCvCompanyLogo => {
+      const next: SaasaCvCompanyLogo = { ...prev, ...patch };
+      const applyTo: SaasaCvLogoApplyTo = next.applyTo === 'all' ? 'all' : 'current';
+      next.applyTo = applyTo;
+      const heights = logoPageHeightsPx;
+      const total = resolveLogoDocHeight();
+      if (!heights.length || total <= 0) {
+        if (next.pageY == null) next.pageY = next.y;
+        return next;
+      }
+
+      if (patch.pageY != null && Number.isFinite(Number(patch.pageY))) {
+        const pageY = Math.min(100, Math.max(0, Number(patch.pageY)));
+        next.pageY = pageY;
+        next.y = saasaCvDocYFromPageLocal(
+          applyTo === 'all' ? 0 : getVisibleLogoPageIndex(),
+          pageY,
+          heights,
+          total,
+        );
+        return next;
+      }
+
+      if (patch.applyTo === 'all') {
+        const pageY =
+          next.pageY != null
+            ? Math.min(100, Math.max(0, next.pageY))
+            : saasaCvPageLocalYFromDocY(next.y, heights, total);
+        next.pageY = pageY;
+        next.y = saasaCvDocYFromPageLocal(0, pageY, heights, total);
+        return next;
+      }
+
+      if (patch.applyTo === 'current') {
+        const pageY =
+          next.pageY != null
+            ? Math.min(100, Math.max(0, next.pageY))
+            : saasaCvPageLocalYFromDocY(next.y, heights, total);
+        next.pageY = pageY;
+        next.y = saasaCvDocYFromPageLocal(getVisibleLogoPageIndex(), pageY, heights, total);
+        return next;
+      }
+
+      if (patch.y != null) {
+        next.pageY = saasaCvPageLocalYFromDocY(next.y, heights, total);
+      } else if (next.pageY == null) {
+        next.pageY = saasaCvPageLocalYFromDocY(next.y, heights, total);
+      }
+      return next;
+    },
+    [getVisibleLogoPageIndex, logoPageHeightsPx, resolveLogoDocHeight],
+  );
 
   const placePin = useCallback(
     (clientX: number, clientY: number, type: 'comment' | 'important') => {
@@ -963,10 +1077,30 @@ export function SaasaCvAnnotationModal({
     reader.onload = (ev) => {
       const dataUrl = ev.target?.result as string;
       if (!dataUrl) return;
-      setCompanyLogo((prev) => ({
-        ...(prev ?? DEFAULT_SAASA_CV_COMPANY_LOGO),
-        url: dataUrl,
-      }));
+      setCompanyLogo((prev) => {
+        const base = { ...(prev ?? DEFAULT_SAASA_CV_COMPANY_LOGO), url: dataUrl };
+        const heights = logoPageHeightsPx;
+        const total = resolveLogoDocHeight();
+        const pageY = base.pageY ?? 4;
+        const pageIndex = getVisibleLogoPageIndex();
+        const applyTo: SaasaCvLogoApplyTo = base.applyTo === 'all' ? 'all' : 'current';
+        if (heights.length && total > 0) {
+          return syncLogoPlacement(base, {
+            url: dataUrl,
+            applyTo,
+            pageY,
+            x: base.x || DEFAULT_SAASA_CV_COMPANY_LOGO.x,
+            y: saasaCvDocYFromPageLocal(pageIndex, pageY, heights, total),
+          });
+        }
+        return {
+          ...base,
+          url: dataUrl,
+          applyTo,
+          pageY,
+          y: pageY,
+        };
+      });
     };
     reader.readAsDataURL(file);
     e.target.value = '';
@@ -977,8 +1111,12 @@ export function SaasaCvAnnotationModal({
   const updateCompanyLogo = (patch: Partial<SaasaCvCompanyLogo>) => {
     setCompanyLogo((prev) => {
       if (!prev?.url && !patch.url) return prev;
-      return { ...(prev ?? DEFAULT_SAASA_CV_COMPANY_LOGO), ...patch };
+      return syncLogoPlacement(prev ?? DEFAULT_SAASA_CV_COMPANY_LOGO, patch);
     });
+  };
+
+  const setLogoApplyTo = (applyTo: SaasaCvLogoApplyTo) => {
+    updateCompanyLogo({ applyTo });
   };
 
   const handleLogoPointerDown = (e: React.PointerEvent) => {
@@ -994,6 +1132,13 @@ export function SaasaCvAnnotationModal({
     e.stopPropagation();
     const pt = pointerToDocPercent(e.clientX, e.clientY);
     if (!pt) return;
+    const heights = logoPageHeightsPx;
+    const total = resolveLogoDocHeight();
+    if (companyLogo.applyTo === 'all' && heights.length && total > 0) {
+      const pageY = saasaCvPageLocalYFromDocY(pt.y, heights, total);
+      updateCompanyLogo({ x: pt.x, pageY });
+      return;
+    }
     updateCompanyLogo({ x: pt.x, y: pt.y });
   };
 
@@ -1082,7 +1227,10 @@ export function SaasaCvAnnotationModal({
           await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
         }
         try {
-          const blob = await captureSaasaCvSurfacePdf(surfaceRef.current);
+          const blob = await captureSaasaCvSurfacePdf(
+            surfaceRef.current,
+            canPdf ? pdfDocMeta?.pageHeightsPx : undefined,
+          );
           if (blob) {
             exportPayload = blob;
             fullSnapshot = true;
@@ -1125,7 +1273,10 @@ export function SaasaCvAnnotationModal({
         (canWord || canPdf || canImage || canText)
       ) {
         try {
-          const blob = await captureSaasaCvSurfacePdf(surfaceRef.current);
+          const blob = await captureSaasaCvSurfacePdf(
+            surfaceRef.current,
+            canPdf ? pdfDocMeta?.pageHeightsPx : undefined,
+          );
           if (blob) {
             exportPayload = blob;
             fullSnapshot = true;
@@ -1168,6 +1319,16 @@ export function SaasaCvAnnotationModal({
     imagePreviewReady ||
     textPreviewReady;
   const docHeightPx = pdfDocMeta?.totalHeight ?? 0;
+  const logoPreviewHeights =
+    logoPageHeightsPx.length > 0
+      ? logoPageHeightsPx
+      : docHeightPx > 0
+        ? [docHeightPx]
+        : [1];
+  const logoPreviewDocHeight = logoPreviewHeights.reduce((s, h) => s + h, 0) || 1;
+  const logoPreviewPositions = companyLogo?.url
+    ? saasaCvLogoDocPositions(companyLogo, logoPreviewHeights, logoPreviewDocHeight)
+    : [];
   const showPdfPaintLayer =
     paintSurfaceReady && activeTool !== 'editText' && !forcePdfEditorCapture;
   const showPaintOverlay =
@@ -1375,6 +1536,30 @@ export function SaasaCvAnnotationModal({
             {canEdit && companyLogo?.url ? (
               <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-slate-200 bg-slate-50 px-4 py-2 sm:px-5">
                 <span className="text-xs font-medium text-slate-600">Logo position</span>
+                <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setLogoApplyTo('current')}
+                    className={`rounded-md px-2.5 py-1 text-[11px] font-semibold transition ${
+                      (companyLogo.applyTo || 'current') === 'current'
+                        ? 'bg-blue-600 text-white'
+                        : 'text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    This page
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLogoApplyTo('all')}
+                    className={`rounded-md px-2.5 py-1 text-[11px] font-semibold transition ${
+                      companyLogo.applyTo === 'all'
+                        ? 'bg-blue-600 text-white'
+                        : 'text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    All pages
+                  </button>
+                </div>
                 <label className="flex min-w-[120px] flex-1 items-center gap-2 text-xs text-slate-600 sm:max-w-[180px]">
                   <span className="shrink-0">H</span>
                   <input
@@ -1392,8 +1577,19 @@ export function SaasaCvAnnotationModal({
                     type="range"
                     min={0}
                     max={100}
-                    value={Math.round(companyLogo.y)}
-                    onChange={(e) => updateCompanyLogo({ y: Number(e.target.value) })}
+                    value={Math.round(
+                      companyLogo.applyTo === 'all'
+                        ? (companyLogo.pageY ?? companyLogo.y)
+                        : companyLogo.y,
+                    )}
+                    onChange={(e) => {
+                      const value = Number(e.target.value);
+                      if (companyLogo.applyTo === 'all') {
+                        updateCompanyLogo({ pageY: value });
+                      } else {
+                        updateCompanyLogo({ y: value });
+                      }
+                    }}
                     className="w-full accent-blue-600"
                   />
                 </label>
@@ -1419,7 +1615,11 @@ export function SaasaCvAnnotationModal({
                     className="w-full accent-blue-600"
                   />
                 </label>
-                <span className="hidden text-[11px] text-slate-500 lg:inline">or drag on the CV</span>
+                <span className="hidden text-[11px] text-slate-500 lg:inline">
+                  {companyLogo.applyTo === 'all'
+                    ? 'Same spot on every page — or drag on the CV'
+                    : 'or drag on the CV'}
+                </span>
               </div>
             ) : null}
 
@@ -1428,7 +1628,6 @@ export function SaasaCvAnnotationModal({
                 <div
                   ref={cvScrollRef}
                   className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain bg-slate-100 p-3 sm:p-5"
-                  style={{ maxHeight: CV_VIEWER_MIN_HEIGHT }}
                 >
                   {(canPdf && pdfError) ||
                   (canImage && imagePreviewError) ||
@@ -1450,7 +1649,7 @@ export function SaasaCvAnnotationModal({
                   ) : (
                     <div
                       ref={surfaceRef}
-                      className={`relative mx-auto w-full rounded-xl border border-slate-200 bg-white ${
+                      className={`relative mx-auto w-full overflow-visible rounded-xl border border-slate-200 bg-white ${
                         pdfEditMode || (canWord && activeTool === 'editText') ? '' : 'select-none'
                       }`}
                       style={
@@ -1485,32 +1684,39 @@ export function SaasaCvAnnotationModal({
                         renderNonPdfPreview()
                       )}
 
-                      {companyLogo?.url ? (
-                        <div
-                          className="pointer-events-auto absolute z-[18] select-none"
-                          style={{
-                            left: `${companyLogo.x}%`,
-                            top: `${companyLogo.y}%`,
-                            width: `${companyLogo.width}%`,
-                            maxWidth: '40%',
-                            opacity: companyLogo.opacity ?? 1,
-                            cursor: canEdit ? (logoDragging ? 'grabbing' : 'grab') : 'default',
-                          }}
-                          onPointerDown={handleLogoPointerDown}
-                          onPointerMove={handleLogoPointerMove}
-                          onPointerUp={handleLogoPointerUp}
-                          onPointerLeave={handleLogoPointerUp}
-                          title="Drag to reposition company logo"
-                        >
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={companyLogo.url}
-                            alt="Company logo"
-                            className="h-auto w-full object-contain"
-                            draggable={false}
-                          />
-                        </div>
-                      ) : null}
+                      {companyLogo?.url
+                        ? logoPreviewPositions.map((pos) => (
+                            <div
+                              key={`logo-page-${pos.pageIndex}`}
+                              className="pointer-events-auto absolute z-[18] select-none"
+                              style={{
+                                left: `${companyLogo.x}%`,
+                                top: `${pos.y}%`,
+                                width: `${companyLogo.width}%`,
+                                maxWidth: '40%',
+                                opacity: companyLogo.opacity ?? 1,
+                                cursor: canEdit ? (logoDragging ? 'grabbing' : 'grab') : 'default',
+                              }}
+                              onPointerDown={handleLogoPointerDown}
+                              onPointerMove={handleLogoPointerMove}
+                              onPointerUp={handleLogoPointerUp}
+                              onPointerLeave={handleLogoPointerUp}
+                              title={
+                                companyLogo.applyTo === 'all'
+                                  ? 'Drag to reposition logo on all pages'
+                                  : 'Drag to reposition company logo'
+                              }
+                            >
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={companyLogo.url}
+                                alt="Company logo"
+                                className="h-auto w-full object-contain"
+                                draggable={false}
+                              />
+                            </div>
+                          ))
+                        : null}
 
                       {showPaintOverlay ? (
                         <>

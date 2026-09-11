@@ -13,8 +13,9 @@ import {
 } from '../../lib/resumePreview';
 import { SaasaCvRasterResumePreview } from './SaasaCvRasterResumePreview';
 import type { SaasaCvAnnotation, SaasaCvCompanyLogo } from '../../lib/saasaCvAnnotations';
-import { clearSaasaCvPdfBytesCache, renderSaasaPdfPages, type SaasaCvPdfDocumentMeta } from '../../lib/saasaCvPdfRender';
-import { attachInPlacePdfTextToHost } from '../../lib/saasaCvPdfTextLayer';
+import { saasaCvLogoDocPositions } from '../../lib/saasaCvAnnotations';
+import { clearSaasaCvPdfBytesCache, measureSaasaPdfPageHeightsPx, renderSaasaPdfPages, type SaasaCvPdfDocumentMeta } from '../../lib/saasaCvPdfRender';
+import { attachInPlacePdfTextToHost, enforcePdfPageLayout } from '../../lib/saasaCvPdfTextLayer';
 import { redrawPaintCanvas, syncCanvasToDocumentSize } from '../../lib/saasaCvPaintCanvas';
 
 const CV_VIEWER_MIN_HEIGHT = 'min(78dvh, 900px)';
@@ -67,6 +68,16 @@ export function SaasaCvCompositePreview({
   const paintSurfaceReady =
     Boolean(pdfDocMeta?.totalHeight) || wordPreviewReady || imagePreviewReady || textPreviewReady;
   const docHeightPx = pdfDocMeta?.totalHeight ?? 0;
+  const logoPreviewHeights =
+    pdfDocMeta?.pageHeightsPx?.length
+      ? pdfDocMeta.pageHeightsPx
+      : docHeightPx > 0
+        ? [docHeightPx]
+        : [1];
+  const logoPreviewDocHeight = logoPreviewHeights.reduce((s, h) => s + h, 0) || 1;
+  const logoPreviewPositions = companyLogo?.url
+    ? saasaCvLogoDocPositions(companyLogo, logoPreviewHeights, logoPreviewDocHeight)
+    : [];
 
   const pinAnnotations = annotations.filter((a) => a.type === 'comment' || a.type === 'important');
   const paintAnnotations = annotations.filter((a) => a.type === 'draw' || a.type === 'highlight');
@@ -97,7 +108,17 @@ export function SaasaCvCompositePreview({
       void renderSaasaPdfPages(host, buildResumeViewerUrl(href))
         .then((meta) => {
           if (cancelled || gen !== pdfLoadGenRef.current) return;
-          setPdfDocMeta(meta);
+          enforcePdfPageLayout(host);
+          const measured = measureSaasaPdfPageHeightsPx(host);
+          const pageHeightsPx = measured.length ? measured : meta.pageHeightsPx;
+          const totalHeight = pageHeightsPx.reduce((sum, h) => sum + h, 0) || meta.totalHeight;
+          setPdfDocMeta({
+            ...meta,
+            pageHeightsPx,
+            totalHeight,
+            pageCount: Math.max(meta.pageCount, pageHeightsPx.length),
+          });
+          host.style.minHeight = `${totalHeight}px`;
         })
         .catch(() => {
           if (cancelled || gen !== pdfLoadGenRef.current) return;
@@ -230,7 +251,7 @@ export function SaasaCvCompositePreview({
       >
         <div
           ref={surfaceRef}
-          className="relative mx-auto w-full select-none rounded-xl border border-slate-200 bg-white"
+          className="relative mx-auto w-full select-none overflow-visible rounded-xl border border-slate-200 bg-white"
           style={
             showPdfPreview && paintSurfaceReady
               ? {
@@ -290,26 +311,29 @@ export function SaasaCvCompositePreview({
             </div>
           )}
 
-          {companyLogo?.url ? (
-            <div
-              className="pointer-events-none absolute z-[18] select-none"
-              style={{
-                left: `${companyLogo.x}%`,
-                top: `${companyLogo.y}%`,
-                width: `${companyLogo.width}%`,
-                maxWidth: '40%',
-                opacity: companyLogo.opacity ?? 1,
-              }}
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={companyLogo.url}
-                alt="Company logo"
-                className="h-auto w-full object-contain"
-                draggable={false}
-              />
-            </div>
-          ) : null}
+          {companyLogo?.url
+            ? logoPreviewPositions.map((pos) => (
+                <div
+                  key={`logo-page-${pos.pageIndex}`}
+                  className="pointer-events-none absolute z-[18] select-none"
+                  style={{
+                    left: `${companyLogo.x}%`,
+                    top: `${pos.y}%`,
+                    width: `${companyLogo.width}%`,
+                    maxWidth: '40%',
+                    opacity: companyLogo.opacity ?? 1,
+                  }}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={companyLogo.url}
+                    alt="Company logo"
+                    className="h-auto w-full object-contain"
+                    draggable={false}
+                  />
+                </div>
+              ))
+            : null}
 
           {paintSurfaceReady ? (
             <canvas
