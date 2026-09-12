@@ -33,6 +33,7 @@ import {
   normalizeClientTrackerOptions,
   type ClientTrackerOptions,
 } from './clientTrackerOptions';
+import { CLIENT_PIPELINE_STAGE_CHOICES } from './clientReviewTypes';
 
 export type BulkSubmitCandidateEntry = {
   candidateId: string;
@@ -57,6 +58,8 @@ export type SubmitToClientPreviewResult = {
   matchId: string;
   batchMatchIds: string[];
   trackerOptions: ClientTrackerOptions;
+  allowedClientStages: string[];
+  clientStageCatalog: string[];
 };
 
 /** Keep API pressure reasonable while still parallelizing bulk preview generation. */
@@ -264,6 +267,7 @@ export async function generateSubmitToClientPreview(
 
   const batchMatchIds = prepared.map((item) => item.matchId);
   const trackerOptions = normalizeClientTrackerOptions(CLIENT_TRACKER_OPTION_DEFAULTS, true);
+  const allowedClientStages = CLIENT_PIPELINE_STAGE_CHOICES.map((s) => s.name);
   const messageJobTitle =
     prepared.find((item) => item.jobTitle)?.jobTitle || mailContextEarly.jobTitle || '';
 
@@ -300,5 +304,7 @@ export async function generateSubmitToClientPreview(
     matchId: prepared[0]!.matchId,
     batchMatchIds,
     trackerOptions,
+    allowedClientStages,
+    clientStageCatalog: allowedClientStages,
   };
 }

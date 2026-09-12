@@ -337,6 +337,9 @@ export function WritingAssistField(props: TextareaProps | InputProps) {
           ref={mergeRefs(localRef as Ref<HTMLInputElement>, inputRef)}
           value={value}
           spellCheck
+          data-gramm="false"
+          data-gramm_editor="false"
+          data-enable-grammarly="false"
           onChange={(e) => onChange(e.target.value)}
           className={className}
         />
@@ -362,6 +365,9 @@ export function WritingAssistField(props: TextareaProps | InputProps) {
         ref={mergeRefs(localRef as Ref<HTMLTextAreaElement>, inputRef)}
         value={value}
         spellCheck
+        data-gramm="false"
+        data-gramm_editor="false"
+        data-enable-grammarly="false"
         onChange={(e) => onChange(e.target.value)}
         className={className}
       />

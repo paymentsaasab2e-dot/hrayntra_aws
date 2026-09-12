@@ -42,6 +42,11 @@ import {
   appendAgreementLevelOption,
   removeAgreementLevelOption,
   DEFAULT_AGREEMENT_LEVEL_OPTIONS,
+  getOrgCustomInterviewTypeOptions,
+  getInterviewTypeOptions,
+  appendInterviewTypeOption,
+  removeInterviewTypeOption,
+  DEFAULT_INTERVIEW_TYPE_OPTIONS,
   DEFAULT_COMPANY_SERVICES,
   RECOMMENDED_COMPANY_SERVICES,
   SUBSCRIPTION_PLAN_OPTIONS,
@@ -867,6 +872,50 @@ router.post('/agreement-levels/remove', async (req, res) => {
     });
   } catch (error) {
     sendError(res, 400, error.message || 'Failed to remove agreement level', error);
+  }
+});
+
+router.get('/interview-types', async (req, res) => {
+  try {
+    const custom = await getOrgCustomInterviewTypeOptions();
+    const statuses = await getInterviewTypeOptions();
+    sendResponse(res, 200, 'OK', {
+      statuses,
+      custom,
+      defaults: DEFAULT_INTERVIEW_TYPE_OPTIONS,
+    });
+  } catch (error) {
+    sendError(res, 500, error.message || 'Failed to load interview types', error);
+  }
+});
+
+router.post('/interview-types/append', async (req, res) => {
+  try {
+    const status = req.body?.status ?? req.body?.type ?? req.body?.name ?? req.body;
+    const statuses = await appendInterviewTypeOption(status);
+    const custom = await getOrgCustomInterviewTypeOptions();
+    sendResponse(res, 200, 'Interview type added', {
+      statuses,
+      custom,
+      defaults: DEFAULT_INTERVIEW_TYPE_OPTIONS,
+    });
+  } catch (error) {
+    sendError(res, 400, error.message || 'Failed to add interview type', error);
+  }
+});
+
+router.post('/interview-types/remove', async (req, res) => {
+  try {
+    const status = req.body?.status ?? req.body?.type ?? req.body?.name ?? req.body;
+    const statuses = await removeInterviewTypeOption(status);
+    const custom = await getOrgCustomInterviewTypeOptions();
+    sendResponse(res, 200, 'Interview type removed', {
+      statuses,
+      custom,
+      defaults: DEFAULT_INTERVIEW_TYPE_OPTIONS,
+    });
+  } catch (error) {
+    sendError(res, 400, error.message || 'Failed to remove interview type', error);
   }
 });
 

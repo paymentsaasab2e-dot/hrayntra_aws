@@ -90,6 +90,8 @@ export async function getCompositeResponse(userId) {
     teamsClientId: prefs.teamsClientId || '',
     teamsClientSecret: teamsSec,
     interviewAutoScheduling: prefs.interviewAutoScheduling,
+    emailComposeSignature: prefs.emailComposeSignature || '',
+    emailComposeSignatureLogoUrl: prefs.emailComposeSignatureLogoUrl || '',
   };
 
   const googleEmail = oauth?.googleEmail || '';
@@ -175,6 +177,8 @@ const putSchema = z.object({
       teamsClientId: z.string().optional(),
       teamsClientSecret: z.string().optional(),
       interviewAutoScheduling: z.boolean().optional(),
+      emailComposeSignature: z.string().max(20000).optional().nullable(),
+      emailComposeSignatureLogoUrl: z.string().max(2000).optional().nullable(),
     })
     .optional(),
   jobBoardKeys: z
@@ -264,6 +268,16 @@ export async function putComposite(userId, body, userEmail) {
       teamsClientId: s.teamsClientId !== undefined ? s.teamsClientId || null : undefined,
       teamsClientSecret: teamsEnc,
       interviewAutoScheduling: s.interviewAutoScheduling ?? undefined,
+      emailComposeSignature:
+        s.emailComposeSignature !== undefined
+          ? String(s.emailComposeSignature || '')
+              .replace(/\r\n/g, '\n')
+              .trimEnd() || null
+          : undefined,
+      emailComposeSignatureLogoUrl:
+        s.emailComposeSignatureLogoUrl !== undefined
+          ? String(s.emailComposeSignatureLogoUrl || '').trim() || null
+          : undefined,
     },
   });
 
@@ -351,6 +365,8 @@ const patchSchema = z.object({
   teamsCalendarSync: z.boolean().optional(),
   smsAutoNotifications: z.boolean().optional(),
   interviewAutoScheduling: z.boolean().optional(),
+  emailComposeSignature: z.string().max(20000).optional().nullable(),
+  emailComposeSignatureLogoUrl: z.string().max(2000).optional().nullable(),
   linkedinApp: z
     .object({
       clientId: z.string().optional(),
@@ -362,11 +378,21 @@ const patchSchema = z.object({
 export async function patchPreferences(userId, body, userEmail) {
   const p = patchSchema.parse(body);
   await ensurePreferences(userId, { email: userEmail });
-  const { linkedinApp, ...prefs } = p;
-  if (Object.keys(prefs).length) {
+  const { linkedinApp, emailComposeSignature, emailComposeSignatureLogoUrl, ...prefs } = p;
+  const data = { ...prefs };
+  if (emailComposeSignature !== undefined) {
+    data.emailComposeSignature =
+      String(emailComposeSignature || '')
+        .replace(/\r\n/g, '\n')
+        .trimEnd() || null;
+  }
+  if (emailComposeSignatureLogoUrl !== undefined) {
+    data.emailComposeSignatureLogoUrl = String(emailComposeSignatureLogoUrl || '').trim() || null;
+  }
+  if (Object.keys(data).length) {
     await prisma.userCommunicationPreferences.update({
       where: { userId },
-      data: prefs,
+      data,
     });
   }
   if (linkedinApp) {
@@ -410,6 +436,8 @@ export async function resetPreferences(userId, userEmail) {
       teamsClientId: null,
       teamsClientSecret: null,
       interviewAutoScheduling: true,
+      emailComposeSignature: null,
+      emailComposeSignatureLogoUrl: null,
     },
   });
   await prisma.jobBoardIntegration.deleteMany({ where: { userId } });

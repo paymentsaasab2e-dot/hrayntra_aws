@@ -55,7 +55,10 @@ import { buildClientReviewSectionsFromPresentation } from '../utils/clientReview
 import {
   mergeCvSubmissionExtraData,
   normalizeClientTrackerOptions,
+  readAllowedClientStagesFromExtraData,
+  readClientStageCatalogFromExtraData,
   readClientTrackerOptionsFromExtraData,
+  CLIENT_PREVIEW_STAGE_CATALOG,
 } from '../utils/clientTrackerOptions.js';
 import { detectResumeContentType, fetchS3ResumeDocumentBuffer } from '../utils/s3PdfFetch.js';
 import { isOurS3PdfUrl } from '../utils/s3.js';
@@ -454,6 +457,7 @@ async function persistCandidateClientReviewActivity({
   uploaderId = null,
   submissionType = 'GENERAL',
   tag = '',
+  stage = '',
   comments = '',
   offerLetterUrl = null,
   file = null,
@@ -493,6 +497,7 @@ async function persistCandidateClientReviewActivity({
         interviewId: interviewId || null,
         submissionType,
         tag: tag || '',
+        stage: stage || '',
         comments: comments || null,
         offerLetterUrl: offerLetterUrl || null,
         documentFileName: file ? file.originalname || file.filename : null,
@@ -517,8 +522,10 @@ async function persistCandidateClientReviewActivity({
       id: `client-review-${Date.now()}`,
       clientName: clientName || 'Client',
       jobId: jobId || null,
+      matchId: matchId || null,
       jobTitle: jobTitle || null,
       tag: tag || '',
+      stage: stage || '',
       comments: comments || '',
       documentUrl: offerLetterUrl || null,
       documentFileName: file ? file.originalname || file.filename : null,
@@ -675,53 +682,81 @@ function resolveReviewTrackerOptions(candidate, decoded) {
   return readClientTrackerOptionsFromExtraData(candidate?.extraData, decoded?.trackerOptions);
 }
 
+/** Fixed stage choices shown to clients on the Client Preview URL. */
 function defaultClientPipelineStageChoices() {
-  return Object.values(PIPELINE_STAGES).map((id) => ({
-    id,
-    name: mapPipelineStageToCrmCandidateLabel(id),
-  }));
+  return CLIENT_PREVIEW_STAGE_CATALOG.map((row) => ({ id: row.id, name: row.name }));
 }
 
-async function loadClientPipelineStageChoices(jobId) {
-  const id = String(jobId || '').trim();
-  if (!id) return defaultClientPipelineStageChoices();
-  try {
-    const rows = await prisma.pipelineStage.findMany({
-      where: { jobId: id },
-      orderBy: { order: 'asc' },
-      select: { id: true, name: true, systemRole: true },
-    });
-    const named = rows
-      .map((row) => ({
-        id: String(row.systemRole || row.id || '').trim() || String(row.name || '').trim(),
-        name: String(row.name || '').trim(),
-      }))
-      .filter((row) => row.name);
-    return named.length ? named : defaultClientPipelineStageChoices();
-  } catch (err) {
-    console.warn('[client-review] pipeline stages lookup failed:', err?.message || err);
-    return defaultClientPipelineStageChoices();
-  }
+function resolveClientPreviewStageChoices(candidate, decoded) {
+  const allowed = readAllowedClientStagesFromExtraData(
+    candidate?.extraData,
+    decoded?.allowedClientStages,
+  );
+  if (allowed.length) return allowed;
+  const catalog = readClientStageCatalogFromExtraData(candidate?.extraData);
+  if (catalog.length) return catalog;
+  return defaultClientPipelineStageChoices();
 }
 
-function resolveClientRequestedStage(raw) {
+async function loadClientPipelineStageChoices(_jobId, candidate = null, decoded = null) {
+  return resolveClientPreviewStageChoices(candidate, decoded);
+}
+
+function resolveClientRequestedStage(raw, allowedStages = null) {
   const value = String(raw || '').trim();
   if (!value) return null;
-  const upper = value.toUpperCase().replace(/[\s-]+/g, '_');
+  const catalog =
+    Array.isArray(allowedStages) && allowedStages.length
+      ? allowedStages
+      : defaultClientPipelineStageChoices();
+  const upper = value.toUpperCase().replace(/[\s-&]+/g, '_');
+  const byId = catalog.find((row) => String(row.id || '').toUpperCase() === upper);
+  if (byId) {
+    return { stage: mapStageNameToPipelineBucket(byId.name), label: byId.name };
+  }
+  const byLabel = catalog.find(
+    (row) => String(row.name || '').toLowerCase() === value.toLowerCase(),
+  );
+  if (byLabel) {
+    return { stage: mapStageNameToPipelineBucket(byLabel.name), label: byLabel.name };
+  }
+  // Reject stages the recruiter did not offer on this preview.
+  if (Array.isArray(allowedStages) && allowedStages.length) {
+    return null;
+  }
   const known = Object.values(PIPELINE_STAGES);
   if (known.includes(upper)) {
     return { stage: upper, label: mapPipelineStageToCrmCandidateLabel(upper) };
   }
-  const byLabel = known.find(
+  const byPipelineLabel = known.find(
     (id) => mapPipelineStageToCrmCandidateLabel(id).toLowerCase() === value.toLowerCase(),
   );
-  if (byLabel) {
-    return { stage: byLabel, label: mapPipelineStageToCrmCandidateLabel(byLabel) };
+  if (byPipelineLabel) {
+    return { stage: byPipelineLabel, label: mapPipelineStageToCrmCandidateLabel(byPipelineLabel) };
   }
   return {
     stage: mapStageNameToPipelineBucket(value),
     label: value,
   };
+}
+
+function readLatestClientMarkedStage(candidate, { matchId = null, jobId = null } = {}) {
+  const extra =
+    candidate?.extraData && typeof candidate.extraData === 'object' && !Array.isArray(candidate.extraData)
+      ? candidate.extraData
+      : {};
+  const reviews = Array.isArray(extra.clientReviews) ? extra.clientReviews : [];
+  const match = String(matchId || '').trim();
+  const job = String(jobId || '').trim();
+  const hit = reviews.find((row) => {
+    if (!row || typeof row !== 'object') return false;
+    const stage = String(row.stage || row.tag || '').trim();
+    if (!stage) return false;
+    if (match && String(row.matchId || '').trim() === match) return true;
+    if (job && String(row.jobId || '').trim() === job) return true;
+    return !match && !job;
+  });
+  return String(hit?.stage || hit?.tag || '').trim() || null;
 }
 
 function applyTrackerOptionsToReviewPayload(payload, trackerOptions) {
@@ -1228,6 +1263,7 @@ function serializeInterviewForClientReview(
     matchScore = null,
     recruiterNotes = '',
     pipelineStages = null,
+    clientMarkedStage = null,
   } = {},
 ) {
   const c = interview.candidate;
@@ -1353,6 +1389,7 @@ function serializeInterviewForClientReview(
     pipelineStages: Array.isArray(pipelineStages) && pipelineStages.length
       ? pipelineStages
       : defaultClientPipelineStageChoices(),
+    clientMarkedStage: String(clientMarkedStage || '').trim() || null,
   };
 
   return applyTrackerOptionsToReviewPayload(
@@ -2490,7 +2527,7 @@ export const interviewService = {
                 orderBy: { uploadDate: 'desc' },
               }),
               loadCandidateFilesForReview(match.candidateId),
-              loadClientPipelineStageChoices(match.jobId),
+              loadClientPipelineStageChoices(match.jobId, match.candidate, decoded),
             ]);
             return serializeInterviewForClientReview(interview, {
               submissionType,
@@ -2503,6 +2540,10 @@ export const interviewService = {
               matchScore: match.score,
               recruiterNotes: match.notes,
               pipelineStages,
+              clientMarkedStage: readLatestClientMarkedStage(match.candidate, {
+                matchId: match.id,
+                jobId: match.jobId,
+              }),
             });
           }),
         );
@@ -2522,6 +2563,7 @@ export const interviewService = {
           experience: detail.candidate?.experience ?? null,
           jobTitle: detail.job?.title || '',
           matchScore: detail.matchScore ?? null,
+          clientMarkedStage: detail.clientMarkedStage || null,
           detail,
         })),
       };
@@ -2550,7 +2592,7 @@ export const interviewService = {
             orderBy: { uploadDate: 'desc' },
           }),
           loadCandidateFilesForReview(iv.candidateId),
-          loadClientPipelineStageChoices(iv.jobId),
+          loadClientPipelineStageChoices(iv.jobId, iv.candidate, decoded),
         ]);
         return { interview: iv, offerLetterFile: offerFile, matchRow, candidateFiles: files, pipelineStages };
       },
@@ -2566,6 +2608,10 @@ export const interviewService = {
       matchScore: matchRow?.score ?? interview.matchScore,
       recruiterNotes: matchRow?.notes || interview.notes,
       pipelineStages,
+      clientMarkedStage: readLatestClientMarkedStage(interview.candidate, {
+        matchId: decoded.matchId || matchRow?.id || null,
+        jobId: interview.jobId,
+      }),
     });
 
     const result = {
@@ -2579,6 +2625,7 @@ export const interviewService = {
           experience: payload.candidate?.experience ?? null,
           jobTitle: payload.job?.title || '',
           matchScore: payload.matchScore ?? null,
+          clientMarkedStage: payload.clientMarkedStage || null,
           detail: payload,
         },
       ],
@@ -2676,9 +2723,13 @@ export const interviewService = {
         trackerSource,
         decoded?.trackerOptions,
       );
+      const allowedStages = readAllowedClientStagesFromExtraData(
+        trackerSource,
+        decoded?.allowedClientStages,
+      );
 
       const resolvedStage = trackerOptions.changeStage
-        ? resolveClientRequestedStage(requestedStage)
+        ? resolveClientRequestedStage(requestedStage, allowedStages)
         : null;
       const displayTag = resolvedStage?.label || tag;
 
@@ -2846,6 +2897,7 @@ export const interviewService = {
           uploaderId,
           submissionType,
           tag: displayTag,
+          stage: resolvedStage?.label || '',
           comments,
           offerLetterUrl,
           file,

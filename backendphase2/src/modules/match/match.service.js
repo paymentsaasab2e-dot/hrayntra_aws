@@ -20,6 +20,8 @@ import {
 } from '../../utils/cvSubmissionSnapshot.js';
 import {
   mergeCvSubmissionExtraData,
+  normalizeAllowedClientStages,
+  normalizeClientStageCatalog,
   normalizeClientTrackerOptions,
 } from '../../utils/clientTrackerOptions.js';
 import { AI_MATCH_AUTHOR_WHERE, MANUAL_MATCH_AUTHOR_WHERE } from './matchQueryHelpers.js';
@@ -68,19 +70,38 @@ const buildClientReviewUrl = async (
   });
 };
 
-async function persistClientTrackerOptionsOnCandidates(candidateIds, trackerOptions) {
+async function persistClientTrackerOptionsOnCandidates(
+  candidateIds,
+  trackerOptions,
+  allowedClientStages = null,
+  clientStageCatalog = null,
+) {
   const ids = Array.from(new Set((candidateIds || []).map((id) => String(id || '').trim()).filter(Boolean)));
   if (!ids.length) return;
   const candidates = await prisma.candidate.findMany({
     where: { id: { in: ids } },
     select: { id: true, extraData: true },
   });
+  const catalog =
+    clientStageCatalog != null
+      ? normalizeClientStageCatalog(clientStageCatalog)
+      : null;
+  const patch = { trackerOptions };
+  if (allowedClientStages != null) {
+    patch.allowedClientStages = normalizeAllowedClientStages(allowedClientStages, {
+      fallbackAll: false,
+      catalog: catalog || undefined,
+    }).map((row) => row.name);
+  }
+  if (catalog) {
+    patch.clientStageCatalog = catalog.map((row) => row.name);
+  }
   await Promise.all(
     candidates.map((row) =>
       prisma.candidate.update({
         where: { id: row.id },
         data: {
-          extraData: mergeCvSubmissionExtraData(row.extraData, { trackerOptions }),
+          extraData: mergeCvSubmissionExtraData(row.extraData, patch),
         },
       }),
     ),
@@ -1148,6 +1169,10 @@ export const matchService = {
               ...existingSubmission,
               ...(cvShareMode ? { shareMode: cvShareMode, snapshot } : {}),
               trackerOptions,
+              allowedClientStages: normalizeAllowedClientStages(null, {
+                fallbackAll: true,
+              }).map((row) => row.name),
+              clientStageCatalog: normalizeClientStageCatalog(null).map((row) => row.name),
               updatedAt: new Date().toISOString(),
               reviewUrl,
             },
@@ -1388,6 +1413,11 @@ export const matchService = {
     const trackerOptions = normalizeClientTrackerOptions(data?.trackerOptions, {
       useNewDefaults: true,
     });
+    const clientStageCatalog = normalizeClientStageCatalog(data?.clientStageCatalog);
+    const allowedClientStages = normalizeAllowedClientStages(data?.allowedClientStages, {
+      fallbackAll: true,
+      catalog: clientStageCatalog,
+    });
     const batchMatchIds = Array.isArray(data?.batchMatchIds)
       ? data.batchMatchIds.map((row) => String(row || '').trim()).filter(Boolean)
       : [];
@@ -1399,9 +1429,16 @@ export const matchService = {
     await persistClientTrackerOptionsOnCandidates(
       matches.map((row) => row.candidateId),
       trackerOptions,
+      allowedClientStages.map((row) => row.name),
+      clientStageCatalog.map((row) => row.name),
     );
 
-    return { matchId: id, trackerOptions };
+    return {
+      matchId: id,
+      trackerOptions,
+      allowedClientStages: allowedClientStages.map((row) => row.name),
+      clientStageCatalog: clientStageCatalog.map((row) => row.name),
+    };
   },
 
   async reject(id, data, userId) {

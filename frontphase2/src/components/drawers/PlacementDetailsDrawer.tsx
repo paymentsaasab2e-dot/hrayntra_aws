@@ -8,7 +8,6 @@ import { DetailsModalShell } from './DetailsModalShell';
 import Link from 'next/link';
 import {
   Activity,
-  Award,
   Briefcase,
   Building2,
   Calendar,
@@ -232,49 +231,41 @@ export function PlacementDetailsDrawer({
             />
             <div className="relative flex items-start justify-between gap-3">
               <div className="min-w-0 flex-1">
-                <div className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-white shadow-md shadow-indigo-500/25">
-                  <Award className="h-3 w-3 text-indigo-100" />
-                  Placement details
-                </div>
                 <h2
                   id="placement-detail-modal-title"
-                  className="mt-2.5 truncate text-xl font-bold tracking-tight text-slate-900 sm:text-2xl"
+                  className="truncate text-xl font-bold tracking-tight text-slate-900 sm:text-2xl"
                 >
                   {loading ? 'Loading…' : candidateName || 'Placement Details'}
                 </h2>
                 {placement ? (
-                  <>
-                    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm text-slate-600">
-                      <span className="inline-flex items-center gap-1.5">
-                        <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100">
-                          <Briefcase size={12} />
-                        </span>
-                        {placement.job.title}
+                  <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm text-slate-600">
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100">
+                        <Briefcase size={12} />
                       </span>
-                      <span className="inline-flex items-center gap-1.5">
-                        <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-violet-50 text-violet-600 ring-1 ring-violet-100">
-                          <Building2 size={12} />
-                        </span>
-                        {placement.client.companyName}
+                      {placement.job.title}
+                    </span>
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-violet-50 text-violet-600 ring-1 ring-violet-100">
+                        <Building2 size={12} />
                       </span>
-                    </div>
-                    <div className="mt-3 flex flex-wrap items-center gap-2">
-                      {statusStyle ? (
-                        <span
-                          className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-bold shadow-sm ${statusStyle.bg} ${statusStyle.text}`}
-                        >
-                          {getPlacementStatusLabel(placement.status)}
-                        </span>
-                      ) : null}
-                      {typeStyle ? (
-                        <span
-                          className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-bold shadow-sm ${typeStyle.bg} ${typeStyle.text}`}
-                        >
-                          {placement.employmentType || '—'}
-                        </span>
-                      ) : null}
-                    </div>
-                  </>
+                      {placement.client.companyName}
+                    </span>
+                    {statusStyle ? (
+                      <span
+                        className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-bold shadow-sm ${statusStyle.bg} ${statusStyle.text}`}
+                      >
+                        {getPlacementStatusLabel(placement.status)}
+                      </span>
+                    ) : null}
+                    {typeStyle ? (
+                      <span
+                        className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-bold shadow-sm ${typeStyle.bg} ${typeStyle.text}`}
+                      >
+                        {placement.employmentType || '—'}
+                      </span>
+                    ) : null}
+                  </div>
                 ) : (
                   <p className="mt-1 text-xs text-slate-500">Offer, billing, and joining overview</p>
                 )}
@@ -352,7 +343,11 @@ export function PlacementDetailsDrawer({
                       ['OFFER_ACCEPTED', 'JOINING_SCHEDULED'].includes(placement.status) ? (
                         <button
                           type="button"
-                          onClick={() => onScheduleJoining(placement)}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            onScheduleJoining(placement);
+                          }}
                           className="rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-amber-500/20 transition hover:brightness-110"
                         >
                           {placement.status === 'JOINING_SCHEDULED'

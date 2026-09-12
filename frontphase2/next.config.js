@@ -1,4 +1,9 @@
 const path = require('path');
+const fs = require('fs');
+
+/** Only when this app lives under hrayntra_aws monorepo (parent has backendphase2). */
+const parentDir = path.join(__dirname, '..');
+const isMonorepoChild = fs.existsSync(path.join(parentDir, 'backendphase2'));
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -6,8 +11,10 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
-  // Monorepo: one lockfile in parent — keeps file tracing predictable
-  outputFileTracingRoot: path.join(__dirname, '..'),
+  // Standalone Vercel deploy must NOT set this — it doubles /vercel/path0/path0/.next
+  ...(isMonorepoChild
+    ? { outputFileTracingRoot: parentDir }
+    : {}),
   // Wide brand PNGs can fail the image optimizer ("received null"); serve statically.
   images: {
     unoptimized: true,

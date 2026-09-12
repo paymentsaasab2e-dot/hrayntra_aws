@@ -14,6 +14,8 @@ import { AssignCompanySelect } from '../assign/AssignCompanySelect';
 import { formatAssigneeDisplayName } from '../../lib/assigneeDisplay';
 import {
   formatJobSalaryCurrencyLabel,
+  formatJobSalaryCurrencyOptionLabel,
+  getJobSalaryCurrencyDisplayName,
   listCustomJobSalaryCurrencies,
   listCustomJobSalaryCurrencyEntries,
   mergeJobSalaryCurrencyOptions,
@@ -596,8 +598,15 @@ export function CreateJobDetailsForm({
     const query = currencySearch.trim().toLowerCase();
     if (!query) return currencyOptions;
     return currencyOptions.filter((code) => {
-      const label = formatJobSalaryCurrencyLabel(code).toLowerCase();
-      return code.toLowerCase().includes(query) || label.includes(query);
+      const label = formatJobSalaryCurrencyOptionLabel(code).toLowerCase();
+      const name = getJobSalaryCurrencyDisplayName(code).toLowerCase();
+      const symbol = formatJobSalaryCurrencyLabel(code).toLowerCase();
+      return (
+        code.toLowerCase().includes(query) ||
+        label.includes(query) ||
+        name.includes(query) ||
+        symbol.includes(query)
+      );
     });
   }, [currencyOptions, currencySearch]);
 
@@ -1004,7 +1013,7 @@ export function CreateJobDetailsForm({
             >
               <span>
                 {formData.salaryCurrency
-                  ? formatJobSalaryCurrencyLabel(formData.salaryCurrency)
+                  ? formatJobSalaryCurrencyOptionLabel(formData.salaryCurrency)
                   : 'Currency'}
               </span>
               <ChevronDown size={15} className="text-slate-400" />
@@ -1039,7 +1048,7 @@ export function CreateJobDetailsForm({
                     ) : (
                       filteredCurrencies.map((code) => {
                         const isCustom = customCurrencyCodeSet.has(code);
-                        const label = formatJobSalaryCurrencyLabel(code);
+                        const label = formatJobSalaryCurrencyOptionLabel(code);
                         return (
                           <li
                             key={code}

@@ -11,6 +11,8 @@ import {
   createCalendarEventFromOutlookMessage,
   createOutlookComposeDraft,
   sendOutlookComposeMail,
+  getOutlookSignature,
+  plainTextToEmailHtml,
 } from './inbox-outlook.util.js';
 
 function decodeBase64Url(value = '') {
@@ -44,6 +46,28 @@ function stripHtmlToText(html = '') {
     .replace(/&nbsp;/gi, ' ')
     .replace(/&#8202;/gi, ' ')
     .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Preserve line breaks when converting a Gmail/Outlook HTML signature to plain text. */
+function htmlSignatureToPlainText(html = '') {
+  const withBreaks = String(html || '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|tr|li|h[1-6])>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'");
+  return withBreaks
+    .split(/\r\n|\n|\r/)
+    .map((line) => line.replace(/[ \t]+/g, ' ').trim())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
 
@@ -230,6 +254,167 @@ function canModifyGmail(scopes = []) {
   );
 }
 
+function canComposeGmail(scopes = []) {
+  const normalized = Array.isArray(scopes) ? scopes.map((scope) => String(scope)) : [];
+  return normalized.some(
+    (scope) =>
+      scope === 'https://www.googleapis.com/auth/gmail.compose' ||
+      scope === 'https://www.googleapis.com/auth/gmail.modify' ||
+      scope === 'https://mail.google.com/',
+  );
+}
+
+function canSendGmail(scopes = []) {
+  const normalized = Array.isArray(scopes) ? scopes.map((scope) => String(scope)) : [];
+  return normalized.some(
+    (scope) =>
+      scope === 'https://www.googleapis.com/auth/gmail.send' ||
+      scope === 'https://www.googleapis.com/auth/gmail.compose' ||
+      scope === 'https://www.googleapis.com/auth/gmail.modify' ||
+      scope === 'https://mail.google.com/',
+  );
+}
+
+function canReadGmailSettings(scopes = []) {
+  const normalized = Array.isArray(scopes) ? scopes.map((scope) => String(scope)) : [];
+  return normalized.some(
+    (scope) =>
+      scope === 'https://www.googleapis.com/auth/gmail.settings.basic' ||
+      scope === 'https://www.googleapis.com/auth/gmail.settings.sharing' ||
+      scope === 'https://mail.google.com/',
+  );
+}
+
+function toBase64Url(value = '') {
+  return Buffer.from(String(value || ''), 'utf8')
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+}
+
+function encodeRfc2047Subject(subject = '') {
+  const text = String(subject || '').trim() || '(No subject)';
+  if (/^[\x20-\x7E]*$/.test(text)) return text;
+  return `=?UTF-8?B?${Buffer.from(text, 'utf8').toString('base64')}?=`;
+}
+
+function parseAddressList(raw = '') {
+  const text = String(raw || '').trim();
+  if (!text) return [];
+  return text
+    .split(/[,;]+/)
+    .map((part) => part.trim())
+    .filter((part) => part.includes('@'));
+}
+
+function buildGmailHtmlRawMessage({
+  fromEmail = '',
+  to = '',
+  cc = '',
+  bcc = '',
+  subject = '',
+  html = '',
+  attachments = [],
+} = {}) {
+  const toList = parseAddressList(to).join(', ');
+  const ccList = parseAddressList(cc).join(', ');
+  const bccList = parseAddressList(bcc).join(', ');
+  const headerLines = [
+    `From: ${fromEmail}`,
+    toList ? `To: ${toList}` : null,
+    ccList ? `Cc: ${ccList}` : null,
+    bccList ? `Bcc: ${bccList}` : null,
+    `Subject: ${encodeRfc2047Subject(subject)}`,
+    'MIME-Version: 1.0',
+  ].filter((line) => line !== null);
+
+  const files = Array.isArray(attachments) ? attachments : [];
+  if (!files.length) {
+    return [
+      ...headerLines,
+      'Content-Type: text/html; charset=UTF-8',
+      'Content-Transfer-Encoding: 8bit',
+      '',
+      String(html || ''),
+    ].join('\r\n');
+  }
+
+  const boundary = `mixed_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+  const parts = [
+    ...headerLines,
+    `Content-Type: multipart/mixed; boundary="${boundary}"`,
+    '',
+    `--${boundary}`,
+    'Content-Type: text/html; charset=UTF-8',
+    'Content-Transfer-Encoding: 7bit',
+    '',
+    String(html || ''),
+  ];
+
+  for (const file of files) {
+    const filename = String(file.filename || 'attachment').replace(/[\r\n"]/g, '_');
+    const contentType = String(file.contentType || 'application/octet-stream');
+    const contentBase64 = String(file.contentBase64 || '').replace(/\s+/g, '');
+    if (!contentBase64) continue;
+    parts.push(
+      `--${boundary}`,
+      `Content-Type: ${contentType}; name="${filename}"`,
+      'Content-Transfer-Encoding: base64',
+      `Content-Disposition: attachment; filename="${filename}"`,
+      '',
+      contentBase64,
+    );
+  }
+
+  parts.push(`--${boundary}--`);
+  return parts.join('\r\n');
+}
+
+/** Normalize compose attachments from the client (base64 payloads). */
+function normalizeComposeAttachments(raw) {
+  const list = Array.isArray(raw) ? raw : [];
+  const out = [];
+  let totalBytes = 0;
+  const MAX_FILES = 10;
+  const MAX_FILE = 10 * 1024 * 1024;
+  const MAX_TOTAL = 12 * 1024 * 1024;
+
+  for (const item of list.slice(0, MAX_FILES)) {
+    const filename =
+      String(item?.filename || item?.name || 'attachment')
+        .replace(/[\r\n"]/g, '_')
+        .slice(0, 200) || 'attachment';
+    const contentType = String(
+      item?.contentType || item?.mimeType || 'application/octet-stream',
+    ).slice(0, 120);
+    let contentBase64 = String(item?.contentBase64 || item?.contentBytes || '').replace(/\s+/g, '');
+    const dataIdx = contentBase64.indexOf('base64,');
+    if (dataIdx >= 0) contentBase64 = contentBase64.slice(dataIdx + 7);
+    if (!contentBase64) continue;
+    const approxBytes = Math.floor((contentBase64.length * 3) / 4);
+    if (approxBytes > MAX_FILE) {
+      throw new Error(`Attachment "${filename}" exceeds the 10MB limit`);
+    }
+    totalBytes += approxBytes;
+    if (totalBytes > MAX_TOTAL) {
+      throw new Error('Total attachments exceed the 12MB limit');
+    }
+    out.push({ filename, contentType, contentBase64 });
+  }
+  return out;
+}
+
+function buildGmailDraftOpenUrl(draftId, accountEmail = '') {
+  const id = String(draftId || '').trim();
+  if (!id) return '';
+  const email = String(accountEmail || '').trim();
+  if (email) {
+    return `https://mail.google.com/mail/?authuser=${encodeURIComponent(email)}#drafts?compose=${encodeURIComponent(id)}`;
+  }
+  return `https://mail.google.com/mail/#drafts?compose=${encodeURIComponent(id)}`;
+}
+
 function canCreateCalendarEvents(scopes = []) {
   const normalized = Array.isArray(scopes) ? scopes.map((scope) => String(scope)) : [];
   return normalized.some(
@@ -244,7 +429,7 @@ async function getGoogleOauthForUser(userId) {
   return prisma.userOAuthTokens.findUnique({ where: { userId } });
 }
 
-async function getGmailAccessContext(userId, { requireModify = false } = {}) {
+async function getGmailAccessContext(userId, { requireModify = false, requireCompose = false, requireSend = false } = {}) {
   const oauth = await getGoogleOauthForUser(userId);
   if (!oauth?.gmailConnected) {
     throw new Error('Gmail is not connected');
@@ -264,7 +449,7 @@ async function getGmailAccessContext(userId, { requireModify = false } = {}) {
     throw error;
   }
 
-  if (!canReadGmailInbox(oauth.googleScope || [])) {
+  if (!canReadGmailInbox(oauth.googleScope || []) && !canSendGmail(oauth.googleScope || [])) {
     const error = new Error('Reconnect Gmail to grant inbox access');
     error.code = 'GMAIL_RECONNECT_REQUIRED';
     throw error;
@@ -273,6 +458,18 @@ async function getGmailAccessContext(userId, { requireModify = false } = {}) {
   if (requireModify && !canModifyGmail(oauth.googleScope || [])) {
     const error = new Error('Reconnect Gmail to grant inbox action permissions');
     error.code = 'GMAIL_MODIFY_SCOPE_REQUIRED';
+    throw error;
+  }
+
+  if (requireCompose && !canComposeGmail(oauth.googleScope || [])) {
+    const error = new Error('Reconnect Gmail to grant compose/draft permissions');
+    error.code = 'GMAIL_COMPOSE_SCOPE_REQUIRED';
+    throw error;
+  }
+
+  if (requireSend && !canSendGmail(oauth.googleScope || [])) {
+    const error = new Error('Reconnect Gmail to grant send permissions');
+    error.code = 'GMAIL_SEND_SCOPE_REQUIRED';
     throw error;
   }
 
@@ -682,6 +879,184 @@ export const inboxService = {
   },
 
   async sendOutlookComposeMail(userId, body = {}) {
-    return sendOutlookComposeMail(userId, body);
+    const attachments = normalizeComposeAttachments(body?.attachments);
+    return sendOutlookComposeMail(userId, { ...body, attachments });
+  },
+
+  /**
+   * Fetch the connected Gmail account signature (sendAs).
+   * Returns empty html/text when missing or when settings scope is not granted
+   * so the client can fall back to the in-app signature.
+   */
+  async getGmailSignature(userId) {
+    const oauth = await getGoogleOauthForUser(userId);
+    if (!oauth?.gmailConnected) {
+      return {
+        connected: false,
+        email: '',
+        html: '',
+        text: '',
+        source: 'none',
+        requiresReconnect: false,
+      };
+    }
+
+    const accountEmail = String(oauth.googleEmail || '').trim();
+    if (!canReadGmailSettings(oauth.googleScope || [])) {
+      return {
+        connected: true,
+        email: accountEmail,
+        html: '',
+        text: '',
+        source: 'none',
+        requiresReconnect: true,
+      };
+    }
+
+    let accessToken;
+    try {
+      accessToken = await oauthTokenService.getValidGoogleAccessToken(userId);
+    } catch {
+      return {
+        connected: true,
+        email: accountEmail,
+        html: '',
+        text: '',
+        source: 'none',
+        requiresReconnect: true,
+      };
+    }
+    if (!accessToken) {
+      return {
+        connected: true,
+        email: accountEmail,
+        html: '',
+        text: '',
+        source: 'none',
+        requiresReconnect: true,
+      };
+    }
+
+    try {
+      const data = await fetchGmailJson(accessToken, 'settings/sendAs');
+      const list = Array.isArray(data?.sendAs) ? data.sendAs : [];
+      const emailLower = accountEmail.toLowerCase();
+      const match =
+        list.find((row) => String(row?.sendAsEmail || '').toLowerCase() === emailLower) ||
+        list.find((row) => row?.isPrimary) ||
+        list.find((row) => row?.isDefault) ||
+        list[0] ||
+        null;
+      const html = String(match?.signature || '').trim();
+      const text = html ? htmlSignatureToPlainText(html) : '';
+      return {
+        connected: true,
+        email: accountEmail || String(match?.sendAsEmail || '').trim(),
+        html,
+        text,
+        source: html || text ? 'provider' : 'none',
+        requiresReconnect: false,
+      };
+    } catch (error) {
+      if (isGoogleAuthError(error) || Number(error?.status) === 403) {
+        return {
+          connected: true,
+          email: accountEmail,
+          html: '',
+          text: '',
+          source: 'none',
+          requiresReconnect: true,
+        };
+      }
+      return {
+        connected: true,
+        email: accountEmail,
+        html: '',
+        text: '',
+        source: 'none',
+        requiresReconnect: false,
+      };
+    }
+  },
+
+  /**
+   * Outlook / Graph does not expose mailbox signatures.
+   * Returns empty so the client falls back to the in-app signature.
+   */
+  async getOutlookSignature(userId) {
+    return getOutlookSignature(userId);
+  },
+
+  async createGmailComposeDraft(userId, body = {}) {
+    const { oauth, accessToken } = await getGmailAccessContext(userId, { requireCompose: true });
+    const accountEmail = String(oauth.googleEmail || '').trim();
+    const html = plainTextToEmailHtml(body?.body || '');
+    const raw = buildGmailHtmlRawMessage({
+      fromEmail: accountEmail,
+      to: body?.to || '',
+      cc: body?.cc || '',
+      bcc: body?.bcc || '',
+      subject: body?.subject || '',
+      html,
+    });
+
+    const created = await fetchGmailJson(accessToken, 'drafts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: { raw: toBase64Url(raw) },
+      }),
+    });
+
+    const draftId = String(created?.id || '').trim();
+    if (!draftId) {
+      throw new Error('Gmail did not return a draft id');
+    }
+
+    const openUrl = buildGmailDraftOpenUrl(draftId, accountEmail);
+    return {
+      id: draftId,
+      email: accountEmail,
+      sent: false,
+      webLink: openUrl || null,
+      openUrl: openUrl || null,
+    };
+  },
+
+  async sendGmailComposeMail(userId, body = {}) {
+    const toList = parseAddressList(body?.to || '');
+    if (!toList.length) {
+      throw new Error('Recipient email is required to send with Gmail');
+    }
+
+    const attachments = normalizeComposeAttachments(body?.attachments);
+    const { oauth, accessToken } = await getGmailAccessContext(userId, { requireSend: true });
+    const accountEmail = String(oauth.googleEmail || '').trim();
+    const html = plainTextToEmailHtml(body?.body || '');
+    const raw = buildGmailHtmlRawMessage({
+      fromEmail: accountEmail,
+      to: body?.to || '',
+      cc: body?.cc || '',
+      bcc: body?.bcc || '',
+      subject: body?.subject || '',
+      html,
+      attachments,
+    });
+
+    const sent = await fetchGmailJson(accessToken, 'messages/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ raw: toBase64Url(raw) }),
+    });
+
+    return {
+      sent: true,
+      email: accountEmail,
+      to: toList.join(', '),
+      cc: parseAddressList(body?.cc || '').join(', '),
+      bcc: parseAddressList(body?.bcc || '').join(', '),
+      messageId: sent?.id || null,
+      attachmentCount: attachments.length,
+    };
   },
 };

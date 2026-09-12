@@ -39,11 +39,16 @@ function linkLabelForUrl(href: string): string {
 const ANCHOR_STYLE =
   'color:#1a73e8;text-decoration:underline;word-break:break-all';
 
-/** Escape plain text and wrap http(s)/www URLs in <a href> anchors. */
-export function linkifyPlainTextToHtml(text: string): string {
-  const raw = String(text || '');
-  if (!raw.trim()) return '';
+function anchorHtml(href: string): string {
+  const safeHref = escapeHtml(href);
+  const label = escapeHtml(linkLabelForUrl(href));
+  return `<a href="${safeHref}" target="_blank" rel="noopener noreferrer" style="${ANCHOR_STYLE}">${label}</a>`;
+}
 
+/** Linkify bare URLs inside a plain-text segment (no HTML tags). */
+function linkifyPlainSegment(segment: string): string {
+  const raw = String(segment || '');
+  if (!raw) return '';
   const parts: string[] = [];
   let last = 0;
   URL_RE.lastIndex = 0;
@@ -54,11 +59,7 @@ export function linkifyPlainTextToHtml(text: string): string {
     if (start > last) {
       parts.push(escapeHtml(raw.slice(last, start)).replace(/\r\n|\n|\r/g, '<br/>'));
     }
-    const href = normalizeHref(matched);
-    const label = escapeHtml(linkLabelForUrl(href));
-    parts.push(
-      `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" style="${ANCHOR_STYLE}">${label}</a>`,
-    );
+    parts.push(anchorHtml(normalizeHref(matched)));
     last = start + matched.length;
   }
   if (last < raw.length) {
@@ -67,10 +68,75 @@ export function linkifyPlainTextToHtml(text: string): string {
   return parts.join('');
 }
 
-/** Full HTML email body wrapper for Graph / rich mail clients. */
+/**
+ * Linkify bare http(s)/www URLs that are not already inside an href="…" or <a>…</a>.
+ * Safe to run on mixed HTML (e.g. body + signature).
+ */
+export function linkifyBareUrlsInHtml(html: string): string {
+  const raw = String(html || '');
+  if (!raw.trim()) return '';
+
+  // Split into tags vs text so we never rewrite existing markup/attributes.
+  const chunks = raw.split(/(<[^>]+>)/g);
+  let insideAnchor = 0;
+  return chunks
+    .map((chunk) => {
+      if (!chunk) return '';
+      if (chunk.startsWith('<')) {
+        if (/^<\s*a\b/i.test(chunk)) insideAnchor += 1;
+        if (/^<\s*\/\s*a\s*>/i.test(chunk)) insideAnchor = Math.max(0, insideAnchor - 1);
+        return chunk;
+      }
+      if (insideAnchor > 0) return chunk;
+      // Text node: linkify without double-escaping existing entities already in HTML.
+      // Re-escape only when the segment has no entities that look pre-escaped — use a lighter pass.
+      URL_RE.lastIndex = 0;
+      if (!URL_RE.test(chunk)) return chunk.replace(/\r\n|\n|\r/g, '<br/>');
+      URL_RE.lastIndex = 0;
+      const parts: string[] = [];
+      let last = 0;
+      let match: RegExpExecArray | null;
+      while ((match = URL_RE.exec(chunk)) !== null) {
+        const start = match.index;
+        const matched = match[1] || match[0];
+        if (start > last) {
+          parts.push(chunk.slice(last, start).replace(/\r\n|\n|\r/g, '<br/>'));
+        }
+        parts.push(anchorHtml(normalizeHref(matched)));
+        last = start + matched.length;
+      }
+      if (last < chunk.length) {
+        parts.push(chunk.slice(last).replace(/\r\n|\n|\r/g, '<br/>'));
+      }
+      return parts.join('');
+    })
+    .join('');
+}
+
+/** Escape plain text and wrap http(s)/www URLs in <a href> anchors. */
+export function linkifyPlainTextToHtml(text: string): string {
+  const raw = String(text || '');
+  if (!raw.trim()) return '';
+  if (/<[a-z][\s\S]*>/i.test(raw)) {
+    return linkifyBareUrlsInHtml(raw);
+  }
+  return linkifyPlainSegment(raw);
+}
+
+/** Full HTML email body wrapper for Graph / Gmail / rich mail clients. */
 export function plainTextToEmailHtml(text: string): string {
-  const linked = linkifyPlainTextToHtml(text);
-  if (!linked) return '<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#202124;"></div>';
+  const raw = String(text || '');
+  if (!raw.trim()) {
+    return '<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#202124;"></div>';
+  }
+
+  // Already a wrapped HTML email — still ensure bare URLs become anchors.
+  if (/font-family:\s*Arial/i.test(raw) && /<div[\s>]/i.test(raw)) {
+    return linkifyBareUrlsInHtml(raw);
+  }
+
+  const linked = linkifyPlainTextToHtml(raw);
+  if (/^<div[\s>]/i.test(linked.trim())) return linked;
   return `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#202124;">${linked}</div>`;
 }
 

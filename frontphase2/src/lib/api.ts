@@ -1503,6 +1503,26 @@ export async function apiRemoveAgreementLevel(level: string) {
   });
 }
 
+export async function apiGetInterviewTypeCatalog() {
+  return apiFetch<StatusCatalogResponse>('/settings/org/interview-types', { auth: true });
+}
+
+export async function apiAppendInterviewType(status: string) {
+  return apiFetch<StatusCatalogResponse>('/settings/org/interview-types/append', {
+    method: 'POST',
+    auth: true,
+    body: { status },
+  });
+}
+
+export async function apiRemoveInterviewType(status: string) {
+  return apiFetch<StatusCatalogResponse>('/settings/org/interview-types/remove', {
+    method: 'POST',
+    auth: true,
+    body: { status },
+  });
+}
+
 export async function apiApplyPipelineTemplateToEmptyJobs() {
   return apiFetch<{
     updatedJobs: number;
@@ -5415,6 +5435,21 @@ export async function apiUploadUserAvatar(userId: string, file: File) {
   });
 }
 
+/** Upload an image for the email compose signature (public URL for email clients). */
+export async function apiUploadEmailSignatureLogo(_userId: string, file: File) {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  return apiFetchFormData<{ fileUrl: string; settings?: CommunicationSettingsShape }>(
+    '/settings/communication/signature-logo',
+    formData,
+    {
+      method: 'POST',
+      auth: true,
+    },
+  );
+}
+
 export async function apiUploadCandidateAvatar(candidateId: string, file: File) {
   const formData = new FormData();
   formData.append('file', file);
@@ -8049,17 +8084,21 @@ export const apiUpdateClientTracker = async (
   matchId: string,
   payload: {
     trackerOptions: Record<string, boolean>;
+    allowedClientStages?: string[];
+    clientStageCatalog?: string[];
     batchMatchIds?: string[];
   },
 ) => {
-  return apiFetch<{ matchId: string; trackerOptions: Record<string, boolean> }>(
-    `/matches/${matchId}/client-tracker`,
-    {
-      method: 'PATCH',
-      body: payload,
-      auth: true,
-    },
-  );
+  return apiFetch<{
+    matchId: string;
+    trackerOptions: Record<string, boolean>;
+    allowedClientStages?: string[];
+    clientStageCatalog?: string[];
+  }>(`/matches/${matchId}/client-tracker`, {
+    method: 'PATCH',
+    body: payload,
+    auth: true,
+  });
 };
 
 export const apiRejectMatch = async (
@@ -10467,17 +10506,23 @@ export type OutlookComposeDraftResult = {
   id: string;
   email?: string;
   sent?: boolean;
+  webLink?: string | null;
+  openUrl?: string | null;
 };
 
 export type OutlookSendMailResult = {
   sent: boolean;
   email?: string;
   to?: string;
+  cc?: string;
+  bcc?: string;
 };
 
-/** Create a draft in the connected Outlook mailbox (no Outlook Web open). */
+/** Create a draft in the connected Outlook mailbox (open in Outlook for signature). */
 export const apiCreateOutlookComposeDraft = async (body: {
   to?: string;
+  cc?: string;
+  bcc?: string;
   subject: string;
   body: string;
 }) => {
@@ -10492,14 +10537,80 @@ export const apiCreateOutlookComposeDraft = async (body: {
 /** Send mail from the connected Outlook mailbox via Microsoft Graph. */
 export const apiSendOutlookComposeMail = async (body: {
   to?: string;
+  cc?: string;
+  bcc?: string;
   subject: string;
   body: string;
+  attachments?: Array<{
+    filename: string;
+    contentType: string;
+    contentBase64: string;
+  }>;
 }) => {
   const res = await apiFetch<OutlookSendMailResult>('/inbox/outlook/send-mail', {
     method: 'POST',
     body,
     auth: true,
   });
+  return res.data;
+};
+
+/** Create a Gmail draft with HTML clickable links, then open it in Gmail. */
+export const apiCreateGmailComposeDraft = async (body: {
+  to?: string;
+  cc?: string;
+  bcc?: string;
+  subject: string;
+  body: string;
+}) => {
+  const res = await apiFetch<OutlookComposeDraftResult>('/inbox/gmail/compose-draft', {
+    method: 'POST',
+    body,
+    auth: true,
+  });
+  return res.data;
+};
+
+/** Send mail from the connected Gmail mailbox via Gmail API (HTML body). */
+export const apiSendGmailComposeMail = async (body: {
+  to?: string;
+  cc?: string;
+  bcc?: string;
+  subject: string;
+  body: string;
+  attachments?: Array<{
+    filename: string;
+    contentType: string;
+    contentBase64: string;
+  }>;
+}) => {
+  const res = await apiFetch<OutlookSendMailResult>('/inbox/gmail/send-mail', {
+    method: 'POST',
+    body,
+    auth: true,
+  });
+  return res.data;
+};
+
+export type MailboxSignatureResult = {
+  connected: boolean;
+  email?: string;
+  html?: string;
+  text?: string;
+  source?: 'provider' | 'none' | string;
+  requiresReconnect?: boolean;
+  unsupported?: boolean;
+};
+
+/** Fetch signature from the connected Gmail send-as settings (empty if none / needs reconnect). */
+export const apiGetGmailSignature = async () => {
+  const res = await apiFetch<MailboxSignatureResult>('/inbox/gmail/signature', { auth: true });
+  return res.data;
+};
+
+/** Outlook signatures are not exposed by Graph — returns empty so the app signature is used. */
+export const apiGetOutlookSignature = async () => {
+  const res = await apiFetch<MailboxSignatureResult>('/inbox/outlook/signature', { auth: true });
   return res.data;
 };
 
@@ -10738,6 +10849,8 @@ export interface CommunicationSettingsShape {
   teamsClientId: string;
   teamsClientSecret: string;
   interviewAutoScheduling: boolean;
+  emailComposeSignature: string;
+  emailComposeSignatureLogoUrl: string;
 }
 
 export type ConnectionStatus = { connected: boolean; email?: string; pageName?: string };
@@ -10787,6 +10900,8 @@ export const apiPatchUserCommunicationPrefs = async (
       | 'teamsCalendarSync'
       | 'smsAutoNotifications'
       | 'interviewAutoScheduling'
+      | 'emailComposeSignature'
+      | 'emailComposeSignatureLogoUrl'
     >
   > & { linkedinApp?: Partial<CommunicationFullResponse['linkedinApp']> }
 ) => {

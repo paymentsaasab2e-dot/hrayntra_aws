@@ -48,18 +48,17 @@ function linkLabelForUrl(href = '') {
 const URL_RE =
   /((?:https?:\/\/|www\.)[^\s<>"'{}|\\^`\[\]]+[^\s<>"'{}|\\^`\[\].,;:!?)]+)/gi;
 
-/** Plain text → HTML with clickable <a> links (Gmail/Outlook style). */
-function plainTextToEmailHtml(text = '') {
-  const raw = String(text || '');
-  if (!raw.trim()) {
-    return '<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#202124;"></div>';
-  }
+const ANCHOR_STYLE = 'color:#1a73e8;text-decoration:underline;word-break:break-all';
 
-  // Already HTML with anchors — keep as-is.
-  if (/<[a-z][\s\S]*>/i.test(raw) && /<a\s/i.test(raw)) {
-    return raw;
-  }
+function anchorHtml(href = '') {
+  const safeHref = escapeHtml(href);
+  const label = escapeHtml(linkLabelForUrl(href));
+  return `<a href="${safeHref}" target="_blank" rel="noopener noreferrer" style="${ANCHOR_STYLE}">${label}</a>`;
+}
 
+function linkifyPlainSegment(segment = '') {
+  const raw = String(segment || '');
+  if (!raw) return '';
   const parts = [];
   let last = 0;
   URL_RE.lastIndex = 0;
@@ -70,19 +69,71 @@ function plainTextToEmailHtml(text = '') {
     if (start > last) {
       parts.push(escapeHtml(raw.slice(last, start)).replace(/\r\n|\n|\r/g, '<br/>'));
     }
-    const href = normalizeHref(matched);
-    const label = escapeHtml(linkLabelForUrl(href));
-    parts.push(
-      `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" style="color:#1a73e8;text-decoration:underline;word-break:break-all;">${label}</a>`
-    );
+    parts.push(anchorHtml(normalizeHref(matched)));
     last = start + matched.length;
     match = URL_RE.exec(raw);
   }
   if (last < raw.length) {
     parts.push(escapeHtml(raw.slice(last)).replace(/\r\n|\n|\r/g, '<br/>'));
   }
+  return parts.join('');
+}
 
-  return `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#202124;">${parts.join('')}</div>`;
+/** Linkify bare URLs outside existing tags / anchors (safe for mixed HTML). */
+function linkifyBareUrlsInHtml(html = '') {
+  const raw = String(html || '');
+  if (!raw.trim()) return '';
+  const chunks = raw.split(/(<[^>]+>)/g);
+  let insideAnchor = 0;
+  return chunks
+    .map((chunk) => {
+      if (!chunk) return '';
+      if (chunk.startsWith('<')) {
+        if (/^<\s*a\b/i.test(chunk)) insideAnchor += 1;
+        if (/^<\s*\/\s*a\s*>/i.test(chunk)) insideAnchor = Math.max(0, insideAnchor - 1);
+        return chunk;
+      }
+      if (insideAnchor > 0) return chunk;
+      URL_RE.lastIndex = 0;
+      if (!URL_RE.test(chunk)) return chunk.replace(/\r\n|\n|\r/g, '<br/>');
+      URL_RE.lastIndex = 0;
+      const parts = [];
+      let last = 0;
+      let match = URL_RE.exec(chunk);
+      while (match) {
+        const start = match.index;
+        const matched = match[1] || match[0];
+        if (start > last) parts.push(chunk.slice(last, start).replace(/\r\n|\n|\r/g, '<br/>'));
+        parts.push(anchorHtml(normalizeHref(matched)));
+        last = start + matched.length;
+        match = URL_RE.exec(chunk);
+      }
+      if (last < chunk.length) parts.push(chunk.slice(last).replace(/\r\n|\n|\r/g, '<br/>'));
+      return parts.join('');
+    })
+    .join('');
+}
+
+/** Plain text → HTML with clickable <a> links (Gmail/Outlook style). */
+export function plainTextToEmailHtml(text = '') {
+  const raw = String(text || '');
+  if (!raw.trim()) {
+    return '<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#202124;"></div>';
+  }
+
+  // Already wrapped HTML email — still ensure bare URLs become anchors.
+  if (/font-family:\s*Arial/i.test(raw) && /<div[\s>]/i.test(raw)) {
+    return linkifyBareUrlsInHtml(raw);
+  }
+
+  if (/<[a-z][\s\S]*>/i.test(raw)) {
+    const linked = linkifyBareUrlsInHtml(raw);
+    if (/^<div[\s>]/i.test(linked.trim())) return linked;
+    return `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#202124;">${linked}</div>`;
+  }
+
+  const linked = linkifyPlainSegment(raw);
+  return `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#202124;">${linked}</div>`;
 }
 
 function sanitizeHtmlDocument(html = '') {
@@ -416,6 +467,45 @@ function nextPageTokenFromGraph(payload) {
   return next || null;
 }
 
+/**
+ * Microsoft Graph does not expose Outlook signatures.
+ * Keep a stable response shape so compose can fall back to the in-app signature.
+ */
+export async function getOutlookSignature(userId) {
+  const oauth = await getOutlookOauth(userId);
+  if (!oauth?.outlookConnected) {
+    return {
+      connected: false,
+      email: '',
+      html: '',
+      text: '',
+      source: 'none',
+      requiresReconnect: false,
+      unsupported: true,
+    };
+  }
+
+  let email = String(oauth.microsoftEmail || '').trim();
+  try {
+    const accessToken = await oauthTokenService.getValidMicrosoftAccessToken(userId);
+    if (accessToken) {
+      email = (await resolveOutlookEmail(accessToken, email)) || email;
+    }
+  } catch {
+    /* ignore — still report connected so client can use app signature */
+  }
+
+  return {
+    connected: true,
+    email,
+    html: '',
+    text: '',
+    source: 'none',
+    requiresReconnect: false,
+    unsupported: true,
+  };
+}
+
 export async function getOutlookMailboxStatus(userId) {
   const oauth = await getOutlookOauth(userId);
   return {
@@ -587,9 +677,45 @@ export async function createCalendarEventFromOutlookMessage(userId, messageId) {
  * Send mail from the connected Outlook mailbox via Graph.
  * Does not open Outlook Web — personal deeplinks redirect to marketing / read views.
  */
-export async function sendOutlookComposeMail(userId, { to = '', subject = '', body = '' } = {}) {
-  const toAddress = String(to || '').trim();
-  if (!toAddress) {
+function parseEmailList(raw) {
+  const text = String(raw || '').trim();
+  if (!text) return [];
+  const parts = Array.isArray(raw)
+    ? raw
+    : text.split(/[,;]+/).map((part) => part.trim()).filter(Boolean);
+  const emails = [];
+  for (const part of parts) {
+    const value = String(part || '').trim();
+    if (!value) continue;
+    const match = value.match(/<([^>]+)>/);
+    const address = String(match?.[1] || value).trim().toLowerCase();
+    if (!address.includes('@')) continue;
+    if (!emails.some((row) => row === address)) emails.push(address);
+  }
+  return emails;
+}
+
+function toGraphRecipients(raw) {
+  return parseEmailList(raw).map((address) => ({ emailAddress: { address } }));
+}
+
+function buildOutlookDraftOpenUrl(messageId, accountEmail = '') {
+  const id = String(messageId || '').trim();
+  if (!id) return '';
+  const encoded = encodeURIComponent(id);
+  const personal = /@(outlook|hotmail|live|msn)\.com$/i.test(String(accountEmail || ''));
+  if (personal) {
+    return `https://outlook.live.com/mail/0/deeplink/compose?ItemID=${encoded}`;
+  }
+  return `https://outlook.office.com/mail/deeplink/compose?ItemID=${encoded}&exvsurl=1`;
+}
+
+export async function sendOutlookComposeMail(
+  userId,
+  { to = '', cc = '', bcc = '', subject = '', body = '', attachments = [] } = {},
+) {
+  const toRecipients = toGraphRecipients(to);
+  if (!toRecipients.length) {
     throw new Error('Client email is required to send with Outlook');
   }
 
@@ -598,17 +724,33 @@ export async function sendOutlookComposeMail(userId, { to = '', subject = '', bo
     (await resolveOutlookEmail(accessToken, normalizeMicrosoftEmail(oauth.microsoftEmail || ''))) ||
     normalizeMicrosoftEmail(oauth.microsoftEmail || '');
 
+  const message = {
+    subject: String(subject || '').trim() || '(No subject)',
+    body: {
+      contentType: 'HTML',
+      content: plainTextToEmailHtml(body),
+    },
+    toRecipients,
+  };
+  const ccRecipients = toGraphRecipients(cc);
+  const bccRecipients = toGraphRecipients(bcc);
+  if (ccRecipients.length) message.ccRecipients = ccRecipients;
+  if (bccRecipients.length) message.bccRecipients = bccRecipients;
+
+  const files = Array.isArray(attachments) ? attachments : [];
+  if (files.length) {
+    message.attachments = files.map((file) => ({
+      '@odata.type': '#microsoft.graph.fileAttachment',
+      name: String(file.filename || 'attachment').replace(/[\r\n"]/g, '_'),
+      contentType: String(file.contentType || 'application/octet-stream'),
+      contentBytes: String(file.contentBase64 || '').replace(/\s+/g, ''),
+    }));
+  }
+
   await fetchGraphJson('https://graph.microsoft.com/v1.0/me/sendMail', accessToken, {
     method: 'POST',
     body: JSON.stringify({
-      message: {
-        subject: String(subject || '').trim() || '(No subject)',
-        body: {
-          contentType: 'HTML',
-          content: plainTextToEmailHtml(body),
-        },
-        toRecipients: [{ emailAddress: { address: toAddress } }],
-      },
+      message,
       saveToSentItems: true,
     }),
   });
@@ -616,30 +758,38 @@ export async function sendOutlookComposeMail(userId, { to = '', subject = '', bo
   return {
     sent: true,
     email: accountEmail,
-    to: toAddress,
+    to: toRecipients.map((row) => row.emailAddress.address).join(', '),
+    cc: ccRecipients.map((row) => row.emailAddress.address).join(', '),
+    bcc: bccRecipients.map((row) => row.emailAddress.address).join(', '),
+    attachmentCount: files.length,
   };
 }
 
 /**
- * Create a draft in the connected Outlook mailbox (Graph) when send is not possible yet.
+ * Create a draft in the connected Outlook mailbox (Graph).
+ * Returns openUrl so the user can finish in Outlook (signature/footer applies there).
  */
-export async function createOutlookComposeDraft(userId, { to = '', subject = '', body = '' } = {}) {
+export async function createOutlookComposeDraft(
+  userId,
+  { to = '', cc = '', bcc = '', subject = '', body = '' } = {},
+) {
   const { oauth, accessToken } = await getOutlookAccessContext(userId, { requireModify: true });
   const accountEmail =
     (await resolveOutlookEmail(accessToken, normalizeMicrosoftEmail(oauth.microsoftEmail || ''))) ||
     normalizeMicrosoftEmail(oauth.microsoftEmail || '');
 
-  const toAddress = String(to || '').trim();
   const payload = {
     subject: String(subject || '').trim() || '(No subject)',
     body: {
       contentType: 'HTML',
       content: plainTextToEmailHtml(body),
     },
-    toRecipients: toAddress
-      ? [{ emailAddress: { address: toAddress } }]
-      : [],
+    toRecipients: toGraphRecipients(to),
   };
+  const ccRecipients = toGraphRecipients(cc);
+  const bccRecipients = toGraphRecipients(bcc);
+  if (ccRecipients.length) payload.ccRecipients = ccRecipients;
+  if (bccRecipients.length) payload.bccRecipients = bccRecipients;
 
   const created = await fetchGraphJson('https://graph.microsoft.com/v1.0/me/messages', accessToken, {
     method: 'POST',
@@ -651,9 +801,14 @@ export async function createOutlookComposeDraft(userId, { to = '', subject = '',
     throw new Error('Outlook did not return a draft id');
   }
 
+  const webLink = String(created?.webLink || '').trim();
+  const openUrl = buildOutlookDraftOpenUrl(id, accountEmail) || webLink;
+
   return {
     id,
     email: accountEmail,
     sent: false,
+    webLink: webLink || null,
+    openUrl: openUrl || null,
   };
 }

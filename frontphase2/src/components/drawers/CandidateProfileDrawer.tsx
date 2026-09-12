@@ -73,14 +73,17 @@ import { getCandidateStageBadgeClasses, getCandidateStageLabel } from '../../uti
 import { useFiles } from '../../hooks/useFiles';
 import { DocumentUploadButton } from '../import/documentUploadUi';
 import {
+  apiAppendInterviewType,
   apiGenerateCandidateInterviewMeetingLink,
   apiGetCandidate,
   apiGetClient,
   apiGetClients,
+  apiGetInterviewTypeCatalog,
   apiGetInterviews,
   apiGetJob,
   apiGetJobs,
   apiGetWorkspaceClient,
+  apiRemoveInterviewType,
   apiUploadCandidateAvatar,
   getCachedOrgRecruitmentMode,
   type BackendCandidate,
@@ -96,6 +99,7 @@ import { parseClientsListFromResponse, parseJobsListFromResponse } from '../../l
 import {
   clampDateToMinLocal,
   getLocalTimeInputMinNow,
+  openNativeDateTimePicker,
 } from '../../utils/dateInputConstraints';
 import {
   computeNextInterviewRound,
@@ -166,6 +170,8 @@ export interface CandidatePipelineJobOption {
   clientName?: string | null;
   managerId?: string | null;
   managerName?: string | null;
+  /** Job status label/enum used to keep schedule picker on open roles. */
+  status?: string | null;
 }
 
 export interface CandidatePipelineRecruiterOption {
@@ -665,6 +671,51 @@ const INTERVIEW_TYPES = [
   'Final Round',
   'Client Interview',
 ] as const;
+
+function isOpenScheduleJobStatus(status?: string | null): boolean {
+  const key = String(status || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ');
+  if (!key) return true;
+  if (
+    [
+      'closed',
+      'closed won',
+      'closed not won',
+      'duplicate',
+      'draft',
+      'cancelled',
+      'canceled',
+      'filled',
+      'on hold',
+      'hold',
+    ].includes(key)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function mergeInterviewTypeOptions(
+  catalog?: string[] | null,
+  current?: string | null,
+): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const push = (value: string) => {
+    const label = String(value || '').trim();
+    if (!label) return;
+    const key = label.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(label);
+  };
+  INTERVIEW_TYPES.forEach(push);
+  (Array.isArray(catalog) ? catalog : []).forEach(push);
+  if (current) push(current);
+  return out;
+}
 const INTERVIEW_DURATIONS = ['30 mins', '45 mins', '1 hour', '1.5 hours', '2 hours'] as const;
 const INTERVIEW_PANEL_ROLES = ['Lead Interviewer', 'Interviewer', 'Observer'] as const;
 
@@ -808,7 +859,9 @@ export function ScheduleInterviewModal({
   const interviewers = orEmpty(interviewersList);
   const existingInterviews = orEmpty(existingInterviewsList);
   const isStandaloneMode = getCachedOrgRecruitmentMode() === 'standalone';
-  const [standaloneCandidateId, setStandaloneCandidateId] = useState('');
+  const [selectedCandidateIds, setSelectedCandidateIds] = useState<string[]>([]);
+  const [candidateSearch, setCandidateSearch] = useState('');
+  const [candidatePickerOpen, setCandidatePickerOpen] = useState(false);
   const [interviewType, setInterviewType] = useState('');
   const [roundNumber, setRoundNumber] = useState(1);
   const [date, setDate] = useState('');
@@ -834,6 +887,12 @@ export function ScheduleInterviewModal({
   const [errors, setErrors] = useState<Record<string, string | undefined>>({});
   const [submitting, setSubmitting] = useState(false);
   const [typeOpen, setTypeOpen] = useState(false);
+  const [interviewTypeOptions, setInterviewTypeOptions] = useState<string[]>([...INTERVIEW_TYPES]);
+  const [customInterviewTypes, setCustomInterviewTypes] = useState<string[]>([]);
+  const [newInterviewTypeValue, setNewInterviewTypeValue] = useState('');
+  const [showAddInterviewType, setShowAddInterviewType] = useState(false);
+  const [savingInterviewType, setSavingInterviewType] = useState(false);
+  const [deletingInterviewType, setDeletingInterviewType] = useState(false);
   const [durationOpen, setDurationOpen] = useState(false);
   const [interviewerOpen, setInterviewerOpen] = useState(false);
   const [openRoleMenuId, setOpenRoleMenuId] = useState<string | null>(null);
@@ -858,6 +917,7 @@ export function ScheduleInterviewModal({
   const prevAutoPanelJobIdRef = useRef('');
 
   const typeRef = useRef<HTMLDivElement | null>(null);
+  const candidatePickerRef = useRef<HTMLDivElement | null>(null);
   const durationRef = useRef<HTMLDivElement | null>(null);
   const interviewerRef = useRef<HTMLDivElement | null>(null);
   const roleMenuRef = useRef<HTMLDivElement | null>(null);
@@ -866,24 +926,54 @@ export function ScheduleInterviewModal({
   const selectedJob = scheduleJobOptions.find((job) => job.id === selectedJobId);
   const selectedClient = clientOptions.find((client) => client.id === selectedClientId);
 
-  // Standalone usage (e.g. /interviews page): pick the candidate here instead of
-  // inheriting it from a profile drawer. When a fixed candidate is passed, the
-  // picker stays hidden and `candidate` simply mirrors that prop.
+  // Standalone usage (e.g. /interviews page): pick one or more candidates here.
+  // When a fixed candidate is passed, the picker stays hidden.
   const allowCandidatePick =
     !fixedCandidate && Array.isArray(candidateOptions) && candidateOptions.length > 0;
+  const selectedCandidates = useMemo(() => {
+    if (fixedCandidate) {
+      return [
+        {
+          id: fixedCandidate.id,
+          name: fixedCandidate.name,
+          phone: fixedCandidate.phone ?? null,
+          assignedJob: fixedCandidate.assignedJob ?? null,
+          assignedJobId: fixedCandidate.assignedJobId ?? null,
+        },
+      ];
+    }
+    const options = Array.isArray(candidateOptions) ? candidateOptions : [];
+    return selectedCandidateIds
+      .map((id) => options.find((option) => option.id === id))
+      .filter(Boolean) as ScheduleInterviewCandidateOption[];
+  }, [fixedCandidate, candidateOptions, selectedCandidateIds]);
+
+  /** Primary candidate for shared fields (round, phone, meeting-link generation). */
   const candidate = useMemo(() => {
-    if (fixedCandidate) return fixedCandidate;
-    const picked = candidateOptions?.find((option) => option.id === standaloneCandidateId);
-    if (!picked) return null;
+    const primary = selectedCandidates[0];
+    if (!primary) return null;
     return {
-      id: picked.id,
-      name: picked.name,
-      phone: picked.phone ?? null,
-      stage: null,
-      assignedJob: picked.assignedJob ?? null,
-      assignedJobId: picked.assignedJobId ?? null,
+      id: primary.id,
+      name: primary.name,
+      phone: primary.phone ?? null,
+      stage: null as string | null,
+      assignedJob: primary.assignedJob ?? null,
+      assignedJobId: primary.assignedJobId ?? null,
     };
-  }, [fixedCandidate, candidateOptions, standaloneCandidateId]);
+  }, [selectedCandidates]);
+
+  const filteredCandidateOptions = useMemo(() => {
+    const options = Array.isArray(candidateOptions) ? candidateOptions : [];
+    const query = candidateSearch.trim().toLowerCase();
+    if (!query) return options;
+    return options.filter((option) => {
+      const haystack = [option.name, option.phone, option.assignedJob]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [candidateOptions, candidateSearch]);
 
   const isEditingInterview = Boolean(editInterview);
   const minimumDate = getYmdInTimeZone(timezone);
@@ -966,6 +1056,8 @@ export function ScheduleInterviewModal({
       setErrors({});
       setSubmitting(false);
       setTypeOpen(false);
+      setShowAddInterviewType(false);
+      setNewInterviewTypeValue('');
       setDurationOpen(false);
       setInterviewerOpen(false);
       setOpenRoleMenuId(null);
@@ -975,7 +1067,9 @@ export function ScheduleInterviewModal({
       setSelectedClientContacts([]);
       setClientContactSearch('');
       setClientContactOpen(false);
-      setStandaloneCandidateId('');
+      setSelectedCandidateIds([]);
+      setCandidateSearch('');
+      setCandidatePickerOpen(false);
       setFetchedCandidateInterviews([]);
     }
   }, [candidate?.phone, existingInterviews?.length, isOpen]);
@@ -1012,7 +1106,9 @@ export function ScheduleInterviewModal({
             setClientOptions([]);
           }
 
-          const allJobs = mapJobsToPipelineOptions(parseJobsListFromResponse(jobsRes));
+          const allJobs = mapJobsToPipelineOptions(parseJobsListFromResponse(jobsRes)).filter((job) =>
+            isOpenScheduleJobStatus(job.status),
+          );
           const fetchedJobs = wsId ? allJobs.filter((job) => job.clientId === wsId) : allJobs;
           const byJobId = new Map<string, CandidatePipelineJobOption>();
           for (const job of [...jobsProp, ...fetchedJobs]) {
@@ -1047,21 +1143,37 @@ export function ScheduleInterviewModal({
         } else {
           const [jobsRes, clientsRes] = await Promise.all([
             apiGetJobs({ page: 1, limit: 500 }),
-            apiGetClients({ page: 1, limit: 500 }),
+            // Schedule Interview must list Recruitment Clients (jobs live under those), not CRM-only.
+            apiGetClients({ page: 1, limit: 500, recruitmentEnabled: true }),
           ]);
           if (!load.isActive()) return;
-          const fetchedJobs = mapJobsToPipelineOptions(parseJobsListFromResponse(jobsRes));
+          const fetchedJobs = mapJobsToPipelineOptions(parseJobsListFromResponse(jobsRes)).filter((job) =>
+            isOpenScheduleJobStatus(job.status),
+          );
           const byJobId = new Map<string, CandidatePipelineJobOption>();
           for (const job of [...jobsProp, ...fetchedJobs]) {
             if (job.id) byJobId.set(job.id, job);
           }
           setScheduleJobOptions(Array.from(byJobId.values()).sort((a, b) => a.title.localeCompare(b.title)));
 
-          const clients = parseClientsListFromResponse(clientsRes)
-            .filter((c) => c.id && c.companyName)
-            .map((c) => ({ id: String(c.id), companyName: String(c.companyName).trim() }))
-            .sort((a, b) => a.companyName.localeCompare(b.companyName));
-          setClientOptions(clients);
+          const clientsById = new Map<string, { id: string; companyName: string }>();
+          for (const client of parseClientsListFromResponse(clientsRes)) {
+            if (!client?.id || !client?.companyName) continue;
+            clientsById.set(String(client.id), {
+              id: String(client.id),
+              companyName: String(client.companyName).trim(),
+            });
+          }
+          // Always include clients linked to open jobs (covers edge cases / stale flags).
+          for (const job of byJobId.values()) {
+            const id = String(job.clientId || '').trim();
+            const companyName = String(job.clientName || '').trim();
+            if (!id || !companyName || clientsById.has(id)) continue;
+            clientsById.set(id, { id, companyName });
+          }
+          setClientOptions(
+            Array.from(clientsById.values()).sort((a, b) => a.companyName.localeCompare(b.companyName)),
+          );
         }
       } catch (error) {
         console.error('Failed to load schedule interview options:', error);
@@ -1104,13 +1216,14 @@ export function ScheduleInterviewModal({
 
   useEffect(() => {
     if (!isOpen || isEditingInterview || !allowCandidatePick) return;
-    if (!standaloneCandidateId) {
+    if (!selectedCandidateIds.length) {
       setSelectedJobId('');
       setSelectedClientId('');
       return;
     }
 
-    const picked = candidateOptions?.find((option) => option.id === standaloneCandidateId);
+    const primaryId = selectedCandidateIds[0]!;
+    const picked = candidateOptions?.find((option) => option.id === primaryId);
     if (picked?.assignedJobId && applyDefaultJobSelection(picked.assignedJobId, picked.assignedClientId)) {
       if (picked.phone) setPhoneNumber(picked.phone);
       return;
@@ -1119,7 +1232,7 @@ export function ScheduleInterviewModal({
     let cancelled = false;
     void (async () => {
       try {
-        const raw = await apiGetCandidate(standaloneCandidateId);
+        const raw = await apiGetCandidate(primaryId);
         const data = extractApiData<BackendCandidate>(raw);
         if (cancelled || !data?.id) return;
 
@@ -1131,7 +1244,7 @@ export function ScheduleInterviewModal({
         }
 
         const interviewRes = await apiGetInterviews({
-          candidateId: standaloneCandidateId,
+          candidateId: primaryId,
           limit: 20,
         });
         const rows = Array.isArray(interviewRes.data?.data) ? interviewRes.data.data : [];
@@ -1159,7 +1272,7 @@ export function ScheduleInterviewModal({
     candidateOptions,
     isEditingInterview,
     isOpen,
-    standaloneCandidateId,
+    selectedCandidateIds,
   ]);
 
   useEffect(() => {
@@ -1399,7 +1512,15 @@ export function ScheduleInterviewModal({
     if (!isOpen) return undefined;
     const handleOutside = (event: MouseEvent) => {
       const target = event.target as Node;
-      if (!typeRef.current?.contains(target)) setTypeOpen(false);
+      if (!candidatePickerRef.current?.contains(target)) {
+        setCandidatePickerOpen(false);
+        setCandidateSearch('');
+      }
+      if (!typeRef.current?.contains(target)) {
+        setTypeOpen(false);
+        setShowAddInterviewType(false);
+        setNewInterviewTypeValue('');
+      }
       if (!durationRef.current?.contains(target)) setDurationOpen(false);
       if (!interviewerRef.current?.contains(target)) setInterviewerOpen(false);
       if (!clientContactRef.current?.contains(target)) setClientContactOpen(false);
@@ -1433,9 +1554,95 @@ export function ScheduleInterviewModal({
   }, [clientContactOptions, clientContactSearch]);
 
   const jobsForClient = useMemo(() => {
-    if (!selectedClientId) return scheduleJobOptions;
-    return scheduleJobOptions.filter((job) => job.clientId === selectedClientId);
-  }, [scheduleJobOptions, selectedClientId]);
+    const openJobs = scheduleJobOptions.filter(
+      (job) => isOpenScheduleJobStatus(job.status) || job.id === selectedJobId,
+    );
+    if (!selectedClientId) return openJobs;
+    return openJobs.filter((job) => job.clientId === selectedClientId || job.id === selectedJobId);
+  }, [scheduleJobOptions, selectedClientId, selectedJobId]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    void apiGetInterviewTypeCatalog()
+      .then((response) => {
+        if (cancelled) return;
+        const statuses = Array.isArray(response?.data?.statuses) ? response.data.statuses : [];
+        const custom = Array.isArray(response?.data?.custom) ? response.data.custom : [];
+        setInterviewTypeOptions(mergeInterviewTypeOptions(statuses, interviewType));
+        setCustomInterviewTypes(custom.map((item) => String(item || '').trim()).filter(Boolean));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setInterviewTypeOptions(mergeInterviewTypeOptions(undefined, interviewType));
+        setCustomInterviewTypes([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!interviewType) return;
+    setInterviewTypeOptions((current) => mergeInterviewTypeOptions(current, interviewType));
+  }, [interviewType]);
+
+  const isCustomInterviewType = useCallback(
+    (option: string) =>
+      customInterviewTypes.some((item) => item.toLowerCase() === String(option || '').trim().toLowerCase()) ||
+      !INTERVIEW_TYPES.some((item) => item.toLowerCase() === String(option || '').trim().toLowerCase()),
+    [customInterviewTypes],
+  );
+
+  const handleAddInterviewType = async () => {
+    const next = String(newInterviewTypeValue || '').trim();
+    if (!next || savingInterviewType) return;
+    setSavingInterviewType(true);
+    try {
+      const response = await apiAppendInterviewType(next);
+      const statuses = Array.isArray(response?.data?.statuses) ? response.data.statuses : [];
+      const custom = Array.isArray(response?.data?.custom)
+        ? response.data.custom
+        : [...customInterviewTypes, next];
+      setInterviewTypeOptions(mergeInterviewTypeOptions(statuses, next));
+      setCustomInterviewTypes(custom.map((item) => String(item || '').trim()).filter(Boolean));
+      setInterviewType(next);
+      setNewInterviewTypeValue('');
+      setShowAddInterviewType(false);
+      setTypeOpen(false);
+      setErrors((prev) => ({ ...prev, interviewType: undefined }));
+      toast.success(`Interview type "${next}" saved`);
+    } catch (error: unknown) {
+      void requestError(error instanceof Error ? error.message : 'Failed to add interview type');
+    } finally {
+      setSavingInterviewType(false);
+    }
+  };
+
+  const handleDeleteInterviewType = async (option: string) => {
+    if (!isCustomInterviewType(option) || deletingInterviewType) return;
+    setDeletingInterviewType(true);
+    try {
+      const response = await apiRemoveInterviewType(option);
+      const statuses = Array.isArray(response?.data?.statuses) ? response.data.statuses : [];
+      const custom = Array.isArray(response?.data?.custom)
+        ? response.data.custom
+        : customInterviewTypes.filter(
+            (item) => item.toLowerCase() !== String(option).trim().toLowerCase(),
+          );
+      const nextOptions = mergeInterviewTypeOptions(statuses);
+      setInterviewTypeOptions(nextOptions);
+      setCustomInterviewTypes(custom.map((item) => String(item || '').trim()).filter(Boolean));
+      if (interviewType === option) {
+        setInterviewType(nextOptions[0] || '');
+      }
+      toast.success(`Interview type "${option}" removed`);
+    } catch (error: unknown) {
+      void requestError(error instanceof Error ? error.message : 'Failed to remove interview type');
+    } finally {
+      setDeletingInterviewType(false);
+    }
+  };
 
   useEffect(() => {
     if (!selectedClientId || !selectedJobId) return;
@@ -1449,7 +1656,9 @@ export function ScheduleInterviewModal({
 
   const validate = () => {
     const nextErrors: Record<string, string | undefined> = {};
-    if (allowCandidatePick && !standaloneCandidateId) nextErrors.candidate = 'Candidate is required';
+    if (allowCandidatePick && selectedCandidateIds.length === 0) {
+      nextErrors.candidate = 'Select at least one candidate';
+    }
     if (!status) nextErrors.status = 'Status is required';
     if (!interviewType) nextErrors.interviewType = 'Interview type is required';
     if (!roundNumber || roundNumber < 1) nextErrors.roundNumber = 'Round number is required';
@@ -1472,13 +1681,32 @@ export function ScheduleInterviewModal({
   };
 
   const isFormValid =
-    (!allowCandidatePick || Boolean(standaloneCandidateId)) &&
+    (!allowCandidatePick || selectedCandidateIds.length > 0) &&
     Boolean(status && interviewType && roundNumber >= 1 && date && time && duration && timezone && mode) &&
     Boolean(selectedJobId) &&
     (mode !== 'video' || Boolean(meetingPlatform)) &&
     (mode !== 'video' || Boolean(meetingLink.trim())) &&
     (mode !== 'in-person' || Boolean(location.trim())) &&
     (mode !== 'phone' || Boolean(phoneNumber.trim()));
+
+  const handleToggleCandidate = (option: ScheduleInterviewCandidateOption) => {
+    setSelectedCandidateIds((prev) => {
+      const exists = prev.includes(option.id);
+      if (exists) return prev.filter((id) => id !== option.id);
+      return [...prev, option.id];
+    });
+    setErrors((prev) => ({ ...prev, candidate: undefined }));
+  };
+
+  const handleSelectAllFilteredCandidates = () => {
+    const ids = filteredCandidateOptions.map((option) => option.id);
+    setSelectedCandidateIds((prev) => Array.from(new Set([...prev, ...ids])));
+    setErrors((prev) => ({ ...prev, candidate: undefined }));
+  };
+
+  const handleClearSelectedCandidates = () => {
+    setSelectedCandidateIds([]);
+  };
 
   const handleGenerateMeetingLink = async (platform: 'Google Meet' | 'Zoom') => {
     if (!candidate) return;
@@ -1541,7 +1769,7 @@ export function ScheduleInterviewModal({
   };
 
   const handleSchedule = async () => {
-    if (!candidate || !validate()) return;
+    if (!selectedCandidates.length || !validate()) return;
 
     const clientPanelNote =
       selectedClientContacts.length > 0
@@ -1554,8 +1782,11 @@ export function ScheduleInterviewModal({
       ? mergeEditableInterviewNotesWithAudit(userFacingNotes, editInterview.notes)
       : userFacingNotes;
 
-    const payload: CandidateScheduledInterview = {
-      id: editInterview?.id || `interview-${Date.now()}`,
+    const buildPayload = (
+      target: ScheduleInterviewCandidateOption,
+      index: number,
+    ): CandidateScheduledInterview => ({
+      id: editInterview?.id || `interview-${Date.now()}-${index}`,
       type: interviewType,
       round: roundNumber,
       date,
@@ -1586,27 +1817,34 @@ export function ScheduleInterviewModal({
         designation: item.designation || null,
       })),
       jobId: selectedJobId || null,
-      jobTitle: selectedJob?.title || linkedJobTitle || candidate.assignedJob || null,
-      candidateId: candidate.id,
+      jobTitle: selectedJob?.title || linkedJobTitle || target.assignedJob || null,
+      candidateId: target.id,
       notes: mergedNotes,
       sendCandidateInvite,
       sendInterviewerInvite,
       status,
-    };
+    });
 
     try {
       setSubmitting(true);
       if (editInterview?.id) {
+        const payload = buildPayload(selectedCandidates[0]!, 0);
         await Promise.resolve(onUpdate?.(editInterview.id, payload));
       } else {
-        await Promise.resolve(onSchedule?.(payload));
+        for (let index = 0; index < selectedCandidates.length; index += 1) {
+          const target = selectedCandidates[index]!;
+          await Promise.resolve(onSchedule?.(buildPayload(target, index)));
+        }
       }
       const prettyDate = formatDateDMY(new Date(`${date}T00:00:00`));
       const tzLabel = formatTimezoneDisplay(resolveIanaFromTimezoneValue(timezone));
+      const count = selectedCandidates.length;
       onScheduledSuccess?.(
         editInterview?.id
           ? `Interview updated (${status})`
-          : `Interview scheduled for ${prettyDate} at ${time} (${tzLabel})`,
+          : count > 1
+            ? `Interview scheduled for ${count} candidates on ${prettyDate} at ${time} (${tzLabel})`
+            : `Interview scheduled for ${prettyDate} at ${time} (${tzLabel})`,
       );
       onClose();
     } catch (error: unknown) {
@@ -1644,7 +1882,7 @@ export function ScheduleInterviewModal({
             exit={{ opacity: 0, y: 16 }}
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="flex h-full w-full flex-col rounded-t-3xl border border-slate-200 bg-white shadow-2xl md:h-auto md:max-h-[90vh] md:max-w-[560px] md:rounded-3xl">
+            <div className="flex h-full w-full flex-col rounded-t-3xl border border-slate-200 bg-white shadow-2xl md:h-auto md:max-h-[90vh] md:max-w-[640px] md:rounded-3xl">
               <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
                 <h3 className="text-lg font-semibold text-slate-900">{editInterview?.id ? 'Edit Interview' : 'Schedule Interview'}</h3>
                 <button
@@ -1660,31 +1898,145 @@ export function ScheduleInterviewModal({
                 <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                   <h4 className="text-sm font-semibold text-slate-900">Interview Details</h4>
                   <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    {allowCandidatePick ? (
+                    {allowCandidatePick && !isEditingInterview ? (
                       <div className="sm:col-span-2">
                         <label className="mb-2 block text-sm font-medium text-slate-700">
-                          Candidate <span className="text-red-500">*</span>
+                          Candidates <span className="text-red-500">*</span>
                         </label>
-                        <select
-                          value={standaloneCandidateId}
-                          onChange={(e) => {
-                            setStandaloneCandidateId(e.target.value);
-                            setErrors((prev) => ({ ...prev, candidate: undefined }));
-                          }}
-                          className={`w-full rounded-xl border bg-white px-3 py-2.5 text-sm text-slate-700 outline-none ${
-                            errors.candidate ? 'border-red-300' : 'border-slate-200'
-                          } focus:border-blue-400 focus:ring-2 focus:ring-blue-100`}
-                        >
-                          <option value="">Select candidate</option>
-                          {candidateOptions?.map((option) => (
-                            <option key={option.id} value={option.id}>
-                              {option.name}
-                            </option>
-                          ))}
-                        </select>
+                        {selectedCandidates.length > 0 ? (
+                          <div className="mb-2 flex flex-wrap gap-1.5">
+                            {selectedCandidates.map((option) => (
+                              <span
+                                key={option.id}
+                                className="inline-flex max-w-full items-center gap-1 rounded-full border border-blue-100 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-800"
+                              >
+                                <span className="truncate">{option.name}</span>
+                                <button
+                                  type="button"
+                                  aria-label={`Remove ${option.name}`}
+                                  onClick={() =>
+                                    setSelectedCandidateIds((prev) =>
+                                      prev.filter((id) => id !== option.id),
+                                    )
+                                  }
+                                  className="rounded-full p-0.5 text-blue-500 hover:bg-blue-100 hover:text-blue-700"
+                                >
+                                  <X size={12} />
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
+                        <div className="relative" ref={candidatePickerRef}>
+                          <button
+                            type="button"
+                            onClick={() => setCandidatePickerOpen((prev) => !prev)}
+                            className={`flex w-full items-center justify-between rounded-xl border bg-white px-3 py-2.5 text-left text-sm ${
+                              errors.candidate ? 'border-red-300' : 'border-slate-200'
+                            }`}
+                          >
+                            <span
+                              className={
+                                selectedCandidates.length ? 'text-slate-700' : 'text-slate-400'
+                              }
+                            >
+                              {selectedCandidates.length
+                                ? `${selectedCandidates.length} candidate${
+                                    selectedCandidates.length === 1 ? '' : 's'
+                                  } selected — search to add more`
+                                : 'Search and select candidates'}
+                            </span>
+                            <ChevronDown size={16} className="shrink-0 text-slate-400" />
+                          </button>
+                          {candidatePickerOpen ? (
+                            <div className="absolute left-0 right-0 top-12 z-30 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
+                              <div className="border-b border-slate-100 p-2">
+                                <div className="relative">
+                                  <Search
+                                    size={14}
+                                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                                  />
+                                  <input
+                                    value={candidateSearch}
+                                    onChange={(e) => setCandidateSearch(e.target.value)}
+                                    placeholder="Search by name, phone, or job…"
+                                    autoFocus
+                                    className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm text-slate-800 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                                  />
+                                </div>
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={handleSelectAllFilteredCandidates}
+                                    disabled={filteredCandidateOptions.length === 0}
+                                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                                  >
+                                    Select all{candidateSearch.trim() ? ' matches' : ''} (
+                                    {filteredCandidateOptions.length})
+                                  </button>
+                                  {selectedCandidateIds.length > 0 ? (
+                                    <button
+                                      type="button"
+                                      onClick={handleClearSelectedCandidates}
+                                      className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
+                                    >
+                                      Clear selected
+                                    </button>
+                                  ) : null}
+                                </div>
+                              </div>
+                              <div className="max-h-56 overflow-y-auto overscroll-contain py-1">
+                                {filteredCandidateOptions.length === 0 ? (
+                                  <p className="px-3 py-3 text-sm text-slate-500">
+                                    No candidates match your search
+                                  </p>
+                                ) : (
+                                  filteredCandidateOptions.map((option) => {
+                                    const checked = selectedCandidateIds.includes(option.id);
+                                    return (
+                                      <button
+                                        key={option.id}
+                                        type="button"
+                                        onClick={() => handleToggleCandidate(option)}
+                                        className={`flex w-full items-start gap-2.5 px-3 py-2.5 text-left text-sm hover:bg-slate-50 ${
+                                          checked ? 'bg-blue-50/70' : ''
+                                        }`}
+                                      >
+                                        <span
+                                          className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                                            checked
+                                              ? 'border-blue-500 bg-blue-500 text-white'
+                                              : 'border-slate-300 bg-white'
+                                          }`}
+                                        >
+                                          {checked ? '✓' : ''}
+                                        </span>
+                                        <span className="min-w-0 flex-1">
+                                          <span className="block font-medium text-slate-800">
+                                            {option.name}
+                                          </span>
+                                          <span className="mt-0.5 block truncate text-xs text-slate-500">
+                                            {[option.phone, option.assignedJob]
+                                              .filter(Boolean)
+                                              .join(' · ') || 'Candidate'}
+                                          </span>
+                                        </span>
+                                      </button>
+                                    );
+                                  })
+                                )}
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
                         {errors.candidate ? (
                           <p className="mt-1 text-xs text-red-600">{errors.candidate}</p>
-                        ) : null}
+                        ) : (
+                          <p className="mt-1 text-xs text-slate-500">
+                            You can select multiple candidates. The same interview details are applied
+                            to each.
+                          </p>
+                        )}
                       </div>
                     ) : null}
                     <div className="sm:col-span-2">
@@ -1723,21 +2075,93 @@ export function ScheduleInterviewModal({
                         </button>
                         {typeOpen ? (
                           <div className="absolute left-0 right-0 top-12 z-20 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
-                            {INTERVIEW_TYPES.map((option) => (
-                              <button
-                                key={option}
-                                type="button"
-                                onClick={() => {
-                                  setInterviewType(option);
-                                  setTypeOpen(false);
-                                  setErrors((prev) => ({ ...prev, interviewType: undefined }));
-                                }}
-                                className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm hover:bg-slate-50"
-                              >
-                                <span>{option}</span>
-                                {interviewType === option ? <Check size={15} className="text-blue-600" /> : null}
-                              </button>
-                            ))}
+                            <div className="max-h-56 overflow-y-auto">
+                              {interviewTypeOptions.map((option) => {
+                                const canDelete = isCustomInterviewType(option);
+                                return (
+                                  <div
+                                    key={option}
+                                    className="flex items-center gap-1 rounded-xl hover:bg-slate-50"
+                                  >
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setInterviewType(option);
+                                        setTypeOpen(false);
+                                        setShowAddInterviewType(false);
+                                        setErrors((prev) => ({ ...prev, interviewType: undefined }));
+                                      }}
+                                      className="flex min-w-0 flex-1 items-center justify-between px-3 py-2 text-left text-sm"
+                                    >
+                                      <span className="truncate">{option}</span>
+                                      {interviewType === option ? (
+                                        <Check size={15} className="shrink-0 text-blue-600" />
+                                      ) : null}
+                                    </button>
+                                    {canDelete ? (
+                                      <button
+                                        type="button"
+                                        title={`Delete ${option}`}
+                                        disabled={deletingInterviewType}
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          void handleDeleteInterviewType(option);
+                                        }}
+                                        className="mr-1 rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
+                                      >
+                                        <Trash2 size={14} />
+                                      </button>
+                                    ) : null}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            <div className="mt-2 border-t border-slate-100 pt-2">
+                              {showAddInterviewType ? (
+                                <div className="flex items-center gap-2 px-1">
+                                  <input
+                                    value={newInterviewTypeValue}
+                                    onChange={(e) => setNewInterviewTypeValue(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') {
+                                        e.preventDefault();
+                                        void handleAddInterviewType();
+                                      }
+                                    }}
+                                    placeholder="New interview type"
+                                    className="min-w-0 flex-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                                    autoFocus
+                                  />
+                                  <button
+                                    type="button"
+                                    disabled={savingInterviewType || !newInterviewTypeValue.trim()}
+                                    onClick={() => void handleAddInterviewType()}
+                                    className="rounded-lg bg-blue-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                                  >
+                                    {savingInterviewType ? '…' : 'Add'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setShowAddInterviewType(false);
+                                      setNewInterviewTypeValue('');
+                                    }}
+                                    className="rounded-lg px-2 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-100"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => setShowAddInterviewType(true)}
+                                  className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-medium text-blue-700 hover:bg-blue-50"
+                                >
+                                  <Plus size={15} />
+                                  Add interview type
+                                </button>
+                              )}
+                            </div>
                           </div>
                         ) : null}
                       </div>
@@ -1803,17 +2227,28 @@ export function ScheduleInterviewModal({
                             setTime(next);
                             setErrors((prev) => ({ ...prev, time: undefined }));
                           }}
-                          className={`w-full rounded-xl border bg-white px-3 py-2.5 pr-10 text-sm text-slate-700 outline-none ${
+                          onClick={(e) => openNativeDateTimePicker(e.currentTarget)}
+                          onFocus={(e) => openNativeDateTimePicker(e.currentTarget)}
+                          className={`w-full cursor-pointer rounded-xl border bg-white px-3 py-2.5 pr-10 text-sm text-slate-700 outline-none ${
                             errors.time ? 'border-red-300' : 'border-slate-200'
                           } focus:border-blue-400 focus:ring-2 focus:ring-blue-100`}
                           aria-label="Interview time"
                         />
-                        <span
-                          className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
-                          aria-hidden="true"
+                        <button
+                          type="button"
+                          className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                          aria-label="Open time picker"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            const input = e.currentTarget.parentElement?.querySelector(
+                              'input[type="time"]',
+                            ) as HTMLInputElement | null;
+                            input?.focus();
+                            openNativeDateTimePicker(input);
+                          }}
                         >
                           <Clock size={16} />
-                        </span>
+                        </button>
                       </div>
                       {errors.time ? <p className="mt-1 text-xs text-red-600">{errors.time}</p> : null}
                     </div>
@@ -2015,8 +2450,16 @@ export function ScheduleInterviewModal({
                       <select
                         value={selectedJobId}
                         onChange={(e) => {
-                          setSelectedJobId(e.target.value);
+                          const nextJobId = e.target.value;
+                          setSelectedJobId(nextJobId);
                           setErrors((prev) => ({ ...prev, linkedJob: undefined }));
+                          const job = scheduleJobOptions.find((item) => item.id === nextJobId);
+                          if (job?.clientId) {
+                            setSelectedClientId(String(job.clientId));
+                            setSelectedClientContacts([]);
+                          } else if (!nextJobId) {
+                            // Keep client filter if user cleared job while browsing a client.
+                          }
                         }}
                         disabled={loadingScheduleJobs || jobsForClient.length === 0}
                         className={`w-full rounded-xl border bg-white px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 ${
@@ -2026,14 +2469,15 @@ export function ScheduleInterviewModal({
                         <option value="">
                           {loadingScheduleJobs
                             ? 'Loading jobs...'
-                            : jobsForClient.length === 0
-                              ? 'No jobs available'
-                              : 'Select job'}
+                            : selectedClientId && jobsForClient.length === 0
+                              ? 'No open jobs for this client'
+                              : jobsForClient.length === 0
+                                ? 'No open jobs available'
+                                : 'Select job'}
                         </option>
                         {jobsForClient.map((job) => (
                           <option key={job.id} value={job.id}>
                             {job.title}
-                            {job.department ? ` · ${job.department}` : ''}
                           </option>
                         ))}
                       </select>
@@ -2045,14 +2489,21 @@ export function ScheduleInterviewModal({
                         <select
                           value={selectedClientId}
                           onChange={(e) => {
-                            setSelectedClientId(e.target.value);
+                            const nextClientId = e.target.value;
+                            setSelectedClientId(nextClientId);
                             setSelectedClientContacts([]);
+                            if (nextClientId && selectedJobId) {
+                              const job = scheduleJobOptions.find((item) => item.id === selectedJobId);
+                              if (job && job.clientId !== nextClientId) {
+                                setSelectedJobId('');
+                              }
+                            }
                           }}
                           disabled={loadingClients || clientOptions.length === 0}
                           className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                         >
                           <option value="">
-                            {loadingClients ? 'Loading clients...' : 'Select client'}
+                            {loadingClients ? 'Loading clients...' : 'All clients / select client'}
                           </option>
                           {clientOptions.map((client) => (
                             <option key={client.id} value={client.id}>
@@ -2062,11 +2513,15 @@ export function ScheduleInterviewModal({
                         </select>
                         {selectedClient ? (
                           <p className="mt-1 text-xs text-slate-500">
-                            Jobs filtered to this client. Assign client contacts in the interview panel below.
+                            Showing open jobs for this client. Assign client contacts in the interview panel below.
                           </p>
                         ) : selectedJob?.clientName ? (
                           <p className="mt-1 text-xs text-slate-500">Client from job: {selectedJob.clientName}</p>
-                        ) : null}
+                        ) : (
+                          <p className="mt-1 text-xs text-slate-500">
+                            Select a job to auto-fill the client, or pick a client to filter open jobs.
+                          </p>
+                        )}
                       </div>
                     ) : null}
                   </div>
@@ -2366,6 +2821,10 @@ export function ScheduleInterviewModal({
                         onChange={(e) => setAdditionalNotes(e.target.value.slice(0, 500))}
                         rows={4}
                         placeholder="Any instructions for the panel or candidate..."
+                        data-gramm="false"
+                        data-gramm_editor="false"
+                        data-enable-grammarly="false"
+                        spellCheck
                         className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                       />
                       <p className="mt-1 text-right text-xs text-slate-400">{additionalNotes.length}/500</p>
@@ -2388,7 +2847,11 @@ export function ScheduleInterviewModal({
                   disabled={!isFormValid || submitting}
                   className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {submitting ? 'Scheduling...' : 'Confirm Schedule'}
+                  {submitting
+                    ? 'Scheduling...'
+                    : selectedCandidates.length > 1
+                      ? `Confirm Schedule (${selectedCandidates.length})`
+                      : 'Confirm Schedule'}
                 </button>
               </div>
             </div>
@@ -2404,6 +2867,7 @@ function mapJobsToPipelineOptions(
     id: string;
     title?: string | null;
     department?: string | null;
+    status?: string | null;
     client?: { id?: string; companyName?: string | null } | null;
     clientId?: string | null;
     manager?: { id?: string; name?: string | null } | null;
@@ -2415,11 +2879,12 @@ function mapJobsToPipelineOptions(
     .map((job) => ({
       id: String(job.id),
       title: String(job.title || 'Untitled job').trim() || 'Untitled job',
-      department: job.department || job.client?.companyName || null,
+      department: job.department || null,
       clientId: job.client?.id || job.clientId || null,
       clientName: job.client?.companyName || null,
       managerId: job.managerId || job.manager?.id || null,
       managerName: job.manager?.name || null,
+      status: job.status || null,
     }))
     .sort((a, b) => a.title.localeCompare(b.title));
 }

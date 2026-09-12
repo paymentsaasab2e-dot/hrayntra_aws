@@ -101,7 +101,46 @@ export function getCustomJobSalaryCurrencySymbol(code?: string | null): string {
 
 const ISO_CURRENCY_SYMBOL_CACHE = new Map<string, string>();
 
-/** Resolve display symbol: custom saved symbol first, then ISO narrow symbol. */
+/** Last-resort symbols when Intl returns the ISO code itself. */
+const COMMON_ISO_SYMBOL_FALLBACKS: Record<string, string> = {
+  USD: '$',
+  EUR: '€',
+  GBP: '£',
+  INR: '₹',
+  JPY: '¥',
+  CNY: '¥',
+  AUD: 'A$',
+  CAD: 'C$',
+  SGD: 'S$',
+  HKD: 'HK$',
+  NZD: 'NZ$',
+  AED: 'د.إ',
+  CHF: 'Fr.',
+  SEK: 'kr',
+  NOK: 'kr',
+  DKK: 'kr',
+  ZAR: 'R',
+  MXN: 'Mex$',
+  BRL: 'R$',
+  KRW: '₩',
+  THB: '฿',
+  PHP: '₱',
+  MYR: 'RM',
+  IDR: 'Rp',
+  VND: '₫',
+  TRY: '₺',
+  RUB: '₽',
+  PLN: 'zł',
+  XAF: 'Fr',
+  XOF: 'Fr',
+  CFA: 'Fr',
+};
+
+function isIsoLikeCode(value: string): boolean {
+  return /^[A-Z]{2,5}$/.test(String(value || '').trim().toUpperCase());
+}
+
+/** Resolve display symbol: custom saved symbol first, then ISO narrow symbol. Never returns a bare ISO code. */
 export function getJobSalaryCurrencySymbol(code?: string | null): string {
   const key = String(code || '')
     .trim()
@@ -109,7 +148,8 @@ export function getJobSalaryCurrencySymbol(code?: string | null): string {
   if (!key) return '';
 
   const custom = getCustomJobSalaryCurrencySymbol(key);
-  if (custom) return custom;
+  if (custom && custom.toUpperCase() !== key) return custom;
+  if (custom && !isIsoLikeCode(custom)) return custom;
 
   if (ISO_CURRENCY_SYMBOL_CACHE.has(key)) {
     return ISO_CURRENCY_SYMBOL_CACHE.get(key) || '';
@@ -117,31 +157,79 @@ export function getJobSalaryCurrencySymbol(code?: string | null): string {
 
   let symbol = '';
   try {
-    const parts = new Intl.NumberFormat('en', {
-      style: 'currency',
-      currency: key,
-      currencyDisplay: 'narrowSymbol',
-    }).formatToParts(0);
-    symbol = parts.find((part) => part.type === 'currency')?.value?.trim() || '';
-    // Avoid useless labels like "USD" when Intl falls back to the code itself.
-    if (symbol.toUpperCase() === key) {
-      const nameParts = new Intl.NumberFormat('en', {
+    if (/^[A-Z]{3}$/.test(key)) {
+      const parts = new Intl.NumberFormat('en', {
         style: 'currency',
         currency: key,
-        currencyDisplay: 'symbol',
+        currencyDisplay: 'narrowSymbol',
       }).formatToParts(0);
-      const alt = nameParts.find((part) => part.type === 'currency')?.value?.trim() || '';
-      symbol = alt.toUpperCase() === key ? '' : alt;
+      symbol = parts.find((part) => part.type === 'currency')?.value?.trim() || '';
+      if (symbol.toUpperCase() === key) {
+        const nameParts = new Intl.NumberFormat('en', {
+          style: 'currency',
+          currency: key,
+          currencyDisplay: 'symbol',
+        }).formatToParts(0);
+        const alt = nameParts.find((part) => part.type === 'currency')?.value?.trim() || '';
+        symbol = alt.toUpperCase() === key ? '' : alt;
+      }
     }
   } catch {
     symbol = '';
   }
 
+  if (!symbol || symbol.toUpperCase() === key) {
+    symbol = COMMON_ISO_SYMBOL_FALLBACKS[key] || '';
+  }
+
+  // Never cache/expose the ISO code as a "symbol".
+  if (symbol.toUpperCase() === key) symbol = '';
+
   ISO_CURRENCY_SYMBOL_CACHE.set(key, symbol);
   return symbol;
 }
 
+/** Currency name for picker lists (no ISO code). */
+export function getJobSalaryCurrencyDisplayName(code?: string | null): string {
+  const key = String(code || '')
+    .trim()
+    .toUpperCase();
+  if (!key) return '';
+  try {
+    if (typeof Intl !== 'undefined' && 'DisplayNames' in Intl && /^[A-Z]{3}$/.test(key)) {
+      const name = new Intl.DisplayNames(['en'], { type: 'currency' }).of(key);
+      if (name && name.toUpperCase() !== key) return name;
+    }
+  } catch {
+    /* ignore */
+  }
+  return key;
+}
+
+/**
+ * Closed / selected currency display for public job surfaces — symbol only.
+ * For Add Job / AI picker use formatJobSalaryCurrencyOptionLabel (symbol + code).
+ */
 export function formatJobSalaryCurrencyLabel(code: string, symbol?: string | null): string {
+  const cleanCode = String(code || '')
+    .trim()
+    .toUpperCase();
+  if (!cleanCode) return '';
+  const cleanSymbol = String(
+    symbol != null && String(symbol).trim()
+      ? symbol
+      : getJobSalaryCurrencySymbol(cleanCode),
+  ).trim();
+  if (cleanSymbol && cleanSymbol.toUpperCase() !== cleanCode) {
+    return cleanSymbol;
+  }
+  // Prefer a distinct symbol; if none, show currency name rather than code.
+  const name = getJobSalaryCurrencyDisplayName(cleanCode);
+  return name && name.toUpperCase() !== cleanCode ? name : '';
+}
+
+/** Add Job / AI currency picker: symbol + code, e.g. `₹ INR` or `Fr XAF`. */
+export function formatJobSalaryCurrencyOptionLabel(code: string, symbol?: string | null): string {
   const cleanCode = String(code || '')
     .trim()
     .toUpperCase();
@@ -157,7 +245,7 @@ export function formatJobSalaryCurrencyLabel(code: string, symbol?: string | nul
   return cleanCode;
 }
 
-/** Prefix for salary amounts in LinkedIn / job lists (Fr / ₹ / USD). */
+/** Prefix for salary amounts in LinkedIn / job lists — symbol only, never ISO code. */
 export function formatJobSalaryAmountPrefix(
   code?: string | null,
   storedSymbol?: string | null,
@@ -173,7 +261,25 @@ export function formatJobSalaryAmountPrefix(
   if (cleanSymbol && cleanSymbol.toUpperCase() !== cleanCode) {
     return cleanSymbol.length > 1 ? `${cleanSymbol} ` : cleanSymbol;
   }
-  return cleanCode ? `${cleanCode} ` : '';
+  return '';
+}
+
+/** Strip a leading ISO currency code from an already-formatted salary string. */
+export function stripJobSalaryCurrencyCodePrefix(
+  text?: string | null,
+  code?: string | null,
+): string {
+  let next = String(text || '').trim();
+  if (!next) return '';
+  const cleanCode = String(code || '')
+    .trim()
+    .toUpperCase();
+  if (cleanCode) {
+    next = next.replace(new RegExp(`^${cleanCode}\\s*`, 'i'), '').trim();
+  }
+  // Common ISO codes stuck at the start of legacy salaryRange strings.
+  next = next.replace(/^[A-Z]{3}\s+(?=\d)/, '').trim();
+  return next;
 }
 
 /** Persistable symbol for the selected currency (custom or ISO). */

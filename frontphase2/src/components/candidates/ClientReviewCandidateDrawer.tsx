@@ -20,7 +20,7 @@ type Props = {
   token: string;
   apiBase: string;
   onClose: () => void;
-  onSubmitted?: (matchId: string, message: string) => void;
+  onSubmitted?: (matchId: string, message: string, stage?: string | null) => void;
 };
 
 function initialsFromName(name: string): string {
@@ -47,11 +47,12 @@ export function ClientReviewCandidateDrawer({
   const submissionType = String(reviewData?.submissionType || 'GENERAL').toUpperCase();
   const isOfferFlow = submissionType === 'OFFER_CONFIRMATION';
   const tagOptions = TAG_OPTIONS_BY_TYPE[submissionType] || TAG_OPTIONS_BY_TYPE.GENERAL;
+  // Use recruiter-selected stages from the preview payload when present.
   const stageOptions =
     Array.isArray(reviewData?.pipelineStages) && reviewData.pipelineStages.length
       ? reviewData.pipelineStages
       : CLIENT_PIPELINE_STAGE_CHOICES;
-  const tracker = normalizeClientTrackerOptions(reviewData?.trackerOptions);
+  const tracker = normalizeClientTrackerOptions(reviewData?.trackerOptions, true);
   const canRespond = clientTrackerAllowsResponse(tracker);
   const canAttachDocument = tracker.attachDocument || isOfferFlow;
 
@@ -67,13 +68,19 @@ export function ClientReviewCandidateDrawer({
   useEffect(() => {
     if (!open || !row) return;
     setSelectedTag(tagOptions[0]);
-    setSelectedStage(stageOptions[0]?.name || '');
+    const priorStage = String(
+      row.clientMarkedStage || reviewData?.clientMarkedStage || '',
+    ).trim();
+    const known = stageOptions.find(
+      (stage) => stage.name.toLowerCase() === priorStage.toLowerCase(),
+    );
+    setSelectedStage(known?.name || stageOptions[0]?.name || '');
     setComments('');
     setOfferLetterFile(null);
     setError('');
     setSuccess('');
     setConfirmOpen(false);
-  }, [open, row?.matchId, tagOptions, stageOptions]);
+  }, [open, row?.matchId, tagOptions, stageOptions, row?.clientMarkedStage, reviewData?.clientMarkedStage]);
 
   const requestSubmitConfirmation = () => {
     if (!row?.matchId || submitting) return;
@@ -124,6 +131,7 @@ export function ClientReviewCandidateDrawer({
       }
 
       const placementAttached = Boolean(payload.data?.placementOfferAttached);
+      const stageLabel = String(payload.data?.stageLabel || selectedStage || '').trim() || null;
       const message = isOfferFlow
         ? placementAttached
           ? 'Thank you. Offer letter received and attached to the placement record.'
@@ -131,7 +139,7 @@ export function ClientReviewCandidateDrawer({
         : 'Thank you. Your review has been submitted.';
 
       setSuccess(message);
-      onSubmitted?.(row.matchId, message);
+      onSubmitted?.(row.matchId, message, stageLabel);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Unable to submit your response');
     } finally {
@@ -289,8 +297,8 @@ export function ClientReviewCandidateDrawer({
                     ))}
                   </select>
                   <span className="mt-1 block text-xs font-normal text-slate-500">
-                    This stage is shown on the recruiter Client tab only. It does not change the
-                    candidate pipeline stage.
+                    Your stage choice appears in the candidate table on this page and on the
+                    recruiter Client tab. It does not change the CRM pipeline stage.
                   </span>
                 </label>
                 ) : null}
@@ -359,9 +367,10 @@ export function ClientReviewCandidateDrawer({
                     {tracker.changeStage && selectedStage ? (
                       <>
                         {' '}
-                        will show their stage choice as{' '}
+                        will show their stage as{' '}
                         <span className="font-semibold text-slate-900">{selectedStage}</span>
-                        {' '}on the recruiter Client tab (it will not change the pipeline stage)
+                        {' '}in the candidate table and on the recruiter Client tab (it will not
+                        change the CRM pipeline stage)
                       </>
                     ) : selectedTag ? (
                       <>

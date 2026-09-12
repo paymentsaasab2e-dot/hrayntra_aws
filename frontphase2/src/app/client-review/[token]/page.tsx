@@ -37,25 +37,38 @@ export default function ClientReviewPage() {
   const [reviewData, setReviewData] = useState<ClientReviewData | null>(null);
   const [drawerRow, setDrawerRow] = useState<ClientReviewBatchRow | null>(null);
   const [reviewedMatchIds, setReviewedMatchIds] = useState<string[]>([]);
+  const [stageByMatchId, setStageByMatchId] = useState<Record<string, string>>({});
 
   const apiBase = useMemo(() => resolveApiBase(), []);
 
   const tableRows = useMemo<ClientReviewBatchRow[]>(() => {
     const fromBatch = reviewData?.batchCandidates ?? [];
-    if (fromBatch.length) return fromBatch;
+    if (fromBatch.length) {
+      return fromBatch.map((row) => ({
+        ...row,
+        clientMarkedStage:
+          stageByMatchId[row.matchId] ||
+          row.clientMarkedStage ||
+          row.detail?.clientMarkedStage ||
+          null,
+      }));
+    }
     if (!reviewData) return [];
+    const matchId = String(reviewData.matchId || reviewData.interviewId || 'candidate');
     return [
       {
-        matchId: String(reviewData.matchId || reviewData.interviewId || 'candidate'),
+        matchId,
         candidateName: reviewData.candidate?.name || 'Candidate',
         designation: reviewData.candidate?.designation,
         experience: reviewData.candidate?.experience ?? null,
         jobTitle: reviewData.job?.title,
         matchScore: reviewData.matchScore ?? null,
+        clientMarkedStage:
+          stageByMatchId[matchId] || reviewData.clientMarkedStage || null,
         detail: reviewData,
       },
     ];
-  }, [reviewData]);
+  }, [reviewData, stageByMatchId]);
 
   const submissionType = String(reviewData?.submissionType || 'GENERAL').toUpperCase();
   const purpose = PURPOSE_COPY[submissionType] || PURPOSE_COPY.GENERAL;
@@ -78,7 +91,29 @@ export default function ClientReviewPage() {
         }
         if (cancelled) return;
         const data: ClientReviewData = payload.data || payload;
-        setReviewData(maskClientReviewStorageUrls(data, token));
+        const masked = maskClientReviewStorageUrls(data, token);
+        setReviewData(masked);
+        const initialStages: Record<string, string> = {};
+        const seedStage = (matchId: string, stage?: string | null) => {
+          const id = String(matchId || '').trim();
+          const label = String(stage || '').trim();
+          if (id && label) initialStages[id] = label;
+        };
+        if (Array.isArray(masked.batchCandidates)) {
+          for (const row of masked.batchCandidates) {
+            seedStage(
+              row.matchId,
+              row.clientMarkedStage || row.detail?.clientMarkedStage,
+            );
+          }
+        }
+        seedStage(
+          String(masked.matchId || masked.interviewId || ''),
+          masked.clientMarkedStage,
+        );
+        if (Object.keys(initialStages).length) {
+          setStageByMatchId((prev) => ({ ...initialStages, ...prev }));
+        }
       } catch (err: unknown) {
         if (cancelled) return;
         setError(getApiErrorMessage(err) || 'Unable to load review details');
@@ -92,10 +127,14 @@ export default function ClientReviewPage() {
     };
   }, [apiBase, token]);
 
-  const handleDrawerSubmitted = (matchId: string) => {
+  const handleDrawerSubmitted = (matchId: string, _message?: string, stage?: string | null) => {
     setReviewedMatchIds((current) =>
       current.includes(matchId) ? current : [...current, matchId],
     );
+    const label = String(stage || '').trim();
+    if (label) {
+      setStageByMatchId((current) => ({ ...current, [matchId]: label }));
+    }
   };
 
   return (
@@ -163,6 +202,7 @@ export default function ClientReviewPage() {
                     ? `${row.candidateName} ✓`
                     : row.candidateName,
               }))}
+              stageByMatchId={stageByMatchId}
               onView={(row) => setDrawerRow(row)}
             />
             <div className="border-t border-slate-100 px-4 py-3 sm:px-6 lg:px-8">

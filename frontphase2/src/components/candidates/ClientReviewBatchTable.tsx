@@ -8,7 +8,20 @@ import { isClientReviewFileHref } from '../../lib/clientReviewAssets';
 type Props = {
   rows: ClientReviewBatchRow[];
   onView: (row: ClientReviewBatchRow) => void;
+  /** matchId → stage label the client marked (overrides row.clientMarkedStage). */
+  stageByMatchId?: Record<string, string>;
 };
+
+function stageBadgeClass(stage: string): string {
+  const n = stage.toLowerCase();
+  if (n.includes('reject')) return 'bg-rose-50 text-rose-700 ring-rose-100';
+  if (n.includes('hired') || n.includes('joined')) return 'bg-emerald-50 text-emerald-700 ring-emerald-100';
+  if (n.includes('offer')) return 'bg-amber-50 text-amber-800 ring-amber-100';
+  if (n.includes('shortlist') || n.includes('feedback')) return 'bg-sky-50 text-sky-800 ring-sky-100';
+  if (n.includes('interview') || n.includes('screen')) return 'bg-violet-50 text-violet-700 ring-violet-100';
+  if (n.includes('submit')) return 'bg-indigo-50 text-indigo-700 ring-indigo-100';
+  return 'bg-teal-50 text-teal-700 ring-teal-100';
+}
 
 function candidateOf(row: ClientReviewBatchRow) {
   return row.detail?.candidate || {};
@@ -59,7 +72,7 @@ function canOpenCv(row: ClientReviewBatchRow): boolean {
   return url.startsWith('http') || isClientReviewFileHref(url);
 }
 
-export function ClientReviewBatchTable({ rows, onView }: Props) {
+export function ClientReviewBatchTable({ rows, onView, stageByMatchId }: Props) {
   const showScore = rows.some((row) => {
     const score = row.matchScore ?? row.detail?.matchScore;
     return Number.isFinite(Number(score)) && row.detail?.trackerOptions?.showScore !== false;
@@ -67,6 +80,7 @@ export function ClientReviewBatchTable({ rows, onView }: Props) {
   const viewEnabled = rows.some((row) => row.detail?.trackerOptions?.viewProfile !== false);
   const showCompany = rows.some((row) => Boolean(companyLabel(row)));
   const showXp = rows.some((row) => Number.isFinite(Number(row.experience ?? row.detail?.candidate?.experience)));
+  const showStage = rows.some((row) => row.detail?.trackerOptions?.changeStage !== false);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -77,6 +91,7 @@ export function ClientReviewBatchTable({ rows, onView }: Props) {
           {rows.some((row) => row.detail?.trackerOptions?.addRemarks !== false)
             ? ' and submit your decision'
             : ''}
+          {showStage ? ', pick a stage' : ''}
           , or open the CV directly.
         </p>
       </div>
@@ -92,6 +107,7 @@ export function ClientReviewBatchTable({ rows, onView }: Props) {
               <th className="px-4 py-3 sm:px-6">Education</th>
               {showXp ? <th className="px-4 py-3 sm:px-6">XP (yr)</th> : null}
               {showScore ? <th className="px-4 py-3 sm:px-6">Score</th> : null}
+              {showStage ? <th className="px-4 py-3 sm:px-6">Stage</th> : null}
               <th className="px-4 py-3 text-right sm:px-6 lg:px-8">Action</th>
             </tr>
           </thead>
@@ -106,6 +122,8 @@ export function ClientReviewBatchTable({ rows, onView }: Props) {
               const experience = row.experience ?? row.detail?.candidate?.experience;
               const cvUrl = resumeUrlOf(row);
               const cvAvailable = canOpenCv(row);
+              const stage =
+                String(stageByMatchId?.[row.matchId] || row.clientMarkedStage || row.detail?.clientMarkedStage || '').trim();
               return (
               <tr
                 key={row.matchId}
@@ -167,6 +185,20 @@ export function ClientReviewBatchTable({ rows, onView }: Props) {
                 {showScore ? (
                   <td className="px-4 py-3.5 text-slate-600 sm:px-6">
                     {Number.isFinite(Number(score)) ? Math.round(Number(score)) : '—'}
+                  </td>
+                ) : null}
+                {showStage ? (
+                  <td className="px-4 py-3.5 sm:px-6">
+                    {stage ? (
+                      <span
+                        className={`inline-flex max-w-[12rem] truncate rounded-full px-2.5 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${stageBadgeClass(stage)}`}
+                        title={stage}
+                      >
+                        {stage}
+                      </span>
+                    ) : (
+                      <span className="text-slate-400">—</span>
+                    )}
                   </td>
                 ) : null}
                 <td className="px-4 py-3.5 text-right sm:px-6 lg:px-8">

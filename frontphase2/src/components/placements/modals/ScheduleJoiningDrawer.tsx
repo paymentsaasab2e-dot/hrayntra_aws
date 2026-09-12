@@ -1,9 +1,11 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { Calendar } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Calendar, Loader2 } from 'lucide-react';
 import type { Placement } from '../../../types/placement';
 import type { ScheduleJoiningPayload } from '../../../types/placement';
+import { apiGetClient, type BackendClient } from '../../../lib/api';
+import { visibleContactEmail } from '../../../lib/contactEmail';
 import { DrawerFormShell, DrawerFormCancelButton } from '../../drawers/DrawerFormShell';
 import {
   DrawerFieldLabel,
@@ -19,6 +21,26 @@ interface ScheduleJoiningDrawerProps {
   onSubmit: (payload: ScheduleJoiningPayload) => Promise<void>;
 }
 
+const CUSTOM_EMAIL = '__custom__';
+
+function collectClientEmails(
+  client: BackendClient | Placement['client'] | null | undefined,
+): string[] {
+  if (!client) return [];
+  const seen = new Set<string>();
+  const add = (raw?: string | null) => {
+    const email = visibleContactEmail(raw).toLowerCase();
+    if (!email || !email.includes('@')) return;
+    seen.add(visibleContactEmail(raw));
+  };
+
+  (client.emails || []).forEach(add);
+  if ('teamMemberEmail' in client) add(client.teamMemberEmail);
+  (client.contacts || []).forEach((contact) => add(contact?.email));
+
+  return Array.from(seen);
+}
+
 export function ScheduleJoiningDrawer({
   isOpen,
   placement,
@@ -30,8 +52,11 @@ export function ScheduleJoiningDrawer({
   const [reportingToName, setReportingToName] = useState('');
   const [reportingToTitle, setReportingToTitle] = useState('');
   const [reportingToEmail, setReportingToEmail] = useState('');
+  const [useCustomEmail, setUseCustomEmail] = useState(false);
   const [joiningNotes, setJoiningNotes] = useState('');
   const [error, setError] = useState('');
+  const [clientEmails, setClientEmails] = useState<string[]>([]);
+  const [loadingEmails, setLoadingEmails] = useState(false);
 
   useEffect(() => {
     if (!isOpen || !placement) return;
@@ -42,7 +67,57 @@ export function ScheduleJoiningDrawer({
     setReportingToEmail(placement.reportingToEmail || '');
     setJoiningNotes(placement.notes || '');
     setError('');
-  }, [isOpen, placement]);
+
+    const seeded = collectClientEmails(placement.client);
+    setClientEmails(seeded);
+    const existingEmail = String(placement.reportingToEmail || '').trim();
+    setUseCustomEmail(Boolean(existingEmail && !seeded.includes(existingEmail)));
+  }, [isOpen, placement?.id]);
+
+  useEffect(() => {
+    if (!isOpen || !placement?.clientId) return;
+
+    let cancelled = false;
+    const clientId = placement.clientId;
+    const existingEmail = String(placement.reportingToEmail || '').trim();
+    const fallbackClient = placement.client;
+    setLoadingEmails(true);
+
+    (async () => {
+      try {
+        const res = await apiGetClient(clientId);
+        if (cancelled) return;
+        const client = (res?.data || res) as BackendClient;
+        const emails = collectClientEmails(client);
+        setClientEmails(emails);
+
+        if (existingEmail) {
+          setUseCustomEmail(!emails.includes(existingEmail));
+        } else if (emails.length === 1) {
+          setReportingToEmail(emails[0]);
+          setUseCustomEmail(false);
+        } else {
+          setUseCustomEmail(false);
+        }
+      } catch {
+        if (!cancelled) {
+          setClientEmails((prev) => (prev.length ? prev : collectClientEmails(fallbackClient)));
+        }
+      } finally {
+        if (!cancelled) setLoadingEmails(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, placement?.id, placement?.clientId]);
+
+  const emailSelectValue = useMemo(() => {
+    if (useCustomEmail) return CUSTOM_EMAIL;
+    if (reportingToEmail && clientEmails.includes(reportingToEmail)) return reportingToEmail;
+    return '';
+  }, [useCustomEmail, reportingToEmail, clientEmails]);
 
   const handleSubmit = async () => {
     if (!joiningDate) {
@@ -54,13 +129,18 @@ export function ScheduleJoiningDrawer({
       return;
     }
     setError('');
-    await onSubmit({
-      joiningDate,
-      reportingToName: reportingToName.trim(),
-      reportingToTitle: reportingToTitle.trim() || undefined,
-      reportingToEmail: reportingToEmail.trim() || undefined,
-      joiningNotes: joiningNotes.trim() || undefined,
-    });
+    try {
+      await onSubmit({
+        joiningDate,
+        reportingToName: reportingToName.trim(),
+        reportingToTitle: reportingToTitle.trim() || undefined,
+        reportingToEmail: reportingToEmail.trim() || undefined,
+        joiningNotes: joiningNotes.trim() || undefined,
+      });
+      // Parent closes on success; do not call onClose here (avoids races).
+    } catch {
+      // Keep the popup open so the user can fix and retry; parent shows the error toast.
+    }
   };
 
   if (!placement) return null;
@@ -126,13 +206,54 @@ export function ScheduleJoiningDrawer({
 
           <div>
             <DrawerFieldLabel label="Contact email" />
-            <input
-              type="email"
-              value={reportingToEmail}
-              onChange={(e) => setReportingToEmail(e.target.value)}
-              placeholder="hr@company.com"
-              className={DRAWER_FORM_INPUT}
-            />
+            <div className="relative">
+              <select
+                value={emailSelectValue}
+                disabled={loadingEmails}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  if (next === CUSTOM_EMAIL) {
+                    setUseCustomEmail(true);
+                    if (clientEmails.includes(reportingToEmail)) setReportingToEmail('');
+                    return;
+                  }
+                  setUseCustomEmail(false);
+                  setReportingToEmail(next);
+                }}
+                className={DRAWER_FORM_INPUT}
+              >
+                <option value="">
+                  {loadingEmails
+                    ? 'Loading client emails…'
+                    : clientEmails.length
+                      ? 'Select client email…'
+                      : 'No client emails found'}
+                </option>
+                {clientEmails.map((email) => (
+                  <option key={email} value={email}>
+                    {email}
+                  </option>
+                ))}
+                <option value={CUSTOM_EMAIL}>Other (type manually)</option>
+              </select>
+              {loadingEmails ? (
+                <Loader2 className="pointer-events-none absolute right-8 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-slate-400" />
+              ) : null}
+            </div>
+            {useCustomEmail ? (
+              <input
+                type="email"
+                value={reportingToEmail}
+                onChange={(e) => setReportingToEmail(e.target.value)}
+                placeholder="hr@company.com"
+                className={`${DRAWER_FORM_INPUT} mt-2`}
+              />
+            ) : null}
+            {!loadingEmails && !clientEmails.length ? (
+              <p className="mt-1.5 text-xs text-slate-500">
+                No emails on this client yet — choose Other to type one, or add emails on the client profile.
+              </p>
+            ) : null}
           </div>
 
           <div>

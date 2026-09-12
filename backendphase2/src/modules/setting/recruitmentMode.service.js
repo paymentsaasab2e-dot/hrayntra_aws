@@ -442,6 +442,7 @@ const KEY_JOB_STATUS_OPTIONS = 'jobStatusOptions';
 const KEY_CLIENT_LEAD_STATUS_OPTIONS = 'clientLeadStatusOptions';
 const KEY_CLIENT_PRIORITY_OPTIONS = 'clientPriorityOptions';
 const KEY_AGREEMENT_LEVEL_OPTIONS = 'agreementLevelOptions';
+const KEY_INTERVIEW_TYPE_OPTIONS = 'interviewTypeOptions';
 
 /** Default recruitment services offered by the agency (org can extend via settings). */
 export const DEFAULT_COMPANY_SERVICES = [
@@ -500,6 +501,20 @@ export const DEFAULT_AGREEMENT_LEVEL_OPTIONS = [
   'Executive',
   'All levels',
 ];
+
+/** Schedule Interview type labels (tenant can append custom values). */
+export const DEFAULT_INTERVIEW_TYPE_OPTIONS = [
+  'HR Screening',
+  'Technical Round 1',
+  'Technical Round 2',
+  'System Design',
+  'Cultural Fit',
+  'Final Round',
+  'Client Interview',
+];
+
+/** Built-in interview types that cannot be deleted from the tenant catalog. */
+export const PROTECTED_INTERVIEW_TYPE_OPTIONS = [...DEFAULT_INTERVIEW_TYPE_OPTIONS];
 
 export function normalizeServiceLabel(raw) {
   return String(raw || '').trim().replace(/\s+/g, ' ');
@@ -862,6 +877,36 @@ export async function removeAgreementLevelOption(level) {
     DEFAULT_AGREEMENT_LEVEL_OPTIONS,
     level,
     'Agreement level',
+  );
+}
+
+export async function getOrgCustomInterviewTypeOptions() {
+  return getOrgCustomStatusOptions(KEY_INTERVIEW_TYPE_OPTIONS);
+}
+
+export async function getInterviewTypeOptions() {
+  return getMergedStatusOptions(KEY_INTERVIEW_TYPE_OPTIONS, DEFAULT_INTERVIEW_TYPE_OPTIONS);
+}
+
+export async function setInterviewTypeOptions(types) {
+  return setOrgCustomStatusOptions(KEY_INTERVIEW_TYPE_OPTIONS, types);
+}
+
+export async function appendInterviewTypeOption(type) {
+  return appendOrgStatusOption(
+    KEY_INTERVIEW_TYPE_OPTIONS,
+    DEFAULT_INTERVIEW_TYPE_OPTIONS,
+    type,
+    'Interview type',
+  );
+}
+
+export async function removeInterviewTypeOption(type) {
+  return removeOrgStatusOption(
+    KEY_INTERVIEW_TYPE_OPTIONS,
+    DEFAULT_INTERVIEW_TYPE_OPTIONS,
+    type,
+    'Interview type',
   );
 }
 

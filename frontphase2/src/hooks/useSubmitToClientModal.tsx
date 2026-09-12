@@ -15,8 +15,11 @@ import {
   CLIENT_TRACKER_OPTION_DEFAULTS,
   type ClientTrackerOptions,
 } from '../lib/clientTrackerOptions';
+import { CLIENT_PIPELINE_STAGE_CHOICES } from '../lib/clientReviewTypes';
 
 export type { BulkSubmitCandidateEntry };
+
+const DEFAULT_ALLOWED_STAGES = CLIENT_PIPELINE_STAGE_CHOICES.map((s) => s.name);
 
 export function useSubmitToClientModal(options?: {
   onClosed?: () => void;
@@ -35,6 +38,8 @@ export function useSubmitToClientModal(options?: {
   const [matchId, setMatchId] = useState('');
   const [batchMatchIds, setBatchMatchIds] = useState<string[]>([]);
   const [trackerOptions, setTrackerOptions] = useState<ClientTrackerOptions>(CLIENT_TRACKER_OPTION_DEFAULTS);
+  const [allowedClientStages, setAllowedClientStages] = useState<string[]>(DEFAULT_ALLOWED_STAGES);
+  const [clientStageCatalog, setClientStageCatalog] = useState<string[]>(DEFAULT_ALLOWED_STAGES);
   const pendingEntriesRef = useRef<BulkSubmitCandidateEntry[]>([]);
   const generateRunIdRef = useRef(0);
   const onClosed = options?.onClosed;
@@ -54,6 +59,8 @@ export function useSubmitToClientModal(options?: {
     setMatchId('');
     setBatchMatchIds([]);
     setTrackerOptions(CLIENT_TRACKER_OPTION_DEFAULTS);
+    setAllowedClientStages(DEFAULT_ALLOWED_STAGES);
+    setClientStageCatalog(DEFAULT_ALLOWED_STAGES);
     pendingEntriesRef.current = [];
     onClosed?.();
   }, [loading, onClosed]);
@@ -76,6 +83,8 @@ export function useSubmitToClientModal(options?: {
       setMatchId('');
       setBatchMatchIds([]);
       setTrackerOptions(CLIENT_TRACKER_OPTION_DEFAULTS);
+      setAllowedClientStages(DEFAULT_ALLOWED_STAGES);
+      setClientStageCatalog(DEFAULT_ALLOWED_STAGES);
       try {
         const result = await generateSubmitToClientPreview(entries);
         if (generateRunIdRef.current !== runId) return;
@@ -89,6 +98,18 @@ export function useSubmitToClientModal(options?: {
         setMatchId(result.matchId);
         setBatchMatchIds(result.batchMatchIds);
         setTrackerOptions(result.trackerOptions);
+        setAllowedClientStages(
+          Array.isArray(result.allowedClientStages) && result.allowedClientStages.length
+            ? result.allowedClientStages
+            : DEFAULT_ALLOWED_STAGES,
+        );
+        setClientStageCatalog(
+          Array.isArray(result.clientStageCatalog) && result.clientStageCatalog.length
+            ? result.clientStageCatalog
+            : Array.isArray(result.allowedClientStages) && result.allowedClientStages.length
+              ? result.allowedClientStages
+              : DEFAULT_ALLOWED_STAGES,
+        );
         onSubmitted?.();
       } catch (err: unknown) {
         if (generateRunIdRef.current !== runId) return;
@@ -219,7 +240,11 @@ export function useSubmitToClientModal(options?: {
       matchId={matchId}
       batchMatchIds={batchMatchIds}
       trackerOptions={trackerOptions}
+      allowedClientStages={allowedClientStages}
+      clientStageCatalog={clientStageCatalog}
       onTrackerOptionsChange={setTrackerOptions}
+      onAllowedClientStagesChange={setAllowedClientStages}
+      onClientStageCatalogChange={setClientStageCatalog}
       onClose={handleClose}
       onRetry={handleRetry}
     />

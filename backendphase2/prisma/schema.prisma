@@ -2128,6 +2128,10 @@ model UserCommunicationPreferences {
   teamsClientId           String?
   teamsClientSecret       String?
   interviewAutoScheduling Boolean  @default(true)
+  /// Plain-text signature appended when composing from Inbox / Submit to Client.
+  emailComposeSignature   String?
+  /// Optional logo image URL shown above the signature in HTML emails.
+  emailComposeSignatureLogoUrl String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

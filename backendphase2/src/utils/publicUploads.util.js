@@ -16,7 +16,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, '../..');
 
-const ALLOWED_SUBDIRS = new Set(['placements', 'interview-client-review']);
+const ALLOWED_SUBDIRS = new Set(['placements', 'interview-client-review', 'email-signatures']);
 
 function sanitizeFilename(name) {
   const base = path.basename(String(name || '').trim());
@@ -189,6 +189,11 @@ export async function mirrorLocalUploadToS3({
 export function contentTypeForPublicUpload(filename) {
   const ext = path.extname(String(filename || '')).toLowerCase();
   if (ext === '.pdf') return 'application/pdf';
+  if (ext === '.png') return 'image/png';
+  if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg';
+  if (ext === '.webp') return 'image/webp';
+  if (ext === '.gif') return 'image/gif';
+  if (ext === '.svg') return 'image/svg+xml';
   return 'application/octet-stream';
 }
 

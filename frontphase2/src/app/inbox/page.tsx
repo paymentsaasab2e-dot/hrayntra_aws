@@ -982,6 +982,8 @@ export default function InboxPage() {
   const [composeKey, setComposeKey] = useState(0);
   const [composeValues, setComposeValues] = useState<InboxComposeValues>({
     to: '',
+    cc: '',
+    bcc: '',
     subject: '',
     body: '',
   });
@@ -1305,12 +1307,14 @@ export default function InboxPage() {
   };
 
   const handleCompose = () => {
-    openComposeWithValues({ to: '', subject: '', body: '' });
+    openComposeWithValues({ to: '', cc: '', bcc: '', subject: '', body: '' });
   };
 
   const openComposeWithValues = useCallback((values: InboxComposeValues) => {
     setComposeValues({
       to: String(values.to || '').trim(),
+      cc: String(values.cc || '').trim(),
+      bcc: String(values.bcc || '').trim(),
       subject: String(values.subject || ''),
       body: String(values.body || ''),
     });
@@ -1339,6 +1343,8 @@ export default function InboxPage() {
       }
       openComposeWithValues({
         to: draft.to || '',
+        cc: draft.cc || '',
+        bcc: draft.bcc || '',
         subject: draft.subject,
         body: draft.body,
       });

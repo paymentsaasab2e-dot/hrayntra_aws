@@ -4860,22 +4860,16 @@ export const candidateService = {
       throw new Error('Job not found');
     }
 
-    const deleted = await prisma.pipelineEntry.deleteMany({
-      where: { candidateId, jobId: normalizedJobId },
-    });
-
-    if (!deleted.count) {
-      throw new Error('Pipeline entry not found for this job');
-    }
-
+    // Detach all job links (pipeline, match, application, assignment) so
+    // "Remove from job" works even when the candidate was only applied/matched.
     await detachCandidateFromJobLink(candidateId, normalizedJobId);
 
     await prisma.activity.create({
       data: {
-        action: 'Removed from pipeline',
+        action: 'Removed from job',
         description: `${candidate.firstName} ${candidate.lastName}`.trim()
-          ? `${candidate.firstName} ${candidate.lastName} removed from ${job.title} pipeline.`
-          : `Candidate removed from ${job.title} pipeline.`,
+          ? `${candidate.firstName} ${candidate.lastName} removed from ${job.title}.`
+          : `Candidate removed from ${job.title}.`,
         performedById: userId,
         entityType: CANDIDATE_ACTIVITY_ENTITY,
         entityId: candidateId,

@@ -8,7 +8,6 @@ import {
   apiDeletePlacement,
   apiExportPlacements,
   apiGetCandidates,
-  apiGetClients,
   apiGetJobs,
   apiGetPlacementStats,
   apiGetPlacements,
@@ -112,16 +111,17 @@ export function usePlacements(filters: PlacementFilters) {
 
   const fetchOptions = useCallback(async () => {
     try {
-      const [candidatesRes, jobsRes, clientsRes, teamMembers] = await Promise.all([
+      const [candidatesRes, jobsRes, placementsForClientsRes, teamMembers] = await Promise.all([
         apiGetCandidates({ page: 1, limit: 500 }),
         apiGetJobs(PLACEMENT_FORM_JOBS_PARAMS),
-        apiGetClients({ page: 1, limit: 500 }),
+        // Unfiltered placement list — All Clients filter only shows clients that have placements.
+        apiGetPlacements({ page: 1, limit: 1000 }),
         getAllTeamMembersForAssign(getActiveOrgUnitId() || undefined, 'Placements'),
       ]);
 
       const candidates = unwrapCollection(candidatesRes.data as any);
       const jobs = unwrapCollection(jobsRes.data as any);
-      const clients = unwrapCollection(clientsRes.data as any);
+      const placementsForClients = unwrapCollection(placementsForClientsRes.data as any);
       const users = teamMembersToBackendUsers(teamMembers);
 
       setCandidateOptions(
@@ -158,12 +158,20 @@ export function usePlacements(filters: PlacementFilters) {
           })(),
         }))
       );
+
+      const clientsById = new Map<string, { id: string; companyName: string }>();
+      for (const placement of placementsForClients as any[]) {
+        const id = String(placement?.client?.id || placement?.clientId || '').trim();
+        const companyName = String(placement?.client?.companyName || '').trim();
+        if (!id || !companyName || clientsById.has(id)) continue;
+        clientsById.set(id, { id, companyName });
+      }
       setClientOptions(
-        clients.map((client: any) => ({
-          id: client.id,
-          companyName: client.companyName,
-        }))
+        Array.from(clientsById.values()).sort((a, b) =>
+          a.companyName.localeCompare(b.companyName, undefined, { sensitivity: 'base' }),
+        ),
       );
+
       const sortedUsers = [...users].sort((a: any, b: any) =>
         String(a?.name || a?.email || '').localeCompare(String(b?.name || b?.email || ''), undefined, {
           sensitivity: 'base',
@@ -199,7 +207,7 @@ export function usePlacements(filters: PlacementFilters) {
         setSubmitting(true);
         try {
           const response = await apiCreatePlacement(payload, offerLetter);
-          await fetchData();
+          await Promise.all([fetchData(), fetchOptions()]);
           return response?.data;
         } finally {
           setSubmitting(false);
@@ -209,7 +217,7 @@ export function usePlacements(filters: PlacementFilters) {
         setSubmitting(true);
         try {
           const response = await apiUpdatePlacement(id, payload);
-          await fetchData();
+          await Promise.all([fetchData(), fetchOptions()]);
           return response?.data;
         } finally {
           setSubmitting(false);
@@ -264,7 +272,7 @@ export function usePlacements(filters: PlacementFilters) {
         setSubmitting(true);
         try {
           await apiUndoPlacement(id);
-          await fetchData();
+          await Promise.all([fetchData(), fetchOptions()]);
         } finally {
           setSubmitting(false);
         }
@@ -282,7 +290,7 @@ export function usePlacements(filters: PlacementFilters) {
         setSubmitting(true);
         try {
           await apiDeletePlacement(id);
-          await fetchData();
+          await Promise.all([fetchData(), fetchOptions()]);
         } finally {
           setSubmitting(false);
         }
@@ -302,7 +310,7 @@ export function usePlacements(filters: PlacementFilters) {
       },
       refresh: fetchData,
     }),
-    [fetchData, filters]
+    [fetchData, fetchOptions, filters]
   );
 
   return {

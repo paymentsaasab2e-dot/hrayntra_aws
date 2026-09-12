@@ -11,7 +11,7 @@ import {
 } from '../../lib/interview-schedule-helpers';
 import { requestError } from '../../lib/appDialog';
 import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
-import { clampDateToMinLocal, getLocalTimeInputMinNow } from '../../utils/dateInputConstraints';
+import { clampDateToMinLocal, getLocalTimeInputMinNow, openNativeDateTimePicker } from '../../utils/dateInputConstraints';
 import { ClientTimezoneSelect } from '../clients/ClientTimezoneSelect';
 import {
   DEFAULT_INTERVIEW_TIMEZONE,
@@ -422,15 +422,26 @@ export function ScheduleInterviewModal({
                           time: interviewTimeInputValueTo12h(event.target.value),
                         }))
                       }
-                      className="w-full rounded-xl border border-[#E5E7EB] px-3 py-2.5 pr-10 text-sm outline-none focus:border-[#2563EB]"
+                      onClick={(event) => openNativeDateTimePicker(event.currentTarget)}
+                      onFocus={(event) => openNativeDateTimePicker(event.currentTarget)}
+                      className="w-full cursor-pointer rounded-xl border border-[#E5E7EB] px-3 py-2.5 pr-10 text-sm outline-none focus:border-[#2563EB]"
                       aria-label="Interview start time"
                     />
-                    <span
-                      className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
-                      aria-hidden="true"
+                    <button
+                      type="button"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                      aria-label="Open time picker"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        const input = event.currentTarget.parentElement?.querySelector(
+                          'input[type="time"]',
+                        ) as HTMLInputElement | null;
+                        input?.focus();
+                        openNativeDateTimePicker(input);
+                      }}
                     >
                       <Clock size={16} />
-                    </span>
+                    </button>
                   </div>
                 </div>
               </div>

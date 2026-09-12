@@ -434,272 +434,281 @@ export function PlacementsTable({
                   key={placement.id}
                   className={`${rowClass} ${onView ? 'cursor-pointer' : ''}`}
                   onClick={() => onView?.(placement)}
-                >                  <td className={tdPad}>
-                    <div className="flex items-center gap-3">
-                      <ImageWithFallback
-                        src={placement.candidate.avatar || ''}
-                        fallbackInitials={initialsFromDisplayName(
-                          `${placement.candidate.firstName || ''} ${placement.candidate.lastName || ''}`.trim(),
-                        )}
-                        alt={`${placement.candidate.firstName} ${placement.candidate.lastName}`}
-                        className="h-10 w-10 rounded-full object-cover ring-2 ring-white shadow-sm shadow-indigo-500/10"
-                      />
-                      <div className="min-w-0">
-                        <button
-                          type="button"
-                          onClick={() => onView(placement)}
-                          className="text-left text-sm font-semibold text-slate-900 transition-colors hover:text-indigo-700"
-                        >
-                          {`${placement.candidate.firstName} ${placement.candidate.lastName}`.trim()}
-                        </button>
-                        {placement.paymentStatus === 'PAID' || placement.paymentStatus === 'OVERDUE' ? (
-                          <div className="mt-1">
-                            <span
-                              className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                                placement.paymentStatus === 'PAID'
-                                  ? 'bg-[#D1FAE5] text-[#065F46]'
-                                  : 'bg-red-50 text-red-700'
-                              }`}
-                            >
-                              {placement.paymentStatus}
-                            </span>
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-                  </td>
-
-                  {show('clientJob') ? (
-                    <td className={tdPad}>
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold text-slate-900">
-                          {placement.client.companyName}
-                        </p>
-                        <p className="truncate text-xs text-slate-500">{placement.job.title}</p>
-                      </div>
-                    </td>
-                  ) : null}
-
-                  {show('recruiter') ? (
-                    <td className={`${tdPad} ${cellText}`}>{placement.recruiter?.name || '—'}</td>
-                  ) : null}
-                  {show('offerDate') ? (
-                    <td className={`${tdPad} ${cellText}`}>{formatPlacementDate(placement.offerDate)}</td>
-                  ) : null}
-                  {show('joiningDate') ? (
-                    <td className={`${tdPad} ${cellText}`}>{formatPlacementDate(placement.joiningDate)}</td>
-                  ) : null}
-
-                  {show('type') ? (
-                    <td className={tdPad}>
-                      <span
-                        className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-bold shadow-sm ${typeStyle.bg} ${typeStyle.text}`}
-                      >
-                        {placement.employmentType || '—'}
-                      </span>
-                    </td>
-                  ) : null}
-
-                  {show('status') ? (
-                    <td className={tdPad} onClick={(event) => event.stopPropagation()}>
-                      {onStatusChange ? (
-                        <PlacementStatusDropdown
-                          placement={placement}
-                          disabled={statusUpdatingId === placement.id}
-                          updating={statusUpdatingId === placement.id}
-                          onStatusChange={handleStatusChange}
+                >{[
+                    <td key="candidate" className={tdPad}>
+                      <div className="flex items-center gap-3">
+                        <ImageWithFallback
+                          src={placement.candidate.avatar || ''}
+                          fallbackInitials={initialsFromDisplayName(
+                            `${placement.candidate.firstName || ''} ${placement.candidate.lastName || ''}`.trim(),
+                          )}
+                          alt={`${placement.candidate.firstName} ${placement.candidate.lastName}`}
+                          className="h-10 w-10 rounded-full object-cover ring-2 ring-white shadow-sm shadow-indigo-500/10"
                         />
-                      ) : (
+                        <div className="min-w-0">
+                          <button
+                            type="button"
+                            onClick={() => onView(placement)}
+                            className="text-left text-sm font-semibold text-slate-900 transition-colors hover:text-indigo-700"
+                          >
+                            {`${placement.candidate.firstName} ${placement.candidate.lastName}`.trim()}
+                          </button>
+                          {placement.paymentStatus === 'PAID' || placement.paymentStatus === 'OVERDUE' ? (
+                            <div className="mt-1">
+                              <span
+                                className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                                  placement.paymentStatus === 'PAID'
+                                    ? 'bg-[#D1FAE5] text-[#065F46]'
+                                    : 'bg-red-50 text-red-700'
+                                }`}
+                              >
+                                {placement.paymentStatus}
+                              </span>
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    </td>,
+                    show('clientJob') ? (
+                      <td key="clientJob" className={tdPad}>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-slate-900">
+                            {placement.client.companyName}
+                          </p>
+                          <p className="truncate text-xs text-slate-500">{placement.job.title}</p>
+                        </div>
+                      </td>
+                    ) : null,
+                    show('recruiter') ? (
+                      <td key="recruiter" className={`${tdPad} ${cellText}`}>
+                        {placement.recruiter?.name || '—'}
+                      </td>
+                    ) : null,
+                    show('offerDate') ? (
+                      <td key="offerDate" className={`${tdPad} ${cellText}`}>
+                        {formatPlacementDate(placement.offerDate)}
+                      </td>
+                    ) : null,
+                    show('joiningDate') ? (
+                      <td key="joiningDate" className={`${tdPad} ${cellText}`}>
+                        {formatPlacementDate(placement.joiningDate)}
+                      </td>
+                    ) : null,
+                    show('type') ? (
+                      <td key="type" className={tdPad}>
                         <span
-                          className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${statusStyle.bg} ${statusStyle.text}`}
+                          className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-bold shadow-sm ${typeStyle.bg} ${typeStyle.text}`}
                         >
-                          {getPlacementStatusLabel(placement.status)}
+                          {placement.employmentType || '—'}
                         </span>
-                      )}
-                    </td>
-                  ) : null}
-
-                  {show('salary') ? (
-                    <td className={`${tdPad} ${cellText}`}>
-                      {placement.salaryOffered != null
-                        ? placement.currency
-                          ? `${placement.currency} ${Number(placement.salaryOffered).toLocaleString()}`
-                          : formatCurrency(placement.salaryOffered)
-                        : '—'}
-                    </td>
-                  ) : null}
-                  {show('fee') ? (
-                    <td className={`${tdPad} ${cellText}`}>
-                      {placement.placementFee != null
-                        ? placement.currency
-                          ? `${placement.currency} ${Number(placement.placementFee).toLocaleString()}`
-                          : formatCurrency(placement.placementFee)
-                        : '—'}
-                    </td>
-                  ) : null}
-                  {show('commission') ? (
-                    <td className={`${tdPad} ${cellText}`}>
-                      {placement.commissionPercentage != null
-                        ? `${placement.commissionPercentage}%`
-                        : '—'}
-                    </td>
-                  ) : null}
-                  {show('revenue') ? (
-                    <td className={`${tdPad} ${cellText}`}>
-                      {placement.revenue != null
-                        ? placement.currency
-                          ? `${placement.currency} ${Number(placement.revenue).toLocaleString()}`
-                          : formatCurrency(placement.revenue)
-                        : '—'}
-                    </td>
-                  ) : null}
-                  {show('paymentStatus') ? (
-                    <td className={`${tdPad} ${cellText}`}>
-                      {placement.paymentStatus || '—'}
-                    </td>
-                  ) : null}
-                  {show('invoiceNumber') ? (
-                    <td className={`${tdPad} ${cellText}`}>
-                      {placement.invoiceNumber || '—'}
-                    </td>
-                  ) : null}
-                  {show('actualJoiningDate') ? (
-                    <td className={`${tdPad} ${cellText}`}>
-                      {formatPlacementDate(placement.actualJoiningDate)}
-                    </td>
-                  ) : null}
-                  {show('candidateEmail') ? (
-                    <td className={`${tdPad} ${cellText}`}>
-                      {placement.candidate?.email || '—'}
-                    </td>
-                  ) : null}
-                  {show('reportingTo') ? (
-                    <td className={`${tdPad} ${cellText}`}>
-                      {placement.reportingToName || placement.reportingToTitle || '—'}
-                    </td>
-                  ) : null}
-
-                  {showAiAlertColumn ? (
-                    <td className={tdPad}>
-                      <WorkspaceAlertTableCell alerts={workspaceAlertsByEntityId?.[placement.id]} />
-                    </td>
-                  ) : null}
-
-                  {show('audit') ? <TableAuditCell audit={placement.auditMeta} className={tdPad} /> : null}
-
-                  <td className={`${tdPad} text-right`}>
-                    <div className={actionsWrap} onClick={(event) => event.stopPropagation()}>
-                      <button
-                        type="button"
-                        disabled={!onEdit}
-                        onClick={() => onEdit?.(placement)}
-                        className="rounded-lg p-2 text-slate-400 hover:bg-white hover:text-amber-700 disabled:cursor-not-allowed disabled:opacity-40"
-                        title="Edit placement"
-                        aria-label="Edit placement"
+                      </td>
+                    ) : null,
+                    show('status') ? (
+                      <td
+                        key="status"
+                        className={tdPad}
+                        onClick={(event) => event.stopPropagation()}
                       >
-                        <Pencil className="h-4 w-4" />
-                      </button>
-
-                      <button
-                        type="button"
-                        disabled={!placement.offerLetterUrl}
-                        onClick={() => {
-                          if (!placement.offerLetterUrl) return;
-                          const href = buildFileHref(placement.offerLetterUrl, uploadsBase);
-                          window.open(href, '_blank', 'noopener');
-                        }}
-                        className="rounded-lg p-2 text-slate-400 hover:bg-white hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
-                        title="View offer letter"
-                      >
-                        <FileText className="h-4 w-4" />
-                      </button>
-
-                      {onCreateInvoice ? (
+                        {onStatusChange ? (
+                          <PlacementStatusDropdown
+                            placement={placement}
+                            disabled={statusUpdatingId === placement.id}
+                            updating={statusUpdatingId === placement.id}
+                            onStatusChange={handleStatusChange}
+                          />
+                        ) : (
+                          <span
+                            className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${statusStyle.bg} ${statusStyle.text}`}
+                          >
+                            {getPlacementStatusLabel(placement.status)}
+                          </span>
+                        )}
+                      </td>
+                    ) : null,
+                    show('salary') ? (
+                      <td key="salary" className={`${tdPad} ${cellText}`}>
+                        {placement.salaryOffered != null
+                          ? placement.currency
+                            ? `${placement.currency} ${Number(placement.salaryOffered).toLocaleString()}`
+                            : formatCurrency(placement.salaryOffered)
+                          : '—'}
+                      </td>
+                    ) : null,
+                    show('fee') ? (
+                      <td key="fee" className={`${tdPad} ${cellText}`}>
+                        {placement.placementFee != null
+                          ? placement.currency
+                            ? `${placement.currency} ${Number(placement.placementFee).toLocaleString()}`
+                            : formatCurrency(placement.placementFee)
+                          : '—'}
+                      </td>
+                    ) : null,
+                    show('commission') ? (
+                      <td key="commission" className={`${tdPad} ${cellText}`}>
+                        {placement.commissionPercentage != null
+                          ? `${placement.commissionPercentage}%`
+                          : '—'}
+                      </td>
+                    ) : null,
+                    show('revenue') ? (
+                      <td key="revenue" className={`${tdPad} ${cellText}`}>
+                        {placement.revenue != null
+                          ? placement.currency
+                            ? `${placement.currency} ${Number(placement.revenue).toLocaleString()}`
+                            : formatCurrency(placement.revenue)
+                          : '—'}
+                      </td>
+                    ) : null,
+                    show('paymentStatus') ? (
+                      <td key="paymentStatus" className={`${tdPad} ${cellText}`}>
+                        {placement.paymentStatus || '—'}
+                      </td>
+                    ) : null,
+                    show('invoiceNumber') ? (
+                      <td key="invoiceNumber" className={`${tdPad} ${cellText}`}>
+                        {placement.invoiceNumber || '—'}
+                      </td>
+                    ) : null,
+                    show('actualJoiningDate') ? (
+                      <td key="actualJoiningDate" className={`${tdPad} ${cellText}`}>
+                        {formatPlacementDate(placement.actualJoiningDate)}
+                      </td>
+                    ) : null,
+                    show('candidateEmail') ? (
+                      <td key="candidateEmail" className={`${tdPad} ${cellText}`}>
+                        {placement.candidate?.email || '—'}
+                      </td>
+                    ) : null,
+                    show('reportingTo') ? (
+                      <td key="reportingTo" className={`${tdPad} ${cellText}`}>
+                        {placement.reportingToName || placement.reportingToTitle || '—'}
+                      </td>
+                    ) : null,
+                    showAiAlertColumn ? (
+                      <td key="aiAlert" className={tdPad}>
+                        <WorkspaceAlertTableCell alerts={workspaceAlertsByEntityId?.[placement.id]} />
+                      </td>
+                    ) : null,
+                    show('audit') ? (
+                      <TableAuditCell key="audit" audit={placement.auditMeta} className={tdPad} />
+                    ) : null,
+                    <td key="actions" className={`${tdPad} text-right`}>
+                      <div className={actionsWrap} onClick={(event) => event.stopPropagation()}>
                         <button
                           type="button"
-                          disabled={!(placement.placementFee && placement.placementFee > 0)}
-                          onClick={() => onCreateInvoice(placement)}
+                          disabled={!onEdit}
+                          onClick={() => onEdit?.(placement)}
                           className="rounded-lg p-2 text-slate-400 hover:bg-white hover:text-amber-700 disabled:cursor-not-allowed disabled:opacity-40"
-                          title={
-                            placement.invoiceNumber
-                              ? `Create another invoice (latest: ${placement.invoiceNumber})`
-                              : 'Create invoice'
-                          }
+                          title="Edit placement"
+                          aria-label="Edit placement"
                         >
-                          <Receipt className="h-4 w-4" />
+                          <Pencil className="h-4 w-4" />
                         </button>
-                      ) : null}
 
-                      {onScheduleJoining && canScheduleJoining ? (
                         <button
                           type="button"
-                          onClick={() => onScheduleJoining(placement)}
-                          className="rounded-lg p-2 text-slate-400 hover:bg-white hover:text-amber-700"
-                          title={
-                            placement.status === 'JOINING_SCHEDULED'
-                              ? 'Edit joining schedule'
-                              : 'Schedule joining'
-                          }
+                          disabled={!placement.offerLetterUrl}
+                          onClick={() => {
+                            if (!placement.offerLetterUrl) return;
+                            const href = buildFileHref(placement.offerLetterUrl, uploadsBase);
+                            window.open(href, '_blank', 'noopener');
+                          }}
+                          className="rounded-lg p-2 text-slate-400 hover:bg-white hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
+                          title="View offer letter"
                         >
-                          <Calendar className="h-4 w-4" />
+                          <FileText className="h-4 w-4" />
                         </button>
-                      ) : null}
 
-                      {onMarkJoined && (
-                        <button
-                          type="button"
-                          disabled={!canMarkJoinedStatus}
-                          onClick={() => onMarkJoined(placement)}
-                          className="rounded-lg p-2 text-slate-400 hover:bg-white hover:text-emerald-600 disabled:cursor-not-allowed disabled:opacity-40"
-                          title="Mark as joined"
-                        >
-                          <Check className="h-4 w-4" />
-                        </button>
-                      )}
+                        {onCreateInvoice ? (
+                          <button
+                            type="button"
+                            disabled={!(placement.placementFee && placement.placementFee > 0)}
+                            onClick={() => onCreateInvoice(placement)}
+                            className="rounded-lg p-2 text-slate-400 hover:bg-white hover:text-amber-700 disabled:cursor-not-allowed disabled:opacity-40"
+                            title={
+                              placement.invoiceNumber
+                                ? `Create another invoice (latest: ${placement.invoiceNumber})`
+                                : 'Create invoice'
+                            }
+                          >
+                            <Receipt className="h-4 w-4" />
+                          </button>
+                        ) : null}
 
-                      {placement.status === 'OFFER_REJECTED' && onResendOffer ? (
-                        <button
-                          type="button"
-                          onClick={() => onResendOffer(placement)}
-                          className="rounded-lg p-2 text-slate-400 hover:bg-white hover:text-indigo-700"
-                          title="Resend offer letter"
-                        >
-                          <RefreshCw className="h-4 w-4" />
-                        </button>
-                      ) : null}
+                        {onScheduleJoining && canScheduleJoining ? (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              onScheduleJoining(placement);
+                            }}
+                            className="rounded-lg p-2 text-slate-400 hover:bg-white hover:text-amber-700"
+                            title={
+                              placement.status === 'JOINING_SCHEDULED'
+                                ? 'Edit joining schedule'
+                                : 'Schedule joining'
+                            }
+                          >
+                            <Calendar className="h-4 w-4" />
+                          </button>
+                        ) : null}
 
-                      {placement.status === 'OFFER_REJECTED' && onRejectOfferCandidate ? (
-                        <button
-                          type="button"
-                          onClick={() => onRejectOfferCandidate(placement)}
-                          className="rounded-lg p-2 text-slate-400 hover:bg-white hover:text-red-700"
-                          title="Reject candidate"
-                        >
-                          <UserX className="h-4 w-4" />
-                        </button>
-                      ) : null}
+                        {onMarkJoined ? (
+                          <button
+                            type="button"
+                            disabled={!canMarkJoinedStatus}
+                            onClick={() => onMarkJoined(placement)}
+                            className="rounded-lg p-2 text-slate-400 hover:bg-white hover:text-emerald-600 disabled:cursor-not-allowed disabled:opacity-40"
+                            title="Mark as joined"
+                          >
+                            <Check className="h-4 w-4" />
+                          </button>
+                        ) : null}
 
-                      {onUndo && canUndoPlacement(placement) ? (
-                        <button
-                          type="button"
-                          onClick={() => onUndo(placement)}
-                          className="rounded-lg p-2 text-slate-400 hover:bg-white hover:text-sky-700"
-                          title="Undo placement and move candidate back to Interviewing"
-                        >
-                          <Undo2 className="h-4 w-4" />
-                        </button>
-                      ) : null}
+                        {placement.status === 'OFFER_REJECTED' && onResendOffer ? (
+                          <button
+                            type="button"
+                            onClick={() => onResendOffer(placement)}
+                            className="rounded-lg p-2 text-slate-400 hover:bg-white hover:text-indigo-700"
+                            title="Resend offer letter"
+                          >
+                            <RefreshCw className="h-4 w-4" />
+                          </button>
+                        ) : null}
 
-                      <RowMenu
-                        placement={placement}
-                        onMarkFailed={onMarkFailed}
-                        onRequestReplacement={onRequestReplacement}
-                        onUndo={onUndo}
-                        onDelete={onDelete}
-                      />
-                    </div>
-                  </td>
-                </tr>
+                        {placement.status === 'OFFER_REJECTED' && onRejectOfferCandidate ? (
+                          <button
+                            type="button"
+                            onClick={() => onRejectOfferCandidate(placement)}
+                            className="rounded-lg p-2 text-slate-400 hover:bg-white hover:text-red-700"
+                            title="Reject candidate"
+                          >
+                            <UserX className="h-4 w-4" />
+                          </button>
+                        ) : null}
+
+                        {onUndo && canUndoPlacement(placement) ? (
+                          <button
+                            type="button"
+                            onClick={() => onUndo(placement)}
+                            className="rounded-lg p-2 text-slate-400 hover:bg-white hover:text-sky-700"
+                            title="Undo placement and move candidate back to Interviewing"
+                          >
+                            <Undo2 className="h-4 w-4" />
+                          </button>
+                        ) : null}
+
+                        <RowMenu
+                          placement={placement}
+                          onMarkFailed={onMarkFailed}
+                          onRequestReplacement={onRequestReplacement}
+                          onUndo={onUndo}
+                          onDelete={onDelete}
+                        />
+                      </div>
+                    </td>,
+                  ]}</tr>
               );
             })}
           </tbody>

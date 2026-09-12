@@ -66,7 +66,7 @@ export function getPlacementStatusLabel(status: PlacementStatus) {
     .join(' ');
 }
 
-/** All statuses available in the placements table dropdown */
+/** All statuses available in the placements table dropdown / filters */
 export const PLACEMENT_STATUS_OPTIONS: PlacementStatus[] = [
   'OFFER_SENT',
   'OFFER_ACCEPTED',
@@ -75,6 +75,7 @@ export const PLACEMENT_STATUS_OPTIONS: PlacementStatus[] = [
   'JOINED',
   'NO_SHOW',
   'WITHDRAWN',
+  'FAILED',
   'REPLACEMENT_REQUIRED',
   'REPLACED',
 ];
