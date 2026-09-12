@@ -161,46 +161,46 @@ export function ClientReviewCandidateDrawer({
           <motion.button
             type="button"
             aria-label="Close candidate review"
-            className="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-[2px]"
+            className="fixed inset-0 z-40 bg-slate-950/45 backdrop-blur-md"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
           />
           <motion.aside
-            className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[42rem] flex-col overflow-hidden bg-[#F6F7FB] shadow-[-24px_0_80px_rgba(15,23,42,0.18)]"
+            className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[44rem] flex-col overflow-hidden border-l border-white/40 bg-[#F4F6FB] shadow-[-28px_0_80px_rgba(15,23,42,0.28)]"
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
             transition={{ type: 'spring', damping: 32, stiffness: 280 }}
           >
-            <div className="relative overflow-hidden bg-gradient-to-br from-[#4F46E5] via-[#5B5BD6] to-[#7C3AED] px-6 pb-6 pt-5 text-white">
-              <div className="pointer-events-none absolute -right-16 -top-20 h-48 w-48 rounded-full bg-white/10 blur-2xl" />
-              <div className="pointer-events-none absolute bottom-0 left-24 h-24 w-56 rounded-full bg-sky-300/20 blur-2xl" />
+            <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 px-6 pb-6 pt-5 text-white">
+              <div className="pointer-events-none absolute -right-16 -top-20 h-48 w-48 rounded-full bg-sky-400/20 blur-3xl" />
+              <div className="pointer-events-none absolute bottom-0 left-16 h-28 w-56 rounded-full bg-indigo-400/25 blur-3xl" />
               <div className="relative flex items-start justify-between gap-3">
                 <div className="flex min-w-0 items-start gap-4">
-                  <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-white/15 text-base font-semibold tracking-wide ring-2 ring-white/30">
+                  <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white/15 text-base font-semibold tracking-wide ring-1 ring-white/25 backdrop-blur">
                     {initialsFromName(row.candidateName)}
                   </span>
                   <div className="min-w-0 pt-0.5">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-white/70">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-white/65">
                       Candidate review
                     </p>
                     <h2 className="mt-1 truncate text-[1.45rem] font-semibold leading-tight tracking-tight">
                       {row.candidateName}
                     </h2>
                     {roleLabel ? (
-                      <p className="mt-1 truncate text-sm text-white/80">{roleLabel}</p>
+                      <p className="mt-1 truncate text-sm text-white/75">{roleLabel}</p>
                     ) : null}
                     <div className="mt-3 flex flex-wrap gap-1.5">
                       {jobTitle ? (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-white/15 px-2.5 py-1 text-[11px] font-medium text-white">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-medium text-white ring-1 ring-white/15">
                           <Briefcase size={11} />
                           {jobTitle}
                         </span>
                       ) : null}
                       {clientName ? (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-white/15 px-2.5 py-1 text-[11px] font-medium text-white">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-medium text-white ring-1 ring-white/15">
                           <Building2 size={11} />
                           {clientName}
                         </span>
@@ -211,7 +211,7 @@ export function ClientReviewCandidateDrawer({
                 <button
                   type="button"
                   onClick={onClose}
-                  className="rounded-full bg-white/10 p-2 text-white/90 transition hover:bg-white/20"
+                  className="rounded-2xl bg-white/10 p-2.5 text-white/90 ring-1 ring-white/15 transition hover:bg-white/20"
                 >
                   <X size={16} />
                 </button>
@@ -332,7 +332,7 @@ export function ClientReviewCandidateDrawer({
                 type="button"
                 onClick={requestSubmitConfirmation}
                 disabled={submitting}
-                className="w-full rounded-2xl bg-gradient-to-r from-indigo-600 via-violet-600 to-fuchsia-600 px-4 py-3 text-sm font-semibold text-white shadow-[0_10px_24px_rgba(79,70,229,0.35)] transition hover:brightness-105 disabled:opacity-60"
+                className="w-full rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white shadow-[0_14px_28px_-16px_rgba(15,23,42,0.55)] transition hover:bg-indigo-700 disabled:opacity-60"
               >
                 {submitting ? 'Submitting...' : isOfferFlow ? 'Confirm offer & submit' : 'Submit review'}
               </button>
@@ -395,7 +395,7 @@ export function ClientReviewCandidateDrawer({
                   <button
                     type="button"
                     onClick={() => void submitTag()}
-                    className="rounded-2xl bg-gradient-to-r from-indigo-600 via-violet-600 to-fuchsia-600 px-4 py-2.5 text-sm font-semibold text-white hover:brightness-105"
+                    className="rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700"
                   >
                     Yes, submit
                   </button>

@@ -160,6 +160,7 @@ import {
   writeJobsListCache,
   writeJobsMetricsCache,
   invalidateEmployerJobsCache,
+  invalidateEmployerCandidatesCache,
 } from '../../lib/employerPageCache';
 import { useWorkspaceEntityAlerts } from '../../hooks/useWorkspaceEntityAlerts';
 import { TableSkeleton } from '../../components/ui/Skeleton';
@@ -2486,6 +2487,7 @@ export default function JobsPage() {
       setScheduleBulkCandidateIds([]);
       const jid = jobDetails?.id || selectedJob?.id;
       if (jid) await refreshJobCandidates(jid);
+      invalidateEmployerCandidatesCache();
     },
     [
       jobDetails?.id,

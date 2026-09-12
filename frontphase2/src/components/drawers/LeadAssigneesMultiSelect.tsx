@@ -5,6 +5,10 @@ import { createPortal } from 'react-dom';
 import { ChevronDown, X, Users } from 'lucide-react';
 import type { TeamMember } from '../../types/team';
 import { useAssignableMembers } from '../../hooks/useAssignableMembers';
+import {
+  isCrmAssignmentModule,
+  useCrmAssignableMembers,
+} from '../../hooks/useCrmAssignableMembers';
 import { AssignCompanySelect } from '../assign/AssignCompanySelect';
 import { assigneeCompanyId, formatAssigneeDisplayName } from '../../lib/assigneeDisplay';
 import { orEmpty } from '../../lib/asyncLoadGuard';
@@ -60,16 +64,13 @@ export interface LeadAssigneesMultiSelectProps {
   /** Optional id used to label the dropdown for screen readers. */
   ariaLabel?: string;
   className?: string;
-  /** Module the assignee must have (Leads, Clients, …). Filters GET /team/assignable. */
+  /** Module the assignee must have (Leads, Clients, …). CRM modules use sales-team list. */
   assignmentModule?: string;
 }
 
 /**
- * Multi-select dropdown for assigning a lead to several team members.
- * - Closes on outside click / Esc.
- * - Renders selected users as removable chips above the trigger.
- * - First chip is annotated as "Primary" so users understand the ordering
- *   used by RBAC and downstream conversions (lead → client owner).
+ * Multi-select dropdown for assigning a lead/client to sales team members.
+ * CRM (Leads/Clients): sales-team members only — no Organization → Member cascade.
  */
 export function LeadAssigneesMultiSelect({
   members: membersList,
@@ -77,26 +78,37 @@ export function LeadAssigneesMultiSelect({
   onChange,
   loading = false,
   disabled = false,
-  placeholder = 'Select team members',
+  placeholder = 'Select sales team members',
   ariaLabel = 'Assigned team members',
   className = '',
   assignmentModule,
 }: LeadAssigneesMultiSelectProps) {
   const membersProp = orEmpty(membersList);
+  const isCrm = isCrmAssignmentModule(assignmentModule);
   const knownCompanyId = useMemo(() => {
+    if (isCrm) return '';
     for (const member of membersProp || []) {
       const company = assigneeCompanyId(member as TeamMember & { assignCompanyId?: string });
       if (company) return company;
     }
     return '';
-  }, [membersProp]);
-  const assignable = useAssignableMembers(!disabled, assignmentModule, {
+  }, [membersProp, isCrm]);
+
+  const crmAssignable = useCrmAssignableMembers(!disabled && isCrm, assignmentModule);
+  const assignable = useAssignableMembers(!disabled && !isCrm, assignmentModule, {
     initialCompanyId: knownCompanyId,
   });
-  const optionMembers =
-    assignable.canSelectCompany || Boolean(assignmentModule)
+
+  const optionMembers = isCrm
+    ? crmAssignable.members.length
+      ? crmAssignable.members
+      : membersProp
+    : assignable.canSelectCompany || Boolean(assignmentModule)
       ? assignable.members
       : membersProp;
+  const membersLoading = isCrm ? crmAssignable.loading : assignable.loading;
+  const canSelectCompany = isCrm ? false : assignable.canSelectCompany;
+
   const [selectedById, setSelectedById] = useState<Map<string, TeamMember>>(() => new Map());
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -223,6 +235,10 @@ export function LeadAssigneesMultiSelect({
     onChange(value.filter((existing) => existing !== id));
   };
 
+  const emptyLabel = isCrm
+    ? 'No sales team members found. Add people under Team → Sales groups.'
+    : 'No team members found. Create members under Team first.';
+
   const menu =
     open && menuPosition && typeof document !== 'undefined'
       ? createPortal(
@@ -244,25 +260,29 @@ export function LeadAssigneesMultiSelect({
                 autoFocus
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search team members…"
+                placeholder={isCrm ? 'Search sales team members…' : 'Search team members…'}
                 className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
               />
             </div>
             <ul className="min-h-0 flex-1 overflow-y-auto py-1">
-              {(loading || assignable.loading) && (
-                <li className="px-4 py-3 text-xs text-slate-500">Loading team members…</li>
-              )}
-              {!loading && !assignable.loading && assignable.canSelectCompany && !assignable.companyId && (
-                <li className="px-4 py-3 text-xs text-slate-500">Select a company to see members</li>
-              )}
-              {!loading && !assignable.loading && filtered.length === 0 && !(assignable.canSelectCompany && !assignable.companyId) && (
+              {(loading || membersLoading) && (
                 <li className="px-4 py-3 text-xs text-slate-500">
-                  {optionMembers.length === 0
-                    ? 'No team members found. Create members under Team first.'
-                    : 'No team members match your search.'}
+                  {isCrm ? 'Loading sales team members…' : 'Loading team members…'}
                 </li>
               )}
-              {!loading && !assignable.loading &&
+              {!loading && !membersLoading && canSelectCompany && !assignable.companyId && (
+                <li className="px-4 py-3 text-xs text-slate-500">Select a company to see members</li>
+              )}
+              {!loading &&
+                !membersLoading &&
+                filtered.length === 0 &&
+                !(canSelectCompany && !assignable.companyId) && (
+                  <li className="px-4 py-3 text-xs text-slate-500">
+                    {optionMembers.length === 0 ? emptyLabel : 'No team members match your search.'}
+                  </li>
+                )}
+              {!loading &&
+                !membersLoading &&
                 filtered.map((member) => {
                   const checked = value.includes(member.id);
                   const label = displayName(member);
@@ -311,7 +331,7 @@ export function LeadAssigneesMultiSelect({
 
   return (
     <div ref={containerRef} className={`relative ${className}`}>
-      {assignable.canSelectCompany ? (
+      {canSelectCompany ? (
         <AssignCompanySelect
           companies={assignable.companies}
           value={assignable.companyId}
@@ -368,8 +388,10 @@ export function LeadAssigneesMultiSelect({
       >
         <span className="flex items-center gap-2 text-slate-600">
           <Users size={14} className="shrink-0 text-slate-400" />
-          {loading ? (
-            <span className="text-slate-400">Loading team members…</span>
+          {loading || membersLoading ? (
+            <span className="text-slate-400">
+              {isCrm ? 'Loading sales team members…' : 'Loading team members…'}
+            </span>
           ) : selected.length > 0 ? (
             <span className="font-medium text-slate-900">
               {selected.length} {selected.length === 1 ? 'member selected' : 'members selected'}

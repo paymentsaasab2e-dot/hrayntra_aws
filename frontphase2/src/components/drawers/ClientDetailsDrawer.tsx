@@ -11,8 +11,6 @@ import { formatDirectorDisplay } from '../../constants/salutations';
 import { DirectorContactFields } from '../forms/DirectorContactFields';
 import { WhatsAppIcon } from '../icons/WhatsAppIcon';
 import { LeadAssigneesMultiSelect } from './LeadAssigneesMultiSelect';
-import { useAssignableMembers } from '../../hooks/useAssignableMembers';
-import { AssignCompanySelect } from '../assign/AssignCompanySelect';
 import { formatAssigneeDisplayName } from '../../lib/assigneeDisplay';
 import { cleanDisplayText } from '../../lib/sanitizeMojibake';
 import {
@@ -1085,7 +1083,6 @@ export function ClientDetailsDrawer({
   const drawerIsOpen = Boolean(client) || propIsAddMode;
   const clientAiGate = useAiCoinGate('ai.client_chat');
   const isHqOverrideMode = Boolean(createClientOverride || updateClientOverride);
-  const assignable = useAssignableMembers(!isHqOverrideMode, 'Clients');
   usePageDrawerLifecycle(drawerIsOpen);
   const [clientPanelPortalReady, setClientPanelPortalReady] = useState(false);
   useEffect(() => {
@@ -1639,7 +1636,6 @@ export function ClientDetailsDrawer({
   const [users, setUsers] = useState<BackendUser[]>([]);
   /** Raw TeamMember list backing the Add-Lead-style multi-assignee picker on the Add Client form. */
   const [recruiters, setRecruiters] = useState<TeamMember[]>([]);
-  const [assignedToDropdownOpen, setAssignedToDropdownOpen] = useState(false);
   const [loadingUsers, setLoadingUsers] = useState(false);
   /** Mirrors LeadDetailsDrawer.loadingRecruiters so the multi-select shows its spinner. */
   const loadingRecruiters = loadingUsers;
@@ -6688,113 +6684,22 @@ export function ClientDetailsDrawer({
                             <div className="space-y-4 pt-2">
                               <div>
                                 <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Assigned To</label>
-                                {assignable.canSelectCompany ? (
-                                  <AssignCompanySelect
-                                    companies={assignable.companies}
-                                    value={assignable.companyId}
-                                    onChange={(id) => {
-                                      assignable.setCompanyId(id);
-                                      setOverviewEditForm((p) => ({
-                                        ...p,
-                                        ...assignedToSelectionFromId(''),
-                                      }));
-                                    }}
-                                    className="mb-2"
-                                  />
-                                ) : null}
-                                <div className="relative">
-                                  <button
-                                    type="button"
-                                    onClick={() => setAssignedToDropdownOpen(!assignedToDropdownOpen)}
-                                    className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 flex items-center justify-between bg-white"
-                                  >
-                                    <span className="flex items-center gap-2">
-                                      {overviewEditForm.assignedToId ? (
-                                        (() => {
-                                          const selectedUser = (assignable.canSelectCompany ? assignable.users : users).find(u => u.id === overviewEditForm.assignedToId);
-                                          return selectedUser ? (
-                                            <>
-                                              {selectedUser.avatar ? (
-                                                <img src={selectedUser.avatar} alt="" className="w-5 h-5 rounded-full object-cover" />
-                                              ) : (
-                                                <div className="w-5 h-5 rounded-full bg-slate-200 flex items-center justify-center">
-                                                  <User size={12} className="text-slate-500" />
-                                                </div>
-                                              )}
-                                              <span className="text-slate-900">{selectedUser.name}</span>
-                                            </>
-                                          ) : (
-                                            <span className="text-slate-500">Select user</span>
-                                          );
-                                        })()
-                                      ) : (
-                                        <span className="text-slate-400">Select user</span>
-                                      )}
-                                    </span>
-                                    <ChevronDown size={16} className="text-slate-400" />
-                                  </button>
-                                  {assignedToDropdownOpen && (
-                                    <>
-                                      <div className="fixed inset-0 z-10" onClick={() => setAssignedToDropdownOpen(false)} aria-hidden />
-                                      <ul className="absolute z-20 mt-1 w-full rounded-xl border border-slate-200 bg-white py-1 shadow-lg max-h-48 overflow-y-auto">
-                                        {assignable.canSelectCompany && !assignable.companyId ? (
-                                          <li className="px-4 py-2.5 text-sm text-slate-500 text-center">Select a company to see members</li>
-                                        ) : (assignable.canSelectCompany ? assignable.loading : loadingUsers) ? (
-                                          <li className="px-4 py-2.5 text-sm text-slate-500 text-center">Loading users...</li>
-                                        ) : (assignable.canSelectCompany ? assignable.users : users).length === 0 ? (
-                                          <li className="px-4 py-2.5 text-sm text-slate-500 text-center">No users available</li>
-                                        ) : (
-                                          <>
-                                            <li>
-                                              <button
-                                                type="button"
-                                                onClick={() => {
-                                                  setOverviewEditForm((p) => ({
-                                                    ...p,
-                                                    ...assignedToSelectionFromId(''),
-                                                  }));
-                                                  setAssignedToDropdownOpen(false);
-                                                }}
-                                                className={`w-full flex items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-slate-50 ${!overviewEditForm.assignedToId ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-700'}`}
-                                              >
-                                                <span className="text-slate-400">Unassigned</span>
-                                              </button>
-                                            </li>
-                                            {(assignable.canSelectCompany ? assignable.users : users).map((user) => (
-                                              <li key={user.id}>
-                                                <button
-                                                  type="button"
-                                                  onClick={() => {
-                                                    setOverviewEditForm((p) => ({
-                                                      ...p,
-                                                      ...assignedToSelectionFromId(user.id),
-                                                    }));
-                                                    setAssignedToDropdownOpen(false);
-                                                  }}
-                                                  className={`w-full flex items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-slate-50 ${overviewEditForm.assignedToId === user.id ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-700'}`}
-                                                >
-                                                  {user.avatar ? (
-                                                    <img src={user.avatar} alt="" className="w-6 h-6 rounded-full object-cover" />
-                                                  ) : (
-                                                    <div className="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center">
-                                                      <User size={14} className="text-slate-500" />
-                                                    </div>
-                                                  )}
-                                                  <div className="flex-1 min-w-0">
-                                                    <div className="font-medium truncate">{user.name}</div>
-                                                    {user.role && (
-                                                      <div className="text-xs text-slate-500 truncate">{user.role}</div>
-                                                    )}
-                                                  </div>
-                                                </button>
-                                              </li>
-                                            ))}
-                                          </>
-                                        )}
-                                      </ul>
-                                    </>
-                                  )}
-                                </div>
+                                <LeadAssigneesMultiSelect
+                                  members={recruiters}
+                                  value={
+                                    overviewEditForm.assignedToIds ??
+                                    (overviewEditForm.assignedToId ? [overviewEditForm.assignedToId] : [])
+                                  }
+                                  loading={loadingRecruiters}
+                                  assignmentModule={isHqOverrideMode ? undefined : 'Clients'}
+                                  onChange={(ids) => {
+                                    setOverviewEditForm((p) => ({
+                                      ...p,
+                                      assignedToIds: ids,
+                                      assignedToId: ids[0] ?? '',
+                                    }));
+                                  }}
+                                />
                               </div>
                               <div>
                                 <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Priority</label>

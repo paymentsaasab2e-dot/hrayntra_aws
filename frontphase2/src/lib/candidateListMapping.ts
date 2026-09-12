@@ -1,6 +1,13 @@
 import type { BackendCandidate } from './api';
 import { mapBackendStage } from './mapCandidateProfile';
 import { isSubmittedToClientStage } from '../utils/candidateStage';
+import { resolveSubmitJobIdFromBackend } from './candidateSubmitToClient';
+
+function displayPipelineStageName(currentStage?: string | null): string {
+  const normalized = String(currentStage || '').trim();
+  if (!normalized || normalized.toLowerCase() === 'new') return 'Applied';
+  return normalized;
+}
 
 /** AI Matches scoring rows must not appear as assign/apply on the Candidates list. */
 function matchRepresentsCrmJobLink(match: {
@@ -121,8 +128,19 @@ function explicitStageLooksJobLinked(stage: string): boolean {
   );
 }
 
-/** CRM stage for list/drawer — job-linked candidates show Applied unless a later stage is set. */
+/** CRM stage for list/drawer — prefer assigned-job pipeline stage (same as Job Details). */
 export function resolveCandidateListStage(c: BackendCandidate): string {
+  const primaryJobId = resolveSubmitJobIdFromBackend(c);
+  if (primaryJobId) {
+    const entry = (Array.isArray(c.pipelineEntries) ? c.pipelineEntries : []).find(
+      (row) => String(row?.jobId || '').trim() === primaryJobId,
+    );
+    const pipelineName = String(entry?.stage?.name || '').trim();
+    if (pipelineName) {
+      return displayPipelineStageName(pipelineName);
+    }
+  }
+
   const backendStage = String(c.stage || '').trim();
   const hasTenantJob = candidateHasRealJobAssignment(c);
   const explicit = backendStage;
