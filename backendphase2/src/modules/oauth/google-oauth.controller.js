@@ -9,17 +9,21 @@ import { integrationService } from '../integration/integration.service.js';
 const OPENID_SCOPES = 'openid email profile';
 /** Send-only — used when composing outbound mail from Hryantra. */
 const GMAIL_SEND_SCOPE = 'https://www.googleapis.com/auth/gmail.send';
+/** Create HTML drafts with clickable links (open in Gmail). */
+const GMAIL_COMPOSE_SCOPE = 'https://www.googleapis.com/auth/gmail.compose';
 /** Read inbox threads so recruiters can reply in-product (restricted; required for message bodies). */
 const GMAIL_READONLY_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly';
+/** Read Gmail send-as / signature settings for compose. */
+const GMAIL_SETTINGS_BASIC_SCOPE = 'https://www.googleapis.com/auth/gmail.settings.basic';
 /**
  * Events only — create/update/delete interview & meeting events.
  * Do NOT use full `auth/calendar` (shares/deletes entire calendars); Google rejects that as non-minimal.
  */
 const CALENDAR_EVENTS_SCOPE = 'https://www.googleapis.com/auth/calendar.events';
 
-const GMAIL_SCOPES = `${OPENID_SCOPES} ${GMAIL_SEND_SCOPE} ${GMAIL_READONLY_SCOPE}`;
+const GMAIL_SCOPES = `${OPENID_SCOPES} ${GMAIL_SEND_SCOPE} ${GMAIL_COMPOSE_SCOPE} ${GMAIL_READONLY_SCOPE} ${GMAIL_SETTINGS_BASIC_SCOPE}`;
 const CAL_SCOPES = `${OPENID_SCOPES} ${CALENDAR_EVENTS_SCOPE}`;
-const BOTH_SCOPES = `${OPENID_SCOPES} ${GMAIL_SEND_SCOPE} ${GMAIL_READONLY_SCOPE} ${CALENDAR_EVENTS_SCOPE}`;
+const BOTH_SCOPES = `${OPENID_SCOPES} ${GMAIL_SEND_SCOPE} ${GMAIL_COMPOSE_SCOPE} ${GMAIL_READONLY_SCOPE} ${GMAIL_SETTINGS_BASIC_SCOPE} ${CALENDAR_EVENTS_SCOPE}`;
 
 function buildScope(mode) {
   if (mode === 'gmail') return GMAIL_SCOPES;

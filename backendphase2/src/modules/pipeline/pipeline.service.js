@@ -204,6 +204,7 @@ export const pipelineService = {
           candidateId,
           jobId,
           stage: mapStageNameToPipelineBucket(stage.name),
+          stageLabel: stage.name,
           performedById: movedById,
           skipStageActivity: true,
           metadata: {

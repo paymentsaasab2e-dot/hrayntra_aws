@@ -41,23 +41,39 @@ export const userFileService = {
    * @param {string} uploadedById - ID of user performing the upload
    */
   async create(userId, fileData, uploadedById) {
-    const updatedUser = await prisma.user.update({
-      where: { id: userId },
-      data: {
-        avatar: fileData.fileUrl,
-      },
-      select: {
-        id: true,
-        avatar: true,
-      },
-    });
+    const fileType = String(fileData.fileType || 'Avatar').trim() || 'Avatar';
+    // Only Avatar updates the profile picture. Other types (e.g. email signature logo)
+    // return the uploaded URL without touching user.avatar.
+    if (fileType.toLowerCase() === 'avatar') {
+      const updatedUser = await prisma.user.update({
+        where: { id: userId },
+        data: {
+          avatar: fileData.fileUrl,
+        },
+        select: {
+          id: true,
+          avatar: true,
+        },
+      });
 
-    // Return file-like object for consistency
+      return {
+        id: `avatar-${userId}`,
+        fileName: fileData.fileName || 'avatar',
+        fileUrl: updatedUser.avatar,
+        fileType: 'Avatar',
+        entityType: 'user',
+        entityId: userId,
+        uploadedById: uploadedById || userId,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+    }
+
     return {
-      id: `avatar-${userId}`,
-      fileName: fileData.fileName || 'avatar',
-      fileUrl: updatedUser.avatar,
-      fileType: fileData.fileType || 'Avatar',
+      id: `user-file-${userId}-${Date.now()}`,
+      fileName: fileData.fileName || 'file',
+      fileUrl: fileData.fileUrl,
+      fileType,
       entityType: 'user',
       entityId: userId,
       uploadedById: uploadedById || userId,

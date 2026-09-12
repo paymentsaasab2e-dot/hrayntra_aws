@@ -72,6 +72,17 @@ function closestAssistable(target: EventTarget | null): AssistEl | null {
   return null;
 }
 
+/** Stop Grammarly / LanguageTool from fighting React controlled inputs (eats first keystroke). */
+function softDisableThirdPartyEditors(el: AssistEl) {
+  const node = el as HTMLElement;
+  if (node.dataset.writingAssistSoftened === '1') return;
+  node.dataset.writingAssistSoftened = '1';
+  node.setAttribute('data-gramm', 'false');
+  node.setAttribute('data-gramm_editor', 'false');
+  node.setAttribute('data-enable-grammarly', 'false');
+  node.setAttribute('data-lt-active', 'false');
+}
+
 function getTextNodes(root: HTMLElement): Text[] {
   const nodes: Text[] = [];
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
@@ -164,21 +175,28 @@ function applyContentEditableSpan(el: HTMLElement, span: WritingSpanSuggestion) 
  */
 export function WritingAssistHost() {
   const pathname = usePathname();
+  const pathnameRef = useRef(pathname);
+  pathnameRef.current = pathname;
+
   const [target, setTarget] = useState<AssistEl | null>(null);
   const [active, setActive] = useState<WritingSpanSuggestion | null>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const [tipVisible, setTipVisible] = useState(false);
+
   const tooltipRef = useRef<HTMLDivElement | null>(null);
   const targetRef = useRef<AssistEl | null>(null);
+  const tipVisibleRef = useRef(false);
   const ignoredIdsRef = useRef<Set<string>>(new Set());
   const lastShownIdRef = useRef<string | null>(null);
   const lastActivityRef = useRef(Date.now());
   const idleTimerRef = useRef<number | null>(null);
   const showTimerRef = useRef<number | null>(null);
   const fieldKeyRef = useRef<string>('');
+  const refreshRafRef = useRef<number | null>(null);
+  const pendingRefreshElRef = useRef<AssistEl | null>(null);
 
   const IDLE_HIDE_MS = 2500;
-  const SHOW_DEBOUNCE_MS = 280;
+  const SHOW_DEBOUNCE_MS = 320;
 
   const clearTimers = useCallback(() => {
     if (idleTimerRef.current != null) {
@@ -189,17 +207,26 @@ export function WritingAssistHost() {
       window.clearTimeout(showTimerRef.current);
       showTimerRef.current = null;
     }
+    if (refreshRafRef.current != null) {
+      window.cancelAnimationFrame(refreshRafRef.current);
+      refreshRafRef.current = null;
+    }
   }, []);
 
   const dismiss = useCallback(() => {
     clearTimers();
+    tipVisibleRef.current = false;
     setTarget(null);
     setActive(null);
     setPos(null);
     setTipVisible(false);
     targetRef.current = null;
     lastShownIdRef.current = null;
+    pendingRefreshElRef.current = null;
   }, [clearTimers]);
+
+  const dismissRef = useRef(dismiss);
+  dismissRef.current = dismiss;
 
   const isTooltipFocus = useCallback((node: EventTarget | Node | null) => {
     return Boolean(node instanceof Node && tooltipRef.current?.contains(node));
@@ -210,6 +237,7 @@ export function WritingAssistHost() {
     idleTimerRef.current = window.setTimeout(() => {
       if (Date.now() - lastActivityRef.current >= IDLE_HIDE_MS) {
         if (lastShownIdRef.current) ignoredIdsRef.current.add(lastShownIdRef.current);
+        tipVisibleRef.current = false;
         setTipVisible(false);
         setActive(null);
         setPos(null);
@@ -219,16 +247,16 @@ export function WritingAssistHost() {
     }, IDLE_HIDE_MS);
   }, []);
 
-  const refresh = useCallback(
+  const refreshNow = useCallback(
     (el: AssistEl | null) => {
-      if (isEmployerPublicAuthPath(pathname)) {
-        dismiss();
+      if (isEmployerPublicAuthPath(pathnameRef.current)) {
+        dismissRef.current();
         return;
       }
       if (isTooltipFocus(document.activeElement)) return;
 
       if (!el || !el.isConnected) {
-        dismiss();
+        dismissRef.current();
         return;
       }
 
@@ -237,9 +265,11 @@ export function WritingAssistHost() {
         (document.activeElement instanceof Node && el.contains(document.activeElement));
 
       if (!focused) {
-        dismiss();
+        dismissRef.current();
         return;
       }
+
+      softDisableThirdPartyEditors(el);
 
       const fieldKey = `${el.tagName}:${(el as HTMLElement).id || ''}:${(el as HTMLElement).getAttribute('name') || ''}`;
       if (fieldKeyRef.current !== fieldKey) {
@@ -261,9 +291,10 @@ export function WritingAssistHost() {
       const span = pickSpanNearCaret(eligible, caret);
 
       targetRef.current = el;
-      setTarget(el);
+      setTarget((prev) => (prev === el ? prev : el));
 
       if (!span) {
+        tipVisibleRef.current = false;
         setActive(null);
         setPos(null);
         setTipVisible(false);
@@ -272,9 +303,18 @@ export function WritingAssistHost() {
       }
 
       const place = () => {
-        const anchor = Math.min(Math.max(span.end, 0), text.length);
+        // Field may have blurred while the tip was debounced.
+        if (targetRef.current !== el || !el.isConnected) return;
+        const stillFocused =
+          document.activeElement === el ||
+          (document.activeElement instanceof Node && el.contains(document.activeElement));
+        if (!stillFocused) return;
+
+        const latest = readAssistValue(el);
+        const anchor = Math.min(Math.max(span.end, 0), latest.text.length);
         const rect = isFieldEl(el) ? getCaretViewportRect(el, anchor) : contentEditableCaretRect(el, anchor);
         const tooltipW = 220;
+        tipVisibleRef.current = true;
         setActive(span);
         setTipVisible(true);
         lastShownIdRef.current = span.id;
@@ -286,9 +326,10 @@ export function WritingAssistHost() {
       };
 
       if (showTimerRef.current != null) window.clearTimeout(showTimerRef.current);
-      if (lastShownIdRef.current === span.id && tipVisible) {
+      if (lastShownIdRef.current === span.id && tipVisibleRef.current) {
         place();
       } else {
+        tipVisibleRef.current = false;
         setTipVisible(false);
         setActive(null);
         setPos(null);
@@ -298,69 +339,100 @@ export function WritingAssistHost() {
         }, SHOW_DEBOUNCE_MS);
       }
     },
-    [dismiss, isTooltipFocus, pathname, scheduleIdleHide, tipVisible],
+    [isTooltipFocus, scheduleIdleHide],
   );
 
+  const scheduleRefresh = useCallback(
+    (el: AssistEl | null) => {
+      pendingRefreshElRef.current = el;
+      if (refreshRafRef.current != null) return;
+      // Defer until after React commits the controlled value so we never race the first keystroke.
+      refreshRafRef.current = window.requestAnimationFrame(() => {
+        refreshRafRef.current = null;
+        const next = pendingRefreshElRef.current;
+        pendingRefreshElRef.current = null;
+        refreshNow(next);
+      });
+    },
+    [refreshNow],
+  );
+
+  const refreshNowRef = useRef(refreshNow);
+  refreshNowRef.current = refreshNow;
+  const scheduleRefreshRef = useRef(scheduleRefresh);
+  scheduleRefreshRef.current = scheduleRefresh;
+
   useEffect(() => {
-    dismiss();
-  }, [dismiss, pathname]);
+    dismissRef.current();
+  }, [pathname]);
 
   useEffect(() => {
     const onFocusIn = (e: FocusEvent) => {
       const el = closestAssistable(e.target);
       if (el) {
-        refresh(el);
+        softDisableThirdPartyEditors(el);
+        // Soft focus only — don't run suggestion logic until the user types (avoids first-key races).
+        targetRef.current = el;
+        setTarget((prev) => (prev === el ? prev : el));
         return;
       }
-      if (!isTooltipFocus(e.target)) dismiss();
+      if (!tooltipRef.current?.contains(e.target as Node)) dismissRef.current();
     };
 
     const onFocusOut = (e: FocusEvent) => {
-      if (isTooltipFocus(e.relatedTarget)) return;
+      if (tooltipRef.current?.contains(e.relatedTarget as Node)) return;
       window.setTimeout(() => {
         const next = document.activeElement;
-        if (isTooltipFocus(next)) return;
+        if (tooltipRef.current?.contains(next)) return;
         const el = closestAssistable(next);
         if (el) {
-          refresh(el);
+          softDisableThirdPartyEditors(el);
+          targetRef.current = el;
+          setTarget((prev) => (prev === el ? prev : el));
           return;
         }
-        dismiss();
+        dismissRef.current();
       }, 80);
     };
 
-    const onMaybeRefresh = (e: Event) => {
+    const onInputOrSelect = (e: Event) => {
       const el = closestAssistable(e.target);
       if (el) {
-        refresh(el);
+        scheduleRefreshRef.current(el);
         return;
       }
-      if (isTooltipFocus(e.target)) return;
+      if (tooltipRef.current?.contains(e.target as Node)) return;
       const current = targetRef.current;
       if (!current || !(e.target instanceof Node) || !current.contains(e.target)) {
-        dismiss();
+        dismissRef.current();
       }
     };
 
+    const onKeyUp = (e: KeyboardEvent) => {
+      const el = closestAssistable(e.target);
+      if (el) scheduleRefreshRef.current(el);
+    };
+
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') dismiss();
+      if (e.key === 'Escape') dismissRef.current();
     };
 
     const onViewport = () => {
       const el = targetRef.current;
       if (!el?.isConnected) {
-        dismiss();
+        dismissRef.current();
         return;
       }
-      refresh(el);
+      if (!tipVisibleRef.current) return;
+      refreshNowRef.current(el);
     };
 
     document.addEventListener('focusin', onFocusIn);
     document.addEventListener('focusout', onFocusOut);
-    document.addEventListener('input', onMaybeRefresh, true);
-    document.addEventListener('keyup', onMaybeRefresh, true);
-    document.addEventListener('pointerdown', onMaybeRefresh, true);
-    document.addEventListener('select', onMaybeRefresh, true);
+    // Bubble phase (not capture) so React's onChange commits before we read the value.
+    document.addEventListener('input', onInputOrSelect);
+    document.addEventListener('keyup', onKeyUp);
+    document.addEventListener('select', onInputOrSelect);
     document.addEventListener('keydown', onKeyDown, true);
     window.addEventListener('resize', onViewport);
     window.addEventListener('scroll', onViewport, true);
@@ -368,38 +440,32 @@ export function WritingAssistHost() {
     return () => {
       document.removeEventListener('focusin', onFocusIn);
       document.removeEventListener('focusout', onFocusOut);
-      document.removeEventListener('input', onMaybeRefresh, true);
-      document.removeEventListener('keyup', onMaybeRefresh, true);
-      document.removeEventListener('pointerdown', onMaybeRefresh, true);
-      document.removeEventListener('select', onMaybeRefresh, true);
+      document.removeEventListener('input', onInputOrSelect);
+      document.removeEventListener('keyup', onKeyUp);
+      document.removeEventListener('select', onInputOrSelect);
       document.removeEventListener('keydown', onKeyDown, true);
       window.removeEventListener('resize', onViewport);
       window.removeEventListener('scroll', onViewport, true);
     };
-  }, [dismiss, isTooltipFocus, refresh]);
+  }, []);
 
   useEffect(() => {
     if (!target) return undefined;
     const checkStillOpen = () => {
       const el = targetRef.current;
       if (!el?.isConnected) {
-        dismiss();
+        dismissRef.current();
         return;
       }
       const ae = document.activeElement;
-      if (isTooltipFocus(ae)) return;
+      if (tooltipRef.current?.contains(ae)) return;
       if (ae !== el && !(ae instanceof Node && el.contains(ae))) {
-        dismiss();
+        dismissRef.current();
       }
     };
-    const mo = new MutationObserver(checkStillOpen);
-    mo.observe(document.body, { childList: true, subtree: true });
-    const id = window.setInterval(checkStillOpen, 250);
-    return () => {
-      mo.disconnect();
-      window.clearInterval(id);
-    };
-  }, [dismiss, isTooltipFocus, target]);
+    const id = window.setInterval(checkStillOpen, 400);
+    return () => window.clearInterval(id);
+  }, [target]);
 
   if (isEmployerPublicAuthPath(pathname)) return null;
   if (!target || !tipVisible || !active || !pos) return null;
@@ -432,12 +498,12 @@ export function WritingAssistHost() {
               } catch {
                 /* some inputs ignore selection */
               }
-              refresh(el);
+              refreshNowRef.current(el);
             });
             return;
           }
           applyContentEditableSpan(el, active);
-          window.requestAnimationFrame(() => refresh(el));
+          window.requestAnimationFrame(() => refreshNowRef.current(el));
         }}
       >
         {active.suggestion}

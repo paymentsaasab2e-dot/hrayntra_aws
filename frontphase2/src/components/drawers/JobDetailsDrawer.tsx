@@ -18,8 +18,11 @@ import { buildFileHref } from '../../utils/cloudinaryUrls';
 import { motion, AnimatePresence } from 'motion/react';
 import { DetailsModalShell } from './DetailsModalShell';
 import { DrawerTabBar } from './DrawerTabBar';
-import { requestCornerAlert, requestError, requestInfo } from '../../lib/appDialog';
+import { requestCornerAlert, requestConfirm, requestError, requestInfo } from '../../lib/appDialog';
 import { ApiRequestError } from '../../lib/apiNetworkErrors';
+import { isValidObjectId } from '../../lib/mapCandidateProfile';
+import { RECYCLE_BIN_SYNC_EVENT } from '../../constants/recycleBin';
+import { invalidateEmployerCandidatesCache } from '../../lib/employerPageCache';
 import {
   isInterviewPipelineStage,
   isOfferPipelineStage,
@@ -92,6 +95,8 @@ import {
   apiCreateCandidateFromDrawer,
   apiUploadCandidateResumeFile,
   apiAddCandidateToPipeline,
+  apiDeleteCandidate,
+  apiRemoveCandidateFromPipeline,
   type BackendCandidate,
   type BackendInterviewListItem,
   type AddCandidatePayload,
@@ -163,7 +168,7 @@ import { EntityAuditSummary } from '../table/TableAuditCell';
 import { DrawerEntityChatTab } from './DrawerEntityChatTab';
 import { extractAuditMeta } from '../../utils/auditMeta';
 import { JobOverviewTabContent } from './JobOverviewTabContent';
-import { formatJobSalaryAmountPrefix } from '../../constants/jobSalary';
+import { formatJobSalaryAmountPrefix, stripJobSalaryCurrencyCodePrefix } from '../../constants/jobSalary';
 import { EntityWorkspaceAlertsPanel } from '../ai/EntityWorkspaceAlertsPanel';
 import { JobAssessmentsTabContent } from '../jobs/JobAssessmentsTabContent';
 import { JobClientRemarksTab } from '../jobs/JobClientRemarksTab';
@@ -206,10 +211,10 @@ function formatJobSalaryRange(job: {
   const prefix = formatJobSalaryAmountPrefix(job.salaryCurrency, job.salaryCurrencySymbol);
   const hasMin = job.minSalary !== undefined && job.minSalary !== null;
   const hasMax = job.maxSalary !== undefined && job.maxSalary !== null;
-  if (hasMin && hasMax) return `${prefix}${job.minSalary} - ${job.maxSalary}`;
-  if (hasMin) return `${prefix}${job.minSalary}`;
-  if (hasMax) return `${prefix}${job.maxSalary}`;
-  return job.salaryRange || '';
+  if (hasMin && hasMax) return `${prefix}${job.minSalary} - ${job.maxSalary}`.trim();
+  if (hasMin) return `${prefix}${job.minSalary}`.trim();
+  if (hasMax) return `${prefix}${job.maxSalary}`.trim();
+  return stripJobSalaryCurrencyCodePrefix(job.salaryRange, job.salaryCurrency);
 }
 
 const MAX_JOB_CV_FILE_BYTES = 25 * 1024 * 1024;
@@ -631,6 +636,7 @@ export interface JobDetailsDrawerProps {
     candidateId: string,
     jobId: string,
     pendingStage?: { stageId: string; stageName: string },
+    bulkCandidateIds?: string[],
   ) => void;
   /** Open create-placement flow when Offer stage is selected in the candidates table. */
   onCreatePlacement?: (
@@ -1207,6 +1213,8 @@ export function JobDetailsDrawer({
   const wasOnCandidatesTabRef = useRef(false);
   const [showMatchScores, setShowMatchScores] = useState(false);
   const [submitClientRowId, setSubmitClientRowId] = useState<string | null>(null);
+  const [deletingCandidateId, setDeletingCandidateId] = useState<string | null>(null);
+  const [removingFromJobCandidateId, setRemovingFromJobCandidateId] = useState<string | null>(null);
   const [submitCandidatePickerOpen, setSubmitCandidatePickerOpen] = useState(false);
   const [pickerSelectedIds, setPickerSelectedIds] = useState<string[]>([]);
   const [pickerSearch, setPickerSearch] = useState('');
@@ -1521,6 +1529,24 @@ export function JobDetailsDrawer({
     // Same flow as the header button: CV picker (Original vs HRYantra) then submit.
     openSubmitCandidatePicker();
   }, [openSubmitCandidatePicker]);
+
+  const openBulkScheduleInterview = useCallback(() => {
+    const jobId = String(job?.id || '').trim();
+    if (!jobId) {
+      toast.error('No job selected.');
+      return;
+    }
+    if (!onScheduleInterview) {
+      toast.error('Schedule Interview is not available');
+      return;
+    }
+    const ids = selectedCandidateIds.filter(Boolean);
+    if (!ids.length) {
+      toast.error('Select at least one candidate to schedule an interview.');
+      return;
+    }
+    onScheduleInterview(ids[0]!, jobId, undefined, ids.length > 1 ? ids : undefined);
+  }, [job?.id, onScheduleInterview, selectedCandidateIds]);
 
   /** When rows are checked, only the selection-bar Submit shows — avoids two CTAs. */
   const showHeaderSubmitToClient =
@@ -1877,6 +1903,87 @@ export function JobDetailsDrawer({
       onScheduleInterview,
       refreshAppliedJobCandidates,
     ],
+  );
+
+  const handleDeleteJobCandidate = useCallback(
+    async (candidate: JobDrawerTableCandidate) => {
+      if (!isValidObjectId(candidate.id)) {
+        toast.error('This candidate cannot be deleted (invalid id).');
+        return;
+      }
+      if (
+        !(await requestConfirm(
+          `Move ${candidate.name || 'this candidate'} to the Recycle Bin? You can restore them later from Recycle Bin.`,
+        ))
+      ) {
+        return;
+      }
+      try {
+        setDeletingCandidateId(candidate.id);
+        await apiDeleteCandidate(candidate.id);
+        invalidateEmployerCandidatesCache();
+        setDisplayJobCandidates((prev) => {
+          const next = prev.filter((row) => row.id !== candidate.id);
+          onJobCandidatesChange?.(next);
+          return next;
+        });
+        setSelectedCandidateIds((prev) => prev.filter((id) => id !== candidate.id));
+        toast.success('Candidate moved to Recycle Bin');
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent(RECYCLE_BIN_SYNC_EVENT));
+          window.dispatchEvent(new CustomEvent('jobportal:candidates-changed'));
+        }
+        await refreshAppliedJobCandidates({ runPipeline: false, refresh: true });
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Failed to delete candidate';
+        toast.error(message);
+      } finally {
+        setDeletingCandidateId((prev) => (prev === candidate.id ? null : prev));
+      }
+    },
+    [onJobCandidatesChange, refreshAppliedJobCandidates],
+  );
+
+  const handleRemoveJobCandidate = useCallback(
+    async (candidate: JobDrawerTableCandidate) => {
+      const jobId = String(job?.id || '').trim();
+      if (!jobId) {
+        toast.error('No job selected.');
+        return;
+      }
+      if (!isValidObjectId(candidate.id)) {
+        toast.error('This candidate cannot be removed (invalid id).');
+        return;
+      }
+      if (
+        !(await requestConfirm(
+          `Remove ${candidate.name || 'this candidate'} from this job? The candidate record will stay in Candidates.`,
+        ))
+      ) {
+        return;
+      }
+      try {
+        setRemovingFromJobCandidateId(candidate.id);
+        await apiRemoveCandidateFromPipeline(candidate.id, jobId);
+        setDisplayJobCandidates((prev) => {
+          const next = prev.filter((row) => row.id !== candidate.id);
+          onJobCandidatesChange?.(next);
+          return next;
+        });
+        setSelectedCandidateIds((prev) => prev.filter((id) => id !== candidate.id));
+        toast.success('Candidate removed from this job');
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('jobportal:candidates-changed'));
+        }
+        await refreshAppliedJobCandidates({ runPipeline: false, refresh: true });
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'Failed to remove candidate from job';
+        toast.error(message);
+      } finally {
+        setRemovingFromJobCandidateId((prev) => (prev === candidate.id ? null : prev));
+      }
+    },
+    [job?.id, onJobCandidatesChange, refreshAppliedJobCandidates],
   );
 
   useEffect(() => {
@@ -2714,12 +2821,15 @@ export function JobDetailsDrawer({
                         {job.jobLocationType}
                       </span>
                     )}
-                    {job.salaryRange && (
+                    {(() => {
+                      const salaryLabel = formatJobSalaryRange(job);
+                      return salaryLabel ? (
                       <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-slate-200/90 bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-slate-600 shadow-sm">
                         <DollarSign size={12} />
-                        {job.salaryRange}
+                        {salaryLabel}
                       </span>
-                    )}
+                      ) : null;
+                    })()}
                     <span className="shrink-0 rounded-full border border-slate-200/90 bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-slate-600 shadow-sm">
                       {formatDateDMY(job.postedDate ?? job.createdDate) || '—'}
                     </span>
@@ -2964,6 +3074,20 @@ export function JobDetailsDrawer({
                         {selectedCandidateIds.length === 1 ? '' : 's'} selected
                       </p>
                       <div className="flex flex-wrap items-center gap-2">
+                        {onScheduleInterview ? (
+                          <button
+                            type="button"
+                            onClick={openBulkScheduleInterview}
+                            className="inline-flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-violet-700"
+                            title="Schedule interview for selected candidates"
+                          >
+                            <Calendar size={14} strokeWidth={2.25} />
+                            Schedule Interview
+                            {selectedCandidateIds.length > 1
+                              ? ` (${selectedCandidateIds.length})`
+                              : ''}
+                          </button>
+                        ) : null}
                         <button
                           type="button"
                           onClick={openBulkSubmitToClient}
@@ -3053,6 +3177,10 @@ export function JobDetailsDrawer({
                         onMoveStage={
                           onAddToPipeline && job?.id ? openMoveStageFromTable : undefined
                         }
+                        onRemoveFromJob={job?.id ? handleRemoveJobCandidate : undefined}
+                        removingFromJobCandidateId={removingFromJobCandidateId}
+                        onDeleteCandidate={handleDeleteJobCandidate}
+                        deletingCandidateId={deletingCandidateId}
                         isColumnVisible={candidateColumnVisibility.isVisible}
                       />
                     <div className={PH2_TABLE_CARD_FOOTER_CLASS}>

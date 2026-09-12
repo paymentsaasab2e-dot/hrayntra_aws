@@ -160,6 +160,7 @@ import {
   writeJobsListCache,
   writeJobsMetricsCache,
   invalidateEmployerJobsCache,
+  invalidateEmployerCandidatesCache,
 } from '../../lib/employerPageCache';
 import { useWorkspaceEntityAlerts } from '../../hooks/useWorkspaceEntityAlerts';
 import { TableSkeleton } from '../../components/ui/Skeleton';
@@ -1123,7 +1124,8 @@ function formatSalaryRange(salary?: BackendJob['salary']): string | undefined {
   const amount = salary.amount !== undefined && salary.amount !== null ? String(salary.amount).trim() : '';
 
   if (amount) {
-    return prefix ? `${prefix}${amount}` : amount;
+    const cleanedAmount = amount.replace(/^[A-Z]{3}\s+(?=\d)/, '').trim();
+    return prefix ? `${prefix}${cleanedAmount}` : cleanedAmount;
   }
 
   if (salary.min !== undefined || salary.max !== undefined) {
@@ -1489,6 +1491,7 @@ export default function JobsPage() {
   const [availableDrawerTags, setAvailableDrawerTags] = useState<CandidateTagItem[]>([]);
   const [scheduleInterviewOpen, setScheduleInterviewOpen] = useState(false);
   const [schedulePrefill, setSchedulePrefill] = useState<{ candidateId: string; jobId: string } | null>(null);
+  const [scheduleBulkCandidateIds, setScheduleBulkCandidateIds] = useState<string[]>([]);
   const [scheduleInterviewers, setScheduleInterviewers] = useState<InterviewPanelMember[]>([]);
   const [pendingStageAfterInterview, setPendingStageAfterInterview] = useState<{
     candidateId: string;
@@ -2334,6 +2337,7 @@ export default function JobsPage() {
       candidateId: string,
       jobId: string,
       pendingStage?: { stageId: string; stageName: string },
+      bulkCandidateIds?: string[],
     ) => {
       if (!canCreateInterview) return;
       try {
@@ -2346,6 +2350,10 @@ export default function JobsPage() {
         setScheduleInterviewers([]);
       }
       setSchedulePrefill({ candidateId, jobId });
+      const bulkIds = Array.isArray(bulkCandidateIds)
+        ? bulkCandidateIds.map((id) => String(id || '').trim()).filter(Boolean)
+        : [];
+      setScheduleBulkCandidateIds(bulkIds.length > 1 ? bulkIds : []);
       if (pendingStage) {
         setPendingStageAfterInterview({
           candidateId,
@@ -2364,6 +2372,7 @@ export default function JobsPage() {
   const closeScheduleInterviewFromJob = useCallback(() => {
     setScheduleInterviewOpen(false);
     setSchedulePrefill(null);
+    setScheduleBulkCandidateIds([]);
     // Cancel without scheduling — do not change stage.
     setPendingStageAfterInterview(null);
   }, []);
@@ -2402,37 +2411,61 @@ export default function JobsPage() {
 
   const handleJobDrawerScheduleInterview = useCallback(
     async (interviewData: CandidateScheduledInterview) => {
-      try {
-        await apiScheduleCandidateInterview(interviewData.candidateId, {
-          jobId: interviewData.jobId,
-          clientId: interviewData.clientId || undefined,
-          type: interviewData.type,
-          round: interviewData.round,
-          date: interviewData.date,
-          time: interviewData.time,
-          duration: interviewData.duration,
-          timezone: interviewData.timezone,
-          mode: interviewData.mode,
-          platform:
-            interviewData.platform === 'Google Meet'
-              ? 'GOOGLE_MEET'
-              : interviewData.platform === 'Zoom'
-                ? 'ZOOM'
-                : null,
-          meetingLink: interviewData.meetingLink,
-          location: interviewData.location,
-          phoneNumber: interviewData.phoneNumber,
-          interviewers: interviewData.interviewers,
-          notes: interviewData.notes,
-          sendCandidateInvite: interviewData.sendCandidateInvite,
-          sendInterviewerInvite: interviewData.sendInterviewerInvite,
-          status: interviewData.status,
-        } as any);
-      } catch (error: any) {
-        toast.error(error?.message || 'Unable to schedule interview');
-        throw error;
+      const targetIds =
+        scheduleBulkCandidateIds.length > 1
+          ? scheduleBulkCandidateIds
+          : [interviewData.candidateId];
+
+      let succeeded = 0;
+      let failed = 0;
+      for (const candidateId of targetIds) {
+        try {
+          await apiScheduleCandidateInterview(candidateId, {
+            jobId: interviewData.jobId,
+            clientId: interviewData.clientId || undefined,
+            type: interviewData.type,
+            round: interviewData.round,
+            date: interviewData.date,
+            time: interviewData.time,
+            duration: interviewData.duration,
+            timezone: interviewData.timezone,
+            mode: interviewData.mode,
+            platform:
+              interviewData.platform === 'Google Meet'
+                ? 'GOOGLE_MEET'
+                : interviewData.platform === 'Zoom'
+                  ? 'ZOOM'
+                  : null,
+            meetingLink: interviewData.meetingLink,
+            location: interviewData.location,
+            phoneNumber: interviewData.phoneNumber,
+            interviewers: interviewData.interviewers,
+            notes: interviewData.notes,
+            sendCandidateInvite: interviewData.sendCandidateInvite,
+            sendInterviewerInvite: interviewData.sendInterviewerInvite,
+            status: interviewData.status,
+          } as any);
+          succeeded += 1;
+        } catch {
+          failed += 1;
+        }
       }
-      toast.success('Interview scheduled successfully');
+
+      if (succeeded === 0) {
+        toast.error('Unable to schedule interview');
+        throw new Error('Schedule failed');
+      }
+
+      toast.success(
+        succeeded === 1
+          ? 'Interview scheduled successfully'
+          : `Scheduled ${succeeded} interview${succeeded === 1 ? '' : 's'} successfully`,
+      );
+      if (failed > 0) {
+        toast.error(
+          `${failed} candidate${failed === 1 ? '' : 's'} could not be scheduled.`,
+        );
+      }
       emitNotificationsUpdated();
 
       // Apply Interviewing stage only after the interview is actually scheduled.
@@ -2451,14 +2484,17 @@ export default function JobsPage() {
         }
       }
 
+      setScheduleBulkCandidateIds([]);
       const jid = jobDetails?.id || selectedJob?.id;
       if (jid) await refreshJobCandidates(jid);
+      invalidateEmployerCandidatesCache();
     },
     [
       jobDetails?.id,
       selectedJob?.id,
       refreshJobCandidates,
       pendingStageAfterInterview,
+      scheduleBulkCandidateIds,
     ]
   );
 
@@ -3355,6 +3391,9 @@ export default function JobsPage() {
         jobs={scheduleModalJobs}
         interviewers={candidateDrawerInterviewers}
         existingInterviews={[]}
+        bulkScheduleForCandidateIds={
+          scheduleBulkCandidateIds.length > 1 ? scheduleBulkCandidateIds : undefined
+        }
         onClose={closeScheduleInterviewFromJob}
         onSchedule={handleJobDrawerScheduleInterview}
       />

@@ -595,7 +595,8 @@ export const placementService = {
       prisma.placement.aggregate({
         where: {
           deletedAt: null,
-          status: { notIn: ['FAILED', 'NO_SHOW', 'WITHDRAWN'] },
+          // Count fee only after the candidate has joined (not offer / joining-pending).
+          status: 'JOINED',
         },
         _sum: { placementFee: true },
       }),

@@ -90,7 +90,7 @@ import {
 import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 import { startAsyncLoad } from '../../lib/asyncLoadGuard';
 import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
-import { normalizeJobSalaryCurrency, parseJobSalaryMoneyNumber, resolveJobSalaryCurrencySymbolForSave } from '../../constants/jobSalary';
+import { normalizeJobSalaryCurrency, parseJobSalaryMoneyNumber, resolveJobSalaryCurrencySymbolForSave, formatJobSalaryAmountPrefix } from '../../constants/jobSalary';
 import { getCachedOrgDefaultCurrency } from '../../lib/api';
 import { loadJobVisibilityUserDefaults, visibilityDefaultsForNewJob, jobVisibilityDefaultsEqual } from '../../lib/jobVisibilityUserDefaults';
 import { filterClientsForAddJob } from '../../lib/recruitmentClients';
@@ -5749,10 +5749,13 @@ export function CreateJobDrawer({
                                         {(() => {
                                           const min = formData.minSalary;
                                           const max = formData.maxSalary;
-                                          if (min && max) return `${formData.currency} ${min} - ${max}`;
-                                          if (min) return `${formData.currency} ${min}`;
-                                          if (max) return `${formData.currency} ${max}`;
-                                          if (formData.salaryInput) return `${formData.currency} ${formData.salaryInput}`;
+                                          const prefix = formatJobSalaryAmountPrefix(formData.currency);
+                                          if (min && max) return `${prefix}${min} - ${max}`.trim();
+                                          if (min) return `${prefix}${min}`.trim();
+                                          if (max) return `${prefix}${max}`.trim();
+                                          if (formData.salaryInput) {
+                                            return `${prefix}${formData.salaryInput}`.trim();
+                                          }
                                           return aiDraftData.salary || '-';
                                         })()}
                                       </p>

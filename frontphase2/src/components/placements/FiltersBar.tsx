@@ -6,6 +6,7 @@ import { ChevronDown, Filter, Search, SlidersHorizontal, X } from 'lucide-react'
 import type { PlacementFilters } from '../../types/placement';
 import { PH2_TOOLBAR_SELECT_CLASS } from '../layout/Ph2ModulePageLayout';
 import { ALL_STATUS_LABEL } from '../../constants/filterLabels';
+import { getPlacementStatusLabel, PLACEMENT_STATUS_OPTIONS } from '../../utils/placements';
 
 interface FiltersBarProps {
   filters: PlacementFilters;
@@ -23,13 +24,10 @@ interface FiltersBarProps {
 
 const statusOptions = [
   { value: '', label: ALL_STATUS_LABEL },
-  { value: 'OFFER_ACCEPTED', label: 'Offer Accepted' },
-  { value: 'JOINING_SCHEDULED', label: 'Joining Scheduled' },
-  { value: 'JOINED', label: 'Joined' },
-  { value: 'NO_SHOW', label: 'No Show' },
-  { value: 'WITHDRAWN', label: 'Withdrawn' },
-  { value: 'FAILED', label: 'Failed' },
-  { value: 'REPLACEMENT_REQUIRED', label: 'Replacement Required' },
+  ...PLACEMENT_STATUS_OPTIONS.map((status) => ({
+    value: status,
+    label: getPlacementStatusLabel(status),
+  })),
 ] as const;
 
 const typeOptions = [

@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Briefcase, DollarSign, FileText, GraduationCap, Link2 } from 'lucide-react';
 import { formatDateDMY } from '../../utils/dateDisplay';
 import { formatIndustriesDisplay } from '../../lib/industryOptions';
-import { formatJobSalaryCurrencyLabel } from '../../constants/jobSalary';
+import { formatJobSalaryAmountPrefix, formatJobSalaryCurrencyLabel, stripJobSalaryCurrencyCodePrefix } from '../../constants/jobSalary';
 import { DrawerSectionCard } from './drawerFormUi';
 import type { JobForDrawer } from './JobDetailsDrawer';
 
@@ -142,6 +142,19 @@ export function JobOverviewTabContent({ job }: JobOverviewTabContentProps) {
         ? job.owner
         : 'Unassigned';
 
+  const currencySymbol = job.salaryCurrency
+    ? formatJobSalaryCurrencyLabel(job.salaryCurrency, job.salaryCurrencySymbol)
+    : '';
+  const salaryPrefix = formatJobSalaryAmountPrefix(job.salaryCurrency, job.salaryCurrencySymbol);
+  const salaryRangeDisplay = (() => {
+    const hasMin = job.minSalary !== undefined && job.minSalary !== null;
+    const hasMax = job.maxSalary !== undefined && job.maxSalary !== null;
+    if (hasMin && hasMax) return `${salaryPrefix}${job.minSalary} - ${job.maxSalary}`.trim();
+    if (hasMin) return `${salaryPrefix}${job.minSalary}`.trim();
+    if (hasMax) return `${salaryPrefix}${job.maxSalary}`.trim();
+    return stripJobSalaryCurrencyCodePrefix(job.salaryRange, job.salaryCurrency);
+  })();
+
   const screeningQuestionCount = Array.isArray(job.applicationFormQuestions)
     ? job.applicationFormQuestions.filter((q) => String(q || '').trim()).length
     : 0;
@@ -242,14 +255,7 @@ export function JobOverviewTabContent({ job }: JobOverviewTabContentProps) {
         onOpenChange={() => toggleSection('compensation')}
       >
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <OverviewField
-            label="Currency"
-            value={displayValue(
-              job.salaryCurrency
-                ? formatJobSalaryCurrencyLabel(job.salaryCurrency, job.salaryCurrencySymbol)
-                : undefined,
-            )}
-          />
+          <OverviewField label="Currency" value={displayValue(currencySymbol)} />
           <OverviewField
             label="Minimum Salary"
             value={job.minSalary !== undefined && job.minSalary !== null ? String(job.minSalary) : '—'}
@@ -260,8 +266,8 @@ export function JobOverviewTabContent({ job }: JobOverviewTabContentProps) {
           />
           <OverviewField label="Pay Type" value={displayValue(job.salaryType)} />
         </div>
-        {job.salaryRange ? (
-          <OverviewField label="Salary Range (display)" value={displayValue(job.salaryRange)} />
+        {salaryRangeDisplay ? (
+          <OverviewField label="Salary Range (display)" value={displayValue(salaryRangeDisplay)} />
         ) : null}
         <OverviewList label="Benefits" items={job.benefits} />
       </DrawerSectionCard>

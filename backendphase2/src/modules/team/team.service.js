@@ -109,17 +109,24 @@ function formatTeam(team) {
  * Returns null when unrestricted (no sales groups configured yet).
  */
 export async function getActiveSalesTeamMemberIdSet({ orgUnitId = null } = {}) {
-  const teams = await prisma.team.findMany({
-    where: {
-      kind: TEAM_KIND_SALES,
-      isActive: true,
-    },
-    select: {
-      id: true,
-      orgUnitId: true,
-      members: { select: { userId: true } },
-    },
-  });
+  let teams = [];
+  try {
+    teams = await prisma.team.findMany({
+      where: {
+        kind: TEAM_KIND_SALES,
+        isActive: true,
+      },
+      select: {
+        id: true,
+        orgUnitId: true,
+        members: { select: { userId: true } },
+      },
+    });
+  } catch (error) {
+    // Older generated Prisma clients / DBs may not have Team.kind yet — do not block CRM assign.
+    console.warn('[team] sales team kind filter unavailable:', error?.message || error);
+    return null;
+  }
   if (!teams.length) return null;
 
   const requested = oid(orgUnitId);

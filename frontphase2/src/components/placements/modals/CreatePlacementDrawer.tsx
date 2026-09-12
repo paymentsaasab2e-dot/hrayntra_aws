@@ -18,6 +18,7 @@ import {
 } from '../../drawers/drawerFormUi';
 import { useOrgCommissionSlabs } from '../../../lib/useOrgCommissionSlabs';
 import { resolveCommissionPercent } from '../../../lib/commissionSlabs';
+import { formatAssigneeDisplayName } from '../../../lib/assigneeDisplay';
 
 interface CreatePlacementDrawerProps {
   isOpen: boolean;
@@ -39,6 +40,32 @@ interface CreatePlacementDrawerProps {
   initialValues?: Partial<CreatePlacementPayload>;
   onClose: () => void;
   onSubmit: (payload: CreatePlacementPayload, offerLetter?: File | null) => Promise<void>;
+}
+
+function readCurrentUserDisplayName(userId?: string): string {
+  if (typeof window === 'undefined') return '';
+  try {
+    const parsed = JSON.parse(localStorage.getItem('currentUser') || '{}') as {
+      id?: string;
+      name?: string;
+      firstName?: string;
+      lastName?: string;
+      email?: string;
+    };
+    const id = String(parsed?.id || '').trim();
+    if (userId && id && id !== userId) return '';
+    return (
+      formatAssigneeDisplayName({
+        id,
+        name: parsed?.name,
+        firstName: parsed?.firstName,
+        lastName: parsed?.lastName,
+        email: parsed?.email,
+      }) || String(parsed?.email || '').trim()
+    );
+  } catch {
+    return '';
+  }
 }
 
 const employmentTypes: EmploymentType[] = ['PERMANENT', 'CONTRACT', 'FREELANCE'];
@@ -116,8 +143,53 @@ export function CreatePlacementDrawer({
     () => candidates.find((candidate) => candidate.id === form.candidateId) || null,
     [candidates, form.candidateId]
   );
+  const teamMemberOptions = useMemo(() => {
+    const byId = new Map<string, { id: string; name: string; email: string }>();
+    for (const recruiter of recruiters) {
+      const id = String(recruiter.id || '').trim();
+      if (!id) continue;
+      const name =
+        formatAssigneeDisplayName({
+          id,
+          name: recruiter.name,
+          email: recruiter.email,
+        }) ||
+        String(recruiter.name || '').trim() ||
+        String(recruiter.email || '').trim();
+      if (!name) continue;
+      byId.set(id, { id, name, email: String(recruiter.email || '').trim() });
+    }
+    const selfId = String(currentUserId || form.recruiterId || '').trim();
+    if (selfId && !byId.has(selfId)) {
+      const selfName = readCurrentUserDisplayName(selfId);
+      if (selfName) {
+        byId.set(selfId, { id: selfId, name: selfName, email: '' });
+      }
+    }
+    return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [recruiters, currentUserId, form.recruiterId]);
+
+  const selectedTeamMember = useMemo(
+    () => teamMemberOptions.find((member) => member.id === form.recruiterId) || null,
+    [teamMemberOptions, form.recruiterId],
+  );
+
   const lockCandidate = Boolean(prefill?.candidateId || initialValues?.candidateId);
   const lockJob = Boolean(prefill?.jobId || initialValues?.jobId);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const recruiterId = String(form.recruiterId || '').trim();
+    if (!recruiterId) return;
+    if (teamMemberOptions.some((member) => member.id === recruiterId)) return;
+    // Prefer a known named teammate over a bare id that cannot be displayed.
+    const fallback = teamMemberOptions[0]?.id || '';
+    if (fallback) {
+      setForm((current) => ({ ...current, recruiterId: fallback }));
+    } else {
+      setForm((current) => ({ ...current, recruiterId: '' }));
+    }
+  }, [isOpen, form.recruiterId, teamMemberOptions]);
 
   useEffect(() => {
     if (pctEditedManually || !commissionSlabs.enabled) return;
@@ -274,9 +346,7 @@ export function CreatePlacementDrawer({
             <DrawerFieldLabel label="Candidate" icon={User} iconClassName="text-blue-500" required />
             {lockCandidate ? (
               <div className={`${DRAWER_FORM_INPUT} flex items-center bg-slate-50 font-medium`}>
-                {selectedCandidate
-                  ? `${selectedCandidate.name} • ${selectedCandidate.email}`
-                  : 'Selected candidate'}
+                {selectedCandidate?.name || 'Selected candidate'}
               </div>
             ) : (
               <DrawerSelectDropdown
@@ -288,7 +358,7 @@ export function CreatePlacementDrawer({
                   { value: '', label: 'Select candidate' },
                   ...candidates.map((candidate) => ({
                     value: candidate.id,
-                    label: `${candidate.name} • ${candidate.email}`,
+                    label: candidate.name,
                   })),
                 ]}
                 onChange={(candidateId) => setForm((current) => ({ ...current, candidateId }))}
@@ -301,9 +371,7 @@ export function CreatePlacementDrawer({
             <DrawerFieldLabel label="Job" icon={Briefcase} iconClassName="text-blue-500" required />
             {lockJob ? (
               <div className={`${DRAWER_FORM_INPUT} flex items-center bg-slate-50 font-medium`}>
-                {selectedJob
-                  ? `${selectedJob.title}${selectedJob.clientName ? ` • ${selectedJob.clientName}` : ''}`
-                  : 'Selected job'}
+                {selectedJob?.title || 'Selected job'}
               </div>
             ) : (
               <DrawerSelectDropdown
@@ -315,7 +383,9 @@ export function CreatePlacementDrawer({
                   { value: '', label: 'Select job' },
                   ...jobs.map((job) => ({
                     value: job.id,
-                    label: `${job.title} • ${job.clientName}${!job.clientId ? ' (assign client first)' : ''}`,
+                    label: job.clientId
+                      ? job.title
+                      : `${job.title} (assign client first)`,
                   })),
                 ]}
                 onChange={(jobId) => setForm((current) => ({ ...current, jobId }))}
@@ -349,13 +419,16 @@ export function CreatePlacementDrawer({
               placeholder="Select team member"
               options={[
                 { value: '', label: 'Select team member' },
-                ...recruiters.map((recruiter) => ({
+                ...teamMemberOptions.map((recruiter) => ({
                   value: recruiter.id,
-                  label: recruiter.email ? `${recruiter.name} • ${recruiter.email}` : recruiter.name,
+                  label: recruiter.name,
                 })),
               ]}
               onChange={(recruiterId) => setForm((current) => ({ ...current, recruiterId }))}
             />
+            {form.recruiterId && !selectedTeamMember ? (
+              <p className="mt-1 text-xs text-amber-700">Choose a team member from the list.</p>
+            ) : null}
           </div>
         </div>
       </DrawerSectionCard>

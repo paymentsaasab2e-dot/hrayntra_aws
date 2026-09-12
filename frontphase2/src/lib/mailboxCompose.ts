@@ -163,6 +163,8 @@ export const INBOX_COMPOSE_DRAFT_KEY = 'inbox_compose_draft';
 export type InboxComposeDraft = {
   provider: MailboxComposeProvider;
   to?: string;
+  cc?: string;
+  bcc?: string;
   subject: string;
   body: string;
   /** Cross-tab id — sessionStorage is not shared between tabs. */
@@ -186,6 +188,8 @@ export function stashInboxComposeDraft(draft: InboxComposeDraft): string {
     id,
     provider: draft.provider,
     to: String(draft.to || '').trim(),
+    cc: String(draft.cc || '').trim(),
+    bcc: String(draft.bcc || '').trim(),
     subject: String(draft.subject || ''),
     body: String(draft.body || ''),
   };
@@ -219,6 +223,8 @@ export function readInboxComposeDraft(draftId?: string | null): InboxComposeDraf
       id: String(parsed.id || '').trim() || undefined,
       provider: parsed.provider,
       to: String(parsed.to || '').trim(),
+      cc: String(parsed.cc || '').trim(),
+      bcc: String(parsed.bcc || '').trim(),
       subject: String(parsed.subject || ''),
       body: String(parsed.body || ''),
     };

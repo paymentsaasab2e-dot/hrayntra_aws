@@ -209,4 +209,54 @@ export const inboxController = {
       sendError(res, status, error.message, error);
     }
   },
+
+  async createGmailComposeDraft(req, res) {
+    try {
+      const result = await inboxService.createGmailComposeDraft(req.user.id, req.body || {});
+      sendResponse(res, 201, 'Gmail draft created successfully', result);
+    } catch (error) {
+      const status =
+        error?.code === 'GMAIL_RECONNECT_REQUIRED' ||
+        error?.code === 'GMAIL_COMPOSE_SCOPE_REQUIRED' ||
+        error?.code === 'GMAIL_SEND_SCOPE_REQUIRED' ||
+        error?.code === 'GMAIL_MODIFY_SCOPE_REQUIRED'
+          ? 403
+          : 400;
+      sendError(res, status, error.message, error);
+    }
+  },
+
+  async sendGmailComposeMail(req, res) {
+    try {
+      const result = await inboxService.sendGmailComposeMail(req.user.id, req.body || {});
+      sendResponse(res, 200, 'Gmail mail sent successfully', result);
+    } catch (error) {
+      const status =
+        error?.code === 'GMAIL_RECONNECT_REQUIRED' ||
+        error?.code === 'GMAIL_COMPOSE_SCOPE_REQUIRED' ||
+        error?.code === 'GMAIL_SEND_SCOPE_REQUIRED' ||
+        error?.code === 'GMAIL_MODIFY_SCOPE_REQUIRED'
+          ? 403
+          : 400;
+      sendError(res, status, error.message, error);
+    }
+  },
+
+  async getGmailSignature(req, res) {
+    try {
+      const result = await inboxService.getGmailSignature(req.user.id);
+      sendResponse(res, 200, 'Gmail signature retrieved', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async getOutlookSignature(req, res) {
+    try {
+      const result = await inboxService.getOutlookSignature(req.user.id);
+      sendResponse(res, 200, 'Outlook signature retrieved', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
 };

@@ -126,14 +126,36 @@ function salaryDisplay(job) {
   const symbol = String(
     salary.currencySymbol || salary.symbol || job.salaryCurrencySymbol || '',
   ).trim();
-  const prefix =
-    symbol && symbol.toUpperCase() !== currency
-      ? symbol.length > 1
-        ? `${symbol} `
-        : symbol
-      : currency
-        ? `${currency} `
-        : '';
+  const FALLBACK = {
+    USD: '$',
+    EUR: '€',
+    GBP: '£',
+    INR: '₹',
+    JPY: '¥',
+    XAF: 'Fr',
+    XOF: 'Fr',
+    CFA: 'Fr',
+  };
+  let displaySymbol =
+    symbol && symbol.toUpperCase() !== currency ? symbol : FALLBACK[currency] || '';
+  if (!displaySymbol && /^[A-Z]{3}$/.test(currency)) {
+    try {
+      const parts = new Intl.NumberFormat('en', {
+        style: 'currency',
+        currency,
+        currencyDisplay: 'narrowSymbol',
+      }).formatToParts(0);
+      const intlSym = parts.find((part) => part.type === 'currency')?.value?.trim() || '';
+      if (intlSym && intlSym.toUpperCase() !== currency) displaySymbol = intlSym;
+    } catch {
+      displaySymbol = '';
+    }
+  }
+  const prefix = displaySymbol
+    ? displaySymbol.length > 1
+      ? `${displaySymbol} `
+      : displaySymbol
+    : '';
   const hasMin = Number.isFinite(min) && min > 0;
   const hasMax = Number.isFinite(max) && max > 0;
   if (!hasMin && !hasMax) return '';

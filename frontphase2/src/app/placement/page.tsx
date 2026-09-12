@@ -767,6 +767,7 @@ function PlacementsPageContent() {
             toast.success('Joining scheduled and shared with candidate');
           } catch (submitError: any) {
             toast.error(submitError.message || 'Failed to schedule joining');
+            throw submitError;
           }
         }}
       />

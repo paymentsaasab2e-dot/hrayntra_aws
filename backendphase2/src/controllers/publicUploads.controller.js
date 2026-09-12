@@ -21,7 +21,10 @@ export async function getPublicUpload(req, res) {
     res.setHeader('Content-Type', contentType);
     res.setHeader('Content-Disposition', `inline; filename="${file.filename}"`);
     res.setHeader('Content-Length', String(file.buffer.length));
-    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    // Allow email clients / cross-origin <img> tags to load the logo.
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     return res.status(200).send(file.buffer);
   } catch (error) {
     return res.status(500).json({

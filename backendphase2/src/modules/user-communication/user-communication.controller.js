@@ -1,5 +1,6 @@
 import { ZodError } from 'zod';
 import { sendResponse, sendError } from '../../utils/response.js';
+import { getActiveTenantDbName } from '../../config/prisma.js';
 import {
   getCompositeResponse,
   putComposite,
@@ -9,6 +10,7 @@ import {
   deleteJobBoard,
   connectionsOnlyPayload,
 } from './user-communication.service.js';
+import { storeEmailSignatureLogoFile } from './email-signature-logo.service.js';
 
 export const userCommunicationController = {
   async get(req, res) {
@@ -93,6 +95,32 @@ export const userCommunicationController = {
       sendResponse(res, 200, 'Job board cleared', out);
     } catch (e) {
       sendError(res, 400, e.message, e);
+    }
+  },
+
+  async uploadSignatureLogo(req, res) {
+    try {
+      if (!req.file) {
+        return sendError(res, 400, 'No file uploaded');
+      }
+      const tenantDbName =
+        getActiveTenantDbName() || req.user?.tenantDbName || req.headers['x-tenant-db-name'];
+      const uploaded = await storeEmailSignatureLogoFile(req.file, {
+        tenantDbName,
+        userId: req.user.id,
+      });
+      const data = await patchPreferences(
+        req.user.id,
+        { emailComposeSignatureLogoUrl: uploaded.fileUrl },
+        req.user.email,
+      );
+      sendResponse(res, 201, 'Signature logo uploaded', {
+        fileUrl: uploaded.fileUrl,
+        settings: data.settings,
+      });
+    } catch (e) {
+      const status = e?.code === 'VALIDATION' ? 400 : 500;
+      sendError(res, status, e.message, e);
     }
   },
 };

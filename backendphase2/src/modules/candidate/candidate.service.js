@@ -374,6 +374,45 @@ function resolvePlacementStageLabelForList(candidate, tenantJobIdSet = null) {
   return mapPlacementStatusToCrmStageLabel(latest.status);
 }
 
+function isLikelyObjectId(value) {
+  return /^[a-f\d]{24}$/i.test(String(value || '').trim());
+}
+
+/** Prefer the primary assigned job — same idea as FE resolveSubmitJobIdFromBackend. */
+function resolvePrimaryJobIdForList(candidate, tenantJobIdSet = null) {
+  const scoped = scopeCandidateForActiveTenant(candidate, tenantJobIdSet);
+  const assigned = (Array.isArray(scoped.assignedJobs) ? scoped.assignedJobs : [])
+    .map((id) => String(id || '').trim())
+    .find((id) => isLikelyObjectId(id));
+  if (assigned) return assigned;
+
+  const fromPipeline = (Array.isArray(scoped.pipelineEntries) ? scoped.pipelineEntries : [])
+    .map((row) => String(row?.jobId || '').trim())
+    .find((id) => isLikelyObjectId(id));
+  if (fromPipeline) return fromPipeline;
+
+  const fromApp = (Array.isArray(scoped.applications) ? scoped.applications : [])
+    .map((row) => String(row?.jobId || row?.job?.id || '').trim())
+    .find((id) => isLikelyObjectId(id));
+  if (fromApp) return fromApp;
+
+  const fromMatch = (Array.isArray(scoped.matches) ? scoped.matches : [])
+    .map((row) => String(row?.jobId || row?.job?.id || '').trim())
+    .find((id) => isLikelyObjectId(id));
+  return fromMatch || '';
+}
+
+/** Pipeline stage for a specific job — same SoT as Job Details → Candidates. */
+function resolvePipelineStageForJob(candidate, jobId, tenantJobIdSet = null) {
+  const id = String(jobId || '').trim();
+  if (!id) return '';
+  const scoped = scopeCandidateForActiveTenant(candidate, tenantJobIdSet);
+  const entry = (Array.isArray(scoped.pipelineEntries) ? scoped.pipelineEntries : []).find(
+    (row) => String(row?.jobId || '').trim() === id,
+  );
+  return String(entry?.stage?.name || entry?.stageName || entry?.stage || '').trim();
+}
+
 function resolveLatestPlacementStatusForList(candidate, tenantJobIdSet = null) {
   const placements = Array.isArray(candidate?.placements) ? candidate.placements : [];
   if (!placements.length) return null;
@@ -395,8 +434,17 @@ function resolveLatestPlacementStatusForList(candidate, tenantJobIdSet = null) {
   return relevant[0]?.status ? String(relevant[0].status).toUpperCase() : null;
 }
 
-/** CRM list/drawer stage: when a placement exists, show its status on the Candidates table. */
+/**
+ * CRM list Stage column: prefer the assigned job's pipeline stage (Job Details SoT).
+ * Placement status is only used when there is no pipeline entry for that job.
+ */
 function resolveCandidateStageForList(candidate, tenantJobIdSet = null) {
+  const primaryJobId = resolvePrimaryJobIdForList(candidate, tenantJobIdSet);
+  const jobPipelineStage = resolvePipelineStageForJob(candidate, primaryJobId, tenantJobIdSet);
+  if (jobPipelineStage) {
+    return jobPipelineStage;
+  }
+
   const placementStage = resolvePlacementStageLabelForList(candidate, tenantJobIdSet);
   if (placementStage) {
     return placementStage;
@@ -4860,22 +4908,16 @@ export const candidateService = {
       throw new Error('Job not found');
     }
 
-    const deleted = await prisma.pipelineEntry.deleteMany({
-      where: { candidateId, jobId: normalizedJobId },
-    });
-
-    if (!deleted.count) {
-      throw new Error('Pipeline entry not found for this job');
-    }
-
+    // Detach all job links (pipeline, match, application, assignment) so
+    // "Remove from job" works even when the candidate was only applied/matched.
     await detachCandidateFromJobLink(candidateId, normalizedJobId);
 
     await prisma.activity.create({
       data: {
-        action: 'Removed from pipeline',
+        action: 'Removed from job',
         description: `${candidate.firstName} ${candidate.lastName}`.trim()
-          ? `${candidate.firstName} ${candidate.lastName} removed from ${job.title} pipeline.`
-          : `Candidate removed from ${job.title} pipeline.`,
+          ? `${candidate.firstName} ${candidate.lastName} removed from ${job.title}.`
+          : `Candidate removed from ${job.title}.`,
         performedById: userId,
         entityType: CANDIDATE_ACTIVITY_ENTITY,
         entityId: candidateId,

@@ -26,6 +26,10 @@ router.post(
 );
 router.post('/outlook/compose-draft', inboxController.createOutlookComposeDraft);
 router.post('/outlook/send-mail', inboxController.sendOutlookComposeMail);
+router.get('/outlook/signature', inboxController.getOutlookSignature);
+router.post('/gmail/compose-draft', inboxController.createGmailComposeDraft);
+router.post('/gmail/send-mail', inboxController.sendGmailComposeMail);
+router.get('/gmail/signature', inboxController.getGmailSignature);
 router.post('/threads', inboxController.createThread);
 router.post('/threads/:threadId/messages', inboxController.addMessage);
 router.patch('/threads/:threadId/read', inboxController.markAsRead);

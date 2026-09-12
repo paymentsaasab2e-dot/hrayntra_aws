@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext } from 'react';
+import React, { createContext, useContext, useEffect, useRef } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { X, type LucideIcon } from 'lucide-react';
 import {
@@ -100,7 +100,26 @@ export function DrawerFormShell({
     isDirty,
   });
 
+  // Ignore the same click that opened the modal (mouseup/click landing on backdrop).
+  const allowBackdropCloseRef = useRef(false);
+  useEffect(() => {
+    if (!isOpen) {
+      allowBackdropCloseRef.current = false;
+      return;
+    }
+    allowBackdropCloseRef.current = false;
+    const timer = window.setTimeout(() => {
+      allowBackdropCloseRef.current = true;
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [isOpen]);
+
   const cleanedPanelClass = sanitizePanelClassName(panelClassName);
+
+  const handleBackdropClose = () => {
+    if (!allowBackdropCloseRef.current) return;
+    void requestClose();
+  };
 
   return (
     <AnimatePresence>
@@ -110,7 +129,7 @@ export function DrawerFormShell({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={() => void requestClose()}
+            onClick={handleBackdropClose}
             className={`${backdropClassName} pointer-events-auto`}
             style={{ zIndex: zBackdrop }}
             data-drawer-skip-dirty="true"
@@ -129,6 +148,7 @@ export function DrawerFormShell({
               role="dialog"
               aria-modal="true"
               onClick={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
             >
               <DrawerFormRequestCloseContext.Provider value={requestClose}>
                 <div className={DRAWER_FORM_HEADER_CLASS}>

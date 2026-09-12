@@ -343,22 +343,26 @@ function addPunctuationIssues(text: string, found: WritingSpanSuggestion[], max:
     }
   }
 
-  // Leading lowercase sentence (start of text or after newline)
+  // Leading lowercase sentence (start of text or after newline).
+  // Wait until the first word has 2+ letters so the tip does not fight the first keystroke.
   {
-    const re = /(^|\n)(\s*)([a-z])/g;
+    const re = /(^|\n)(\s*)([a-z][a-zA-Z]+)/g;
     let match: RegExpExecArray | null;
     while ((match = re.exec(text)) !== null) {
       const start = match.index;
-      const end = start + match[0].length;
+      const word = match[3];
+      const prefixLen = match[1].length + match[2].length;
+      const letterStart = start + prefixLen;
+      const end = letterStart + 1;
       if (
         pushSpan(
           found,
           {
             id: `punctuation-start-cap-${start}`,
-            start,
+            start: letterStart,
             end,
-            original: match[0],
-            suggestion: `${match[1]}${match[2]}${match[3].toUpperCase()}`,
+            original: word[0],
+            suggestion: word[0].toUpperCase(),
             kind: 'punctuation',
           },
           max,

@@ -16,6 +16,7 @@ import {
   Trash2,
   Loader2,
   Send,
+  UserMinus,
 } from 'lucide-react';
 import { ImageWithFallback, initialsFromDisplayName } from '../../../components/ImageWithFallback';
 import {
@@ -273,6 +274,10 @@ interface CandidateTableProps {
   onDeleteCandidate?: (candidate: Candidate) => void | Promise<void>;
   /** When set, that row shows a loading state on the delete control */
   deletingCandidateId?: string | null;
+  /** Remove candidate from the current job only (keeps the candidate record). */
+  onRemoveFromJob?: (candidate: Candidate) => void | Promise<void>;
+  /** When set, that row shows a loading state on the remove-from-job control */
+  removingFromJobCandidateId?: string | null;
   stageOptionsByJobId?: Record<string, Array<{ id: string; name: string }>>;
   stageOptionsLoadingJobId?: string | null;
   movingCandidateId?: string | null;
@@ -306,6 +311,8 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
   onMoveStage,
   onDeleteCandidate,
   deletingCandidateId,
+  onRemoveFromJob,
+  removingFromJobCandidateId,
   stageOptionsByJobId = {},
   stageOptionsLoadingJobId = null,
   movingCandidateId = null,
@@ -731,6 +738,24 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                           }}
                         >
                           <Pencil size={16} strokeWidth={2.25} />
+                        </button>
+                      ) : null}
+                      {onRemoveFromJob ? (
+                        <button
+                          type="button"
+                          className="flex h-8 w-8 items-center justify-center rounded-xl text-orange-600 transition-all hover:bg-white hover:text-orange-800 hover:shadow-sm disabled:pointer-events-none disabled:opacity-50"
+                          title="Remove from this job"
+                          disabled={removingFromJobCandidateId === candidate.id}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void onRemoveFromJob(candidate);
+                          }}
+                        >
+                          {removingFromJobCandidateId === candidate.id ? (
+                            <Loader2 size={16} className="animate-spin text-orange-600" />
+                          ) : (
+                            <UserMinus size={16} strokeWidth={2.25} />
+                          )}
                         </button>
                       ) : null}
                       {onDeleteCandidate && (

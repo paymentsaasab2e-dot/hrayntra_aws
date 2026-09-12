@@ -133,9 +133,9 @@ export function newlyAddedAssigneeIds(previousIds, nextIds) {
 
 /**
  * CRM (leads/clients) assignee list for Add Lead / Assign To.
- * Company members: only people in their own company.
- * Super Admin / view_cross_company_members: people in the requested company
- * (companyId query). No company selected → empty list.
+ * Prefer sales-team members (Team.kind = SALES). Organization is not required
+ * in the UI — Super Admin / cross-company without companyId gets the tenant
+ * sales-team pool instead of an empty list.
  * Never includes HQ platform accounts or other tenants.
  * Optional `modules` (or ?module=) then keeps only users with that module access.
  */
@@ -153,10 +153,6 @@ export async function listCrmAssigneeCandidates(actorUserId, { req = null, modul
   const isSuperAdmin =
     (req && isSuperAdminUser(req)) || (await isSuperAdminUserId(actorUserId));
   const crossCompany = Boolean(req && canViewCrossCompanyMembers(req));
-
-  if (crossCompany && !requestedAssignCompanyId(req)) {
-    return [];
-  }
 
   const viewAll =
     isSuperAdmin ||
@@ -181,12 +177,14 @@ export async function listCrmAssigneeCandidates(actorUserId, { req = null, modul
   ];
 
   const useCompanyWalk = Boolean((isSuperAdmin || crossCompany) && requestedCompany);
+  /** Cross-company / SA with no org pick: tenant pool, then sales-team filter. */
+  const tenantSalesPool = Boolean((isSuperAdmin || crossCompany) && !requestedCompany);
 
   if (!useCompanyWalk) {
     if (!(isSuperAdmin || crossCompany) && !viewAll && actorDeptId) {
       clauses.push({ departmentId: actorDeptId });
     }
-    if (req) {
+    if (req && !tenantSalesPool) {
       const orgWhere = await applyOrgCompanyUserWhere(req, { forAssign: true });
       if (orgWhere) clauses.push(orgWhere);
     }
@@ -217,10 +215,10 @@ export async function listCrmAssigneeCandidates(actorUserId, { req = null, modul
     labeled = filterUsersByAssignableCompany(labeled, requestedCompany, orgUnits);
   }
   if (!requiredModules.length) {
-    return filterBySalesTeams(labeled, requestedCompany);
+    return filterBySalesTeams(labeled, requestedCompany || null);
   }
   const moduleFiltered = filterUsersByAssignmentAccess(labeled, { modules: requiredModules });
-  return filterBySalesTeams(moduleFiltered, requestedCompany);
+  return filterBySalesTeams(moduleFiltered, requestedCompany || null);
 }
 
 async function filterBySalesTeams(members, orgUnitId = null) {

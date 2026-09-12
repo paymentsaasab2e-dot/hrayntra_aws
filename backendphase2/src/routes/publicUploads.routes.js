@@ -18,5 +18,7 @@ router.get(
   withUploadSubdir('interview-client-review'),
   getPublicUpload,
 );
+/** GET /api/v1/public/uploads/email-signatures/:filename — email compose signature logos */
+router.get('/email-signatures/:filename', withUploadSubdir('email-signatures'), getPublicUpload);
 
 export default router;

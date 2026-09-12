@@ -23,12 +23,14 @@ import {
   type IntegrationStatusResponse,
 } from '@/lib/api';
 import { ServiceConnectionCard } from './ServiceConnectionCard';
+import { EmailComposeSignatureSettings } from './EmailComposeSignatureSettings';
 import { usePermissions } from '@/hooks/usePermissions';
 import {
   COMMUNICATION_INBOX_INTEGRATION_PERMISSIONS,
   COMMUNICATION_INTERVIEW_INTEGRATION_PERMISSIONS,
   COMMUNICATION_JOB_POSTING_INTEGRATION_PERMISSIONS,
 } from '@/lib/rbac/moduleAccess';
+import { hydrateEmailComposeSignatureState } from '@/lib/emailComposeSignature';
 
 type IntegrationSection = {
   id: string;
@@ -60,7 +62,7 @@ const INTEGRATION_SECTIONS: IntegrationSection[] = [
         description: 'Send and read recruiter email from your own Gmail account.',
         consentSummary:
           'Approve access only if you want this app to send emails and read your inbox on your behalf.',
-        scopes: ['Send email', 'Read inbox', 'Profile'],
+        scopes: ['Send email', 'Read inbox', 'Signature', 'Profile'],
         icon: <Mail className="h-5 w-5 text-red-600" />,
         iconBgClass: 'bg-red-50',
         accentClass: 'from-red-500/12 via-transparent to-transparent',
@@ -71,7 +73,7 @@ const INTEGRATION_SECTIONS: IntegrationSection[] = [
         description: 'Connect Microsoft 365 / Outlook for personal recruiter email.',
         consentSummary:
           'Approve access only if you want this app to send and read mail from your Microsoft account.',
-        scopes: ['Mail.Send', 'Mail.Read', 'User.Read'],
+        scopes: ['Mail.Send', 'Mail.Read', 'Mail.ReadWrite', 'User.Read'],
         icon: <Mail className="h-5 w-5 text-sky-600" />,
         iconBgClass: 'bg-sky-50',
         accentClass: 'from-sky-500/12 via-transparent to-transparent',
@@ -294,6 +296,12 @@ export function CommunicationSettings() {
     const communicationData =
       communicationResult.status === 'fulfilled' ? communicationResult.value.data || null : null;
     setStatuses(mergeStatuses(integrationData, communicationData));
+    if (communicationData?.settings) {
+      hydrateEmailComposeSignatureState({
+        signature: communicationData.settings.emailComposeSignature || '',
+        logoUrl: communicationData.settings.emailComposeSignatureLogoUrl || '',
+      });
+    }
     if (integrationResult.status === 'rejected' && communicationResult.status === 'rejected') {
       throw integrationResult.reason;
     }
@@ -466,44 +474,47 @@ export function CommunicationSettings() {
           .length;
 
         return (
-          <section key={section.id} className="space-y-4">
-            <div className="flex flex-wrap items-end justify-between gap-3 px-1">
-              <div>
-                <h3 className="text-lg font-semibold tracking-tight text-slate-900">
-                  {section.title}
-                </h3>
-                <p className="mt-1 text-sm text-slate-500">{section.description}</p>
+          <React.Fragment key={section.id}>
+            <section className="space-y-4">
+              <div className="flex flex-wrap items-end justify-between gap-3 px-1">
+                <div>
+                  <h3 className="text-lg font-semibold tracking-tight text-slate-900">
+                    {section.title}
+                  </h3>
+                  <p className="mt-1 text-sm text-slate-500">{section.description}</p>
+                </div>
+                <p className="text-xs font-medium text-slate-400">
+                  {sectionConnected} of {section.items.length} connected
+                </p>
               </div>
-              <p className="text-xs font-medium text-slate-400">
-                {sectionConnected} of {section.items.length} connected
-              </p>
-            </div>
 
-            <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
-              {section.items.map((item) => {
-                const status = statuses[item.provider];
-                const rawScopes = status?.scope?.length ? status.scope : item.scopes;
-                const scopes = rawScopes.map(humanizeScope);
-                return (
-                  <ServiceConnectionCard
-                    key={item.provider}
-                    serviceName={item.serviceName}
-                    icon={item.icon}
-                    iconBgClass={item.iconBgClass}
-                    accentClass={item.accentClass}
-                    description={item.description}
-                    connected={!!status?.connected}
-                    connectedEmail={status?.accountEmail || status?.accountName || undefined}
-                    onConnect={() => handleConnect(item.provider)}
-                    onDisconnect={() => handleDisconnect(item.provider)}
-                    connecting={busyProvider === item.provider}
-                    scopes={scopes}
-                    consentSummary={item.consentSummary}
-                  />
-                );
-              })}
-            </div>
-          </section>
+              <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
+                {section.items.map((item) => {
+                  const status = statuses[item.provider];
+                  const rawScopes = status?.scope?.length ? status.scope : item.scopes;
+                  const scopes = rawScopes.map(humanizeScope);
+                  return (
+                    <ServiceConnectionCard
+                      key={item.provider}
+                      serviceName={item.serviceName}
+                      icon={item.icon}
+                      iconBgClass={item.iconBgClass}
+                      accentClass={item.accentClass}
+                      description={item.description}
+                      connected={!!status?.connected}
+                      connectedEmail={status?.accountEmail || status?.accountName || undefined}
+                      onConnect={() => handleConnect(item.provider)}
+                      onDisconnect={() => handleDisconnect(item.provider)}
+                      connecting={busyProvider === item.provider}
+                      scopes={scopes}
+                      consentSummary={item.consentSummary}
+                    />
+                  );
+                })}
+              </div>
+            </section>
+            {section.id === 'email-calendar' ? <EmailComposeSignatureSettings /> : null}
+          </React.Fragment>
         );
       })}
     </div>

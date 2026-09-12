@@ -36,6 +36,16 @@ export function getLocalTimeInputMinNow(): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
+/** Open the browser date/time clock/calendar picker on click (Chrome/Edge/Safari). */
+export function openNativeDateTimePicker(el: HTMLInputElement | null | undefined) {
+  if (!el || typeof el.showPicker !== 'function') return;
+  try {
+    el.showPicker();
+  } catch {
+    // showPicker can throw NotAllowedError outside a user gesture — ignore.
+  }
+}
+
 export function clampDateToMinLocal(value: string, min: string): string {
   if (!value || !min) return value;
   return value < min ? min : value;

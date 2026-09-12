@@ -58,6 +58,8 @@ export interface ClientReviewData {
   matchScore?: number | null;
   recruiterNotes?: string;
   pipelineStages?: Array<{ id: string; name: string }>;
+  /** Last stage marked by the client for this candidate on the preview link. */
+  clientMarkedStage?: string | null;
   candidateFiles?: Array<{
     id: string;
     fileName: string;
@@ -73,6 +75,8 @@ export interface ClientReviewBatchRow {
   experience?: number | null;
   jobTitle?: string;
   matchScore?: number | null;
+  /** Stage the client last marked on this preview link. */
+  clientMarkedStage?: string | null;
   detail: ClientReviewData;
 }
 
@@ -96,14 +100,21 @@ export const TAG_OPTIONS_BY_TYPE: Record<string, string[]> = {
   GENERAL: ['Interested', 'Need Clarification', 'Hold', 'Rejected', 'Proceed to Next Round'],
 };
 
+/** Stages the client can mark on the Client Preview URL (Submit to Client link). */
 export const CLIENT_PIPELINE_STAGE_CHOICES: Array<{ id: string; name: string }> = [
   { id: 'APPLIED', name: 'Applied' },
+  { id: 'NEW', name: 'New' },
   { id: 'SCREENING', name: 'Screening' },
-  { id: 'SUBMITTED_TO_CLIENT', name: 'Submit to Client' },
-  { id: 'INTERVIEW', name: 'Interviewing' },
-  { id: 'OFFER', name: 'Offer' },
+  { id: 'SUBMITTED', name: 'Submitted' },
+  { id: 'INTERVIEWING', name: 'Interviewing' },
+  { id: 'OFFERED', name: 'Offered' },
   { id: 'HIRED', name: 'Hired' },
   { id: 'REJECTED', name: 'Rejected' },
+  { id: 'SCREENING_INTERVIEWING', name: 'Screening & Interviewing' },
+  { id: 'SUBMITTED_TO_CLIENT', name: 'Submitted to Client' },
+  { id: 'SHORTLISTED_BY_CLIENT', name: 'Shortlisted by Client' },
+  { id: 'FEEDBACK_PENDING', name: 'Feedback Pending' },
+  { id: 'JOINED', name: 'Joined' },
 ];
 
 export const PURPOSE_COPY: Record<string, { title: string; body: string }> = {
