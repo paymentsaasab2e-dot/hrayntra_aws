@@ -242,8 +242,10 @@ function buildSectionsFromEditForm(editForm, visibility) {
     pushVisibleSection(sections, 'personal', [
       ['Name', [editForm.firstName, editForm.lastName].filter(Boolean).join(' ')],
       ['First Name', editForm.firstName],
+      ['Middle Name', editForm.middleName],
       ['Last Name', editForm.lastName],
       ['E-mail', editForm.email],
+      ['Phone code', editForm.phoneCode],
       ['Mobile No', editForm.phone],
       ['Age', editForm.age],
       ['Candidate Score', editForm.candidateScore],
@@ -257,6 +259,8 @@ function buildSectionsFromEditForm(editForm, visibility) {
       ['Candidate Image', editForm.avatar ? 'On file' : ''],
       ['Nationality', editForm.nationality],
       ['Current Company Website', editForm.currentCompanyWebsite],
+      ['Gender', editForm.gender],
+      ['Employment status', editForm.employment],
       ['Marital Status', editForm.maritalStatus],
       ['Birth Date', editForm.birthDate],
       ['Passport Number', editForm.passportNumber],
@@ -309,6 +313,15 @@ function buildSectionsFromEditForm(editForm, visibility) {
       ['Work history (narrative)', editForm.workHistoryText],
       ['Extracurricular activities', editForm.extracurricular],
       ['Volunteers', editForm.volunteers],
+      ['Current role', editForm.p1CurrentRole || editForm.currentTitle],
+      ['Preferred job titles', editForm.p1PreferredJobTitles],
+      ['Preferred industries', editForm.p1PreferredIndustries],
+      ['Functional areas', editForm.p1FunctionalAreas],
+      ['Job types', editForm.p1JobTypes],
+      ['Work modes', editForm.p1WorkModes],
+      ['Preferred locations', editForm.p1PreferredLocations],
+      ['Relocation', editForm.p1Relocation],
+      ['Availability to start', editForm.p1AvailabilityToStart],
     ]);
   }
 
@@ -524,25 +537,142 @@ function stripHiddenClientReviewFields(sections, visibleFields) {
   return applySubmitFieldVisibility(cleaned, parseSubmitFieldVisibility(visibleFields));
 }
 
+/** Whether a Submit-to-Client field id is visible (missing map = all visible). */
+export function isClientReviewFieldVisible(visibleFields, fieldId) {
+  const visibility = parseSubmitFieldVisibility(visibleFields);
+  if (!visibility) return true;
+  return isSubmitFieldVisible(visibility, fieldId);
+}
+
+/** Whether a comparative/table label is allowed by tenant visibility. */
+export function isClientReviewLabelVisible(visibleFields, label) {
+  const visibility = parseSubmitFieldVisibility(visibleFields);
+  if (!visibility) return true;
+  return isSubmitReviewLabelVisible(label, visibility);
+}
+
+/**
+ * Strip tenant-hidden fields from the public candidate payload so table /
+ * comparative cannot leak hidden skills, education, etc.
+ */
+export function applyVisibleFieldsToClientCandidate(candidate, visibleFields) {
+  if (!candidate || typeof candidate !== 'object') return candidate;
+  const visibility = parseSubmitFieldVisibility(visibleFields);
+  if (!visibility) return candidate;
+
+  const next = { ...candidate };
+  const hide = (fieldId) => visibility[fieldId] === false;
+
+  if (hide('email')) next.email = '';
+  if (hide('phone')) next.phone = '';
+  if (hide('city')) next.city = '';
+  if (hide('country')) next.country = '';
+  if (hide('location')) {
+    // location display is composed; clear address-based location helpers only when location hidden
+  }
+  if (hide('address')) next.address = '';
+  if (hide('currentCompany')) next.currentCompany = '';
+  if (hide('currentTitle')) next.designation = '';
+  if (hide('experience')) next.experience = null;
+  if (hide('educationSummary') && hide('cvEducationEntries')) {
+    next.education = '';
+    next.cvEducationEntries = [];
+  } else {
+    if (hide('educationSummary')) next.education = '';
+    if (hide('cvEducationEntries')) next.cvEducationEntries = [];
+  }
+  if (hide('cvWorkExperienceEntries')) next.cvWorkExperienceEntries = [];
+  if (hide('skills')) next.skills = [];
+  if (hide('languageProficiency')) next.languages = [];
+  if (hide('cvSummary')) next.cvSummary = '';
+  if (hide('certifications')) next.certifications = [];
+  if (hide('linkedIn')) next.linkedIn = '';
+  if (hide('firstName') || hide('lastName')) {
+    const parts = String(next.name || '')
+      .split(/\s+/)
+      .filter(Boolean);
+    if (hide('firstName') && hide('lastName')) next.name = '';
+    else if (hide('firstName')) next.name = parts.slice(1).join(' ');
+    else if (hide('lastName')) next.name = parts[0] || '';
+  }
+
+  return next;
+}
+
 export function buildClientReviewSectionsFromPresentation(saved) {
   if (!saved) return [];
   const visibleFields = saved.visibleFields;
-  if (saved.phase1Snapshot && typeof saved.phase1Snapshot === 'object') {
-    return stripHiddenClientReviewFields(
-      buildPhase1ClientReviewSections(saved.phase1Snapshot, saved.phase1VisibleSections),
-      visibleFields,
-    );
-  }
-  if (saved.editForm && typeof saved.editForm === 'object') {
-    return stripHiddenClientReviewFields(
-      buildSectionsFromEditForm(saved.editForm, saved.visibleSections),
-      visibleFields,
-    );
-  }
-  if (Array.isArray(saved.clientReviewSections) && saved.clientReviewSections.length > 0) {
-    return stripHiddenClientReviewFields(saved.clientReviewSections, visibleFields);
-  }
-  return [];
+
+  const fromPhase1 =
+    saved.phase1Snapshot && typeof saved.phase1Snapshot === 'object'
+      ? stripHiddenClientReviewFields(
+          buildPhase1ClientReviewSections(saved.phase1Snapshot, saved.phase1VisibleSections),
+          visibleFields,
+        )
+      : [];
+  const fromEditForm =
+    saved.editForm && typeof saved.editForm === 'object'
+      ? stripHiddenClientReviewFields(
+          buildSectionsFromEditForm(saved.editForm, saved.visibleSections),
+          visibleFields,
+        )
+      : [];
+  const fromStoredSections =
+    Array.isArray(saved.clientReviewSections) && saved.clientReviewSections.length > 0
+      ? stripHiddenClientReviewFields(saved.clientReviewSections, visibleFields)
+      : [];
+
+  const scoreSection = (section) => {
+    if (!section) return 0;
+    let score = 0;
+    for (const field of section.fields || []) {
+      const value = String(field?.value || '').trim();
+      if (!value || value === 'No entries provided') continue;
+      score += 1;
+    }
+    if (Array.isArray(section.entries) && section.entries.length) {
+      score += section.entries.length * 2;
+    }
+    return score;
+  };
+
+  /** Prefer the richest copy of each section id across editForm / phase1 / stored. */
+  const byId = new Map();
+  const order = [];
+  const ingest = (sections) => {
+    if (!Array.isArray(sections)) return;
+    for (const section of sections) {
+      if (!section?.id) continue;
+      const prev = byId.get(section.id);
+      if (!prev) {
+        byId.set(section.id, section);
+        order.push(section.id);
+        continue;
+      }
+      const prevScore = scoreSection(prev);
+      const nextScore = scoreSection(section);
+      if (nextScore > prevScore) {
+        byId.set(section.id, section);
+      } else if (nextScore === prevScore) {
+        // Prefer more structured entries / more field rows when tied.
+        const prevEntries = Array.isArray(prev.entries) ? prev.entries.length : 0;
+        const nextEntries = Array.isArray(section.entries) ? section.entries.length : 0;
+        const prevFields = Array.isArray(prev.fields) ? prev.fields.length : 0;
+        const nextFields = Array.isArray(section.fields) ? section.fields.length : 0;
+        if (nextEntries > prevEntries || (nextEntries === prevEntries && nextFields > prevFields)) {
+          byId.set(section.id, section);
+        }
+      }
+    }
+  };
+
+  // Edit-form first so core Career / Social / Summary (skills) stay present even when
+  // Phase 1 extras also exist; Phase 1 then fills missing section ids (certs, visa, …).
+  ingest(fromEditForm);
+  ingest(fromPhase1);
+  ingest(fromStoredSections);
+
+  return order.map((id) => byId.get(id)).filter(Boolean);
 }
 
 export function buildClientReviewSectionsFromEditForm(editForm, visibleSections) {

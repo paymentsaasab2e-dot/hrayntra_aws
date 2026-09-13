@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { Columns2, X } from 'lucide-react';
 import type { ClientReviewBatchRow, ClientReviewData } from '../../lib/clientReviewTypes';
 import type { ClientReviewSection } from '../../lib/clientPresentationSections';
+import { isSubmitToClientReviewFieldVisible } from '../../lib/submitToClientFieldVisibility';
 
 type Props = {
   open: boolean;
@@ -74,13 +75,17 @@ function formatEntryRows(entries: Array<Record<string, unknown>> | undefined): s
       const title =
         displayValue(entry.degreeProgram) ||
         displayValue(entry.degree) ||
+        displayValue(entry.jobTitle) ||
         displayValue(entry.title) ||
         displayValue(entry.company) ||
         displayValue(entry.institutionName) ||
         displayValue(entry.institution) ||
         '';
       const meta = [
-        displayValue(entry.institutionName) || displayValue(entry.institution) || displayValue(entry.company),
+        displayValue(entry.institutionName) ||
+          displayValue(entry.institution) ||
+          displayValue(entry.companyName) ||
+          displayValue(entry.company),
         [
           displayValue(entry.startYear) || displayValue(entry.startDate),
           displayValue(entry.endYear) || displayValue(entry.endDate),
@@ -206,7 +211,14 @@ function profileFallbackForLabel(row: ClientReviewBatchRow, label: string): stri
     case 'state':
       return '';
     case 'country':
-      return displayValue(candidate?.country);
+      return (
+        displayValue(candidate?.country) ||
+        (() => {
+          const location = locationFromRow(row);
+          const parts = location.split(',').map((part) => part.trim()).filter(Boolean);
+          return parts.length > 1 ? parts[parts.length - 1] : '';
+        })()
+      );
     case 'location display':
     case 'actual location':
     case 'location':
@@ -226,6 +238,7 @@ function profileFallbackForLabel(row: ClientReviewBatchRow, label: string): stri
       return displayValue(row.designation || candidate?.designation || preview?.jobTitle);
     case 'year of experience':
     case 'years of experience':
+    case 'experience years':
     case 'experience': {
       const years = row.experience ?? candidate?.experience;
       return Number.isFinite(Number(years)) ? String(years) : '';
@@ -244,11 +257,13 @@ function profileFallbackForLabel(row: ClientReviewBatchRow, label: string): stri
     case 'summary':
     case 'cv summary':
       return displayValue(candidate?.cvSummary) || displayValue(preview?.summary);
-    case 'languages': {
+    case 'languages':
+    case 'language proficiency': {
       const languages = Array.isArray(candidate?.languages)
         ? candidate.languages.map((item) => displayValue(item)).filter(Boolean)
         : [];
-      return languages.join(', ');
+      if (languages.length) return languages.join(', ');
+      return fieldValueFromSections(row.detail, 'Language & proficiency');
     }
     case 'linkedin':
       return displayValue(preview?.linkedin);
@@ -260,11 +275,35 @@ function profileFallbackForLabel(row: ClientReviewBatchRow, label: string): stri
   }
 }
 
+function visibleFieldsOf(row: ClientReviewBatchRow): Record<string, boolean> | null {
+  const raw = row.detail?.visibleFields;
+  return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : null;
+}
+
+function isCompareLabelAllowed(row: ClientReviewBatchRow, label: string): boolean {
+  return isSubmitToClientReviewFieldVisible(label, visibleFieldsOf(row));
+}
+
 function resolveFieldValue(row: ClientReviewBatchRow, label: string): string {
-  return fieldValueFromSections(row.detail, label) || profileFallbackForLabel(row, label);
+  if (!isCompareLabelAllowed(row, label)) return '';
+  // Tenant candidate / profile first — then presentation sections (already visibility-filtered).
+  return profileFallbackForLabel(row, label) || fieldValueFromSections(row.detail, label);
 }
 
 function resolveEntriesValue(row: ClientReviewBatchRow, sectionId: string): string {
+  if (sectionId === 'education') {
+    if (
+      !isCompareLabelAllowed(row, 'Education entries') &&
+      !isCompareLabelAllowed(row, 'Education summary') &&
+      !isCompareLabelAllowed(row, 'Education')
+    ) {
+      return '';
+    }
+  }
+  if (sectionId === 'work' && !isCompareLabelAllowed(row, 'Work experience')) {
+    return '';
+  }
+
   const section = sectionsOf(row).find(
     (item) => String(item.id || item.title || '') === sectionId,
   );
@@ -300,10 +339,26 @@ function fallbackValue(row: ClientReviewBatchRow, key: string): string {
   }
 }
 
-/**
- * Build left-side parameters from visible presentation fields only
- * (non-empty for at least one selected candidate), then fill each candidate column.
- */
+function normalizeCompareLabel(label: string): string {
+  return String(label || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function aliasCompareLabelKey(label: string): string {
+  const key = normalizeCompareLabel(label);
+  if (key === 'experience years' || key === 'years of experience' || key === 'experience') {
+    return 'year of experience';
+  }
+  if (key === 'education summary' || key === 'education entries') return 'education';
+  if (key === 'current employer' || key === 'company' || key === 'employer') return 'current company';
+  if (key === 'language proficiency' || key === 'languages') return 'language proficiency';
+  if (key === 'name of candidate') return 'name';
+  return key;
+}
+
 function buildCompareParams(selectedRows: ClientReviewBatchRow[]): CompareParam[] {
   const params: CompareParam[] = [];
 
@@ -355,13 +410,12 @@ function buildCompareParams(selectedRows: ClientReviewBatchRow[]): CompareParam[
         for (const field of section.fields || []) {
           const label = displayValue(field.label);
           if (!label) continue;
-          // Keep the attribute if any selected candidate has it in presentation OR profile/CV.
           const anyValue = selectedRows.some((candidateRow) => {
             const value = resolveFieldValue(candidateRow, label);
             return Boolean(value) && !shouldHideField(label, value);
           });
           if (!anyValue) continue;
-          const key = `${sectionId}::${label.toLowerCase()}`;
+          const key = aliasCompareLabelKey(label);
           if (seen.has(key)) continue;
           seen.add(key);
           ordered.push({ sectionId, sectionTitle, label, key });
@@ -372,11 +426,11 @@ function buildCompareParams(selectedRows: ClientReviewBatchRow[]): CompareParam[
         if (anyEntries) {
           const label =
             sectionId === 'education'
-              ? 'Education entries'
+              ? 'Education'
               : sectionId === 'work'
                 ? 'Work experience'
                 : `${sectionTitle} entries`;
-          const key = `${sectionId}::__entries`;
+          const key = aliasCompareLabelKey(label);
           if (!seen.has(key)) {
             seen.add(key);
             ordered.push({ sectionId, sectionTitle, label, key });
@@ -401,9 +455,10 @@ function buildCompareParams(selectedRows: ClientReviewBatchRow[]): CompareParam[
       { sectionId: 'professional', sectionTitle: 'Career Preferences', label: 'Year of experience' },
       { sectionId: 'education', sectionTitle: 'Education', label: 'Education' },
       { sectionId: 'summary', sectionTitle: 'Summary & Additional', label: 'Skills' },
+      { sectionId: 'summary', sectionTitle: 'Summary & Additional', label: 'Language & proficiency' },
     ];
     for (const extra of profileExtras) {
-      const key = `${extra.sectionId}::${extra.label.toLowerCase()}`;
+      const key = aliasCompareLabelKey(extra.label);
       if (seen.has(key)) continue;
       const anyValue = selectedRows.some((row) => {
         const value = resolveFieldValue(row, extra.label);

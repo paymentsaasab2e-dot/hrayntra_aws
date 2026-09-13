@@ -19,6 +19,8 @@ type DrawerTabBarProps<T extends string> = {
   ariaLabel?: string;
   /** `bar` wraps tabs in drawer chrome; `embedded` is just the pill track. */
   variant?: 'bar' | 'embedded';
+  /** Allow tabs to wrap onto multiple rows so every label stays visible. */
+  wrap?: boolean;
   className?: string;
   trackClassName?: string;
 };
@@ -61,6 +63,7 @@ export function DrawerTabBar<T extends string>({
   onChange,
   ariaLabel = 'Drawer sections',
   variant = 'bar',
+  wrap = false,
   className = '',
   trackClassName = '',
 }: DrawerTabBarProps<T>) {
@@ -68,7 +71,11 @@ export function DrawerTabBar<T extends string>({
     <div
       role="tablist"
       aria-label={ariaLabel}
-      className={`flex gap-1 overflow-x-auto rounded-2xl border border-indigo-100/60 bg-gradient-to-r from-slate-50 via-indigo-50/40 to-violet-50/30 p-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden ${trackClassName}`}
+      className={`flex gap-1 rounded-2xl border border-indigo-100/60 bg-gradient-to-r from-slate-50 via-indigo-50/40 to-violet-50/30 p-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] ${
+        wrap
+          ? 'flex-wrap'
+          : 'overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden'
+      } ${trackClassName}`}
     >
       {tabs.map((tab) => {
         const active = tab.id === activeId;
@@ -80,7 +87,9 @@ export function DrawerTabBar<T extends string>({
             role="tab"
             aria-selected={active}
             onClick={() => onChange(tab.id)}
-            className={`inline-flex min-w-max flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-xl px-3 py-2.5 text-sm font-semibold transition-all duration-200 ${
+            className={`inline-flex min-w-max items-center justify-center gap-2 whitespace-nowrap rounded-xl px-3 py-2.5 text-sm font-semibold transition-all duration-200 ${
+              wrap ? 'flex-none' : 'flex-1'
+            } ${
               active
                 ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-500/30'
                 : 'text-slate-600 hover:bg-white/90 hover:text-indigo-800 hover:shadow-sm'

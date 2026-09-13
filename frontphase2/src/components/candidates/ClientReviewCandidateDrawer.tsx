@@ -1,9 +1,13 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
+import dynamic from 'next/dynamic';
 import { AnimatePresence, motion } from 'motion/react';
-import { Briefcase, Building2, CheckCircle2, FileUp, X } from 'lucide-react';
-import { ClientReviewCandidatePanel } from './ClientReviewCandidatePanel';
+import { CheckCircle2, ExternalLink, FileText, FileUp, UserRound } from 'lucide-react';
+import { ClientReviewSectionsPanel } from './ClientReviewSectionsPanel';
+import { ResumeInlinePreview } from './ResumeInlinePreview';
+import { DrawerCloseButton } from '../drawers/drawerLayout';
 import {
   CLIENT_PIPELINE_STAGE_CHOICES,
   TAG_OPTIONS_BY_TYPE,
@@ -13,6 +17,9 @@ import {
   clientTrackerAllowsResponse,
   normalizeClientTrackerOptions,
 } from '../../lib/clientTrackerOptions';
+import { isClientReviewFileHref } from '../../lib/clientReviewAssets';
+
+const CVEditorModal = dynamic(() => import('../CVEditorModal'), { ssr: false });
 
 type Props = {
   open: boolean;
@@ -22,18 +29,6 @@ type Props = {
   onClose: () => void;
   onSubmitted?: (matchId: string, message: string, stage?: string | null) => void;
 };
-
-function initialsFromName(name: string): string {
-  return (
-    name
-      .split(/\s+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((part) => part[0])
-      .join('')
-      .toUpperCase() || 'NA'
-  );
-}
 
 export function ClientReviewCandidateDrawer({
   open,
@@ -47,7 +42,6 @@ export function ClientReviewCandidateDrawer({
   const submissionType = String(reviewData?.submissionType || 'GENERAL').toUpperCase();
   const isOfferFlow = submissionType === 'OFFER_CONFIRMATION';
   const tagOptions = TAG_OPTIONS_BY_TYPE[submissionType] || TAG_OPTIONS_BY_TYPE.GENERAL;
-  // Use recruiter-selected stages from the preview payload when present.
   const stageOptions =
     Array.isArray(reviewData?.pipelineStages) && reviewData.pipelineStages.length
       ? reviewData.pipelineStages
@@ -81,6 +75,20 @@ export function ClientReviewCandidateDrawer({
     setSuccess('');
     setConfirmOpen(false);
   }, [open, row?.matchId, tagOptions, stageOptions, row?.clientMarkedStage, reviewData?.clientMarkedStage]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !confirmOpen) onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [open, onClose, confirmOpen]);
 
   const requestSubmitConfirmation = () => {
     if (!row?.matchId || submitting) return;
@@ -147,201 +155,311 @@ export function ClientReviewCandidateDrawer({
     }
   };
 
-  if (!open || !row || !reviewData) return null;
+  const cvShareMode = String(reviewData?.cvShareMode || 'edited').toLowerCase();
+  const showSaasaCv = tracker.downloadResume && cvShareMode === 'saasa';
+  const showEditedCv = tracker.downloadResume && !showSaasaCv && cvShareMode !== 'original';
+  const showOriginalResume = tracker.downloadResume && cvShareMode === 'original';
+  const cvEditorPreview = reviewData?.cvEditorPreview ?? null;
+  const sharedResumeUrl = String(
+    reviewData?.sharedResumeUrl || reviewData?.candidate?.resume || '',
+  ).trim();
+  const canOpenResume = sharedResumeUrl.startsWith('http') || isClientReviewFileHref(sharedResumeUrl);
+  const hasCvPreview = Boolean(showEditedCv && cvEditorPreview);
+  const hasCvTab = Boolean(
+    tracker.downloadResume && (hasCvPreview || canOpenResume || showSaasaCv || showOriginalResume),
+  );
+
+  const presentationSections = reviewData?.presentationSections ?? [];
+  const hasPresentationSections = presentationSections.length > 0;
+
+  const extraTabs: Array<{ id: string; label: string; content: React.ReactNode }> = [];
+
+  if (hasCvTab) {
+    const resumeTitle = showSaasaCv
+      ? 'HRYantra CV'
+      : showOriginalResume
+        ? 'Original resume'
+        : 'Candidate CV';
+    const resumeSubtitle = showSaasaCv
+      ? 'Annotated CV shared by the recruiter for your review.'
+      : 'Preview of the resume shared by the recruiter.';
+
+    extraTabs.push({
+      id: 'cv',
+      label: 'CV',
+      content: (
+        <div className="flex min-h-[70vh] flex-col gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-indigo-100/80 bg-white px-4 py-3 shadow-[0_10px_30px_-18px_rgba(79,70,229,0.28)] ring-1 ring-indigo-500/5 sm:px-5">
+            <div className="flex min-w-0 items-start gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100">
+                <FileText size={18} />
+              </span>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-slate-900">{resumeTitle}</p>
+                <p className="mt-0.5 text-xs text-slate-500">{resumeSubtitle}</p>
+              </div>
+            </div>
+            {canOpenResume ? (
+              <a
+                href={sharedResumeUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+              >
+                <ExternalLink size={14} />
+                Open in new tab
+              </a>
+            ) : null}
+          </div>
+
+          {hasCvPreview ? (
+            <div className="min-h-0 flex-1 overflow-hidden rounded-2xl border border-indigo-100/80 bg-white shadow-[0_10px_30px_-18px_rgba(79,70,229,0.28)] ring-1 ring-indigo-500/5">
+              <CVEditorModal initialData={cvEditorPreview} readOnly embedded />
+            </div>
+          ) : null}
+
+          {canOpenResume && !hasCvPreview ? (
+            <div className="min-h-0 flex-1 overflow-hidden rounded-2xl border border-indigo-100/80 bg-white shadow-[0_10px_30px_-18px_rgba(79,70,229,0.28)] ring-1 ring-indigo-500/5">
+              <ResumeInlinePreview
+                resumeUrl={sharedResumeUrl}
+                candidateName={row?.candidateName || reviewData?.candidate?.name || 'Candidate'}
+                enabled
+                minHeightClass="min-h-[70vh]"
+                className="rounded-2xl"
+              />
+            </div>
+          ) : null}
+
+          {canOpenResume && hasCvPreview ? (
+            <div className="overflow-hidden rounded-2xl border border-indigo-100/80 bg-white shadow-[0_10px_30px_-18px_rgba(79,70,229,0.28)] ring-1 ring-indigo-500/5">
+              <p className="border-b border-slate-100 px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                Source resume file
+              </p>
+              <ResumeInlinePreview
+                resumeUrl={sharedResumeUrl}
+                candidateName={row?.candidateName || reviewData?.candidate?.name || 'Candidate'}
+                enabled
+                minHeightClass="min-h-[52vh]"
+              />
+            </div>
+          ) : null}
+
+          {!hasCvPreview && !canOpenResume ? (
+            <p className="rounded-2xl border border-indigo-100/80 bg-white px-5 py-8 text-center text-sm text-slate-500 ring-1 ring-indigo-500/5">
+              No CV was shared on this preview.
+            </p>
+          ) : null}
+        </div>
+      ),
+    });
+  }
+
+  if (canRespond) {
+    extraTabs.push({
+      id: 'actions',
+      label: 'Actions',
+          content: (
+            <div className="overflow-hidden rounded-2xl border border-indigo-100/80 bg-white p-5 shadow-[0_10px_30px_-18px_rgba(79,70,229,0.28)] ring-1 ring-indigo-500/5 sm:p-6">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-indigo-500">
+                Your response
+              </p>
+              <h3 className="mt-1 text-base font-semibold text-slate-900">
+                {isOfferFlow ? 'Confirm this offer' : 'Share a decision with the recruiter'}
+              </h3>
+
+          {canAttachDocument ? (
+            <div
+              className={`mt-4 rounded-2xl border border-dashed px-4 py-3.5 ${
+                isOfferFlow ? 'border-amber-300 bg-amber-50/70' : 'border-slate-200 bg-slate-50/80'
+              }`}
+            >
+              <div className="flex items-start gap-3">
+                <span className="mt-0.5 flex h-9 w-9 items-center justify-center rounded-xl bg-white text-indigo-600 ring-1 ring-slate-200">
+                  <FileUp size={16} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-slate-900">
+                    {isOfferFlow ? 'Offer letter *' : 'Attach a document'}
+                  </p>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    {isOfferFlow
+                      ? 'PDF, max 4 MB. Required to confirm the offer.'
+                      : 'Optional PDF, max 4 MB.'}
+                  </p>
+                  <input
+                    type="file"
+                    accept="application/pdf"
+                    onChange={(event) => setOfferLetterFile(event.target.files?.[0] || null)}
+                    className="mt-2.5 block w-full text-xs file:mr-3 file:rounded-full file:border-0 file:bg-indigo-50 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-indigo-700"
+                  />
+                  {offerLetterFile ? (
+                    <p className="mt-1.5 truncate text-xs font-medium text-slate-600">
+                      {offerLetterFile.name}
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {tracker.addRemarks ? (
+            <label className="mt-4 block text-sm font-semibold text-slate-900">
+              Decision
+              <select
+                value={selectedTag}
+                onChange={(e) => setSelectedTag(e.target.value)}
+                className="mt-1.5 w-full rounded-2xl border-0 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-900 outline-none ring-1 ring-slate-200 focus:ring-2 focus:ring-indigo-300"
+              >
+                {tagOptions.map((tag) => (
+                  <option key={tag} value={tag}>
+                    {tag}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+
+          {tracker.changeStage ? (
+            <label className="mt-4 block text-sm font-semibold text-slate-900">
+              Stage
+              <select
+                value={selectedStage}
+                onChange={(e) => setSelectedStage(e.target.value)}
+                className="mt-1.5 w-full rounded-2xl border-0 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-900 outline-none ring-1 ring-slate-200 focus:ring-2 focus:ring-indigo-300"
+              >
+                {stageOptions.map((stage) => (
+                  <option key={stage.id || stage.name} value={stage.name}>
+                    {stage.name}
+                  </option>
+                ))}
+              </select>
+              <span className="mt-1 block text-xs font-normal text-slate-500">
+                Your stage choice appears in the candidate table on this page and on the recruiter
+                Client tab. It does not change the CRM pipeline stage.
+              </span>
+            </label>
+          ) : null}
+
+          {tracker.addComments ? (
+            <label className="mt-4 block text-sm font-semibold text-slate-900">
+              Comments
+              <textarea
+                value={comments}
+                onChange={(e) => setComments(e.target.value)}
+                rows={4}
+                className="mt-1.5 w-full resize-none rounded-2xl border-0 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-900 outline-none ring-1 ring-slate-200 focus:ring-2 focus:ring-indigo-300"
+                placeholder="Add any remarks for the recruiter..."
+              />
+            </label>
+          ) : null}
+
+          {error ? <p className="mt-3 text-sm font-medium text-red-600">{error}</p> : null}
+          {success ? <p className="mt-3 text-sm font-medium text-emerald-600">{success}</p> : null}
+
+            <button
+              type="button"
+              onClick={requestSubmitConfirmation}
+              disabled={submitting}
+              className="mt-5 w-full rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 transition hover:brightness-105 disabled:opacity-60"
+            >
+              {submitting ? 'Submitting...' : isOfferFlow ? 'Confirm offer & submit' : 'Submit review'}
+            </button>
+        </div>
+      ),
+    });
+  }
 
   const roleLabel =
-    reviewData.candidate?.designation || row.designation || reviewData.job?.title || row.jobTitle || '';
-  const jobTitle = reviewData.job?.title || row.jobTitle || '';
-  const clientName = reviewData.client?.companyName || '';
+    reviewData?.candidate?.designation || row?.designation || reviewData?.job?.title || row?.jobTitle || '';
+  const jobTitle = reviewData?.job?.title || row?.jobTitle || '';
+  const clientName = reviewData?.client?.companyName || '';
+  const canShowDrawer = Boolean(open && row && reviewData);
 
-  return (
+  if (typeof document === 'undefined') return null;
+
+  const drawerTree = (
     <AnimatePresence>
-      {open ? (
+      {canShowDrawer && row && reviewData ? (
         <>
-          <motion.button
-            type="button"
-            aria-label="Close candidate review"
-            className="fixed inset-0 z-40 bg-slate-950/45 backdrop-blur-md"
+          <motion.div
+            key="client-candidate-review-backdrop"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
+            className="fixed inset-0 z-[200] bg-slate-900/50 backdrop-blur-[2px]"
+            data-drawer-skip-dirty="true"
           />
           <motion.aside
-            className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[44rem] flex-col overflow-hidden border-l border-white/40 bg-[#F4F6FB] shadow-[-28px_0_80px_rgba(15,23,42,0.28)]"
+            key="client-candidate-review-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="client-candidate-review-title"
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
-            transition={{ type: 'spring', damping: 32, stiffness: 280 }}
+            transition={{ type: 'spring', damping: 28, stiffness: 320 }}
+            className="fixed right-0 top-0 z-[201] flex h-full w-full max-w-[min(100vw,96rem)] flex-col overflow-hidden border-l border-indigo-100/70 bg-white shadow-2xl sm:w-[min(96vw,96rem)]"
+            onClick={(event) => event.stopPropagation()}
           >
-            <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 px-6 pb-6 pt-5 text-white">
-              <div className="pointer-events-none absolute -right-16 -top-20 h-48 w-48 rounded-full bg-sky-400/20 blur-3xl" />
-              <div className="pointer-events-none absolute bottom-0 left-16 h-28 w-56 rounded-full bg-indigo-400/25 blur-3xl" />
-              <div className="relative flex items-start justify-between gap-3">
-                <div className="flex min-w-0 items-start gap-4">
-                  <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white/15 text-base font-semibold tracking-wide ring-1 ring-white/25 backdrop-blur">
-                    {initialsFromName(row.candidateName)}
-                  </span>
-                  <div className="min-w-0 pt-0.5">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-white/65">
-                      Candidate review
-                    </p>
-                    <h2 className="mt-1 truncate text-[1.45rem] font-semibold leading-tight tracking-tight">
+            <div className="relative flex h-full min-h-0 flex-col">
+              <div className="relative z-30 flex shrink-0 items-start justify-between gap-3 border-b border-indigo-100/70 bg-gradient-to-r from-indigo-50/90 via-white to-sky-50/50 px-5 py-4 sm:px-6">
+                <div className="flex min-w-0 flex-1 items-center gap-3">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 via-blue-600 to-sky-500 text-white shadow-lg shadow-indigo-500/25">
+                    <UserRound size={20} />
+                  </div>
+                  <div className="min-w-0">
+                    <h2
+                      id="client-candidate-review-title"
+                      className="truncate text-lg font-bold text-slate-900 sm:text-xl"
+                    >
                       {row.candidateName}
                     </h2>
-                    {roleLabel ? (
-                      <p className="mt-1 truncate text-sm text-white/75">{roleLabel}</p>
-                    ) : null}
-                    <div className="mt-3 flex flex-wrap gap-1.5">
-                      {jobTitle ? (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-medium text-white ring-1 ring-white/15">
-                          <Briefcase size={11} />
-                          {jobTitle}
-                        </span>
-                      ) : null}
-                      {clientName ? (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-medium text-white ring-1 ring-white/15">
-                          <Building2 size={11} />
-                          {clientName}
-                        </span>
-                      ) : null}
-                    </div>
+                    <p className="mt-0.5 truncate text-sm text-slate-500">
+                      {[roleLabel, jobTitle, clientName].filter(Boolean).join(' · ') ||
+                        'Review the shared profile and submit your decision'}
+                    </p>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="rounded-2xl bg-white/10 p-2.5 text-white/90 ring-1 ring-white/15 transition hover:bg-white/20"
-                >
-                  <X size={16} />
-                </button>
+                <DrawerCloseButton onClick={onClose} aria-label="Close candidate review" />
               </div>
-            </div>
 
-            <div className="flex-1 overflow-y-auto px-5 py-5">
-              <ClientReviewCandidatePanel reviewData={reviewData} variant="drawer" />
-
-              {canRespond ? (
-              <div className="mt-5 overflow-hidden rounded-3xl bg-white p-5 shadow-[0_8px_30px_rgba(15,23,42,0.04)] ring-1 ring-slate-200/70">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-indigo-500">
-                  Your response
-                </p>
-                <h3 className="mt-1 text-base font-semibold text-slate-900">
-                  {isOfferFlow ? 'Confirm this offer' : 'Share a decision with the recruiter'}
-                </h3>
-
-                {canAttachDocument ? (
-                <div
-                  className={`mt-4 rounded-2xl border border-dashed px-4 py-3.5 ${
-                    isOfferFlow ? 'border-amber-300 bg-amber-50/70' : 'border-slate-200 bg-slate-50/80'
-                  }`}
-                >
-                  <div className="flex items-start gap-3">
-                    <span className="mt-0.5 flex h-9 w-9 items-center justify-center rounded-xl bg-white text-indigo-600 ring-1 ring-slate-200">
-                      <FileUp size={16} />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-semibold text-slate-900">
-                        {isOfferFlow ? 'Offer letter *' : 'Attach a document'}
-                      </p>
-                      <p className="mt-0.5 text-xs text-slate-500">
-                        {isOfferFlow
-                          ? 'PDF, max 4 MB. Required to confirm the offer.'
-                          : 'Optional PDF, max 4 MB.'}
-                      </p>
-                      <input
-                        type="file"
-                        accept="application/pdf"
-                        onChange={(event) => setOfferLetterFile(event.target.files?.[0] || null)}
-                        className="mt-2.5 block w-full text-xs file:mr-3 file:rounded-full file:border-0 file:bg-indigo-50 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-indigo-700"
-                      />
-                      {offerLetterFile ? (
-                        <p className="mt-1.5 truncate text-xs font-medium text-slate-600">
-                          {offerLetterFile.name}
-                        </p>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-                ) : null}
-
-                {tracker.addRemarks ? (
-                <label className="mt-4 block text-sm font-semibold text-slate-900">
-                  Decision
-                  <select
-                    value={selectedTag}
-                    onChange={(e) => setSelectedTag(e.target.value)}
-                    className="mt-1.5 w-full rounded-2xl border-0 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-900 outline-none ring-1 ring-slate-200 focus:ring-2 focus:ring-indigo-300"
-                  >
-                    {tagOptions.map((tag) => (
-                      <option key={tag} value={tag}>
-                        {tag}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                ) : null}
-
-                {tracker.changeStage ? (
-                <label className="mt-4 block text-sm font-semibold text-slate-900">
-                  Stage
-                  <select
-                    value={selectedStage}
-                    onChange={(e) => setSelectedStage(e.target.value)}
-                    className="mt-1.5 w-full rounded-2xl border-0 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-900 outline-none ring-1 ring-slate-200 focus:ring-2 focus:ring-indigo-300"
-                  >
-                    {stageOptions.map((stage) => (
-                      <option key={stage.id || stage.name} value={stage.name}>
-                        {stage.name}
-                      </option>
-                    ))}
-                  </select>
-                  <span className="mt-1 block text-xs font-normal text-slate-500">
-                    Your stage choice appears in the candidate table on this page and on the
-                    recruiter Client tab. It does not change the CRM pipeline stage.
-                  </span>
-                </label>
-                ) : null}
-
-                {tracker.addComments ? (
-                <label className="mt-4 block text-sm font-semibold text-slate-900">
-                  Comments
-                  <textarea
-                    value={comments}
-                    onChange={(e) => setComments(e.target.value)}
-                    rows={4}
-                    className="mt-1.5 w-full resize-none rounded-2xl border-0 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-900 outline-none ring-1 ring-slate-200 focus:ring-2 focus:ring-indigo-300"
-                    placeholder="Add any remarks for the recruiter..."
+              <div className="relative z-10 flex min-h-0 flex-1 flex-col">
+                {tracker.viewProfile && hasPresentationSections ? (
+                  <ClientReviewSectionsPanel
+                    mode="tabs"
+                    sections={presentationSections}
+                    jobTitle={jobTitle}
+                    clientName={clientName}
+                    showMeta={false}
+                    hideLinkedIn={!tracker.showLinkedIn}
+                    hideInternalNotes={!tracker.showNotes}
+                    hideResumeLinks={!tracker.downloadResume}
+                    visibleFields={reviewData.visibleFields}
+                    extraTabs={extraTabs}
                   />
-                </label>
-                ) : null}
-
-                {error ? <p className="mt-3 text-sm font-medium text-red-600">{error}</p> : null}
-                {success ? <p className="mt-3 text-sm font-medium text-emerald-600">{success}</p> : null}
+                ) : (
+                  <div className="flex min-h-0 flex-1 flex-col">
+                    {extraTabs.length ? (
+                      <ClientReviewSectionsPanel
+                        mode="tabs"
+                        sections={[]}
+                        showMeta={false}
+                        extraTabs={extraTabs}
+                      />
+                    ) : (
+                      <div className="m-6 rounded-2xl border border-indigo-100/80 bg-white px-5 py-8 text-center text-sm text-slate-600 ring-1 ring-indigo-500/5">
+                        The recruiter hid the candidate profile on this preview.
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-              ) : (
-                <div className="mt-5 rounded-3xl bg-white px-5 py-4 text-sm text-slate-600 shadow-[0_8px_30px_rgba(15,23,42,0.04)] ring-1 ring-slate-200/70">
-                  The recruiter did not enable a client response on this preview.
-                </div>
-              )}
             </div>
-
-            {canRespond ? (
-            <div className="border-t border-slate-200/80 bg-white/90 px-5 py-4 backdrop-blur">
-              <button
-                type="button"
-                onClick={requestSubmitConfirmation}
-                disabled={submitting}
-                className="w-full rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white shadow-[0_14px_28px_-16px_rgba(15,23,42,0.55)] transition hover:bg-indigo-700 disabled:opacity-60"
-              >
-                {submitting ? 'Submitting...' : isOfferFlow ? 'Confirm offer & submit' : 'Submit review'}
-              </button>
-            </div>
-            ) : null}
           </motion.aside>
 
           {confirmOpen ? (
-            <div className="fixed inset-0 z-[70] flex items-center justify-center px-4">
+            <div className="fixed inset-0 z-[220] flex items-center justify-center px-4">
               <button
                 type="button"
                 aria-label="Cancel submit"
@@ -352,7 +470,7 @@ export function ClientReviewCandidateDrawer({
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="client-review-confirm-title"
-                className="relative w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-[0_24px_80px_-24px_rgba(15,23,42,0.45)] ring-1 ring-slate-200"
+                className="relative w-full max-w-md overflow-hidden rounded-2xl border border-indigo-100/70 bg-white shadow-[0_24px_64px_-20px_rgba(79,70,229,0.35)] ring-1 ring-indigo-500/10"
               >
                 <div className="px-6 pt-6">
                   <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600">
@@ -368,9 +486,9 @@ export function ClientReviewCandidateDrawer({
                       <>
                         {' '}
                         will show their stage as{' '}
-                        <span className="font-semibold text-slate-900">{selectedStage}</span>
-                        {' '}in the candidate table and on the recruiter Client tab (it will not
-                        change the CRM pipeline stage)
+                        <span className="font-semibold text-slate-900">{selectedStage}</span> in the
+                        candidate table and on the recruiter Client tab (it will not change the CRM
+                        pipeline stage)
                       </>
                     ) : selectedTag ? (
                       <>
@@ -388,14 +506,14 @@ export function ClientReviewCandidateDrawer({
                   <button
                     type="button"
                     onClick={() => setConfirmOpen(false)}
-                    className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-100"
                   >
                     Cancel
                   </button>
                   <button
                     type="button"
                     onClick={() => void submitTag()}
-                    className="rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700"
+                    className="rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 hover:brightness-105"
                   >
                     Yes, submit
                   </button>
@@ -407,4 +525,6 @@ export function ClientReviewCandidateDrawer({
       ) : null}
     </AnimatePresence>
   );
+
+  return createPortal(drawerTree, document.body);
 }

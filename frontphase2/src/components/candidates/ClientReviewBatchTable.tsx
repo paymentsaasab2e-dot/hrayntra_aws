@@ -8,6 +8,7 @@ import {
 } from '../../lib/clientReviewTypes';
 import { isClientReviewFileHref } from '../../lib/clientReviewAssets';
 import { normalizeClientTrackerOptions } from '../../lib/clientTrackerOptions';
+import { isSubmitToClientReviewFieldVisible } from '../../lib/submitToClientFieldVisibility';
 
 type Props = {
   rows: ClientReviewBatchRow[];
@@ -36,36 +37,119 @@ function candidateOf(row: ClientReviewBatchRow) {
 }
 
 function locationLabel(row: ClientReviewBatchRow) {
+  const canLocation = isSubmitToClientReviewFieldVisible(
+    'Location (display)',
+    row.detail?.visibleFields,
+  );
+  const canCity = isSubmitToClientReviewFieldVisible('City', row.detail?.visibleFields);
+  const canCountry = isSubmitToClientReviewFieldVisible('Country', row.detail?.visibleFields);
+  if (!canLocation && !canCity && !canCountry) return '';
+
   const candidate = candidateOf(row);
-  const parts = [candidate.city, candidate.country]
+  const parts = [canCity ? candidate.city : '', canCountry ? candidate.country : '']
     .map((part) => String(part || '').trim())
     .filter(Boolean);
   if (parts.length) return Array.from(new Set(parts)).join(', ');
+  if (!canLocation) return '';
   return String(candidate.address || '').trim();
 }
 
 function skillsLabel(row: ClientReviewBatchRow) {
-  const skills = candidateOf(row).skills;
-  if (!Array.isArray(skills)) return [];
-  return skills.map((skill) => String(skill || '').trim()).filter(Boolean).slice(0, 3);
+  if (!isSubmitToClientReviewFieldVisible('Skills', row.detail?.visibleFields)) return [];
+  const candidate = candidateOf(row);
+  const fromCandidate = Array.isArray(candidate.skills)
+    ? candidate.skills.map((skill) => String(skill || '').trim()).filter(Boolean)
+    : [];
+  if (fromCandidate.length) return fromCandidate.slice(0, 3);
+
+  const sections = Array.isArray(row.detail?.presentationSections)
+    ? row.detail.presentationSections
+    : [];
+  for (const section of sections) {
+    for (const field of section.fields || []) {
+      const label = String(field.label || '')
+        .trim()
+        .toLowerCase();
+      if (label !== 'skills' && label !== 'domain of expertise') continue;
+      const parts = String(field.value || '')
+        .split(/[,|\n]/)
+        .map((part) => part.trim())
+        .filter(Boolean);
+      if (parts.length) return parts.slice(0, 3);
+    }
+  }
+  return [];
 }
 
 function educationLabel(row: ClientReviewBatchRow) {
+  const canShowEntries = isSubmitToClientReviewFieldVisible(
+    'Education entries',
+    row.detail?.visibleFields,
+  );
+  const canShowSummary = isSubmitToClientReviewFieldVisible(
+    'Education summary',
+    row.detail?.visibleFields,
+  );
+  if (!canShowEntries && !canShowSummary) return '';
+
   const candidate = candidateOf(row);
-  const entries = Array.isArray(candidate.cvEducationEntries) ? candidate.cvEducationEntries : [];
-  const first = entries.find((entry) => String(entry?.degree || entry?.institution || '').trim());
-  if (first) {
-    const degree = String(first.degree || '').trim();
-    const institution = String(first.institution || (first as { instituteName?: string }).instituteName || '').trim();
-    if (degree && institution) return `${degree} · ${institution}`;
-    return degree || institution;
+  if (canShowEntries) {
+    const entries = Array.isArray(candidate.cvEducationEntries) ? candidate.cvEducationEntries : [];
+    const first = entries.find((entry) =>
+      String(
+        entry?.degree || entry?.institution || (entry as { instituteName?: string })?.instituteName || '',
+      ).trim(),
+    );
+    if (first) {
+      const degree = String(first.degree || '').trim();
+      const institution = String(
+        first.institution || (first as { instituteName?: string }).instituteName || '',
+      ).trim();
+      if (degree && institution) return `${degree} · ${institution}`;
+      return degree || institution;
+    }
   }
-  const raw = String(candidate.education || '').trim();
-  if (!raw) return '';
-  return raw.split('|')[0]?.trim() || raw;
+  if (canShowSummary) {
+    const raw = String(candidate.education || '').trim();
+    if (raw) return raw.split('|')[0]?.trim() || raw;
+  }
+
+  const sections = Array.isArray(row.detail?.presentationSections)
+    ? row.detail.presentationSections
+    : [];
+  for (const section of sections) {
+    if (
+      canShowEntries &&
+      String(section.id || '').toLowerCase() === 'education' &&
+      Array.isArray(section.entries)
+    ) {
+      const entry = section.entries[0];
+      if (entry) {
+        const degree = String(entry.degreeProgram || entry.degree || entry.title || '').trim();
+        const institution = String(
+          entry.institutionName || entry.institution || entry.company || '',
+        ).trim();
+        if (degree && institution) return `${degree} · ${institution}`;
+        if (degree || institution) return degree || institution;
+      }
+    }
+    if (!canShowSummary) continue;
+    for (const field of section.fields || []) {
+      const label = String(field.label || '')
+        .trim()
+        .toLowerCase();
+      if (!label.includes('education')) continue;
+      const value = String(field.value || '').trim();
+      if (value) return value.split('|')[0]?.trim() || value;
+    }
+  }
+  return '';
 }
 
 function companyLabel(row: ClientReviewBatchRow) {
+  if (!isSubmitToClientReviewFieldVisible('Current Employer', row.detail?.visibleFields)) {
+    return '';
+  }
   return String(candidateOf(row).currentCompany || row.designation || '').trim();
 }
 
@@ -106,11 +190,19 @@ export function ClientReviewBatchTable({
 
   const showScore = rows.some((row) => {
     const score = row.matchScore ?? row.detail?.matchScore;
-    return Number.isFinite(Number(score)) && row.detail?.trackerOptions?.showScore !== false;
+    return (
+      Number.isFinite(Number(score)) &&
+      row.detail?.trackerOptions?.showScore !== false &&
+      isSubmitToClientReviewFieldVisible('Candidate Score', row.detail?.visibleFields)
+    );
   });
   const viewEnabled = rows.some((row) => row.detail?.trackerOptions?.viewProfile !== false);
   const showCompany = rows.some((row) => Boolean(companyLabel(row)));
-  const showXp = rows.some((row) => Number.isFinite(Number(row.experience ?? row.detail?.candidate?.experience)));
+  const showXp = rows.some(
+    (row) =>
+      Number.isFinite(Number(row.experience ?? row.detail?.candidate?.experience)) &&
+      isSubmitToClientReviewFieldVisible('Experience (years)', row.detail?.visibleFields),
+  );
   const showStage = rows.some((row) => normalizeClientTrackerOptions(row.detail?.trackerOptions).changeStage);
 
   const saveStage = async (row: ClientReviewBatchRow, nextStage: string) => {
@@ -181,7 +273,7 @@ export function ClientReviewBatchTable({
               <th className="px-4 py-3.5 sm:px-6">Location</th>
               <th className="px-4 py-3.5 sm:px-6">Skills</th>
               <th className="px-4 py-3.5 sm:px-6">Education</th>
-              {showXp ? <th className="px-4 py-3.5 sm:px-6">XP (yr)</th> : null}
+              {showXp ? <th className="px-4 py-3.5 sm:px-6">EXP (yr)</th> : null}
               {showScore ? <th className="px-4 py-3.5 sm:px-6">Score</th> : null}
               {showStage ? <th className="px-4 py-3.5 sm:px-6">Stage</th> : null}
               <th className="px-4 py-3.5 text-right sm:px-6 lg:px-8">Action</th>

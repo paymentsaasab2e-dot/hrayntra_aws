@@ -40,7 +40,6 @@ import { usePersistedColumnVisibility } from "../../hooks/usePersistedColumnVisi
 import { PIPELINE_TABLE_COLUMNS } from "../../lib/tableColumns/moduleTableColumns";
 import {
   apiGetCandidates,
-  apiGetClients,
   apiGetJobs,
   apiGetMe,
   apiGetPipelineStages,
@@ -48,12 +47,14 @@ import {
   apiMoveCandidateStage,
   apiFetch,
   type BackendCandidate,
-  type BackendClient,
   type BackendJob,
   type BackendUser,
 } from "../../lib/api";
-import { dedupeByCompanyName } from "../../lib/companyNameKey";
 import { shouldIncludePhase1CommonPool } from "../../lib/phase1CommonPoolAccess";
+import {
+  displayJobStatusFromBackend,
+  mapJobStatusLabelToBackend,
+} from "../../lib/jobStatus";
 import {
   candidateHasRealJobAssignment,
   resolveCandidateListStage,
@@ -62,6 +63,10 @@ import { resolveSubmitJobIdFromBackend } from "../../lib/candidateSubmitToClient
 import { isValidObjectId } from "../../lib/mapCandidateProfile";
 import { getCandidateStageBadgeClasses } from "../../utils/candidateStage";
 
+function isOpenPipelineJob(job: BackendJob): boolean {
+  const label = displayJobStatusFromBackend(job.status, job.statusLabel);
+  return mapJobStatusLabelToBackend(label) === 'OPEN';
+}
 // --- Types & Constants ---
 
 type PipelineStageColumn = {
@@ -81,7 +86,7 @@ interface Candidate {
   ownerName?: string;
   experience: string;
   location: string;
-  status: "Waiting" | "Follow-up" | "Approved" | "Stalled";
+  status: string;
   lastActivity: string;
   followUpStatus?: "Overdue" | "Due Today" | "Upcoming" | "None";
   avatar: string;
@@ -253,27 +258,121 @@ function getFollowUpStatus(candidate: BackendCandidate): Candidate['followUpStat
   return 'Upcoming';
 }
 
+/** Real candidate CRM status for the pipeline Status column (not a fake "Waiting" default). */
+function mapPipelineCandidateStatus(candidate: BackendCandidate): string {
+  const raw = String(candidate.status || '').trim().toUpperCase();
+  switch (raw) {
+    case 'NEW':
+      return 'New';
+    case 'ACTIVE':
+      return 'Active';
+    case 'PLACED':
+      return 'Placed';
+    case 'INACTIVE':
+      return 'Inactive';
+    case 'BLACKLISTED':
+      return 'Blacklisted';
+    case 'REJECTED':
+      return 'Rejected';
+    default:
+      if (!raw) return 'Active';
+      return raw
+        .toLowerCase()
+        .split(/[_\s]+/)
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(' ');
+  }
+}
+
+function pipelineStatusBadgeClass(status: string): string {
+  const key = String(status || '').trim().toLowerCase();
+  if (key === 'placed' || key === 'approved') {
+    return 'bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200/80';
+  }
+  if (key === 'stalled' || key === 'rejected' || key === 'blacklisted' || key === 'inactive') {
+    return 'bg-rose-50 text-rose-800 ring-1 ring-rose-200/80';
+  }
+  if (key === 'follow-up' || key === 'new') {
+    return 'bg-sky-50 text-sky-800 ring-1 ring-sky-200/80';
+  }
+  if (key === 'waiting') {
+    return 'bg-amber-50 text-amber-800 ring-1 ring-amber-200/80';
+  }
+  return 'bg-teal-50 text-teal-800 ring-1 ring-teal-200/80';
+}
+
+function pipelineStatusListBadgeClass(status: string): string {
+  const key = String(status || '').trim().toLowerCase();
+  if (key === 'placed' || key === 'approved') return 'bg-green-100 text-green-700';
+  if (key === 'stalled' || key === 'rejected' || key === 'blacklisted' || key === 'inactive') {
+    return 'bg-red-100 text-red-700';
+  }
+  if (key === 'new' || key === 'follow-up') return 'bg-sky-100 text-sky-700';
+  if (key === 'waiting') return 'bg-yellow-100 text-yellow-700';
+  return 'bg-teal-100 text-teal-800';
+}
+
+function resolvePipelineJobContext(
+  candidate: BackendCandidate,
+  jobIdFilter: string | undefined,
+  jobsById: Map<string, BackendJob>,
+): {
+  jobId: string;
+  jobTitle: string;
+  clientId?: string;
+  clientName: string;
+} {
+  const matchList = Array.isArray(candidate.matches) ? candidate.matches : [];
+  const preferredJobId =
+    String(jobIdFilter || '').trim() ||
+    resolveSubmitJobIdFromBackend(candidate) ||
+    (Array.isArray(candidate.assignedJobs) && candidate.assignedJobs.length > 0
+      ? String(candidate.assignedJobs[0] || '').trim()
+      : '') ||
+    String(matchList[0]?.jobId || matchList[0]?.job?.id || '').trim();
+
+  const matched =
+    matchList.find((row) => String(row.jobId || row.job?.id || '').trim() === preferredJobId) ||
+    matchList[0];
+  const jobFromList = preferredJobId ? jobsById.get(preferredJobId) : undefined;
+  const jobFromMatch = matched?.job;
+
+  const jobId = preferredJobId || String(jobFromList?.id || jobFromMatch?.id || '').trim();
+  const jobTitle =
+    String(jobFromList?.title || '').trim() ||
+    String(jobFromMatch?.title || '').trim() ||
+    String(candidate.assignedJobTitles?.[0] || '').trim() ||
+    String(candidate.applications?.[0]?.job?.title || '').trim() ||
+    String(candidate.currentTitle || '').trim() ||
+    'Open role';
+
+  // Always prefer the job's recruiting client — never candidate.currentCompany (employer CRM noise).
+  const clientId =
+    String(jobFromList?.client?.id || '').trim() ||
+    String((jobFromMatch?.client as { id?: string } | undefined)?.id || '').trim() ||
+    undefined;
+  const clientName =
+    String(jobFromList?.client?.companyName || '').trim() ||
+    String(jobFromMatch?.client?.companyName || '').trim() ||
+    '—';
+
+  return { jobId, jobTitle, clientId: clientId || undefined, clientName };
+}
+
 function mapBackendCandidateToPipelineCandidate(
   candidate: BackendCandidate,
   columns: PipelineStageColumn[],
-  jobIdFilter?: string
+  jobIdFilter: string | undefined,
+  jobsById: Map<string, BackendJob>,
 ): Candidate | null {
   if (!candidateHasRealJobAssignment(candidate)) return null;
 
-  const job = Array.isArray(candidate.matches) ? candidate.matches[0]?.job : undefined;
-  const assignedJobId =
-    jobIdFilter ||
-    resolveSubmitJobIdFromBackend(candidate) ||
-    (Array.isArray(candidate.assignedJobs) && candidate.assignedJobs.length > 0
-      ? String(candidate.assignedJobs[0])
-      : job?.id || '');
-  const jobTitle =
-    candidate.currentTitle ||
-    candidate.assignedJobTitles?.[0] ||
-    job?.title ||
-    candidate.applications?.[0]?.job?.title ||
-    'Candidate';
-  const clientName = job?.client?.companyName || candidate.currentCompany || 'Client';
+  const { jobId: assignedJobId, jobTitle, clientId, clientName } = resolvePipelineJobContext(
+    candidate,
+    jobIdFilter,
+    jobsById,
+  );
   const candidateName =
     `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim() || candidate.email;
   const { stageName, stageId } = resolveCandidatePipelineStage(candidate, jobIdFilter);
@@ -281,7 +380,14 @@ function mapBackendCandidateToPipelineCandidate(
   if (!normalizedStage || normalizedStage.toLowerCase() === 'new') return null;
 
   const experience =
-    typeof candidate.experience === 'number' ? `${candidate.experience} years` : '—';
+    typeof candidate.experience === 'number' ? `${candidate.experience} yrs` : '—';
+  const locationRaw = String(candidate.location || '').trim();
+  const location =
+    !locationRaw ||
+    locationRaw.length > 48 ||
+    /requirement|full-stack|develop/i.test(locationRaw)
+      ? ''
+      : locationRaw;
   const resolvedStageId =
     stageId && columns.some((col) => col.id === stageId)
       ? stageId
@@ -293,29 +399,24 @@ function mapBackendCandidateToPipelineCandidate(
     jobTitle,
     clientName,
     jobId: assignedJobId || undefined,
-    clientId: job?.client?.id || undefined,
+    clientId,
     assignedToId: candidate.assignedTo?.id || undefined,
     ownerName: candidate.assignedTo?.name || undefined,
     experience,
-    location: candidate.location || '—',
-    status:
-      candidate.status === 'REJECTED'
-        ? 'Stalled'
-        : candidate.status === 'PLACED'
-          ? 'Approved'
-          : 'Waiting',
+    location: location || '—',
+    status: mapPipelineCandidateStatus(candidate),
     lastActivity: candidate.updatedAt ? formatDateDMY(candidate.updatedAt) : 'Just now',
     followUpStatus: getFollowUpStatus(candidate),
     avatar:
       candidate.avatar ||
-      `https://ui-avatars.com/api/?name=${encodeURIComponent(candidateName)}&background=0f172a&color=fff`,
+      `https://ui-avatars.com/api/?name=${encodeURIComponent(candidateName)}&background=0f766e&color=fff`,
     stageId: resolvedStageId,
     stageName: normalizedStage,
   };
 }
 
 function stageHeaderClass(stage: PipelineStageColumn): string {
-  if (stage.color) return 'border';
+  if (stage.color) return 'border border-transparent';
   return getCandidateStageBadgeClasses(stage.label)
     .split(' ')
     .filter((token) => !token.startsWith('text-'))
@@ -372,41 +473,47 @@ const CandidateCard = ({
     };
   }, []);
 
-  const statusColors = {
-    "Waiting": "bg-yellow-100 text-yellow-700",
-    "Follow-up": "bg-blue-100 text-blue-700",
-    "Approved": "bg-green-100 text-green-700",
-    "Stalled": "bg-red-100 text-red-700",
-  };
+  const metaLine = [candidate.experience, candidate.location !== '—' ? candidate.location : '']
+    .filter(Boolean)
+    .join(' · ');
 
   return (
     <div
       ref={drag as any}
-      className={`bg-white border border-slate-200 p-4 rounded-xl shadow-sm hover:shadow-md transition-all cursor-grab active:cursor-grabbing mb-3 group ${
-        isDragging ? "opacity-40 scale-95" : "opacity-100"
+      className={`group relative mb-3 cursor-grab overflow-hidden rounded-2xl border border-slate-200/90 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:border-teal-200/80 hover:shadow-[0_10px_28px_-12px_rgba(15,118,110,0.28)] active:cursor-grabbing ${
+        isDragging ? 'scale-[0.98] opacity-40' : 'opacity-100'
       }`}
     >
-      <div className="flex justify-between items-start mb-3">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full overflow-hidden border border-slate-100 ring-2 ring-white">
-            <ImageWithFallback src={candidate.avatar || ''} fallbackInitials={initialsFromDisplayName(candidate.name)} alt={candidate.name} className="w-full h-full object-cover" />
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-teal-500 via-cyan-500 to-teal-400 opacity-0 transition-opacity duration-200 group-hover:opacity-100" />
+
+      <div className="mb-3 flex items-start justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="h-11 w-11 shrink-0 overflow-hidden rounded-2xl bg-slate-100 ring-1 ring-slate-200/80">
+            <ImageWithFallback
+              src={candidate.avatar || ''}
+              fallbackInitials={initialsFromDisplayName(candidate.name)}
+              alt={candidate.name}
+              className="h-full w-full object-cover"
+            />
           </div>
-          <div>
-            <h4 className="font-semibold text-sm text-slate-900 leading-tight group-hover:text-blue-600 transition-colors">{candidate.name}</h4>
-            <p className="text-xs text-slate-500">{candidate.jobTitle}</p>
-            <p className="text-[11px] text-slate-400 mt-0.5 truncate">
-              Assigned to: {candidate.ownerName || 'Unassigned'}
+          <div className="min-w-0">
+            <h4 className="truncate text-sm font-semibold tracking-tight text-slate-900 transition-colors group-hover:text-teal-700">
+              {candidate.name}
+            </h4>
+            <p className="mt-0.5 truncate text-xs font-medium text-slate-600">{candidate.jobTitle}</p>
+            <p className="mt-1 truncate text-[11px] text-slate-400">
+              {candidate.ownerName ? `Owned by ${candidate.ownerName}` : 'Unassigned'}
             </p>
           </div>
         </div>
-        <div ref={menuRef} className="relative">
+        <div ref={menuRef} className="relative shrink-0">
           <button
             type="button"
             onClick={() => setMenuOpen((prev) => !prev)}
-            className="rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-700"
+            className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-700"
             aria-label="Open candidate actions"
           >
-            <MoreVertical className="w-4 h-4" />
+            <MoreVertical className="h-4 w-4" />
           </button>
 
           <AnimatePresence>
@@ -416,7 +523,7 @@ const CandidateCard = ({
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: -6, scale: 0.98 }}
                 transition={{ duration: 0.12 }}
-                className="absolute right-0 top-8 z-50 w-44 rounded-xl border border-slate-200 bg-white p-1 shadow-xl"
+                className="absolute right-0 top-9 z-50 w-44 rounded-xl border border-slate-200 bg-white p-1 shadow-xl"
               >
                 <button
                   type="button"
@@ -454,46 +561,53 @@ const CandidateCard = ({
         </div>
       </div>
 
-      <div className="space-y-2 mb-4">
-        <div className="flex items-center gap-2 text-[11px] text-slate-500">
-          <Building2 className="w-3 h-3" />
-          <span className="truncate">{candidate.clientName}</span>
-        </div>
-        <div className="flex items-center gap-2 text-[11px] text-slate-500">
-          <User className="w-3 h-3" />
-          <span>{candidate.experience} • {candidate.location}</span>
-        </div>
+      <div className="mb-3 space-y-1.5">
+        {candidate.clientName && candidate.clientName !== '—' ? (
+          <div className="inline-flex max-w-full items-center gap-1.5 rounded-lg bg-slate-50 px-2 py-1 text-[11px] font-medium text-slate-600 ring-1 ring-slate-200/70">
+            <Building2 className="h-3 w-3 shrink-0 text-teal-600" />
+            <span className="truncate">{candidate.clientName}</span>
+          </div>
+        ) : null}
+        {metaLine ? (
+          <p className="truncate text-[11px] text-slate-500">{metaLine}</p>
+        ) : null}
       </div>
 
-      <div className="flex items-center justify-between pt-3 border-t border-slate-50">
-        <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${statusColors[candidate.status]}`}>
+      <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-2.5">
+        <span
+          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-wide ${pipelineStatusBadgeClass(
+            candidate.status,
+          )}`}
+        >
           {candidate.status}
         </span>
-        <div className="flex items-center gap-1 text-[10px] text-slate-400">
-          <Clock className="w-3 h-3" />
+        <div className="flex items-center gap-1 text-[10px] font-medium text-slate-400">
+          <Clock className="h-3 w-3" />
           {candidate.lastActivity}
         </div>
       </div>
-      
-      {candidate.status === "Stalled" && (
-        <div className="mt-3 flex items-center gap-1.5 px-2 py-1.5 bg-red-50 rounded-lg border border-red-100">
-          <AlertCircle className="w-3 h-3 text-red-500" />
-          <span className="text-[10px] text-red-600 font-medium">Stalled for {candidate.lastActivity}</span>
+
+      {candidate.status === 'Stalled' || candidate.status === 'Inactive' ? (
+        <div className="mt-2.5 flex items-center gap-1.5 rounded-xl border border-rose-100 bg-rose-50 px-2 py-1.5">
+          <AlertCircle className="h-3 w-3 text-rose-500" />
+          <span className="text-[10px] font-medium text-rose-600">
+            {candidate.status} · {candidate.lastActivity}
+          </span>
         </div>
-      )}
+      ) : null}
     </div>
   );
 };
 
-const PipelineColumn = ({ 
-  stage, 
+const PipelineColumn = ({
+  stage,
   candidates,
   onMoveCandidate,
   onViewCandidate,
   onViewJob,
   onRemove,
-}: { 
-  stage: PipelineStageColumn; 
+}: {
+  stage: PipelineStageColumn;
   candidates: Candidate[];
   onMoveCandidate: (candidateId: string, stageId: string) => void;
   onViewCandidate: (candidate: Candidate) => void;
@@ -501,7 +615,7 @@ const PipelineColumn = ({
   onRemove: (candidate: Candidate) => void;
 }) => {
   const [{ isOver }, drop] = useDrop(() => ({
-    accept: "CANDIDATE",
+    accept: 'CANDIDATE',
     drop: (item: { id: string }) => onMoveCandidate(item.id, stage.id),
     collect: (monitor: DropTargetMonitor) => ({
       isOver: !!monitor.isOver(),
@@ -509,29 +623,31 @@ const PipelineColumn = ({
   }));
 
   return (
-    <div 
+    <div
       ref={drop as any}
-      className={`flex-shrink-0 w-80 flex flex-col h-full rounded-2xl transition-colors ${
-        isOver ? "bg-slate-100" : "bg-slate-50/50"
+      className={`flex h-full w-[19.5rem] flex-shrink-0 flex-col rounded-3xl border transition-all duration-200 ${
+        isOver
+          ? 'border-teal-300 bg-teal-50/40 shadow-[inset_0_0_0_1px_rgba(45,212,191,0.25)]'
+          : 'border-slate-200/70 bg-white/70 backdrop-blur-sm'
       }`}
     >
-      <div className="sticky top-0 z-10 p-4 pb-2 bg-transparent">
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2">
+      <div className="sticky top-0 z-10 rounded-t-3xl px-4 pb-2 pt-4">
+        <div className="mb-1 flex items-center justify-between">
+          <div className="flex min-w-0 items-center gap-2">
             <span
-              className={`px-2.5 py-0.5 rounded-lg text-xs font-bold border uppercase tracking-wider ${stageHeaderClass(stage)}`}
+              className={`rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.08em] ${stageHeaderClass(stage)}`}
               style={stageHeaderStyle(stage)}
             >
               {stage.label}
             </span>
-            <span className="text-xs font-medium text-slate-400 bg-white px-2 py-0.5 rounded-full shadow-sm border border-slate-200">
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500">
               {candidates.length}
             </span>
           </div>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 pb-4 custom-scrollbar">
+      <div className="custom-scrollbar flex-1 overflow-y-auto px-3 pb-4">
         {candidates.map((c) => (
           <CandidateCard
             key={c.id}
@@ -542,12 +658,12 @@ const PipelineColumn = ({
           />
         ))}
         {candidates.length === 0 && (
-          <div className="border-2 border-dashed border-slate-200 rounded-xl p-8 flex flex-col items-center justify-center text-center">
-            <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center mb-3">
-              <User className="w-5 h-5 text-slate-300" />
+          <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 px-4 py-10 text-center">
+            <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-2xl bg-white shadow-sm ring-1 ring-slate-200/80">
+              <User className="h-5 w-5 text-slate-300" />
             </div>
-            <p className="text-xs text-slate-400 font-medium">No candidates yet</p>
-            <p className="text-[10px] text-slate-300 mt-1">Drag someone here or add new</p>
+            <p className="text-xs font-medium text-slate-400">No candidates yet</p>
+            <p className="mt-1 text-[10px] text-slate-300">Drag someone here or add new</p>
           </div>
         )}
       </div>
@@ -562,7 +678,6 @@ export default function App() {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [pipelineStages, setPipelineStages] = useState<PipelineStageColumn[]>(DEFAULT_PIPELINE_STAGES);
   const [jobs, setJobs] = useState<BackendJob[]>([]);
-  const [clients, setClients] = useState<BackendClient[]>([]);
   const [owners, setOwners] = useState<BackendUser[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string>('');
   const [currentUserName, setCurrentUserName] = useState<string>('');
@@ -576,7 +691,6 @@ export default function App() {
   const [selectedJobId, setSelectedJobId] = useState('');
   const [selectedClientId, setSelectedClientId] = useState('');
   const [selectedOwnerId, setSelectedOwnerId] = useState('');
-  const [selectedFollowUp, setSelectedFollowUp] = useState('');
   const [loadingCandidates, setLoadingCandidates] = useState(true);
   const [loadingStages, setLoadingStages] = useState(true);
   const [moveError, setMoveError] = useState('');
@@ -587,9 +701,8 @@ export default function App() {
     let mounted = true;
     async function loadPipelineMeta() {
       try {
-        const [jobsRes, clientsRes, ownersRes, meRes] = await Promise.all([
+        const [jobsRes, ownersRes, meRes] = await Promise.all([
           apiGetJobs({ limit: 200 }),
-          apiGetClients({ limit: 200 }),
           apiGetUsers({ assignable: true, isActive: true, limit: 500 }),
           apiGetMe().catch(() => null),
         ]);
@@ -597,7 +710,6 @@ export default function App() {
         if (!mounted) return;
 
         setJobs(extractItems<BackendJob>(jobsRes.data));
-        setClients(dedupeByCompanyName(extractItems<BackendClient>(clientsRes.data), (client) => client.companyName));
         setOwners(extractItems<BackendUser>(ownersRes.data));
         if (meRes?.data?.id) setCurrentUserId(meRes.data.id);
         if (meRes?.data?.name) setCurrentUserName(meRes.data.name);
@@ -666,13 +778,21 @@ export default function App() {
       const candidatesRes = await apiGetCandidates(candidateParams);
       const backendCandidates = parseCandidatesResponse(candidatesRes);
       const stageColumns = pipelineStages.length > 0 ? pipelineStages : DEFAULT_PIPELINE_STAGES;
+      const jobsById = new Map(jobs.map((job) => [job.id, job] as const));
       const extraStageNames = backendCandidates
         .map((row) => resolveCandidatePipelineStage(row, selectedJobId || undefined).stageName)
         .filter(Boolean);
       const columns = mergePipelineStageColumns(stageColumns, extraStageNames);
 
       const mapped = backendCandidates
-        .map((row) => mapBackendCandidateToPipelineCandidate(row, columns, selectedJobId || undefined))
+        .map((row) =>
+          mapBackendCandidateToPipelineCandidate(
+            row,
+            columns,
+            selectedJobId || undefined,
+            jobsById,
+          ),
+        )
         .filter((row): row is Candidate => Boolean(row));
 
       setCandidates(mapped);
@@ -684,7 +804,7 @@ export default function App() {
     } finally {
       if (!silent) setLoadingCandidates(false);
     }
-  }, [pipelineStages, selectedJobId, selectedOwnerId]);
+  }, [jobs, pipelineStages, selectedJobId, selectedOwnerId]);
 
   useEffect(() => {
     if (loadingStages) return;
@@ -797,10 +917,25 @@ export default function App() {
   };
 
   const jobOptions = useMemo(() => jobs.map((job) => ({ id: job.id, label: job.title })), [jobs]);
-  const clientOptions = useMemo(
-    () => clients.map((client) => ({ id: client.id, label: client.companyName || 'Unnamed Client' })),
-    [clients]
-  );
+  /** Only clients that currently have at least one open (Active) job — not the full CRM list. */
+  const clientOptions = useMemo(() => {
+    const byId = new Map<string, { id: string; label: string }>();
+    for (const job of jobs) {
+      if (!isOpenPipelineJob(job)) continue;
+      const id = String(job.client?.id || '').trim();
+      const label = String(job.client?.companyName || '').trim() || 'Unnamed Client';
+      if (!id || byId.has(id)) continue;
+      byId.set(id, { id, label });
+    }
+    return Array.from(byId.values()).sort((a, b) => a.label.localeCompare(b.label));
+  }, [jobs]);
+
+  useEffect(() => {
+    if (!selectedClientId) return;
+    if (clientOptions.some((client) => client.id === selectedClientId)) return;
+    setSelectedClientId('');
+  }, [clientOptions, selectedClientId]);
+
   const ownerOptions = useMemo(
     () => owners.map((owner) => ({ id: owner.id, label: owner.name || owner.email || 'Unknown team member' })),
     [owners]
@@ -829,9 +964,7 @@ export default function App() {
             candidate.ownerName?.toLowerCase() === currentUserName.toLowerCase()
           : candidate.assignedToId === selectedOwnerId ||
             candidate.ownerName?.toLowerCase() === ownerOptions.find((owner) => owner.id === selectedOwnerId)?.label?.toLowerCase());
-      const matchesFollowUp =
-        !selectedFollowUp || candidate.followUpStatus === selectedFollowUp;
-      return matchesSearch && matchesJob && matchesClient && matchesOwner && matchesFollowUp;
+      return matchesSearch && matchesJob && matchesClient && matchesOwner;
     });
   }, [
     boardCandidates,
@@ -842,7 +975,6 @@ export default function App() {
     ownerOptions,
     searchQuery,
     selectedClientId,
-    selectedFollowUp,
     selectedJobId,
     selectedOwnerId,
   ]);
@@ -852,21 +984,24 @@ export default function App() {
 
   return (
     <DndProvider backend={HTML5Backend}>
-      <div className="w-full min-w-0 max-w-full min-h-screen overflow-x-hidden bg-white font-sans text-slate-900">
+      <div className="w-full min-w-0 max-w-full min-h-screen overflow-x-hidden bg-[linear-gradient(180deg,#f8fafc_0%,#ffffff_42%,#f1f5f9_100%)] font-sans text-slate-900">
         {/* Page Header (Pipeline specific) */}
-          <header className="px-8 py-6 border-b border-slate-100 bg-white z-20">
-            <div className="flex items-start justify-between mb-6">
+          <header className="relative z-20 border-b border-slate-200/80 bg-white/90 px-8 py-6 backdrop-blur-md">
+            <div className="mb-6 flex items-start justify-between gap-4">
               <div>
-                <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Pipeline</h1>
-                <p className="text-sm text-slate-500 mt-1">Track candidates across recruitment stages</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-teal-700/80">
+                  Recruitment
+                </p>
+                <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900">Pipeline</h1>
+                <p className="mt-1 text-sm text-slate-500">Track candidates across recruitment stages</p>
               </div>
               
               <div className="flex items-center gap-3">
-                <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200">
+                <div className="flex items-center rounded-2xl border border-slate-200 bg-slate-100/80 p-1">
                   <button 
                     onClick={() => setView("Board")}
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                      view === "Board" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                    className={`flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs font-semibold transition-all ${
+                      view === "Board" ? "bg-white text-teal-700 shadow-sm" : "text-slate-500 hover:text-slate-700"
                     }`}
                   >
                     <LayoutDashboard className="w-3.5 h-3.5" />
@@ -874,8 +1009,8 @@ export default function App() {
                   </button>
                   <button 
                     onClick={() => setView("List")}
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                      view === "List" ? "bg-white text-blue-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                    className={`flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs font-semibold transition-all ${
+                      view === "List" ? "bg-white text-teal-700 shadow-sm" : "text-slate-500 hover:text-slate-700"
                     }`}
                   >
                     <List className="w-3.5 h-3.5" />
@@ -907,8 +1042,8 @@ export default function App() {
             </div>
 
             {/* Filter Bar */}
-            <div className="flex flex-wrap items-center gap-3 overflow-x-auto no-scrollbar pb-1">
-              <label className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-[13px] font-medium text-slate-600 shadow-sm transition-colors whitespace-nowrap">
+            <div className="flex flex-wrap items-center gap-2.5 overflow-x-auto no-scrollbar pb-1">
+              <label className="flex items-center gap-2 whitespace-nowrap rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-[13px] font-medium text-slate-600 shadow-sm transition-colors">
                 <Briefcase className="w-3.5 h-3.5 text-slate-400" />
                 <span>Job:</span>
                 <select
@@ -925,7 +1060,7 @@ export default function App() {
                 </select>
               </label>
 
-              <label className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-[13px] font-medium text-slate-600 shadow-sm transition-colors whitespace-nowrap">
+              <label className="flex items-center gap-2 whitespace-nowrap rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-[13px] font-medium text-slate-600 shadow-sm transition-colors">
                 <Building2 className="w-3.5 h-3.5 text-slate-400" />
                 <span>Client:</span>
                 <select
@@ -942,7 +1077,7 @@ export default function App() {
                 </select>
               </label>
 
-              <label className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-[13px] font-medium text-slate-600 shadow-sm transition-colors whitespace-nowrap">
+              <label className="flex items-center gap-2 whitespace-nowrap rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-[13px] font-medium text-slate-600 shadow-sm transition-colors">
                 <User className="w-3.5 h-3.5 text-slate-400" />
                 <span>Team Member:</span>
                 <select
@@ -960,31 +1095,14 @@ export default function App() {
                 </select>
               </label>
 
-              <label className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-[13px] font-medium text-slate-600 shadow-sm transition-colors whitespace-nowrap">
-                <Clock className="w-3.5 h-3.5 text-slate-400" />
-                <span>Follow-up:</span>
-                <select
-                  value={selectedFollowUp}
-                  onChange={(e) => setSelectedFollowUp(e.target.value)}
-                  className="bg-transparent text-slate-900 outline-none"
-                >
-                  <option value="">All Follow-ups</option>
-                  <option value="Overdue">Overdue</option>
-                  <option value="Due Today">Due Today</option>
-                  <option value="Upcoming">Upcoming</option>
-                  <option value="None">None</option>
-                </select>
-              </label>
-
               <button
                 type="button"
                 onClick={() => {
                   setSelectedJobId('');
                   setSelectedClientId('');
                   setSelectedOwnerId('');
-                  setSelectedFollowUp('');
                 }}
-                className="ml-auto flex items-center gap-2 px-3 py-1.5 bg-slate-50 text-slate-500 rounded-lg text-[13px] font-medium hover:bg-slate-100 transition-colors border border-dashed border-slate-300"
+                className="ml-auto flex items-center gap-2 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-1.5 text-[13px] font-medium text-slate-500 transition-colors hover:bg-slate-100"
               >
                 <Filter className="w-3.5 h-3.5" />
                 Clear Filters
@@ -1011,7 +1129,7 @@ export default function App() {
                   initial={{ opacity: 0, x: 20 }}
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: -20 }}
-                  className="h-full flex gap-6 overflow-x-auto p-8 custom-scrollbar bg-slate-50/50"
+                  className="custom-scrollbar flex h-full gap-4 overflow-x-auto bg-transparent p-8"
                 >
                   {displayStages.map((stage) => (
                     <PipelineColumn 
@@ -1095,11 +1213,11 @@ export default function App() {
                           ) : null}
                           {show('status') ? (
                             <td className="py-4 px-4">
-                              <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
-                                candidate.status === "Approved" ? "bg-green-100 text-green-700" :
-                                candidate.status === "Stalled" ? "bg-red-100 text-red-700" :
-                                "bg-yellow-100 text-yellow-700"
-                              }`}>
+                              <span
+                                className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${pipelineStatusListBadgeClass(
+                                  candidate.status,
+                                )}`}
+                              >
                                 {candidate.status.toUpperCase()}
                               </span>
                             </td>
