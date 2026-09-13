@@ -45,13 +45,18 @@ import {
 } from '../modules/setting/alert-notify.helpers.js';
 import {
   buildCvEditorPreviewFromCandidate,
-  buildCvEditorPreviewFromSnapshot,
   buildCvSubmissionSnapshot,
-  mapSnapshotToClientCandidateFields,
 } from '../utils/cvSubmissionSnapshot.js';
-import { readClientPresentation } from '../utils/clientPresentationDraft.js';
+import {
+  candidateFromTenantDbForClientReview,
+  buildDirectClientReviewPresentation,
+  resolveClientReviewVisibleFields,
+} from '../utils/clientPresentationDraft.js';
 import { assertNoInterviewerScheduleConflicts } from '../utils/interviewConflict.util.js';
-import { buildClientReviewSectionsFromPresentation } from '../utils/clientReviewSections.js';
+import {
+  buildClientReviewSectionsFromPresentation,
+  applyVisibleFieldsToClientCandidate,
+} from '../utils/clientReviewSections.js';
 import {
   mergeCvSubmissionExtraData,
   normalizeClientTrackerOptions,
@@ -1266,8 +1271,10 @@ function serializeInterviewForClientReview(
     clientMarkedStage = null,
   } = {},
 ) {
-  const c = interview.candidate;
-  const submissionSnapshot = readCandidateCvSubmissionSnapshot(c);
+  const cRaw = interview.candidate;
+  // Public review always uses the tenant candidate record (not curated presentation overlay).
+  const c = candidateFromTenantDbForClientReview(cRaw);
+  const submissionSnapshot = readCandidateCvSubmissionSnapshot(cRaw);
   const jobTitle = interview.job?.title || '';
 
   const baseCandidate = {
@@ -1277,8 +1284,8 @@ function serializeInterviewForClientReview(
     currentCompany: c.currentCompany || '',
     designation: c.designation || c.currentTitle || '',
     experience: c.experience ?? null,
-    skills: c.skills || [],
-    languages: c.languages || [],
+    skills: Array.isArray(c.skills) ? c.skills : [],
+    languages: Array.isArray(c.languages) ? c.languages : [],
     education: c.education || '',
     certifications: c.certifications || [],
     cvSummary: c.cvSummary || '',
@@ -1291,22 +1298,15 @@ function serializeInterviewForClientReview(
     resume: c.resume || c.resumeUrl || '',
   };
 
-  const editedFromSnapshot = mapSnapshotToClientCandidateFields(submissionSnapshot);
-  const presentationFromProfile = buildClientReviewSectionsFromPresentation(
-    readClientPresentation(c?.extraData),
+  // Build display sections from tenant DB candidate — respect tenant field visibility.
+  const visibleFields = resolveClientReviewVisibleFields(cRaw);
+  const presentationSections = buildClientReviewSectionsFromPresentation(
+    buildDirectClientReviewPresentation(cRaw),
   );
-  const presentationSections =
-    presentationFromProfile.length > 0
-      ? presentationFromProfile
-      : Array.isArray(submissionSnapshot?.clientReviewSections) &&
-          submissionSnapshot.clientReviewSections.length > 0
-        ? submissionSnapshot.clientReviewSections
-        : [];
 
-  const hasPresentationSections = presentationSections.length > 0;
   const candidateExtra =
-    c?.extraData && typeof c.extraData === 'object' && !Array.isArray(c.extraData)
-      ? c.extraData
+    cRaw?.extraData && typeof cRaw.extraData === 'object' && !Array.isArray(cRaw.extraData)
+      ? cRaw.extraData
       : {};
   const saasaCvUrl = String(
     readSaasaCvFileUrl(candidateExtra) || submissionSnapshot?.saasaCvUrl || '',
@@ -1316,43 +1316,31 @@ function serializeInterviewForClientReview(
   if (cvShareMode === 'saasa') {
     candidateForClient = {
       ...baseCandidate,
-      ...(editedFromSnapshot ? editedFromSnapshot : {}),
       resume: saasaCvUrl || baseCandidate.resume,
     };
-  } else if (hasPresentationSections) {
-    candidateForClient = {
-      ...baseCandidate,
-      ...(cvShareMode !== 'original' && editedFromSnapshot ? editedFromSnapshot : {}),
-      resume: cvShareMode === 'original' ? baseCandidate.resume : '',
-    };
   } else if (cvShareMode === 'original') {
+    // Original CV link mode — still show tenant profile fields in table/comparative.
     candidateForClient = {
       ...baseCandidate,
-      cvSummary: '',
-      cvEducationEntries: [],
-      cvWorkExperienceEntries: [],
-      skills: [],
-      languages: [],
-      education: '',
-      certifications: [],
+      resume: baseCandidate.resume,
     };
   } else {
-    candidateForClient = editedFromSnapshot
-      ? { ...baseCandidate, ...editedFromSnapshot, resume: '' }
-      : { ...baseCandidate, resume: '' };
+    candidateForClient = {
+      ...baseCandidate,
+      resume: '',
+    };
   }
+  candidateForClient = applyVisibleFieldsToClientCandidate(candidateForClient, visibleFields);
 
   const cvEditorPreview =
     cvShareMode === 'edited'
-      ? submissionSnapshot
-        ? buildCvEditorPreviewFromSnapshot(submissionSnapshot, jobTitle)
-        : buildCvEditorPreviewFromCandidate(c, jobTitle)
+      ? buildCvEditorPreviewFromCandidate(c, jobTitle)
       : null;
 
   const sharedResumeUrl =
     cvShareMode === 'saasa'
       ? saasaCvUrl
-      : String(submissionSnapshot?.resume || c.resume || c.resumeUrl || '').trim();
+      : String(c.resume || c.resumeUrl || submissionSnapshot?.resume || '').trim();
 
   const payload = {
     matchId: matchId || interview.id,
@@ -1362,6 +1350,7 @@ function serializeInterviewForClientReview(
     offerLetterUrl: offerLetterFile?.fileUrl || null,
     candidate: candidateForClient,
     presentationSections,
+    visibleFields: visibleFields || null,
     cvEditorPreview,
     sharedResumeUrl: sharedResumeUrl.startsWith('http') ? sharedResumeUrl : null,
     job: {
@@ -1381,9 +1370,11 @@ function serializeInterviewForClientReview(
       overallScore: entry.overallScore ?? null,
     })),
     matchScore:
-      Number.isFinite(Number(matchScore ?? interview.matchScore))
-        ? Math.round(Number(matchScore ?? interview.matchScore))
-        : null,
+      visibleFields && visibleFields.candidateScore === false
+        ? null
+        : Number.isFinite(Number(matchScore ?? interview.matchScore))
+          ? Math.round(Number(matchScore ?? interview.matchScore))
+          : null,
     recruiterNotes: sanitizeRecruiterNotes(recruiterNotes || interview.notes || ''),
     candidateFiles: mapCandidateFilesForClient(candidateFiles),
     pipelineStages: Array.isArray(pipelineStages) && pipelineStages.length

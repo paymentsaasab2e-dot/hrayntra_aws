@@ -11,7 +11,10 @@ function isExtensionlessResumeStoragePath(url: string): boolean {
     lower.includes('apply-resumes') ||
     lower.includes('/resumes/') ||
     lower.includes('jobportal/apply-resumes') ||
-    /\/candidates\/[^/]+\/resumes\//i.test(lower)
+    /\/candidates\/[^/]+\/resumes\//i.test(lower) ||
+    // Public client-review resume proxy (no file extension in the path).
+    /\/client-review\/[^/]+\/resume(?:\?|$|\/)/i.test(lower) ||
+    /\/interviews\/public\/review\/[^/]+\/resume(?:\?|$|\/)/i.test(lower)
   );
 }
 
@@ -95,6 +98,13 @@ export function buildResumePdfProxyUrl(sourceUrl: string): string {
   );
   if (!base) return '';
   if (base.startsWith('/api/pdf-proxy')) return base;
+  // Public client-review resume route already streams the file same-origin.
+  if (
+    /\/client-review\/[^/]+\/resume(?:\?|$|\/)/i.test(base) ||
+    /\/interviews\/public\/review\/[^/]+\/resume(?:\?|$|\/)/i.test(base)
+  ) {
+    return base;
+  }
   if (/^https?:\/\//i.test(base) && canPreviewResumeInline(base)) {
     return `/api/pdf-proxy?url=${encodeURIComponent(base)}`;
   }

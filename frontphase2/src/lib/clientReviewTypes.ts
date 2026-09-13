@@ -55,6 +55,8 @@ export interface ClientReviewData {
   activeMatchId?: string;
   batchCandidates?: ClientReviewBatchRow[];
   trackerOptions?: ClientTrackerOptions;
+  /** Tenant Submit-to-Client field visibility — hidden fields must not appear for the client. */
+  visibleFields?: Record<string, boolean> | null;
   matchScore?: number | null;
   recruiterNotes?: string;
   pipelineStages?: Array<{ id: string; name: string }>;

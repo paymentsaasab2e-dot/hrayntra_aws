@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Award,
   Briefcase,
@@ -16,9 +16,18 @@ import {
   User,
 } from 'lucide-react';
 import { DrawerLinkActions, looksLikeHttpUrl } from '../drawers/DrawerLinkActions';
+import { DrawerTabBar } from '../drawers/DrawerTabBar';
+import { DRAWER_FORM_SCROLL_BG } from '../drawers/drawerFormUi';
 import { isClientReviewFileHref } from '../../lib/clientReviewAssets';
-import { CLIENT_PRESENTATION_SECTION_LABELS } from '@/lib/clientPresentationSections';
+import { CLIENT_PRESENTATION_SECTION_LABELS, type ClientReviewSection } from '@/lib/clientPresentationSections';
 import { PHASE1_CLIENT_SECTION_LABELS } from '@/lib/phase1ClientPresentationSections';
+import {
+  phase1SectionVisibilityFromSubmitFields,
+  sectionVisibilityFromSubmitFields,
+  SUBMIT_TO_CLIENT_FIELD_GROUPS,
+  SUBMIT_TO_CLIENT_REVIEW_LABEL_FIELDS,
+  type SubmitToClientFieldId,
+} from '@/lib/submitToClientFieldVisibility';
 import {
   phase1EntryBodyClass,
   phase1EntryMetaClass,
@@ -64,7 +73,28 @@ function shouldHideClientReviewField(label: string, value: string): boolean {
 function display(value: unknown): string {
   if (value === undefined || value === null) return '';
   if (typeof value === 'number' && Number.isFinite(value)) return String(value);
-  return String(value).trim();
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => display(item))
+      .filter(Boolean)
+      .join(', ');
+  }
+  const raw = String(value).trim();
+  if (!raw || raw === 'No entries provided' || raw === '[]' || raw === '{}') return '';
+  if ((raw.startsWith('[') && raw.endsWith(']')) || (raw.startsWith('{') && raw.endsWith('}'))) {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed)) {
+        return parsed
+          .map((item) => display(item))
+          .filter(Boolean)
+          .join(', ');
+      }
+    } catch {
+      /* keep raw */
+    }
+  }
+  return raw;
 }
 
 function FieldRow({
@@ -81,7 +111,7 @@ function FieldRow({
   const link = href || (isUrl(text) ? text : '');
 
   const valueNode = empty ? (
-    <p className={phase1FieldEmptyClass}>Not in resume</p>
+    <p className={phase1FieldEmptyClass}>Not provided</p>
   ) : link && (isInternalResumeStorageUrl(link) || isClientReviewFileHref(link)) ? (
     <a
       href={link}
@@ -98,11 +128,139 @@ function FieldRow({
   );
 
   return (
-    <div className="grid gap-1 border-b border-slate-100/90 py-2.5 last:border-b-0 sm:grid-cols-[minmax(7.5rem,32%)_1fr] sm:gap-4">
+    <div className="grid gap-1 border-b border-slate-100/90 py-2.5 last:border-b-0 sm:grid-cols-[minmax(10rem,28%)_1fr] sm:gap-6 lg:grid-cols-[minmax(12rem,24%)_1fr] lg:gap-8">
       <p className={`${phase1FieldLabelClass} sm:pt-0.5`}>{label}</p>
       <div className="min-w-0">{valueNode}</div>
     </div>
   );
+}
+
+const PHASE1_SECTION_FIELD_IDS: Record<string, SubmitToClientFieldId> = {
+  resume: 'p1Resume',
+  internships: 'p1Internships',
+  gap: 'p1Gap',
+  academic: 'p1Academic',
+  exams: 'p1Exams',
+  accomplishments: 'p1Accomplishments',
+  visa: 'p1Visa',
+  vaccination: 'p1Vaccination',
+  certifications: 'certifications',
+  projects: 'projects',
+  portfolio: 'portfolio',
+  skills: 'skills',
+  languages: 'languageProficiency',
+};
+
+const PHASE1_EMPTY_SHELL_IDS = new Set([
+  'resume',
+  'internships',
+  'gap',
+  'academic',
+  'exams',
+  'accomplishments',
+  'visa',
+  'vaccination',
+]);
+
+const SECTION_GROUP_ID: Record<string, string> = {
+  personal: 'personal',
+  education: 'education',
+  professional: 'professional',
+  careerPreferences: 'professional',
+  work: 'work',
+  social: 'social',
+  summary: 'summary',
+};
+
+function isFieldIdVisible(
+  fieldId: SubmitToClientFieldId,
+  visibleFields: Record<string, boolean> | null | undefined,
+): boolean {
+  if (!visibleFields) return true;
+  return visibleFields[fieldId] !== false;
+}
+
+function findExistingFieldValue(
+  fields: Array<{ label: string; value: string }>,
+  fieldId: SubmitToClientFieldId,
+  preferredLabel: string,
+): string {
+  const preferredKey = preferredLabel.trim().toLowerCase();
+  for (const row of fields) {
+    const labelKey = String(row.label || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, ' ');
+    if (labelKey === preferredKey) return display(row.value);
+    const mapped = SUBMIT_TO_CLIENT_REVIEW_LABEL_FIELDS[labelKey];
+    if (mapped?.includes(fieldId) && display(row.value)) return display(row.value);
+  }
+  return '';
+}
+
+/** Ensure every tenant-visible field appears in the section (empty → Not provided). */
+function expandSectionForVisibleFields(
+  section: ClientReviewSection,
+  visibleFields: Record<string, boolean> | null | undefined,
+): ClientReviewSection {
+  const groupId = SECTION_GROUP_ID[section.id];
+  const group = groupId
+    ? SUBMIT_TO_CLIENT_FIELD_GROUPS.find((item) => item.id === groupId)
+    : null;
+
+  if (group) {
+    const nextFields = group.fields
+      .filter((field) => isFieldIdVisible(field.id, visibleFields))
+      .map((field) => ({
+        label: field.label,
+        value: findExistingFieldValue(section.fields || [], field.id, field.label),
+      }));
+
+    // Keep useful extra rows (e.g. Full name) that already have values and aren't duplicates.
+    const covered = new Set(nextFields.map((row) => row.label.trim().toLowerCase()));
+    for (const row of section.fields || []) {
+      const key = String(row.label || '')
+        .trim()
+        .toLowerCase();
+      if (!key || covered.has(key)) continue;
+      if (key === 'entries' || row.value === 'No entries provided') continue;
+      if (!display(row.value)) continue;
+      if (shouldHideClientReviewField(row.label, row.value)) continue;
+      nextFields.push({ label: row.label, value: display(row.value) });
+      covered.add(key);
+    }
+
+    return {
+      ...section,
+      fields: nextFields,
+      entries: section.entries,
+    };
+  }
+
+  // Phase 1 / leftover sections: keep entries, replace placeholder-only fields with a clear empty row.
+  const phase1FieldId = PHASE1_SECTION_FIELD_IDS[section.id];
+  if (phase1FieldId && !isFieldIdVisible(phase1FieldId, visibleFields)) {
+    return { ...section, fields: [], entries: undefined };
+  }
+
+  const hasEntries = Array.isArray(section.entries) && section.entries.length > 0;
+  const cleanedFields = (section.fields || [])
+    .filter((row) => {
+      if (shouldHideClientReviewField(row.label, row.value)) return false;
+      if (row.value === 'No entries provided') return false;
+      return true;
+    })
+    .map((row) => ({ label: row.label, value: display(row.value) }));
+
+  if (!cleanedFields.length && !hasEntries) {
+    return {
+      ...section,
+      fields: [{ label: resolveSectionTitle(section.id, section.title), value: '' }],
+      entries: section.entries,
+    };
+  }
+
+  return { ...section, fields: cleanedFields, entries: section.entries };
 }
 
 function SectionBlock({
@@ -553,6 +711,12 @@ function renderStructuredField(label: string, value: string) {
   return null;
 }
 
+type ExtraTab = {
+  id: string;
+  label: string;
+  content: React.ReactNode;
+};
+
 type Props = {
   sections: ClientReviewSection[];
   jobTitle?: string;
@@ -562,7 +726,148 @@ type Props = {
   hideLinkedIn?: boolean;
   hideInternalNotes?: boolean;
   hideResumeLinks?: boolean;
+  /** Accordion (legacy) or horizontal tabs (client review full page). */
+  mode?: 'accordion' | 'tabs';
+  /** Extra tabs such as CV / Actions — only rendered when provided. */
+  extraTabs?: ExtraTab[];
+  /** Tenant Submit-to-Client field visibility — drives which tabs appear. */
+  visibleFields?: Record<string, boolean> | null;
 };
+
+function emptySection(id: string, title: string): ClientReviewSection {
+  return { id, title, fields: [] };
+}
+
+function sectionLooksPlaceholderOnly(section: ClientReviewSection): boolean {
+  const fields = section.fields || [];
+  const entries = section.entries || [];
+  if (entries.some((entry) => entryHasData(entry))) return false;
+  if (!fields.length) return true;
+  return fields.every((row) => {
+    const value = display(row.value);
+    return !value || value === 'No entries provided';
+  });
+}
+
+const PHASE1_EXTRA_IDS = new Set([
+  'certifications',
+  'gap',
+  'academic',
+  'exams',
+  'projects',
+  'visa',
+  'vaccination',
+  'internships',
+  'resume',
+  'accomplishments',
+  'portfolio',
+  'skills',
+  'languages',
+]);
+
+const TAB_ORDER: Array<{ id: string; label: string; sectionIds: string[] }> = [
+  { id: 'personal', label: 'Personal Information', sectionIds: ['personal'] },
+  { id: 'education', label: 'Education', sectionIds: ['education'] },
+  { id: 'professional', label: 'Career Preferences', sectionIds: ['professional', 'careerPreferences'] },
+  { id: 'work', label: 'Work Experience', sectionIds: ['work'] },
+  { id: 'social', label: 'Social Network Information', sectionIds: ['social'] },
+  { id: 'summary', label: 'Summary & Additional', sectionIds: ['summary'] },
+  {
+    id: 'phase1',
+    label: 'Phase 1 extra sections',
+    sectionIds: [...PHASE1_EXTRA_IDS],
+  },
+];
+
+function sectionHasVisibleContent(
+  section: ClientReviewSection,
+  opts: { hideLinkedIn: boolean; hideInternalNotes: boolean; hideResumeLinks: boolean },
+): boolean {
+  const workEntries = resolveWorkEntries(section);
+  if (workEntries.some((entry) => entryHasData(entry))) return true;
+  if (Array.isArray(section.entries) && section.entries.some((entry) => entryHasData(entry))) return true;
+  for (const row of section.fields || []) {
+    if (row.value === 'No entries provided') continue;
+    if (shouldHideClientReviewField(row.label, row.value)) continue;
+    if (opts.hideLinkedIn && /linkedin/i.test(row.label)) continue;
+    if (opts.hideInternalNotes && /internal notes|^notes$/i.test(row.label)) continue;
+    if (opts.hideResumeLinks && /resume/i.test(row.label)) continue;
+    if (display(row.value)) return true;
+  }
+  return false;
+}
+
+function renderSectionBody(
+  section: ClientReviewSection,
+  opts: {
+    hideLinkedIn: boolean;
+    hideInternalNotes: boolean;
+    hideResumeLinks: boolean;
+    /** When true, keep empty visible fields so every shared field is listed. */
+    keepEmptyFields?: boolean;
+  },
+): React.ReactNode {
+  const workEntries = resolveWorkEntries(section);
+  const entryList =
+    workEntries.length > 0 ? workEntries : section.entries?.length ? section.entries : [];
+  const entryCards = renderEntryCards(section);
+  const structuredRows: React.ReactNode[] = [];
+  const scalarFields: Array<{ label: string; value: string }> = [];
+
+  for (const row of section.fields) {
+    if (!opts.keepEmptyFields && row.value === 'No entries provided') continue;
+    if (shouldHideClientReviewField(row.label, row.value)) continue;
+    if (opts.hideLinkedIn && /linkedin/i.test(row.label)) continue;
+    if (opts.hideInternalNotes && /internal notes|^notes$/i.test(row.label)) continue;
+    if (opts.hideResumeLinks && /resume/i.test(row.label)) continue;
+    const structured = opts.keepEmptyFields ? null : renderStructuredField(row.label, row.value);
+    if (structured) {
+      structuredRows.push(
+        <div key={`${section.id}-${row.label}-structured`}>{structured}</div>,
+      );
+    } else if (
+      entryList.length > 0 &&
+      (section.id === 'work' || section.id === 'professional') &&
+      (/work experience/i.test(row.label) || looksLikeWorkExperienceDisplayText(row.value))
+    ) {
+      continue;
+    } else if (
+      entryList.length > 0 &&
+      section.id === 'work' &&
+      / — (Job title|Company|Location|Start date|End date|Period|Responsibilities)$/i.test(row.label)
+    ) {
+      continue;
+    } else if (
+      (section.id === 'education' || section.id === 'work') &&
+      /^(education entries|work experience entries)$/i.test(row.label)
+    ) {
+      // Entry lists render as cards; only keep the scalar row when there are no entries.
+      if (entryList.length > 0 || entryCards) continue;
+      scalarFields.push({ label: row.label, value: display(row.value) });
+    } else {
+      scalarFields.push({
+        label: row.label,
+        value: display(row.value),
+      });
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      {entryCards}
+      {structuredRows}
+      {scalarFields.length > 0 ? (
+        <div className="rounded-2xl bg-white px-3 ring-1 ring-slate-100">
+          {scalarFields.map((row) => (
+            <FieldRow key={`${section.id}-${row.label}`} label={row.label} value={row.value} />
+          ))}
+        </div>
+      ) : !entryCards && !structuredRows.length ? (
+        <p className={phase1FieldEmptyClass}>Not provided</p>
+      ) : null}
+    </div>
+  );
+}
 
 export function ClientReviewSectionsPanel({
   sections,
@@ -573,16 +878,228 @@ export function ClientReviewSectionsPanel({
   hideLinkedIn = false,
   hideInternalNotes = false,
   hideResumeLinks = false,
+  mode = 'accordion',
+  extraTabs = [],
+  visibleFields = null,
 }: Props) {
+  const hideOpts = { hideLinkedIn, hideInternalNotes, hideResumeLinks };
   const mergedSections = useMemo(() => mergeSectionsById(sections), [sections]);
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
+  const [activeTab, setActiveTab] = useState<string>('');
 
   const isOpen = (id: string) => openSections[id] ?? defaultOpen;
   const toggle = (id: string) => {
     setOpenSections((current) => ({ ...current, [id]: !isOpen(id) }));
   };
 
-  if (!mergedSections.length) return null;
+  const coreSectionVisibility = useMemo(
+    () => sectionVisibilityFromSubmitFields(visibleFields),
+    [visibleFields],
+  );
+  const phase1FieldVisibility = useMemo(
+    () => phase1SectionVisibilityFromSubmitFields(visibleFields),
+    [visibleFields],
+  );
+
+  const { mainProfileTabs, phase1Tab, leftoverTabs } = useMemo(() => {
+    const byId = new Map(mergedSections.map((section) => [section.id, section]));
+    const main: Array<{ id: string; label: string; sections: ClientReviewSection[] }> = [];
+    let phase1: { id: string; label: string; sections: ClientReviewSection[] } | null = null;
+    const leftovers: Array<{ id: string; label: string; sections: ClientReviewSection[] }> = [];
+
+    for (const def of TAB_ORDER) {
+      if (def.id === 'phase1') {
+        const matched = def.sectionIds
+          .map((id) => byId.get(id))
+          .filter((section): section is ClientReviewSection => Boolean(section))
+          .filter((section) => {
+            const key = section.id as keyof typeof phase1FieldVisibility;
+            if (visibleFields && phase1FieldVisibility[key] === false) return false;
+            return (
+              sectionHasVisibleContent(section, hideOpts) || !sectionLooksPlaceholderOnly(section)
+            );
+          });
+        // Keep empty Phase 1 sections that are still marked visible (show Not provided).
+        for (const id of def.sectionIds) {
+          if (matched.some((section) => section.id === id)) continue;
+          const existing = byId.get(id);
+          const key = id as keyof typeof phase1FieldVisibility;
+          const fieldId = PHASE1_SECTION_FIELD_IDS[id];
+          const markedVisible = fieldId
+            ? isFieldIdVisible(fieldId, visibleFields)
+            : !visibleFields || phase1FieldVisibility[key] !== false;
+          if (!markedVisible) continue;
+          if (existing) {
+            matched.push(existing);
+          } else if (mode === 'tabs' && visibleFields && PHASE1_EMPTY_SHELL_IDS.has(id)) {
+            matched.push(emptySection(id, resolveSectionTitle(id)));
+          }
+        }
+        if (!matched.length) continue;
+        for (const section of matched) byId.delete(section.id);
+        phase1 = { id: def.id, label: def.label, sections: matched };
+        continue;
+      }
+
+      const coreId = (def.sectionIds[0] || def.id) as keyof typeof coreSectionVisibility;
+      const sectionAllowed =
+        !visibleFields || coreSectionVisibility[coreId as keyof typeof coreSectionVisibility] !== false;
+
+      const matched = def.sectionIds
+        .map((id) => byId.get(id))
+        .filter((section): section is ClientReviewSection => Boolean(section));
+
+      for (const section of matched) byId.delete(section.id);
+
+      if (!sectionAllowed) continue;
+
+      if (matched.length) {
+        main.push({ id: def.id, label: def.label, sections: matched });
+      } else if (mode === 'tabs') {
+        // Tenant marked this group visible — always show the tab, even with empty values.
+        main.push({
+          id: def.id,
+          label: def.label,
+          sections: [emptySection(def.sectionIds[0] || def.id, def.label)],
+        });
+      }
+    }
+
+    for (const section of byId.values()) {
+      if (!sectionHasVisibleContent(section, hideOpts) && sectionLooksPlaceholderOnly(section)) {
+        continue;
+      }
+      leftovers.push({
+        id: section.id,
+        label: resolveSectionTitle(section.id, section.title),
+        sections: [section],
+      });
+    }
+
+    return { mainProfileTabs: main, phase1Tab: phase1, leftoverTabs: leftovers };
+  }, [
+    mergedSections,
+    hideLinkedIn,
+    hideInternalNotes,
+    hideResumeLinks,
+    visibleFields,
+    coreSectionVisibility,
+    phase1FieldVisibility,
+    mode,
+  ]);
+
+  const profileTabs = useMemo(
+    () => [...mainProfileTabs, ...(phase1Tab ? [phase1Tab] : []), ...leftoverTabs],
+    [mainProfileTabs, phase1Tab, leftoverTabs],
+  );
+
+  const allTabs = useMemo(() => {
+    // Order: Personal…Summary → CV → Actions → Phase 1 extras → leftovers
+    const list: Array<{ id: string; label: string; kind: 'profile' | 'extra' }> = [
+      ...mainProfileTabs.map((tab) => ({ id: tab.id, label: tab.label, kind: 'profile' as const })),
+      ...extraTabs.map((tab) => ({ id: tab.id, label: tab.label, kind: 'extra' as const })),
+      ...(phase1Tab
+        ? [{ id: phase1Tab.id, label: phase1Tab.label, kind: 'profile' as const }]
+        : []),
+      ...leftoverTabs.map((tab) => ({ id: tab.id, label: tab.label, kind: 'profile' as const })),
+    ];
+    return list;
+  }, [mainProfileTabs, phase1Tab, leftoverTabs, extraTabs]);
+
+  useEffect(() => {
+    if (!allTabs.length) {
+      setActiveTab('');
+      return;
+    }
+    if (!allTabs.some((tab) => tab.id === activeTab)) {
+      setActiveTab(allTabs[0]!.id);
+    }
+  }, [allTabs, activeTab]);
+
+  const resolvedActiveTab =
+    allTabs.some((tab) => tab.id === activeTab) ? activeTab : allTabs[0]?.id || '';
+
+  if (!mergedSections.length && !extraTabs.length && !(mode === 'tabs' && visibleFields)) {
+    return null;
+  }
+
+  if (mode === 'tabs') {
+    const activeProfile = profileTabs.find((tab) => tab.id === resolvedActiveTab);
+    const activeExtra = extraTabs.find((tab) => tab.id === resolvedActiveTab);
+    const tabHideOpts = {
+      hideLinkedIn: visibleFields ? visibleFields.linkedIn === false : hideLinkedIn,
+      hideInternalNotes: visibleFields ? visibleFields.notes === false : hideInternalNotes,
+      hideResumeLinks: visibleFields ? visibleFields.p1Resume === false : hideResumeLinks,
+      keepEmptyFields: true,
+    };
+
+    return (
+      <div className="flex min-h-0 flex-1 flex-col">
+        {(jobTitle || clientName) && showMeta ? (
+          <div className="mb-0 border-b border-indigo-100/50 bg-white/80 px-4 py-2.5 sm:px-6">
+            <div className="flex flex-wrap gap-2">
+              {jobTitle ? (
+                <span className="inline-flex rounded-full bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-800 ring-1 ring-violet-100">
+                  Assigned Job: {jobTitle}
+                </span>
+              ) : null}
+              {clientName ? (
+                <span className="inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-100">
+                  Client: {clientName}
+                </span>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+
+        <DrawerTabBar
+          ariaLabel="Candidate review sections"
+          wrap
+          tabs={allTabs.map((tab) => ({ id: tab.id, label: tab.label }))}
+          activeId={resolvedActiveTab}
+          onChange={(id) => setActiveTab(id)}
+        />
+
+        <div className={`min-h-0 flex-1 overflow-y-auto ${DRAWER_FORM_SCROLL_BG} p-4 sm:p-6`}>
+          {activeProfile ? (
+            <div className="w-full space-y-4">
+              {activeProfile.sections.map((section) => {
+                const expanded = expandSectionForVisibleFields(section, visibleFields);
+                if (
+                  !expanded.fields.length &&
+                  !(Array.isArray(expanded.entries) && expanded.entries.length)
+                ) {
+                  return null;
+                }
+                const meta = SECTION_META[expanded.id] || { title: expanded.title, icon: FileText };
+                const Icon = meta.icon;
+                return (
+                  <section
+                    key={expanded.id}
+                    className="overflow-hidden rounded-2xl border border-indigo-100/80 bg-white shadow-[0_10px_30px_-18px_rgba(79,70,229,0.28)] ring-1 ring-indigo-500/5"
+                  >
+                    <div className="flex items-center gap-3 border-b border-indigo-50 bg-gradient-to-r from-white via-indigo-50/30 to-violet-50/20 px-5 py-3.5 sm:px-6">
+                      <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100">
+                        <Icon size={16} />
+                      </span>
+                      <h3 className="text-sm font-semibold text-slate-900 sm:text-base">
+                        {meta.title || expanded.title}
+                      </h3>
+                    </div>
+                    <div className="px-5 py-4 sm:px-6">{renderSectionBody(expanded, tabHideOpts)}</div>
+                  </section>
+                );
+              })}
+            </div>
+          ) : null}
+          {activeExtra ? <div className="w-full">{activeExtra.content}</div> : null}
+          {!activeProfile && !activeExtra ? (
+            <p className="py-16 text-center text-sm text-slate-500">No content in this tab.</p>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -607,44 +1124,12 @@ export function ClientReviewSectionsPanel({
         const workEntries = resolveWorkEntries(section);
         const entryList =
           workEntries.length > 0 ? workEntries : section.entries?.length ? section.entries : [];
-        const entryCards = renderEntryCards(section);
-        const structuredRows: React.ReactNode[] = [];
-        const scalarFields: Array<{ label: string; value: string }> = [];
-
-        for (const row of section.fields) {
-          if (row.value === 'No entries provided') continue;
-          if (shouldHideClientReviewField(row.label, row.value)) continue;
-          if (hideLinkedIn && /linkedin/i.test(row.label)) continue;
-          if (hideInternalNotes && /internal notes|^notes$/i.test(row.label)) continue;
-          if (hideResumeLinks && /resume/i.test(row.label)) continue;
-          const structured = renderStructuredField(row.label, row.value);
-          if (structured) {
-            structuredRows.push(
-              <div key={`${section.id}-${row.label}-structured`}>{structured}</div>,
-            );
-          } else if (
-            entryList.length > 0 &&
-            (section.id === 'work' || section.id === 'professional') &&
-            (/work experience/i.test(row.label) || looksLikeWorkExperienceDisplayText(row.value))
-          ) {
-            continue;
-          } else if (
-            entryList.length > 0 &&
-            section.id === 'work' &&
-            / — (Job title|Company|Location|Start date|End date|Period|Responsibilities)$/i.test(row.label)
-          ) {
-            continue;
-          } else {
-            scalarFields.push(row);
-          }
-        }
-
         const entryCount = entryList.length;
         const filled =
           entryCount > 0
             ? entryList.filter((entry) => entryHasData(entry)).length
-            : scalarFields.filter((row) => display(row.value)).length;
-        const total = entryCount > 0 ? entryCount : scalarFields.length || 1;
+            : section.fields.filter((row) => display(row.value)).length;
+        const total = entryCount > 0 ? entryCount : section.fields.length || 1;
         const subtitle =
           entryCount > 0 && section.id === 'work'
             ? `${filled}/${total} fields captured · ${entryCount} ${entryCount === 1 ? 'entry' : 'entries'}`
@@ -664,17 +1149,7 @@ export function ClientReviewSectionsPanel({
             total={total}
             extraHint={subtitle}
           >
-            {entryCards}
-            {structuredRows}
-            {scalarFields.length > 0 ? (
-              <div className="rounded-2xl bg-white px-3 ring-1 ring-slate-100">
-                {scalarFields.map((row) => (
-                  <FieldRow key={`${section.id}-${row.label}`} label={row.label} value={row.value} />
-                ))}
-              </div>
-            ) : !entryCards && !structuredRows.length ? (
-              <p className={phase1FieldEmptyClass}>Not provided</p>
-            ) : null}
+            {renderSectionBody(section, hideOpts)}
           </SectionBlock>
         );
       })}
