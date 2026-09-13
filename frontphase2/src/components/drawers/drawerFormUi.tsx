@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, type LucideIcon } from 'lucide-react';
+import { ChevronDown, Search, type LucideIcon } from 'lucide-react';
 
 export type DrawerFormAccent = 'blue' | 'violet' | 'emerald' | 'amber' | 'sky' | 'rose' | 'indigo';
 
@@ -326,6 +326,8 @@ export function DrawerSelectDropdown({
   leadingIconClassName,
   placeholder,
   error,
+  searchable = false,
+  searchPlaceholder = 'Search…',
 }: {
   value: string;
   options: { value: string; label: string }[];
@@ -336,18 +338,45 @@ export function DrawerSelectDropdown({
   leadingIconClassName?: string;
   placeholder?: string;
   error?: boolean;
+  /** Show a filter input at the top of the menu (useful for long lists). */
+  searchable?: boolean;
+  searchPlaceholder?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const closeMenu = useCallback(() => setOpen(false), []);
+  const [search, setSearch] = useState('');
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const closeMenu = useCallback(() => {
+    setOpen(false);
+    setSearch('');
+  }, []);
   const { triggerRef, menuRef, menuPosition } = useDrawerPortalDropdownPosition(open, preferUpward, closeMenu);
   const selectedLabel = options.find((option) => option.value === value)?.label ?? (value || placeholder || 'Select…');
+
+  const filteredOptions = useMemo(() => {
+    if (!searchable) return options;
+    const q = search.trim().toLowerCase();
+    if (!q) return options;
+    return options.filter((option) => {
+      if (!option.value && !option.label) return true;
+      return (
+        option.label.toLowerCase().includes(q) ||
+        option.value.toLowerCase().includes(q)
+      );
+    });
+  }, [options, search, searchable]);
+
+  useEffect(() => {
+    if (!open || !searchable) return;
+    const id = window.setTimeout(() => searchInputRef.current?.focus(), 0);
+    return () => window.clearTimeout(id);
+  }, [open, searchable]);
 
   const menu =
     open && menuPosition && typeof document !== 'undefined'
       ? createPortal(
           <div
             ref={menuRef}
-            className="fixed z-[1200] overflow-auto rounded-xl border border-slate-200 bg-white shadow-2xl"
+            className="fixed z-[1200] flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl"
             style={{
               left: menuPosition.left,
               width: menuPosition.width,
@@ -357,25 +386,56 @@ export function DrawerSelectDropdown({
                 : { top: menuPosition.top }),
             }}
           >
-            {options.map((option) => {
-              const isActive = option.value === value;
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => {
-                    onChange(option.value);
-                    setOpen(false);
-                  }}
-                  className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm ${
-                    isActive ? 'bg-blue-50 text-blue-700' : 'text-slate-800 hover:bg-slate-50'
-                  }`}
-                >
-                  {LeadingIcon ? <LeadingIcon size={16} className={leadingIconClassName} /> : null}
-                  <span>{option.label}</span>
-                </button>
-              );
-            })}
+            {searchable ? (
+              <div className="sticky top-0 z-10 border-b border-slate-100 bg-white p-2">
+                <label className="relative block">
+                  <Search
+                    size={14}
+                    className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400"
+                  />
+                  <input
+                    ref={searchInputRef}
+                    type="text"
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Escape') {
+                        event.stopPropagation();
+                        closeMenu();
+                      }
+                    }}
+                    placeholder={searchPlaceholder}
+                    className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-8 pr-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-500/20"
+                  />
+                </label>
+              </div>
+            ) : null}
+            <div className="min-h-0 flex-1 overflow-auto">
+              {filteredOptions.length === 0 ? (
+                <p className="px-3 py-3 text-sm text-slate-500">No matches</p>
+              ) : (
+                filteredOptions.map((option) => {
+                  const isActive = option.value === value;
+                  const optionKey = option.value || `__empty__:${option.label}`;
+                  return (
+                    <button
+                      key={optionKey}
+                      type="button"
+                      onClick={() => {
+                        onChange(option.value);
+                        closeMenu();
+                      }}
+                      className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm ${
+                        isActive ? 'bg-blue-50 text-blue-700' : 'text-slate-800 hover:bg-slate-50'
+                      }`}
+                    >
+                      {LeadingIcon ? <LeadingIcon size={16} className={leadingIconClassName} /> : null}
+                      <span>{option.label}</span>
+                    </button>
+                  );
+                })
+              )}
+            </div>
           </div>,
           document.body,
         )
@@ -394,9 +454,9 @@ export function DrawerSelectDropdown({
           }`
         }
       >
-        <span className={`flex items-center gap-2 ${!value && placeholder ? 'text-slate-400' : ''}`}>
-          {LeadingIcon ? <LeadingIcon size={16} className={leadingIconClassName} /> : null}
-          {selectedLabel}
+        <span className={`flex min-w-0 items-center gap-2 ${!value && placeholder ? 'text-slate-400' : ''}`}>
+          {LeadingIcon ? <LeadingIcon size={16} className={`shrink-0 ${leadingIconClassName || ''}`} /> : null}
+          <span className="truncate">{selectedLabel}</span>
         </span>
         <ChevronDown
           size={16}

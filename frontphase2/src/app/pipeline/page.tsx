@@ -580,6 +580,8 @@ export default function App() {
   const [loadingCandidates, setLoadingCandidates] = useState(true);
   const [loadingStages, setLoadingStages] = useState(true);
   const [moveError, setMoveError] = useState('');
+  /** Once the board has rows, keep it visible during refreshes (same pattern as Jobs/Candidates). */
+  const hasBoardDataRef = useRef(false);
 
   useEffect(() => {
     let mounted = true;
@@ -645,8 +647,11 @@ export default function App() {
     };
   }, [selectedJobId]);
 
-  const loadPipelineCandidates = React.useCallback(async () => {
-    setLoadingCandidates(true);
+  const loadPipelineCandidates = React.useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent === true;
+    // Foreground spinner only on first load (or when board is empty) — never blank an existing board.
+    const showForegroundLoader = !silent && !hasBoardDataRef.current;
+    if (showForegroundLoader) setLoadingCandidates(true);
     try {
       const poolParams = shouldIncludePhase1CommonPool() ? { includeCommonPool: true as const } : {};
       const candidateParams =
@@ -671,26 +676,30 @@ export default function App() {
         .filter((row): row is Candidate => Boolean(row));
 
       setCandidates(mapped);
+      hasBoardDataRef.current = mapped.length > 0;
     } catch (error) {
       console.error('Failed to load pipeline candidates:', error);
-      setCandidates([]);
+      // Keep existing board data on silent/background refresh failures.
+      if (!silent && !hasBoardDataRef.current) setCandidates([]);
     } finally {
-      setLoadingCandidates(false);
+      if (!silent) setLoadingCandidates(false);
     }
   }, [pipelineStages, selectedJobId, selectedOwnerId]);
 
   useEffect(() => {
     if (loadingStages) return;
-    void loadPipelineCandidates();
+    // Soft refresh when filters change and board already has data (background, like other list pages).
+    void loadPipelineCandidates({ silent: hasBoardDataRef.current });
   }, [loadPipelineCandidates, loadingStages]);
 
-  // Reusable auto-refresh — re-runs candidate fetch on focus / interval / events.
-  usePageAutoRefresh(
-    async () => {
-      await loadPipelineCandidates();
-    },
-    { events: ['jobportal:candidates-changed', 'jobportal:jobs-changed'] }
+  // Background auto-refresh — polls / focus / cross-page events without the foreground loader.
+  const pipelineAutoLoad = React.useCallback(
+    ({ silent }: { silent: boolean }) => loadPipelineCandidates({ silent }),
+    [loadPipelineCandidates],
   );
+  usePageAutoRefresh(pipelineAutoLoad, {
+    events: ['jobportal:candidates-changed', 'jobportal:jobs-changed'],
+  });
 
   const displayStages = useMemo(() => {
     const extraNames = candidates.map((candidate) => candidate.stageName).filter(Boolean);
@@ -763,7 +772,7 @@ export default function App() {
         candidateId: id,
         stageId,
       });
-      await loadPipelineCandidates();
+      await loadPipelineCandidates({ silent: true });
     } catch (error) {
       console.error('Failed to move candidate in pipeline:', error);
       setCandidates(previous);
@@ -990,7 +999,7 @@ export default function App() {
                 {moveError}
               </div>
             ) : null}
-            {loadingCandidates || loadingStages ? (
+            {((loadingCandidates || loadingStages) && candidates.length === 0) ? (
               <div className="flex h-64 items-center justify-center text-sm text-slate-500">
                 Loading pipeline…
               </div>
@@ -1157,7 +1166,7 @@ export default function App() {
             onClose={() => setIsAddCandidateOpen(false)}
             onSuccess={() => {
               setIsAddCandidateOpen(false);
-              void loadPipelineCandidates();
+              void loadPipelineCandidates({ silent: true });
             }}
             currentUser={{ _id: '', name: 'You', email: '', role: 'RECRUITER' }}
           />

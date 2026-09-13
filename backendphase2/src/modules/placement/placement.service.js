@@ -39,6 +39,11 @@ import { assertCanAssignCrm } from '../../services/crmAssignmentScope.service.js
 
 const OBJECT_ID_REGEX = /^[a-f\d]{24}$/i;
 const DEFAULT_LIMIT = 20;
+/** Slow Atlas / high latency — interactive tx default (5s) is too short. */
+const PLACEMENT_TX_OPTIONS = {
+  maxWait: 20_000,
+  timeout: 60_000,
+};
 const VALID_SORT_FIELDS = new Set([
   'offerDate',
   'joiningDate',
@@ -48,6 +53,10 @@ const VALID_SORT_FIELDS = new Set([
   'salaryOffered',
   'status',
 ]);
+
+function runPlacementTransaction(fn) {
+  return prisma.$transaction(fn, PLACEMENT_TX_OPTIONS);
+}
 
 function isValidObjectId(value) {
   return typeof value === 'string' && OBJECT_ID_REGEX.test(value);
@@ -227,7 +236,7 @@ async function removePlacementWithInterviewRevert(id, userId, activityAction) {
     throw new Error('Cannot revert a confirmed placement');
   }
 
-  await prisma.$transaction(async (tx) => {
+  await runPlacementTransaction(async (tx) => {
     await tx.placement.update({
       where: { id },
       data: { deletedAt: new Date() },
@@ -771,7 +780,7 @@ export const placementService = {
     });
     if (!client) throw new Error('Client not found');
 
-    const placement = await prisma.$transaction(async (tx) => {
+    const placement = await runPlacementTransaction(async (tx) => {
       const createdPlacement = await tx.placement.create({
         data: {
           candidateId: candidate.id,
@@ -1064,7 +1073,7 @@ export const placementService = {
       }
     }
 
-    const updatedPlacement = await prisma.$transaction(async (tx) => {
+    const updatedPlacement = await runPlacementTransaction(async (tx) => {
       const updated = await tx.placement.update({
       where: { id },
       data: updateData,
@@ -1247,30 +1256,42 @@ export const placementService = {
     }
 
     if (nextStatus === 'OFFER_SENT' || nextStatus === 'OFFER_ACCEPTED' || nextStatus === 'OFFER_REJECTED') {
-      await prisma.$transaction(async (tx) => {
-        await tx.placement.update({
-          where: { id },
-          data: { status: nextStatus },
-        });
-        await createPlacementActivity(tx, id, `Status changed to ${nextStatus}`, userId, {
+      // Avoid interactive transactions — under slow Mongo they expire (default 5s)
+      // before placement.update finishes. Status + activity are two light writes.
+      await prisma.placement.update({
+        where: { id },
+        data: { status: nextStatus },
+      });
+      try {
+        await createPlacementActivity(prisma, id, `Status changed to ${nextStatus}`, userId, {
           previousStatus: existing.status,
           nextStatus,
         });
-      });
+      } catch (activityError) {
+        console.warn(
+          '[placement.updateStatus] activity log failed:',
+          activityError?.message || activityError,
+        );
+      }
       await syncCandidateStageFromPlacementStatus(existing, nextStatus, userId, 'placement-update-status');
       return fetchPlacementOrThrow(id);
     }
 
-    await prisma.$transaction(async (tx) => {
-      await tx.placement.update({
-        where: { id },
-        data: { status: nextStatus },
-      });
-      await createPlacementActivity(tx, id, `Status changed to ${nextStatus}`, userId, {
+    await prisma.placement.update({
+      where: { id },
+      data: { status: nextStatus },
+    });
+    try {
+      await createPlacementActivity(prisma, id, `Status changed to ${nextStatus}`, userId, {
         previousStatus: existing.status,
         nextStatus,
       });
-    });
+    } catch (activityError) {
+      console.warn(
+        '[placement.updateStatus] activity log failed:',
+        activityError?.message || activityError,
+      );
+    }
 
     await syncCandidateStageFromPlacementStatus(existing, nextStatus, userId, 'placement-update-status');
     return fetchPlacementOrThrow(id);
@@ -1282,7 +1303,7 @@ export const placementService = {
 
     await fetchPlacementOrThrow(id);
 
-    await prisma.$transaction(async (tx) => {
+    await runPlacementTransaction(async (tx) => {
       const updated = await tx.placement.update({
         where: { id },
         data: {
@@ -1346,7 +1367,7 @@ export const placementService = {
       throw new Error('Status must be FAILED, NO_SHOW, or WITHDRAWN');
     }
 
-    await prisma.$transaction(async (tx) => {
+    await runPlacementTransaction(async (tx) => {
       await tx.placement.update({
         where: { id },
         data: {
@@ -1401,7 +1422,7 @@ export const placementService = {
       ? parseDate(data.expectedReplacementDate, 'Expected replacement date')
       : null;
 
-    await prisma.$transaction(async (tx) => {
+    await runPlacementTransaction(async (tx) => {
       await tx.placement.update({
         where: { id },
         data: {
@@ -1502,7 +1523,7 @@ export const placementService = {
     const candidateName =
       `${candidate?.firstName || ''} ${candidate?.lastName || ''}`.trim() || 'Candidate';
 
-    await prisma.$transaction(async (tx) => {
+    await runPlacementTransaction(async (tx) => {
       await tx.placement.update({
         where: { id },
         data: {
@@ -1648,7 +1669,7 @@ export const placementService = {
       throw new Error('Offer has already been responded to');
     }
 
-    await prisma.$transaction(async (tx) => {
+    await runPlacementTransaction(async (tx) => {
       await tx.placement.update({
         where: { id: placement.id },
         data: {
@@ -1738,7 +1759,7 @@ export const placementService = {
 
     let offerLetterSync = null;
 
-    await prisma.$transaction(async (tx) => {
+    await runPlacementTransaction(async (tx) => {
       await tx.placement.update({
         where: { id },
         data: {
@@ -1999,7 +2020,7 @@ export const placementService = {
 
     let createdBillingRecordId = null;
 
-    await prisma.$transaction(async (tx) => {
+    await runPlacementTransaction(async (tx) => {
       let invoiceNumber = String(data.invoiceNo || data.invoiceNumber || '').trim();
       if (!invoiceNumber) {
         const billingCount = await tx.placementBilling.count();

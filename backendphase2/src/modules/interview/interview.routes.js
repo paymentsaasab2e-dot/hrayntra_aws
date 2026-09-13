@@ -103,6 +103,11 @@ router.post(
   interviewController.submitPublicClientTag
 );
 
+router.get('/public/rsvp/:token', interviewController.getPublicInterviewRsvp);
+router.post('/public/rsvp/:token/accept', interviewController.acceptPublicInterviewRsvp);
+router.post('/public/rsvp/:token/reject', interviewController.rejectPublicInterviewRsvp);
+router.post('/public/rsvp/:token/reschedule', interviewController.reschedulePublicInterviewRsvp);
+
 router.use(authMiddleware);
 
 router.get('/kpis', requireAnyPermission(['interviews_read']), interviewController.getKpis);

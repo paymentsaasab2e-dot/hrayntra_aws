@@ -5275,9 +5275,11 @@ export const candidateService = {
         companyName: '',
         scheduledAt,
         timezone: resolveInterviewTimeZone(data?.timezone),
+        interviewId: interview?.id,
         interviewType: String(data?.type || '').trim() || null,
         roundLabel: String(data?.round || '').trim() || null,
         durationLabel: String(data?.duration || '').trim() || null,
+        mode: String(data?.mode || '').trim() || null,
         modeLabel:
           String(data?.mode || '').toLowerCase() === 'video'
             ? 'Video Call'

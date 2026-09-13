@@ -351,26 +351,28 @@ export function ClientReviewComparativeAnalysisDrawer({
             className="relative flex h-full min-h-0 w-full flex-col overflow-hidden bg-[#F4F6FB]"
           >
             <div
-              className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-[radial-gradient(ellipse_at_top,_rgba(99,102,241,0.14),_transparent_70%)]"
+              className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-[radial-gradient(ellipse_at_top,_rgba(99,102,241,0.14),_transparent_65%)]"
               aria-hidden
             />
 
             <header className="relative z-10 shrink-0 border-b border-slate-200/80 bg-white/90 px-4 py-2.5 backdrop-blur-xl sm:px-6 lg:px-8">
               <div className="flex w-full items-center justify-between gap-3">
-                <div className="min-w-0 flex flex-wrap items-center gap-x-3 gap-y-1">
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-indigo-700">
-                    <Columns2 className="h-3 w-3" />
-                    Comparative analysis
-                  </span>
-                  <h2
-                    id="comparative-analysis-title"
-                    className="truncate text-sm font-semibold tracking-tight text-slate-900 sm:text-base"
-                  >
-                    {jobTitle ? `Shortlisted — ${jobTitle}` : 'Shortlisted candidates'}
-                  </h2>
-                  <p className="hidden truncate text-xs text-slate-500 sm:inline">
-                    Visible parameters only
-                    {clientName ? ` · ${clientName}` : ''}
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                    <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-indigo-700 ring-1 ring-indigo-100">
+                      <Columns2 className="h-3 w-3" />
+                      Comparative analysis
+                    </span>
+                    <h2
+                      id="comparative-analysis-title"
+                      className="truncate text-sm font-semibold tracking-tight text-slate-900 sm:text-base"
+                    >
+                      {jobTitle ? `Shortlisted — ${jobTitle}` : 'Shortlisted candidates'}
+                    </h2>
+                  </div>
+                  <p className="mt-0.5 truncate text-[11px] leading-4 text-slate-500 sm:text-xs">
+                    Only visible shared parameters are compared
+                    {clientName ? ` for ${clientName}` : ''}. Toggle candidates to change columns.
                   </p>
                 </div>
                 <button
@@ -385,7 +387,7 @@ export function ClientReviewComparativeAnalysisDrawer({
             </header>
 
             {rows.length > 1 ? (
-              <div className="relative z-10 shrink-0 border-b border-slate-200/80 bg-white/80 px-4 py-2 sm:px-6 lg:px-8">
+              <div className="relative z-10 shrink-0 border-b border-slate-200/80 bg-white/70 px-4 py-2 backdrop-blur sm:px-6 lg:px-8">
                 <div className="flex w-full flex-wrap gap-1.5">
                   {rows.map((row) => {
                     const active = selectedIds.includes(row.matchId);

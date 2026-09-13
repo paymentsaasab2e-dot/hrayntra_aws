@@ -7,6 +7,11 @@ import {
   interviewRescheduledTemplate,
   interviewScheduledTemplate,
 } from '../utils/emailTemplates.js';
+import {
+  buildInterviewRsvpPublicUrls,
+  shouldShowJoinInterviewCta,
+} from '../modules/interview/interviewRsvpLinks.js';
+import { getActiveTenantDbName } from '../config/prisma.js';
 import logger from '../utils/logger.js';
 
 let transporter;
@@ -51,6 +56,19 @@ const sendMail = async ({ to, subject, html }) => {
 export const sendInterviewScheduled = async (candidate, interview, panelMembers) => {
   const jobTitle = interview.job?.title || 'Interview';
   const subject = `Interview Scheduled: ${jobTitle}`;
+  const showJoinCta = shouldShowJoinInterviewCta({
+    meetingLink: interview.meetingLink,
+    mode: interview.mode,
+    type: interview.type,
+  });
+  let rsvpLinks = null;
+  try {
+    if (interview?.id) {
+      rsvpLinks = buildInterviewRsvpPublicUrls(interview.id, getActiveTenantDbName());
+    }
+  } catch (err) {
+    console.warn('[email] interview RSVP links failed', err?.message || err);
+  }
   const html = interviewScheduledTemplate({
     candidateName: `${candidate.firstName} ${candidate.lastName}`.trim(),
     jobTitle,
@@ -60,6 +78,10 @@ export const sendInterviewScheduled = async (candidate, interview, panelMembers)
     timezone: interview.timezone,
     meetingLink: interview.meetingLink,
     panelNames: panelMembers.map((member) => member.user.name),
+    showJoinCta,
+    rsvpLinks,
+    location: interview.location,
+    modeLabel: interview.mode,
   });
 
   // Candidate email without client details.
@@ -80,6 +102,10 @@ export const sendInterviewScheduled = async (candidate, interview, panelMembers)
     timezone: interview.timezone,
     meetingLink: interview.meetingLink,
     panelNames: panelMembers.map((member) => member.user.name),
+    showJoinCta,
+    rsvpLinks: null,
+    location: interview.location,
+    modeLabel: interview.mode,
   });
   const panelMails = panelMembers
     .map((member) => member.user?.email)

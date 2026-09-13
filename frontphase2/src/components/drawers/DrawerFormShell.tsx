@@ -1,6 +1,7 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import { X, type LucideIcon } from 'lucide-react';
 import {
@@ -77,6 +78,8 @@ function sanitizePanelClassName(panelClassName?: string): string {
     .trim();
 }
 
+const EASE_OUT = [0.22, 1, 0.36, 1] as const;
+
 export function DrawerFormShell({
   isOpen,
   onClose,
@@ -87,7 +90,7 @@ export function DrawerFormShell({
   footer,
   panelClassName,
   contentClassName,
-  backdropClassName = 'fixed inset-0 bg-slate-900/45 backdrop-blur-[2px]',
+  backdropClassName = 'absolute inset-0 bg-slate-900/45 backdrop-blur-[2px]',
   zBackdrop = 60,
   zPanel = 70,
   guardUnsaved = true,
@@ -99,6 +102,11 @@ export function DrawerFormShell({
     enabled: guardUnsaved,
     isDirty,
   });
+
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Ignore the same click that opened the modal (mouseup/click landing on backdrop).
   const allowBackdropCloseRef = useRef(false);
@@ -115,35 +123,38 @@ export function DrawerFormShell({
   }, [isOpen]);
 
   const cleanedPanelClass = sanitizePanelClassName(panelClassName);
+  const overlayZ = Math.max(zBackdrop, zPanel);
 
   const handleBackdropClose = () => {
     if (!allowBackdropCloseRef.current) return;
     void requestClose();
   };
 
-  return (
+  const overlay = (
     <AnimatePresence>
       {isOpen ? (
-        <>
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={handleBackdropClose}
-            className={`${backdropClassName} pointer-events-auto`}
-            style={{ zIndex: zBackdrop }}
-            data-drawer-skip-dirty="true"
-          />
+        <motion.div
+          key="drawer-form-overlay"
+          className="fixed inset-0"
+          style={{ zIndex: overlayZ }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.18, ease: EASE_OUT }}
+        >
           <div
-            className="pointer-events-none fixed inset-0 flex items-center justify-center p-4 sm:p-6"
-            style={{ zIndex: zPanel }}
-          >
+            className={`${backdropClassName} pointer-events-auto`}
+            onClick={handleBackdropClose}
+            data-drawer-skip-dirty="true"
+            aria-hidden
+          />
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-4 sm:p-6">
             <motion.aside
               ref={panelRef}
-              initial={{ opacity: 0, scale: 0.96, y: 12 }}
+              initial={{ opacity: 0, scale: 0.98, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.96, y: 12 }}
-              transition={{ type: 'spring', damping: 28, stiffness: 320 }}
+              exit={{ opacity: 0, scale: 0.98, y: 8 }}
+              transition={{ duration: 0.2, ease: EASE_OUT }}
               className={`${DRAWER_FORM_PANEL_CLASS} ${cleanedPanelClass}`.trim()}
               role="dialog"
               aria-modal="true"
@@ -182,8 +193,11 @@ export function DrawerFormShell({
               </DrawerFormRequestCloseContext.Provider>
             </motion.aside>
           </div>
-        </>
+        </motion.div>
       ) : null}
     </AnimatePresence>
   );
+
+  if (!mounted || typeof document === 'undefined') return null;
+  return createPortal(overlay, document.body);
 }

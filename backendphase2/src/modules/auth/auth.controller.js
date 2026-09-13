@@ -90,6 +90,12 @@ export const authController = {
       await runWithTenantContext(tenantDbName || payload?.tenantDbName || '', async () => {
         if (finalize) {
           await sessionService.finalizeBrowserLogout(String(payload.userId), sessionId);
+        } else if (
+          req.query?.cancel === '1' ||
+          req.query?.cancel === 'true' ||
+          req.query?.cancel === 'yes'
+        ) {
+          await sessionService.clearSessionCloseIntent(String(payload.userId), sessionId);
         } else {
           await sessionService.markSessionCloseIntent(String(payload.userId), sessionId);
         }

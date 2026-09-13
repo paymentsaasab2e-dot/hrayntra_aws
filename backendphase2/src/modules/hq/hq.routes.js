@@ -146,6 +146,11 @@ router.post(
   authMiddleware,
   hqController.pushEligibleJobsToExternalFeeds,
 );
+router.post(
+  '/portal/jobs/sync-to-phase1',
+  authMiddleware,
+  hqController.syncTenantJobsToPhase1,
+);
 router.get('/candidates', authMiddleware, hqController.listAllCandidates);
 router.get('/kyc-interviewers', authMiddleware, hqController.listKycInterviewers);
 router.post('/kyc-interviewers/:id/verify', authMiddleware, hqController.verifyKycInterviewer);

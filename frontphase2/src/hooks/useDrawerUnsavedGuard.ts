@@ -74,9 +74,11 @@ export function useDrawerUnsavedGuard<T extends HTMLElement = HTMLElement>(
     trackInteractions = true,
   } = options;
 
-  const [panelEl, setPanelEl] = useState<T | null>(null);
+  // Keep panel node in a ref only — never setState from the ref callback.
+  // setState-on-mount was re-rendering mid open/close animation (visible flick).
+  const panelNodeRef = useRef<T | null>(null);
   const panelRef = useCallback((node: T | null) => {
-    setPanelEl(node);
+    panelNodeRef.current = node;
   }, []);
   const [interactionDirty, setInteractionDirty] = useState(false);
   const onCloseRef = useRef(onClose);
@@ -87,20 +89,40 @@ export function useDrawerUnsavedGuard<T extends HTMLElement = HTMLElement>(
   }, [isOpen]);
 
   useEffect(() => {
-    if (!isOpen || !enabled || !trackInteractions || !panelEl) return;
+    if (!isOpen || !enabled || !trackInteractions) return;
+
+    let cancelled = false;
+    let panelEl: T | null = null;
+    let tries = 0;
 
     const mark = (event: Event) => {
       if (isSkipDirtyTarget(event.target)) return;
       setInteractionDirty(true);
     };
 
-    panelEl.addEventListener('input', mark, true);
-    panelEl.addEventListener('change', mark, true);
-    return () => {
-      panelEl.removeEventListener('input', mark, true);
-      panelEl.removeEventListener('change', mark, true);
+    const attach = () => {
+      if (cancelled) return;
+      panelEl = panelNodeRef.current;
+      if (!panelEl) {
+        if (tries++ < 20) {
+          window.setTimeout(attach, 16);
+        }
+        return;
+      }
+      panelEl.addEventListener('input', mark, true);
+      panelEl.addEventListener('change', mark, true);
     };
-  }, [isOpen, enabled, trackInteractions, panelEl]);
+
+    // Defer past the open animation frame so we don't interrupt it.
+    const startId = window.setTimeout(attach, 50);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(startId);
+      panelEl?.removeEventListener('input', mark, true);
+      panelEl?.removeEventListener('change', mark, true);
+    };
+  }, [isOpen, enabled, trackInteractions]);
 
   const isDirty = Boolean(explicitDirty) || interactionDirty;
   const isDirtyRef = useRef(isDirty);

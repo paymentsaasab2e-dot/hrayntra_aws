@@ -915,4 +915,116 @@ export const hqPortalService = {
       },
     };
   },
+
+  /**
+   * HQ: push selected Phase 2 tenant jobs into the Phase 1 job portal mirror.
+   * Body jobs: [{ tenantDbName, jobId }]
+   */
+  async syncTenantJobsToPhase1({ jobs = [] } = {}) {
+    const items = (Array.isArray(jobs) ? jobs : [])
+      .map((row) => ({
+        tenantDbName: String(row?.tenantDbName || '').trim(),
+        jobId: String(row?.jobId || row?.id || '').trim(),
+      }))
+      .filter((row) => row.tenantDbName && row.jobId);
+
+    if (!items.length) {
+      throw Object.assign(new Error('Select at least one tenant job to sync'), { statusCode: 400 });
+    }
+
+    const byTenant = new Map();
+    for (const item of items) {
+      if (!byTenant.has(item.tenantDbName)) byTenant.set(item.tenantDbName, []);
+      byTenant.get(item.tenantDbName).push(item.jobId);
+    }
+
+    const results = [];
+    let synced = 0;
+    let failed = 0;
+
+    for (const [tenantDbName, jobIds] of byTenant.entries()) {
+      try {
+        await runWithTenantContext(tenantDbName, async () => {
+          for (const jobId of [...new Set(jobIds)]) {
+            try {
+              const job = await prisma.job.findUnique({
+                where: { id: jobId },
+                select: {
+                  id: true,
+                  title: true,
+                  isDeleted: true,
+                  distributionPlatforms: true,
+                },
+              });
+              if (!job || job.isDeleted) {
+                failed += 1;
+                results.push({
+                  tenantDbName,
+                  jobId,
+                  ok: false,
+                  error: 'Job not found in tenant',
+                });
+                continue;
+              }
+
+              const prev =
+                job.distributionPlatforms && typeof job.distributionPlatforms === 'object'
+                  ? { ...job.distributionPlatforms }
+                  : {};
+              const nextPlatforms = {
+                ...prev,
+                hryantra: true,
+                hryantra_job_board: true,
+              };
+
+              await prisma.job.update({
+                where: { id: jobId },
+                data: { distributionPlatforms: nextPlatforms },
+              });
+
+              await refreshJobPortalMirror(jobId);
+              synced += 1;
+              results.push({
+                tenantDbName,
+                jobId,
+                title: job.title,
+                ok: true,
+              });
+            } catch (error) {
+              failed += 1;
+              results.push({
+                tenantDbName,
+                jobId,
+                ok: false,
+                error: error?.message || 'Sync failed',
+              });
+            }
+          }
+        });
+      } catch (error) {
+        for (const jobId of jobIds) {
+          failed += 1;
+          results.push({
+            tenantDbName,
+            jobId,
+            ok: false,
+            error: error?.message || `Tenant ${tenantDbName} unavailable`,
+          });
+        }
+      }
+    }
+
+    try {
+      await invalidatePortalJobsListCache();
+    } catch (error) {
+      console.warn('[hq-portal] portal cache invalidate failed:', error?.message || error);
+    }
+
+    return {
+      requested: items.length,
+      synced,
+      failed,
+      results,
+    };
+  },
 };
