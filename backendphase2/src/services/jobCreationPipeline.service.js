@@ -22,6 +22,94 @@ import {
 
 const TEXT_CAP = 22000;
 
+function stripHtmlApprox(html) {
+  return String(html || '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function escapeHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function inlineMarkdown(escaped) {
+  return escaped
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/__(.+?)__/g, '<strong>$1</strong>')
+    .replace(/(^|[^*])\*(?!\*)(.+?)\*(?!\*)/g, '$1<em>$2</em>');
+}
+
+/** Convert pasted plain/markdown JD into HTML when AI shortens the description. */
+function plainTextToJobDescriptionHtml(text) {
+  const raw = String(text || '').replace(/\r\n/g, '\n').trim();
+  if (!raw) return '';
+  if (/<[a-z][\s\S]*>/i.test(raw) && /<\/[a-z][a-z0-9]*>/i.test(raw)) return raw;
+
+  const lines = raw.split('\n');
+  const out = [];
+  let listType = null;
+  const closeList = () => {
+    if (!listType) return;
+    out.push(`</${listType}>`);
+    listType = null;
+  };
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      closeList();
+      continue;
+    }
+    const heading = trimmed.match(/^(#{1,4})\s+(.+)$/);
+    if (heading) {
+      closeList();
+      const level = Math.min(heading[1].length + 1, 4);
+      out.push(`<h${level}>${inlineMarkdown(escapeHtml(heading[2]))}</h${level}>`);
+      continue;
+    }
+    const boldHeading = trimmed.match(/^\*\*(.+?)\*\*:?$/);
+    if (boldHeading && boldHeading[1].length < 80) {
+      closeList();
+      out.push(`<h3>${inlineMarkdown(escapeHtml(boldHeading[1]))}</h3>`);
+      continue;
+    }
+    const bullet = trimmed.match(/^([-*•]|\d+[.)])\s+(.+)$/);
+    if (bullet) {
+      const nextType = /^\d+[.)]/.test(bullet[1]) ? 'ol' : 'ul';
+      if (listType !== nextType) {
+        closeList();
+        out.push(`<${nextType}>`);
+        listType = nextType;
+      }
+      out.push(`<li>${inlineMarkdown(escapeHtml(bullet[2]))}</li>`);
+      continue;
+    }
+    closeList();
+    out.push(`<p>${inlineMarkdown(escapeHtml(trimmed))}</p>`);
+  }
+  closeList();
+  return out.join('\n');
+}
+
+function preferFullSourceJobDescription(merged, sourceText) {
+  const source = String(sourceText || '').trim();
+  if (source.length < 200) return merged;
+  const aiPlain = stripHtmlApprox(merged?.jobDescriptionHtml);
+  if (!aiPlain || aiPlain.length < Math.floor(source.length * 0.85)) {
+    return {
+      ...merged,
+      jobDescriptionHtml: plainTextToJobDescriptionHtml(source),
+    };
+  }
+  return merged;
+}
+
 function logStageBanner(stage, title) {
   console.log(`\n${'='.repeat(80)}`);
   console.log(`[${JOB_CREATION_PIPELINE_NAME}] Stage ${stage} — ${title}`);
@@ -102,14 +190,15 @@ async function extractJobStructuredWithAi(cleanedText, currentForm = {}, options
   }
 
   const sourceText = String(cleanedText || '').trim();
+  // Long pasted JDs are documents — extract fields, don't rewrite the whole posting as a short prompt.
   const isNaturalLanguagePrompt =
-    options.source === 'prompt' || (sourceText.length > 0 && sourceText.length < 2500);
+    options.source === 'prompt' && sourceText.length > 0 && sourceText.length < 1200;
 
   const completion = await chatCompletionWithFallback(
     {
       model: env.OPENAI_CHAT_MODEL,
       temperature: 0.2,
-      max_tokens: 2800,
+      max_tokens: 6000,
       response_format: {
         type: 'json_schema',
         json_schema: jobCreationJsonSchema,
@@ -119,7 +208,7 @@ async function extractJobStructuredWithAi(cleanedText, currentForm = {}, options
           role: 'system',
           content: isNaturalLanguagePrompt
             ? 'You are an ATS job creation assistant. Extract ALL Add Job form fields from a recruiter\'s short instruction. jobTitle must be a short role name only (no method parentheses). Never invent location, salary, or country — use only what the user explicitly states. Never put language preferences into city/location. Generate rich description, skills, and responsibilities for the role. Return only valid JSON matching the schema.'
-            : 'You are an ATS job creation assistant. Extract job posting fields from document text for an Add Job form. jobTitle must be short and clean (role ± domain only; drop parenthetical methods). Location fields must be real places, never language requirements. Do not ask questions. Return only valid JSON matching the schema.',
+            : 'You are an ATS job creation assistant. Extract job posting fields from document text for an Add Job form. jobTitle must be short and clean (role ± domain only; drop parenthetical methods). Location fields must be real places, never language requirements. Preserve the full job description content in jobDescriptionHtml — do not summarize or shorten. Do not ask questions. Return only valid JSON matching the schema.',
         },
         {
           role: 'user',
@@ -183,8 +272,11 @@ export async function processJobCreationPipeline(file, options = {}) {
   }
 
   logStageBanner(6, 'Validate + Merge');
-  const merged = enrichJobFieldsAfterMerge(
-    mergeJobAiWithFallback(ai || {}, fallbackData, textStage.cleaned),
+  const merged = preferFullSourceJobDescription(
+    enrichJobFieldsAfterMerge(
+      mergeJobAiWithFallback(ai || {}, fallbackData, textStage.cleaned),
+    ),
+    textStage.cleaned,
   );
   const normalized = normalizeJobPipelineOutput(merged, clients);
 
@@ -261,7 +353,10 @@ export async function processJobCreationFromPrompt(promptText, options = {}) {
   }
 
   logStageBanner(6, 'Validate + Merge');
-  const merged = enrichJobFieldsAfterMerge(mergeJobAiWithFallback(ai || {}, fallbackData, cleaned));
+  const merged = preferFullSourceJobDescription(
+    enrichJobFieldsAfterMerge(mergeJobAiWithFallback(ai || {}, fallbackData, cleaned)),
+    cleaned,
+  );
   const normalized = normalizeJobPipelineOutput(merged, clients);
 
   logStageBanner(7, 'Response payload (prompt)');

@@ -1,10 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import { Briefcase, DollarSign, FileText, GraduationCap, Link2 } from 'lucide-react';
+import { Briefcase, Banknote, FileText, GraduationCap, Link2 } from 'lucide-react';
 import { formatDateDMY } from '../../utils/dateDisplay';
 import { formatIndustriesDisplay } from '../../lib/industryOptions';
-import { formatJobSalaryAmountPrefix, formatJobSalaryCurrencyLabel, stripJobSalaryCurrencyCodePrefix } from '../../constants/jobSalary';
+import { formatJobSalaryCurrencyLabel, formatJobSalaryDisplay } from '../../constants/jobSalary';
 import { DrawerSectionCard } from './drawerFormUi';
 import type { JobForDrawer } from './JobDetailsDrawer';
 
@@ -145,15 +145,13 @@ export function JobOverviewTabContent({ job }: JobOverviewTabContentProps) {
   const currencySymbol = job.salaryCurrency
     ? formatJobSalaryCurrencyLabel(job.salaryCurrency, job.salaryCurrencySymbol)
     : '';
-  const salaryPrefix = formatJobSalaryAmountPrefix(job.salaryCurrency, job.salaryCurrencySymbol);
-  const salaryRangeDisplay = (() => {
-    const hasMin = job.minSalary !== undefined && job.minSalary !== null;
-    const hasMax = job.maxSalary !== undefined && job.maxSalary !== null;
-    if (hasMin && hasMax) return `${salaryPrefix}${job.minSalary} - ${job.maxSalary}`.trim();
-    if (hasMin) return `${salaryPrefix}${job.minSalary}`.trim();
-    if (hasMax) return `${salaryPrefix}${job.maxSalary}`.trim();
-    return stripJobSalaryCurrencyCodePrefix(job.salaryRange, job.salaryCurrency);
-  })();
+  const salaryRangeDisplay = formatJobSalaryDisplay({
+    currency: job.salaryCurrency,
+    currencySymbol: job.salaryCurrencySymbol,
+    min: job.minSalary,
+    max: job.maxSalary,
+    salaryRange: job.salaryRange,
+  });
 
   const screeningQuestionCount = Array.isArray(job.applicationFormQuestions)
     ? job.applicationFormQuestions.filter((q) => String(q || '').trim()).length
@@ -248,7 +246,7 @@ export function JobOverviewTabContent({ job }: JobOverviewTabContentProps) {
       <DrawerSectionCard
         title="Compensation"
         subtitle="Salary range, currency, and benefits"
-        icon={DollarSign}
+        icon={Banknote}
         accent="emerald"
         collapsible
         open={openSections.compensation}

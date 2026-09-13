@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Eye, EyeOff, Linkedin, Loader2, Mail, Save, Send } from 'lucide-react';
+import { Eye, EyeOff, Layers, Linkedin, Loader2, Mail, Save, Send } from 'lucide-react';
 import { toast } from 'sonner';
 import { PublicVisibilityToggle } from '../forms/PublicVisibilityToggle';
 import { SubmitToClientMailTemplateSettings } from './SubmitToClientMailTemplateSettings';
@@ -35,10 +35,12 @@ import {
   loadSubmitToClientVisibilityDefaults,
   readCachedSubmitToClientVisibilityDefaults,
   saveSubmitToClientVisibilityDefaults,
+  stagesDefaultsEqual,
   subscribeSubmitToClientVisibilityDefaultsChanged,
 } from '../../lib/submitToClientFieldVisibilityDefaults';
 import { SettingsPageHero, SettingsPanel } from './SettingsPageHero';
 import { LinkedInPublishingDefaultsPanel } from '../jobs/LinkedInPublishingDefaultsPanel';
+import { ClientPreviewStagesPicker } from './ClientPreviewStagesPicker';
 
 export function PublicVisibilitySettings() {
   const cached = readCachedJobVisibilityUserDefaults();
@@ -53,9 +55,22 @@ export function PublicVisibilitySettings() {
   const [savedSubmitVisibility, setSavedSubmitVisibility] = useState<SubmitToClientFieldVisibility>(
     cachedSubmit.visibility,
   );
+  const [allowedClientStages, setAllowedClientStages] = useState<string[]>(
+    cachedSubmit.allowedClientStages,
+  );
+  const [clientStageCatalog, setClientStageCatalog] = useState<string[]>(
+    cachedSubmit.clientStageCatalog,
+  );
+  const [savedAllowedClientStages, setSavedAllowedClientStages] = useState<string[]>(
+    cachedSubmit.allowedClientStages,
+  );
+  const [savedClientStageCatalog, setSavedClientStageCatalog] = useState<string[]>(
+    cachedSubmit.clientStageCatalog,
+  );
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [submitSaving, setSubmitSaving] = useState(false);
+  const [stagesSaving, setStagesSaving] = useState(false);
   const [submitTab, setSubmitTab] = useState<'visible' | 'hidden'>('visible');
 
   const current = mergeClientVisibility(
@@ -82,10 +97,16 @@ export function PublicVisibilitySettings() {
       if (cancelled) return;
       setSubmitVisibility(defaults.visibility);
       setSavedSubmitVisibility(defaults.visibility);
+      setAllowedClientStages(defaults.allowedClientStages);
+      setClientStageCatalog(defaults.clientStageCatalog);
+      setSavedAllowedClientStages(defaults.allowedClientStages);
+      setSavedClientStageCatalog(defaults.clientStageCatalog);
     });
     const unsubscribeSubmit = subscribeSubmitToClientVisibilityDefaultsChanged((defaults) => {
       if (cancelled) return;
       setSavedSubmitVisibility(defaults.visibility);
+      setSavedAllowedClientStages(defaults.allowedClientStages);
+      setSavedClientStageCatalog(defaults.clientStageCatalog);
     });
     return () => {
       cancelled = true;
@@ -105,7 +126,24 @@ export function PublicVisibilitySettings() {
     [submitVisibility, savedSubmitVisibility],
   );
 
-  const pageMatchesSaved = matchesSaved && submitMatchesSaved;
+  const stagesMatchSaved = useMemo(
+    () =>
+      stagesDefaultsEqual(
+        { allowedClientStages, clientStageCatalog },
+        {
+          allowedClientStages: savedAllowedClientStages,
+          clientStageCatalog: savedClientStageCatalog,
+        },
+      ),
+    [
+      allowedClientStages,
+      clientStageCatalog,
+      savedAllowedClientStages,
+      savedClientStageCatalog,
+    ],
+  );
+
+  const pageMatchesSaved = matchesSaved && submitMatchesSaved && stagesMatchSaved;
 
   const hiddenCount = useMemo(
     () => JOB_PUBLIC_VISIBILITY_FIELDS.filter((field) => current[field] === false).length,
@@ -157,9 +195,14 @@ export function PublicVisibilitySettings() {
     try {
       const next = await saveSubmitToClientVisibilityDefaults(
         parseSubmitToClientFieldVisibility(submitVisibility),
+        { allowedClientStages, clientStageCatalog },
       );
       setSubmitVisibility(next.visibility);
       setSavedSubmitVisibility(next.visibility);
+      setAllowedClientStages(next.allowedClientStages);
+      setClientStageCatalog(next.clientStageCatalog);
+      setSavedAllowedClientStages(next.allowedClientStages);
+      setSavedClientStageCatalog(next.clientStageCatalog);
       if (notify) toast.success('Submit to Client visibility saved');
     } catch (error) {
       toast.error(
@@ -168,6 +211,28 @@ export function PublicVisibilitySettings() {
       throw error;
     } finally {
       setSubmitSaving(false);
+    }
+  };
+
+  const persistStages = async ({ notify }: { notify: boolean }) => {
+    setStagesSaving(true);
+    try {
+      const next = await saveSubmitToClientVisibilityDefaults(
+        parseSubmitToClientFieldVisibility(submitVisibility),
+        { allowedClientStages, clientStageCatalog },
+      );
+      setSubmitVisibility(next.visibility);
+      setSavedSubmitVisibility(next.visibility);
+      setAllowedClientStages(next.allowedClientStages);
+      setClientStageCatalog(next.clientStageCatalog);
+      setSavedAllowedClientStages(next.allowedClientStages);
+      setSavedClientStageCatalog(next.clientStageCatalog);
+      if (notify) toast.success('Client stages saved');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not save client stages');
+      throw error;
+    } finally {
+      setStagesSaving(false);
     }
   };
 
@@ -208,10 +273,19 @@ export function PublicVisibilitySettings() {
     }
   };
 
+  const handleSaveStages = async () => {
+    if (stagesMatchSaved || stagesSaving) return;
+    try {
+      await persistStages({ notify: true });
+    } catch {
+      /* persistStages already toasts */
+    }
+  };
+
   const handleSave = async () => {
-    if (pageMatchesSaved || saving || submitSaving) return;
+    if (pageMatchesSaved || saving || submitSaving || stagesSaving) return;
     const jobsDirty = !matchesSaved;
-    const submitDirty = !submitMatchesSaved;
+    const submitDirty = !submitMatchesSaved || !stagesMatchSaved;
     try {
       if (jobsDirty) await persist(current, showClientNamePublicly, { notify: false });
       if (submitDirty) await persistSubmit({ notify: false });
@@ -246,10 +320,10 @@ export function PublicVisibilitySettings() {
           <button
             type="button"
             onClick={() => void handleSave()}
-            disabled={pageMatchesSaved || saving || submitSaving || loading}
+            disabled={pageMatchesSaved || saving || submitSaving || stagesSaving || loading}
             className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-indigo-500/30 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {saving || submitSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            {saving || submitSaving || stagesSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
             {pageMatchesSaved ? 'Saved' : 'Save'}
           </button>
         }
@@ -409,6 +483,37 @@ export function PublicVisibilitySettings() {
               ))
             )}
           </div>
+        )}
+      </SettingsPanel>
+
+      <SettingsPanel
+        title="Stages shown to client"
+        description="Pick which pipeline stages appear when Change stage is enabled on a Submit to Client link. These defaults apply automatically every time you generate a client preview."
+        icon={<Layers className="h-4 w-4 text-indigo-600" />}
+        actions={
+          <button
+            type="button"
+            onClick={() => void handleSaveStages()}
+            disabled={stagesMatchSaved || stagesSaving || loading}
+            className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-3 py-2 text-xs font-semibold text-white shadow-md shadow-indigo-500/20 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {stagesSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+            {stagesMatchSaved ? 'Saved' : 'Save'}
+          </button>
+        }
+      >
+        {loading ? (
+          <div className="h-40 animate-pulse rounded-2xl bg-slate-100" />
+        ) : (
+          <ClientPreviewStagesPicker
+            allowedClientStages={allowedClientStages}
+            clientStageCatalog={clientStageCatalog}
+            disabled={stagesSaving}
+            onChange={({ allowedClientStages: nextAllowed, clientStageCatalog: nextCatalog }) => {
+              setAllowedClientStages(nextAllowed);
+              setClientStageCatalog(nextCatalog);
+            }}
+          />
         )}
       </SettingsPanel>
 

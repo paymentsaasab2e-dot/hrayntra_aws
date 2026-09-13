@@ -1062,7 +1062,7 @@ export function buildJobExtractionPromptInstructions(isNaturalLanguagePrompt = f
     'priority: High | Medium | Low. employmentType: Full Time | Part Time | Contract | Internship.',
     'jobLocationType: Remote | Hybrid | On-site. targetHireDate: YYYY-MM-DD or empty.',
     'Copy labeled lines exactly (Role/Job Title, Company, Openings, Location, Experience, Salary, Skills) then shorten jobTitle as above.',
-    'jobDescriptionHtml: concise HTML with h3 sections. Always include Overview, Key Responsibilities, Requirements, Preferred Qualifications, Benefits when present in the source. ALSO include any other distinct JD sections found in the source as additional h3 headings (examples: About the Company, About the Team, Nice to Have, Tools & Technologies, Interview Process, What We Offer, Day to Day). Do not invent sections that are not supported by the source text.',
+    'jobDescriptionHtml: COMPLETE HTML with h3 sections — preserve ALL content from the source JD. Never summarize, truncate, or rewrite into a short overview. Always include Overview/Job Summary, Key Responsibilities, Required Skills, Nice to Have, Qualifications, KPIs, Interview Process, Benefits, and any other distinct sections present in the source.',
     'keyResponsibilitiesText: 4–8 bullet lines (one responsibility per line, no HTML).',
     'qualificationsExperienceText: requirements + preferred education/experience (one item per line, no HTML).',
     'candidateRequirementsText: eligibility items e.g. degree, years of experience, nationality/work authorization (one per line).',

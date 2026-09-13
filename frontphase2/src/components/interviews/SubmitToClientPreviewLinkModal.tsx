@@ -1,20 +1,17 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ChevronDown, Loader2, Mail, Plus, Trash2, X } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { ChevronDown, Loader2, Mail, X } from 'lucide-react';
 import { DetailsModalShell } from '../drawers/DetailsModalShell';
 import { DrawerLinkActions } from '../drawers/DrawerLinkActions';
 import {
   apiConnectIntegration,
-  apiCreateGmailComposeDraft,
-  apiCreateOutlookComposeDraft,
   apiGetMailboxStatus,
   apiUpdateClientTracker,
   type MailboxStatusResponse,
 } from '../../lib/api';
 import {
   buildInboxComposePath,
-  buildMailboxComposeUrl,
   buildSubmitToClientMailCopy,
   connectedMailboxEmail,
   connectedMailboxProviders,
@@ -27,7 +24,6 @@ import {
   CLIENT_TRACKER_OPTION_FIELDS,
   mergeClientStageCatalog,
   normalizeAllowedClientStages,
-  stageIdFromName,
   type ClientTrackerOptionKey,
   type ClientTrackerOptions,
 } from '../../lib/clientTrackerOptions';
@@ -38,7 +34,7 @@ import {
   subscribeSubmitToClientMailTemplatesChanged,
   type SubmitToClientMailTemplate,
 } from '../../lib/submitToClientMailTemplate';
-import { appendEmailComposeSignature, bodyWithEmailSignatureToHtml, resolveComposeSignature } from '../../lib/emailComposeSignature';
+import { appendEmailComposeSignature, resolveComposeSignature } from '../../lib/emailComposeSignature';
 
 type Props = {
   isOpen: boolean;
@@ -94,8 +90,6 @@ export function SubmitToClientPreviewLinkModal({
   const [mailTemplates, setMailTemplates] = useState<SubmitToClientMailTemplate[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [fieldsSectionOpen, setFieldsSectionOpen] = useState(true);
-  const [stagesSectionOpen, setStagesSectionOpen] = useState(false);
-  const [newStageName, setNewStageName] = useState('');
   const options = trackerOptions || CLIENT_TRACKER_OPTION_DEFAULTS;
   const stageCatalog = useMemo(
     () =>
@@ -110,22 +104,18 @@ export function SubmitToClientPreviewLinkModal({
     [allowedClientStages, stageCatalog],
   );
 
-  const persistPreviewOptions = async (
-    nextOptions: ClientTrackerOptions,
-    nextStages: string[],
-    nextCatalog: Array<{ id: string; name: string }> = stageCatalog,
-  ) => {
+  const persistPreviewOptions = async (nextOptions: ClientTrackerOptions) => {
     if (!matchId || savingOptions) return;
-    const catalogNames = nextCatalog.map((row) => row.name);
+    const catalogNames = stageCatalog.map((row) => row.name);
     onTrackerOptionsChange?.(nextOptions);
-    onAllowedClientStagesChange?.(nextStages);
+    onAllowedClientStagesChange?.(selectedStages);
     onClientStageCatalogChange?.(catalogNames);
     setSavingOptions(true);
     setOptionsHint('');
     try {
       await apiUpdateClientTracker(matchId, {
         trackerOptions: nextOptions,
-        allowedClientStages: nextStages,
+        allowedClientStages: selectedStages,
         clientStageCatalog: catalogNames,
         batchMatchIds: batchMatchIds && batchMatchIds.length > 1 ? batchMatchIds : undefined,
       });
@@ -133,7 +123,7 @@ export function SubmitToClientPreviewLinkModal({
     } catch (err: unknown) {
       onTrackerOptionsChange?.(options);
       onAllowedClientStagesChange?.(selectedStages);
-      onClientStageCatalogChange?.(stageCatalog.map((row) => row.name));
+      onClientStageCatalogChange?.(catalogNames);
       setOptionsHint(err instanceof Error ? err.message : 'Could not save preview options.');
     } finally {
       setSavingOptions(false);
@@ -145,13 +135,7 @@ export function SubmitToClientPreviewLinkModal({
     setConnecting(null);
     setOptionsHint('');
     setFieldsSectionOpen(true);
-    setStagesSectionOpen(false);
   }, [reviewUrl, isOpen]);
-
-  useEffect(() => {
-    if (options.changeStage) return;
-    setStagesSectionOpen(false);
-  }, [options.changeStage]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -233,74 +217,25 @@ export function SubmitToClientPreviewLinkModal({
     const brand = provider === 'gmail' ? 'Gmail' : 'Outlook';
 
     void (async () => {
-      const sig = await resolveComposeSignature(provider);
-      const bodyWithSignature = appendEmailComposeSignature(mailCopy.body, sig.text);
-      // Prefer connected Gmail signature HTML when present; else app signature.
-      const bodyHtml = bodyWithEmailSignatureToHtml(mailCopy.body, {
-        signature: sig.text,
-        logoUrl: sig.logoUrl,
-        providerHtml: sig.providerHtml,
-      });
-
-      const openProviderDraft = async () => {
-        if (provider === 'outlook') {
-          return apiCreateOutlookComposeDraft({
-            to: clientEmail || undefined,
-            subject: mailCopy.subject,
-            body: bodyHtml,
-          });
-        }
-        return apiCreateGmailComposeDraft({
-          to: clientEmail || undefined,
-          subject: mailCopy.subject,
-          body: bodyHtml,
-        });
-      };
-
-      setMailHint(`Creating ${brand} draft with clickable links…`);
+      setMailHint(`Opening ${brand} compose in Inbox…`);
       try {
-        const draft = await openProviderDraft();
-        const openUrl = String(draft?.openUrl || draft?.webLink || '').trim();
-        if (openUrl) {
-          const opened = openMailboxComposeTab(openUrl);
-          setMailHint(
-            opened
-              ? `Opened ${brand} draft for ${draft?.email || accountEmail || 'your account'}. Links are clickable hyperlinks — review and send.`
-              : `${brand} draft created. Allow pop-ups to open it, or open Drafts in ${brand}.`,
-          );
-          return;
-        }
-        throw new Error(`No ${brand} draft link returned`);
-      } catch (err: unknown) {
-        // Fallback: URL compose (plain text — Gmail/Outlook still auto-linkify bare URLs).
-        if (provider === 'gmail') {
-          const url = buildMailboxComposeUrl({
-            provider,
-            to: clientEmail,
-            subject: mailCopy.subject,
-            body: bodyWithSignature,
-            accountEmail,
-          });
-          const opened = openMailboxComposeTab(url);
-          setMailHint(
-            opened
-              ? `Opened Gmail compose (reconnect Gmail if links are not hyperlinks: ${err instanceof Error ? err.message : 'draft unavailable'}).`
-              : 'Allow pop-ups to open Gmail compose.',
-          );
-          return;
-        }
-
+        const sig = await resolveComposeSignature(provider);
+        const bodyWithSignature = appendEmailComposeSignature(mailCopy.body, sig.text);
         const draftId = stashInboxComposeDraft({
-          provider: 'outlook',
+          provider,
           to: clientEmail,
           subject: mailCopy.subject,
           body: bodyWithSignature,
         });
-        const opened = openMailboxComposeTab(buildInboxComposePath('outlook', draftId));
+        const opened = openMailboxComposeTab(buildInboxComposePath(provider, draftId));
         setMailHint(
           opened
-            ? `Could not open Outlook draft (${err instanceof Error ? err.message : 'error'}). Opened Inbox compose instead — use Open in Outlook for clickable links.`
-            : 'Allow pop-ups to open compose.',
+            ? `Opened Inbox compose for ${accountEmail || brand} in a new tab. Review and send from there.`
+            : 'Allow pop-ups to open Inbox compose in a new tab.',
+        );
+      } catch (err: unknown) {
+        setMailHint(
+          err instanceof Error ? err.message : `Could not open ${brand} compose in Inbox.`,
         );
       }
     })();
@@ -321,69 +256,7 @@ export function SubmitToClientPreviewLinkModal({
 
   const toggleTrackerOption = async (key: ClientTrackerOptionKey) => {
     const next: ClientTrackerOptions = { ...options, [key]: !options[key] };
-    const nextStages =
-      key === 'changeStage' && next.changeStage && selectedStages.length === 0
-        ? stageCatalog.map((s) => s.name)
-        : selectedStages;
-    if (key === 'changeStage' && next.changeStage) {
-      setStagesSectionOpen(true);
-    }
-    await persistPreviewOptions(next, nextStages, stageCatalog);
-  };
-
-  const toggleAllowedStage = async (stageName: string) => {
-    if (!options.changeStage) return;
-    const exists = selectedStages.some((name) => name.toLowerCase() === stageName.toLowerCase());
-    const nextStages = exists
-      ? selectedStages.filter((name) => name.toLowerCase() !== stageName.toLowerCase())
-      : [...selectedStages, stageName];
-    if (!nextStages.length) {
-      setOptionsHint('Select at least one stage for the client.');
-      return;
-    }
-    const ordered = stageCatalog
-      .map((s) => s.name)
-      .filter((name) => nextStages.some((n) => n.toLowerCase() === name.toLowerCase()));
-    await persistPreviewOptions(options, ordered, stageCatalog);
-  };
-
-  const addCustomStage = async () => {
-    const name = newStageName.trim();
-    if (!name) return;
-    if (stageCatalog.some((row) => row.name.toLowerCase() === name.toLowerCase())) {
-      setOptionsHint('That stage already exists.');
-      return;
-    }
-    const nextCatalog = [...stageCatalog, { id: stageIdFromName(name), name }];
-    const nextStages = [...selectedStages, name];
-    setNewStageName('');
-    await persistPreviewOptions(options, nextStages, nextCatalog);
-  };
-
-  const isDefaultClientStage = useCallback((stageName: string) => {
-    const lower = String(stageName || '').trim().toLowerCase();
-    return CLIENT_PIPELINE_STAGE_CHOICES.some((row) => row.name.toLowerCase() === lower);
-  }, []);
-
-  const deleteCatalogStage = async (stageName: string) => {
-    if (isDefaultClientStage(stageName)) {
-      setOptionsHint('Default stages cannot be deleted.');
-      return;
-    }
-    if (stageCatalog.length <= 1) {
-      setOptionsHint('Keep at least one stage option.');
-      return;
-    }
-    const nextCatalog = stageCatalog.filter(
-      (row) => row.name.toLowerCase() !== stageName.toLowerCase(),
-    );
-    let nextStages = selectedStages.filter(
-      (name) => name.toLowerCase() !== stageName.toLowerCase(),
-    );
-    if (!nextStages.length) {
-      nextStages = [nextCatalog[0]!.name];
-    }
-    await persistPreviewOptions(options, nextStages, nextCatalog);
+    await persistPreviewOptions(next);
   };
 
   return (
@@ -479,185 +352,31 @@ export function SubmitToClientPreviewLinkModal({
                 {fieldsSectionOpen ? (
                 <div className="mt-3 grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
                   {CLIENT_TRACKER_OPTION_FIELDS.map((field) => (
-                    <div
+                    <label
                       key={field.id}
-                      className={field.id === 'changeStage' ? 'sm:col-span-2' : undefined}
+                      className="flex cursor-pointer items-start gap-2.5 rounded-lg px-1 py-1 hover:bg-slate-50"
                     >
-                      <label className="flex cursor-pointer items-start gap-2.5 rounded-lg px-1 py-1 hover:bg-slate-50">
-                        <input
-                          type="checkbox"
-                          checked={options[field.id]}
-                          disabled={!matchId || savingOptions}
-                          onChange={() => void toggleTrackerOption(field.id)}
-                          className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                        />
-                        <span className="text-sm text-slate-800">
-                          {field.label}
-                          {field.action ? (
-                            <span className="ml-1 text-[11px] font-medium text-slate-400">
-                              [Action]
-                            </span>
-                          ) : null}
-                          {field.hint && field.id !== 'changeStage' ? (
-                            <span className="mt-0.5 block text-[11px] font-normal leading-4 text-slate-500">
-                              {field.hint}
-                            </span>
-                          ) : null}
-                        </span>
-                      </label>
-                      {field.id === 'changeStage' && options.changeStage ? (
-                        <div className="mt-2 ml-7 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                          <button
-                            type="button"
-                            onClick={() => setStagesSectionOpen((open) => !open)}
-                            aria-expanded={stagesSectionOpen}
-                            className="flex w-full items-center justify-between gap-3 bg-slate-50/90 px-3.5 py-2.5 text-left hover:bg-slate-100/80"
-                          >
-                            <span>
-                              <span className="block text-xs font-semibold text-slate-800">
-                                Stages shown to client
-                              </span>
-                              <span className="mt-0.5 block text-[11px] text-slate-500">
-                                {selectedStages.length} of {stageCatalog.length} selected
-                                {stagesSectionOpen
-                                  ? ' · pick stages below'
-                                  : ' · open to choose stages'}
-                              </span>
-                            </span>
-                            <ChevronDown
-                              size={16}
-                              className={`shrink-0 text-slate-400 transition-transform ${
-                                stagesSectionOpen ? 'rotate-180' : ''
-                              }`}
-                            />
-                          </button>
-                          {stagesSectionOpen ? (
-                            <>
-                              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 px-3.5 py-2">
-                                <p className="text-[11px] text-slate-500">
-                                  Tick stages for the client · add custom stages below · only custom
-                                  stages can be deleted
-                                </p>
-                                <div className="flex items-center gap-1.5">
-                                  <button
-                                    type="button"
-                                    disabled={!matchId || savingOptions}
-                                    onClick={() =>
-                                      void persistPreviewOptions(
-                                        options,
-                                        stageCatalog.map((s) => s.name),
-                                        stageCatalog,
-                                      )
-                                    }
-                                    className="rounded-lg px-2 py-1 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
-                                  >
-                                    Select all
-                                  </button>
-                                  <span className="text-slate-300">·</span>
-                                  <button
-                                    type="button"
-                                    disabled={
-                                      !matchId || savingOptions || selectedStages.length <= 1
-                                    }
-                                    onClick={() => {
-                                      const first = stageCatalog[0]?.name;
-                                      if (!first) return;
-                                      void persistPreviewOptions(options, [first], stageCatalog);
-                                    }}
-                                    className="rounded-lg px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100 disabled:opacity-50"
-                                  >
-                                    Clear
-                                  </button>
-                                </div>
-                              </div>
-                              <div className="grid grid-cols-3 gap-1.5 border-t border-slate-100 p-2.5">
-                                {stageCatalog.map((stage) => {
-                                  const checked = selectedStages.some(
-                                    (name) => name.toLowerCase() === stage.name.toLowerCase(),
-                                  );
-                                  const canDelete = !isDefaultClientStage(stage.name);
-                                  return (
-                                    <div
-                                      key={stage.id}
-                                      className={`group flex min-w-0 items-center gap-1.5 rounded-xl px-2 py-1.5 transition ${
-                                        checked
-                                          ? 'bg-indigo-50 ring-1 ring-indigo-200'
-                                          : 'bg-slate-50/80 ring-1 ring-transparent hover:bg-slate-50'
-                                      }`}
-                                    >
-                                      <button
-                                        type="button"
-                                        disabled={!matchId || savingOptions}
-                                        onClick={() => void toggleAllowedStage(stage.name)}
-                                        className="flex min-w-0 flex-1 items-center gap-2 text-left disabled:opacity-60"
-                                        title={stage.name}
-                                      >
-                                        <span
-                                          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] font-bold ${
-                                            checked
-                                              ? 'border-indigo-600 bg-indigo-600 text-white'
-                                              : 'border-slate-300 bg-white text-transparent'
-                                          }`}
-                                          aria-hidden
-                                        >
-                                          ✓
-                                        </span>
-                                        <span
-                                          className={`truncate text-xs sm:text-sm ${
-                                            checked
-                                              ? 'font-semibold text-indigo-900'
-                                              : 'text-slate-700'
-                                          }`}
-                                        >
-                                          {stage.name}
-                                        </span>
-                                      </button>
-                                      {canDelete ? (
-                                        <button
-                                          type="button"
-                                          disabled={!matchId || savingOptions || stageCatalog.length <= 1}
-                                          onClick={() => void deleteCatalogStage(stage.name)}
-                                          className="shrink-0 rounded-lg p-1 text-slate-400 opacity-70 transition hover:bg-white hover:text-rose-600 group-hover:opacity-100 disabled:opacity-30"
-                                          title={`Delete ${stage.name}`}
-                                          aria-label={`Delete ${stage.name}`}
-                                        >
-                                          <Trash2 size={13} strokeWidth={2.25} />
-                                        </button>
-                                      ) : null}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                              <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 px-3 py-2.5">
-                                <input
-                                  type="text"
-                                  value={newStageName}
-                                  onChange={(e) => setNewStageName(e.target.value)}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter') {
-                                      e.preventDefault();
-                                      void addCustomStage();
-                                    }
-                                  }}
-                                  disabled={!matchId || savingOptions}
-                                  placeholder="Add a stage name…"
-                                  className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none ring-indigo-200 focus:ring-2 disabled:opacity-60"
-                                />
-                                <button
-                                  type="button"
-                                  disabled={!matchId || savingOptions || !newStageName.trim()}
-                                  onClick={() => void addCustomStage()}
-                                  className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
-                                >
-                                  <Plus size={15} strokeWidth={2.5} />
-                                  Add
-                                </button>
-                              </div>
-                            </>
-                          ) : null}
-                        </div>
-                      ) : null}
-                    </div>
+                      <input
+                        type="checkbox"
+                        checked={options[field.id]}
+                        disabled={!matchId || savingOptions}
+                        onChange={() => void toggleTrackerOption(field.id)}
+                        className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span className="text-sm text-slate-800">
+                        {field.label}
+                        {field.action ? (
+                          <span className="ml-1 text-[11px] font-medium text-slate-400">
+                            [Action]
+                          </span>
+                        ) : null}
+                        {field.hint ? (
+                          <span className="mt-0.5 block text-[11px] font-normal leading-4 text-slate-500">
+                            {field.hint}
+                          </span>
+                        ) : null}
+                      </span>
+                    </label>
                   ))}
                 </div>
                 ) : null}

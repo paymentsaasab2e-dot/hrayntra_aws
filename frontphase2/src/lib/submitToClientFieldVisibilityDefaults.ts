@@ -4,9 +4,16 @@ import {
   parseSubmitToClientFieldVisibility,
   type SubmitToClientFieldVisibility,
 } from './submitToClientFieldVisibility';
+import {
+  mergeClientStageCatalog,
+  normalizeAllowedClientStages,
+} from './clientTrackerOptions';
+import { CLIENT_PIPELINE_STAGE_CHOICES } from './clientReviewTypes';
 
 export type SubmitToClientVisibilityUserDefaults = {
   visibility: SubmitToClientFieldVisibility;
+  allowedClientStages: string[];
+  clientStageCatalog: string[];
   updatedAt: string | null;
 };
 
@@ -14,6 +21,18 @@ export const SUBMIT_TO_CLIENT_VISIBILITY_DEFAULTS_CHANGED_EVENT =
   'hrayntra:submit-to-client-visibility-defaults-changed';
 
 const STORAGE_PREFIX = 'submitToClientFieldVisibilityUserDefaults';
+
+const DEFAULT_STAGE_NAMES = CLIENT_PIPELINE_STAGE_CHOICES.map((s) => s.name);
+
+function defaultStages(): Pick<
+  SubmitToClientVisibilityUserDefaults,
+  'allowedClientStages' | 'clientStageCatalog'
+> {
+  return {
+    allowedClientStages: [...DEFAULT_STAGE_NAMES],
+    clientStageCatalog: [...DEFAULT_STAGE_NAMES],
+  };
+}
 
 export function emitSubmitToClientVisibilityDefaultsChanged(
   defaults: SubmitToClientVisibilityUserDefaults,
@@ -54,6 +73,21 @@ function storageKey(): string {
   return `${STORAGE_PREFIX}:${tenant || 'default'}:${userId || 'anon'}`;
 }
 
+function normalizeStageDefaults(raw: Record<string, unknown>): {
+  allowedClientStages: string[];
+  clientStageCatalog: string[];
+} {
+  const catalog = mergeClientStageCatalog(
+    CLIENT_PIPELINE_STAGE_CHOICES,
+    raw.clientStageCatalog ?? raw.allowedClientStages ?? DEFAULT_STAGE_NAMES,
+  );
+  const allowed = normalizeAllowedClientStages(raw.allowedClientStages, catalog, true);
+  return {
+    allowedClientStages: allowed,
+    clientStageCatalog: catalog.map((row) => row.name),
+  };
+}
+
 function normalizeDefaults(raw: unknown): SubmitToClientVisibilityUserDefaults {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
   const visibility = parseSubmitToClientFieldVisibility(
@@ -61,14 +95,16 @@ function normalizeDefaults(raw: unknown): SubmitToClientVisibilityUserDefaults {
       ? source.fieldVisibility
       : source,
   );
+  const stages = normalizeStageDefaults(source);
   const updatedAt = typeof source.updatedAt === 'string' && source.updatedAt.trim() ? source.updatedAt : null;
-  return { visibility, updatedAt };
+  return { visibility, ...stages, updatedAt };
 }
 
 export function readCachedSubmitToClientVisibilityDefaults(): SubmitToClientVisibilityUserDefaults {
   if (typeof window === 'undefined') {
     return {
       visibility: { ...DEFAULT_SUBMIT_TO_CLIENT_FIELD_VISIBILITY },
+      ...defaultStages(),
       updatedAt: null,
     };
   }
@@ -77,6 +113,7 @@ export function readCachedSubmitToClientVisibilityDefaults(): SubmitToClientVisi
     if (!parsed) {
       return {
         visibility: { ...DEFAULT_SUBMIT_TO_CLIENT_FIELD_VISIBILITY },
+        ...defaultStages(),
         updatedAt: null,
       };
     }
@@ -84,6 +121,7 @@ export function readCachedSubmitToClientVisibilityDefaults(): SubmitToClientVisi
   } catch {
     return {
       visibility: { ...DEFAULT_SUBMIT_TO_CLIENT_FIELD_VISIBILITY },
+      ...defaultStages(),
       updatedAt: null,
     };
   }
@@ -98,6 +136,8 @@ export function writeCachedSubmitToClientVisibilityDefaults(
       storageKey(),
       JSON.stringify({
         fieldVisibility: defaults.visibility,
+        allowedClientStages: defaults.allowedClientStages,
+        clientStageCatalog: defaults.clientStageCatalog,
         updatedAt: defaults.updatedAt,
       }),
     );
@@ -123,25 +163,53 @@ export async function loadSubmitToClientVisibilityDefaults(): Promise<SubmitToCl
   }
 }
 
-export function saveSubmitToClientVisibilityDefaultsLocal(
-  visibility: SubmitToClientFieldVisibility,
-): SubmitToClientVisibilityUserDefaults {
-  const payload = {
-    fieldVisibility: parseSubmitToClientFieldVisibility(visibility),
+export function stagesDefaultsEqual(
+  a: Pick<SubmitToClientVisibilityUserDefaults, 'allowedClientStages' | 'clientStageCatalog'>,
+  b: Pick<SubmitToClientVisibilityUserDefaults, 'allowedClientStages' | 'clientStageCatalog'>,
+): boolean {
+  const norm = (list: string[]) => list.map((s) => s.trim().toLowerCase()).filter(Boolean).join('\0');
+  return (
+    norm(a.allowedClientStages) === norm(b.allowedClientStages) &&
+    norm(a.clientStageCatalog) === norm(b.clientStageCatalog)
+  );
+}
+
+export function saveSubmitToClientVisibilityDefaultsLocal(payload: {
+  visibility: SubmitToClientFieldVisibility;
+  allowedClientStages?: string[];
+  clientStageCatalog?: string[];
+}): SubmitToClientVisibilityUserDefaults {
+  const cached = readCachedSubmitToClientVisibilityDefaults();
+  const stages = normalizeStageDefaults({
+    allowedClientStages: payload.allowedClientStages ?? cached.allowedClientStages,
+    clientStageCatalog: payload.clientStageCatalog ?? cached.clientStageCatalog,
+  });
+  const next = normalizeDefaults({
+    fieldVisibility: parseSubmitToClientFieldVisibility(payload.visibility),
+    ...stages,
     updatedAt: new Date().toISOString(),
-  };
-  const optimistic = normalizeDefaults(payload);
-  writeCachedSubmitToClientVisibilityDefaults(optimistic);
-  emitSubmitToClientVisibilityDefaultsChanged(optimistic);
-  return optimistic;
+  });
+  writeCachedSubmitToClientVisibilityDefaults(next);
+  emitSubmitToClientVisibilityDefaultsChanged(next);
+  return next;
 }
 
 export async function saveSubmitToClientVisibilityDefaults(
   visibility: SubmitToClientFieldVisibility,
+  stages?: {
+    allowedClientStages?: string[];
+    clientStageCatalog?: string[];
+  },
 ): Promise<SubmitToClientVisibilityUserDefaults> {
-  const optimistic = saveSubmitToClientVisibilityDefaultsLocal(visibility);
+  const optimistic = saveSubmitToClientVisibilityDefaultsLocal({
+    visibility,
+    allowedClientStages: stages?.allowedClientStages,
+    clientStageCatalog: stages?.clientStageCatalog,
+  });
   void apiSaveSubmitToClientVisibilityDefaults({
     fieldVisibility: optimistic.visibility,
+    allowedClientStages: optimistic.allowedClientStages,
+    clientStageCatalog: optimistic.clientStageCatalog,
     updatedAt: optimistic.updatedAt,
   })
     .then((res) => {

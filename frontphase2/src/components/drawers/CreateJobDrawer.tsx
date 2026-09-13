@@ -87,6 +87,10 @@ import {
   mergeDescriptionWithCustomJdSections,
   type JobCustomJdSection,
 } from '../../lib/jobCustomJdSections';
+import {
+  plainTextToJobDescriptionHtml,
+  readJdPlainFromClipboard,
+} from '../../lib/jobDescriptionHtml';
 import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 import { startAsyncLoad } from '../../lib/asyncLoadGuard';
 import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
@@ -2784,11 +2788,15 @@ export function CreateJobDrawer({
 
   const handleJobDescriptionPaste = useCallback(
     (event: React.ClipboardEvent<HTMLDivElement>) => {
-      const pastedText = event.clipboardData?.getData('text/plain')?.trim() || '';
-      // Ignore tiny snippets; auto-extract starts from 50+ chars.
+      const pastedText = readJdPlainFromClipboard(event.clipboardData);
       if (pastedText.length < 50) return;
+      event.preventDefault();
       setPastedJobDescriptionText(pastedText);
       setSmartJobError('');
+      setFormData((prev) => ({
+        ...prev,
+        jobDescriptionHtml: plainTextToJobDescriptionHtml(pastedText),
+      }));
     },
     [],
   );

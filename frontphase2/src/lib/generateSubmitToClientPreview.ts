@@ -254,10 +254,11 @@ export async function generateSubmitToClientPreview(
     throw new Error('Select at least one candidate to submit to the client.');
   }
 
-  const [{ visibility }, mailContextEarly] = await Promise.all([
+  const [visibilityDefaults, mailContextEarly] = await Promise.all([
     loadSubmitToClientVisibilityDefaults(),
     resolveClientMailContext(entries, String(entries[0]?.jobTitle || '').trim()),
   ]);
+  const { visibility } = visibilityDefaults;
   const hiddenCount = SUBMIT_TO_CLIENT_FIELDS.filter((id) => visibility[id] === false).length;
   const visibleCount = SUBMIT_TO_CLIENT_FIELDS.length - hiddenCount;
 
@@ -267,7 +268,16 @@ export async function generateSubmitToClientPreview(
 
   const batchMatchIds = prepared.map((item) => item.matchId);
   const trackerOptions = normalizeClientTrackerOptions(CLIENT_TRACKER_OPTION_DEFAULTS, true);
-  const allowedClientStages = CLIENT_PIPELINE_STAGE_CHOICES.map((s) => s.name);
+  const allowedClientStages =
+    Array.isArray(visibilityDefaults.allowedClientStages) &&
+    visibilityDefaults.allowedClientStages.length
+      ? visibilityDefaults.allowedClientStages
+      : CLIENT_PIPELINE_STAGE_CHOICES.map((s) => s.name);
+  const clientStageCatalog =
+    Array.isArray(visibilityDefaults.clientStageCatalog) &&
+    visibilityDefaults.clientStageCatalog.length
+      ? visibilityDefaults.clientStageCatalog
+      : allowedClientStages;
   const messageJobTitle =
     prepared.find((item) => item.jobTitle)?.jobTitle || mailContextEarly.jobTitle || '';
 
@@ -281,6 +291,8 @@ export async function generateSubmitToClientPreview(
       submissionType: 'INITIAL_REVIEW',
       batchMatchIds: batchMatchIds.length > 1 ? batchMatchIds : undefined,
       trackerOptions,
+      allowedClientStages,
+      clientStageCatalog,
       ...(item.entry.cvShareMode ? { cvShareMode: item.entry.cvShareMode } : {}),
     });
     return readSubmitMatchReviewUrl(submittedRaw);
@@ -305,6 +317,6 @@ export async function generateSubmitToClientPreview(
     batchMatchIds,
     trackerOptions,
     allowedClientStages,
-    clientStageCatalog: allowedClientStages,
+    clientStageCatalog,
   };
 }

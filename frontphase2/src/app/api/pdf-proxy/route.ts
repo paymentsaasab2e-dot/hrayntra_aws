@@ -1,22 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
+import { backendApiBase } from '../../../lib/sessionTransferEmailProxy';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const DEFAULT_BACKEND_BASE = 'http://localhost:5001/api/v1';
-
-function getBackendPdfProxyUrl(search: string): string {
-  const apiBase = (
-    process.env.BACKEND_INTERNAL_URL ||
-    process.env.NEXT_PUBLIC_API_URL ||
-    DEFAULT_BACKEND_BASE
-  ).replace(/\/+$/, '');
-  return `${apiBase}/pdf-proxy${search}`;
+function getBackendPdfProxyUrl(req: NextRequest, search: string): string {
+  return `${backendApiBase(req)}/pdf-proxy${search}`;
 }
 
-async function fetchPdfFromBackend(search: string): Promise<Response | null> {
-  const target = getBackendPdfProxyUrl(search);
+async function fetchPdfFromBackend(req: NextRequest, search: string): Promise<Response | null> {
+  const target = getBackendPdfProxyUrl(req, search);
   try {
     return await fetch(target, {
       cache: 'no-store',
@@ -73,6 +67,13 @@ function isAllowedS3PdfUrl(url: string): boolean {
     if (u.hostname === `${bucket}.s3.amazonaws.com`) return true;
     if (u.hostname.startsWith(`${bucket}.s3.`)) return true;
     if (u.hostname.startsWith('s3.') && u.pathname.startsWith(`/${bucket}/`)) return true;
+    // Virtual-hosted style with regional / dualstack / accelerate hosts.
+    if (
+      u.hostname === `${bucket}.s3-accelerate.amazonaws.com` ||
+      u.hostname.startsWith(`${bucket}.s3-accelerate.`)
+    ) {
+      return true;
+    }
     const pub = process.env.NEXT_PUBLIC_AWS_S3_PUBLIC_BASE_URL;
     if (pub) {
       try {
@@ -189,7 +190,7 @@ export async function GET(req: NextRequest) {
   const search = req.nextUrl.search || '';
 
   // Backend has S3 credentials — always try first (no client env vars required).
-  const backendUpstream = await fetchPdfFromBackend(search);
+  const backendUpstream = await fetchPdfFromBackend(req, search);
   if (backendUpstream?.ok) {
     return pdfProxyResponse(backendUpstream);
   }

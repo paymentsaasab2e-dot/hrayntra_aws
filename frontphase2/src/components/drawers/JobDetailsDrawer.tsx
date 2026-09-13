@@ -43,7 +43,7 @@ import {
   Paperclip,
   MapPin,
   Briefcase,
-  DollarSign,
+  Banknote,
   Send,
   Copy,
   ExternalLink,
@@ -168,7 +168,7 @@ import { EntityAuditSummary } from '../table/TableAuditCell';
 import { DrawerEntityChatTab } from './DrawerEntityChatTab';
 import { extractAuditMeta } from '../../utils/auditMeta';
 import { JobOverviewTabContent } from './JobOverviewTabContent';
-import { formatJobSalaryAmountPrefix, stripJobSalaryCurrencyCodePrefix } from '../../constants/jobSalary';
+import { formatJobSalaryDisplay } from '../../constants/jobSalary';
 import { EntityWorkspaceAlertsPanel } from '../ai/EntityWorkspaceAlertsPanel';
 import { JobAssessmentsTabContent } from '../jobs/JobAssessmentsTabContent';
 import { JobClientRemarksTab } from '../jobs/JobClientRemarksTab';
@@ -200,7 +200,7 @@ import {
   DRAWER_TABLE_TR,
 } from './drawerFormUi';
 
-/** Render salary with the same symbol prefix as create-job / LinkedIn. */
+/** Render salary with only the job's selected currency symbol (never a default $). */
 function formatJobSalaryRange(job: {
   salaryRange?: string;
   salaryCurrency?: string;
@@ -208,13 +208,13 @@ function formatJobSalaryRange(job: {
   minSalary?: number;
   maxSalary?: number;
 }): string {
-  const prefix = formatJobSalaryAmountPrefix(job.salaryCurrency, job.salaryCurrencySymbol);
-  const hasMin = job.minSalary !== undefined && job.minSalary !== null;
-  const hasMax = job.maxSalary !== undefined && job.maxSalary !== null;
-  if (hasMin && hasMax) return `${prefix}${job.minSalary} - ${job.maxSalary}`.trim();
-  if (hasMin) return `${prefix}${job.minSalary}`.trim();
-  if (hasMax) return `${prefix}${job.maxSalary}`.trim();
-  return stripJobSalaryCurrencyCodePrefix(job.salaryRange, job.salaryCurrency);
+  return formatJobSalaryDisplay({
+    currency: job.salaryCurrency,
+    currencySymbol: job.salaryCurrencySymbol,
+    min: job.minSalary,
+    max: job.maxSalary,
+    salaryRange: job.salaryRange,
+  });
 }
 
 const MAX_JOB_CV_FILE_BYTES = 25 * 1024 * 1024;
@@ -1218,9 +1218,14 @@ export function JobDetailsDrawer({
   const [submitCandidatePickerOpen, setSubmitCandidatePickerOpen] = useState(false);
   const [pickerSelectedIds, setPickerSelectedIds] = useState<string[]>([]);
   const [pickerSearch, setPickerSearch] = useState('');
+  /** When set, picker only lists these candidates (table selection). Null = show all job candidates. */
+  const [pickerScopeIds, setPickerScopeIds] = useState<string[] | null>(null);
   const [pickerCvModeById, setPickerCvModeById] = useState<Record<string, CvShareMode>>({});
   const [pickerCvMetaById, setPickerCvMetaById] = useState<Record<string, PickerCvMeta>>({});
   const [pickerCvMetaLoading, setPickerCvMetaLoading] = useState(false);
+  const pickerCvMetaByIdRef = useRef<Record<string, PickerCvMeta>>({});
+  const pickerCvMetaInFlightRef = useRef<Set<string>>(new Set());
+  pickerCvMetaByIdRef.current = pickerCvMetaById;
   const [pickerSaasaTarget, setPickerSaasaTarget] = useState<{
     id: string;
     name: string;
@@ -1241,21 +1246,83 @@ export function JobDetailsDrawer({
     onClosed: () => setSubmitClientRowId(null),
   });
 
+  const applyPickerCvMeta = useCallback((candidateId: string, candidate: BackendCandidate | null) => {
+    const meta = buildPickerCvMeta(candidate);
+    setPickerCvMetaById((prev) => ({ ...prev, [candidateId]: meta }));
+    const mode = resolveDefaultCvShareMode(candidate, meta.hasOriginal, meta.hasSaasa);
+    if (mode === 'original' || mode === 'saasa') {
+      setPickerCvModeById((prev) => ({ ...prev, [candidateId]: mode }));
+    } else if (meta.hasOriginal) {
+      setPickerCvModeById((prev) => ({ ...prev, [candidateId]: 'original' }));
+    } else if (meta.hasSaasa) {
+      setPickerCvModeById((prev) => ({ ...prev, [candidateId]: 'saasa' }));
+    }
+    return meta;
+  }, []);
+
   const refreshPickerCvMetaForCandidate = useCallback(async (candidateId: string) => {
     try {
       const candidate = extractApiData<BackendCandidate>(await apiGetCandidate(candidateId));
-      const meta = buildPickerCvMeta(candidate);
-      setPickerCvMetaById((prev) => ({
-        ...prev,
-        [candidateId]: meta,
-      }));
-      if (meta.hasSaasa) {
-        setPickerCvModeById((prev) => ({ ...prev, [candidateId]: 'saasa' }));
-      }
+      applyPickerCvMeta(candidateId, candidate);
     } catch {
       /* keep prior meta */
     }
-  }, []);
+  }, [applyPickerCvMeta]);
+
+  /** Fetch CV options and paint as each finishes (don't wait for the whole list). */
+  const loadPickerCvMetaForIds = useCallback(
+    async (ids: string[], options?: { force?: boolean }) => {
+      const uniqueIds = Array.from(new Set(ids.map((id) => String(id || '').trim()).filter(Boolean)));
+      const toFetch = uniqueIds.filter((id) => {
+        if (!options?.force && pickerCvMetaByIdRef.current[id]) return false;
+        if (pickerCvMetaInFlightRef.current.has(id)) return false;
+        return true;
+      });
+      if (!toFetch.length) {
+        setPickerCvMetaLoading(false);
+        return;
+      }
+
+      setPickerCvMetaLoading(true);
+      toFetch.forEach((id) => pickerCvMetaInFlightRef.current.add(id));
+      let pending = toFetch.length;
+
+      await Promise.all(
+        toFetch.map(async (id) => {
+          try {
+            const candidate = extractApiData<BackendCandidate>(await apiGetCandidate(id));
+            applyPickerCvMeta(id, candidate);
+          } catch {
+            setPickerCvMetaById((prev) => ({
+              ...prev,
+              [id]: {
+                hasOriginal: false,
+                hasSaasa: false,
+                hasEdited: false,
+                originalUrl: null,
+                saasaUrl: null,
+              },
+            }));
+          } finally {
+            pickerCvMetaInFlightRef.current.delete(id);
+            pending -= 1;
+            if (pending <= 0) setPickerCvMetaLoading(false);
+          }
+        }),
+      );
+      setPickerCvMetaLoading(false);
+    },
+    [applyPickerCvMeta],
+  );
+
+  const ensurePickerCvMeta = useCallback(
+    (candidateId: string) => {
+      const id = String(candidateId || '').trim();
+      if (!id) return;
+      void loadPickerCvMetaForIds([id]);
+    },
+    [loadPickerCvMetaForIds],
+  );
 
   const pickerSaasaCv = useSaasaCvAnnotations({
     candidateId: pickerSaasaTarget?.id || null,
@@ -1352,6 +1419,7 @@ export function JobDetailsDrawer({
     setSubmitClientRowId(null);
     setSubmitCandidatePickerOpen(false);
     setPickerSelectedIds([]);
+    setPickerScopeIds(null);
     setPickerSearch('');
     setPickerCvModeById({});
     setPickerCvMetaById({});
@@ -1432,13 +1500,17 @@ export function JobDetailsDrawer({
 
   const pickerCandidates = useMemo(() => {
     const query = pickerSearch.trim().toLowerCase();
-    const list = Array.isArray(displayJobCandidates) ? displayJobCandidates.filter((row) => row?.id) : [];
+    let list = Array.isArray(displayJobCandidates) ? displayJobCandidates.filter((row) => row?.id) : [];
+    if (pickerScopeIds?.length) {
+      const scope = new Set(pickerScopeIds);
+      list = list.filter((row) => scope.has(row.id));
+    }
     if (!query) return list;
     return list.filter((row) => {
       const haystack = `${row.candidateName || ''} ${row.email || ''} ${row.currentStage || ''}`.toLowerCase();
       return haystack.includes(query);
     });
-  }, [displayJobCandidates, pickerSearch]);
+  }, [displayJobCandidates, pickerScopeIds, pickerSearch]);
 
   const openSubmitCandidatePicker = useCallback(() => {
     if (!job?.id) return;
@@ -1449,47 +1521,28 @@ export function JobDetailsDrawer({
       return;
     }
     const preselected = selectedCandidateIds.filter((id) => list.some((row) => row.id === id));
-    setPickerSelectedIds(preselected.length ? preselected : list.length === 1 ? [list[0].id] : []);
+    // Table selection → only show those candidates. Header submit (none selected) → show all.
+    if (preselected.length) {
+      setPickerScopeIds(preselected);
+      setPickerSelectedIds(preselected);
+    } else {
+      setPickerScopeIds(null);
+      setPickerSelectedIds(list.length === 1 ? [list[0].id] : []);
+    }
     setPickerSearch('');
     setPickerCvModeById({});
     setPickerCvMetaById({});
+    pickerCvMetaByIdRef.current = {};
+    pickerCvMetaInFlightRef.current.clear();
     setSubmitCandidatePickerOpen(true);
 
-    const ids = list.map((row) => row.id);
-    setPickerCvMetaLoading(true);
-    void (async () => {
-      const meta: Record<string, PickerCvMeta> = {};
-      const modes: Record<string, CvShareMode> = {};
-      await Promise.all(
-        ids.map(async (id) => {
-          try {
-            const candidate = extractApiData<BackendCandidate>(await apiGetCandidate(id));
-            const built = buildPickerCvMeta(candidate);
-            meta[id] = built;
-            const mode = resolveDefaultCvShareMode(
-              candidate,
-              built.hasOriginal,
-              built.hasSaasa,
-            );
-            if (mode === 'original' || mode === 'saasa') modes[id] = mode;
-            else if (built.hasOriginal) modes[id] = 'original';
-            else if (built.hasSaasa) modes[id] = 'saasa';
-          } catch {
-            meta[id] = {
-              hasOriginal: false,
-              hasSaasa: false,
-              hasEdited: false,
-              originalUrl: null,
-              saasaUrl: null,
-            };
-          }
-        }),
-      );
-      setPickerCvMetaById(meta);
-      setPickerCvModeById(modes);
-      setPickerCvMetaLoading(false);
-    })();
-  }, [displayJobCandidates, job?.id, selectedCandidateIds]);
+    const priorityIds = preselected.length
+      ? preselected
+      : list.length === 1
+        ? [list[0].id]
+        : list.slice(0, 3).map((row) => row.id);
+    void loadPickerCvMetaForIds(priorityIds);
+  }, [displayJobCandidates, job?.id, loadPickerCvMetaForIds, selectedCandidateIds]);
 
   const confirmSubmitCandidatePicker = useCallback(() => {
     if (!job?.id) return;
@@ -1521,6 +1574,7 @@ export function JobDetailsDrawer({
     );
     setSelectedCandidateIds([]);
     setPickerSelectedIds([]);
+    setPickerScopeIds(null);
     setPickerCvModeById({});
     setPickerCvMetaById({});
   }, [displayJobCandidates, job, openBulkSubmit, pickerCvModeById, pickerSelectedIds]);
@@ -2825,7 +2879,7 @@ export function JobDetailsDrawer({
                       const salaryLabel = formatJobSalaryRange(job);
                       return salaryLabel ? (
                       <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-slate-200/90 bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-slate-600 shadow-sm">
-                        <DollarSign size={12} />
+                        <Banknote size={12} />
                         {salaryLabel}
                       </span>
                       ) : null;
@@ -4291,7 +4345,10 @@ export function JobDetailsDrawer({
         size="md"
         zIndexClass="z-[120]"
         panelClassName="!h-auto max-h-[min(85vh,720px)]"
-        onBackdropClick={() => setSubmitCandidatePickerOpen(false)}
+        onBackdropClick={() => {
+          setSubmitCandidatePickerOpen(false);
+          setPickerScopeIds(null);
+        }}
         dialogTitleId="submit-candidate-picker-title"
       >
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -4304,13 +4361,17 @@ export function JobDetailsDrawer({
                 Choose candidate
               </h2>
               <p className="mt-1 text-xs text-slate-500">
-                Select who to submit for {job?.title || 'this job'}, then choose Original CV or
-                HRYantra CV for each.
+                {pickerScopeIds?.length
+                  ? `Review CV choice for the ${pickerScopeIds.length} selected candidate${pickerScopeIds.length === 1 ? '' : 's'}, then continue.`
+                  : `Select who to submit for ${job?.title || 'this job'}, then choose Original CV or HRYantra CV for each.`}
               </p>
             </div>
             <button
               type="button"
-              onClick={() => setSubmitCandidatePickerOpen(false)}
+              onClick={() => {
+                setSubmitCandidatePickerOpen(false);
+                setPickerScopeIds(null);
+              }}
               className="rounded-xl p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
               aria-label="Close"
             >
@@ -4368,11 +4429,13 @@ export function JobDetailsDrawer({
                             type="checkbox"
                             checked={checked}
                             onChange={() =>
-                              setPickerSelectedIds((prev) =>
-                                prev.includes(row.id)
-                                  ? prev.filter((id) => id !== row.id)
-                                  : [...prev, row.id],
-                              )
+                              setPickerSelectedIds((prev) => {
+                                if (prev.includes(row.id)) {
+                                  return prev.filter((id) => id !== row.id);
+                                }
+                                ensurePickerCvMeta(row.id);
+                                return [...prev, row.id];
+                              })
                             }
                             className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                           />
@@ -4404,6 +4467,12 @@ export function JobDetailsDrawer({
                               <span className="mr-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                                 CV
                               </span>
+                              {!meta ? (
+                                <span className="inline-flex items-center gap-1.5 text-[11px] text-slate-500">
+                                  <Loader2 size={12} className="animate-spin" />
+                                  Loading CV options…
+                                </span>
+                              ) : null}
                               {hasOriginal ? (
                                 <button
                                   type="button"
@@ -4449,7 +4518,7 @@ export function JobDetailsDrawer({
                                     : 'HRYantra CV'}
                                 </button>
                               ) : null}
-                              {!pickerCvMetaLoading && !hasOriginal && !hasSaasa ? (
+                              {meta && !hasOriginal && !hasSaasa ? (
                                 <span className="text-[11px] text-rose-600">
                                   No CV on file — add a resume first
                                 </span>
@@ -4518,7 +4587,10 @@ export function JobDetailsDrawer({
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => setSubmitCandidatePickerOpen(false)}
+                onClick={() => {
+                  setSubmitCandidatePickerOpen(false);
+                  setPickerScopeIds(null);
+                }}
                 className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
               >
                 Cancel

@@ -14,6 +14,7 @@ import {
   RemoveFormatting,
   Underline,
 } from 'lucide-react';
+import { plainTextToJobDescriptionHtml, readJdPlainFromClipboard } from '../lib/jobDescriptionHtml';
 
 type RichTextEditorProps = {
   value: string;
@@ -21,6 +22,8 @@ type RichTextEditorProps = {
   placeholder?: string;
   className?: string;
   minHeight?: number;
+  /** Return true if the paste was handled (skips default contentEditable paste). */
+  onPastePlainText?: (plainText: string) => boolean;
 };
 
 type ToolbarButtonProps = {
@@ -63,6 +66,7 @@ export function RichTextEditor({
   placeholder = 'Enter job description…',
   className = '',
   minHeight = 280,
+  onPastePlainText,
 }: RichTextEditorProps) {
   const editorRef = useRef<HTMLDivElement>(null);
   const syncingRef = useRef(false);
@@ -107,6 +111,37 @@ export function RichTextEditor({
     if (!url?.trim()) return;
     apply('createLink', url.trim());
   }, [apply]);
+
+  const handlePaste = useCallback(
+    (event: React.ClipboardEvent<HTMLDivElement>) => {
+      const plain = readJdPlainFromClipboard(event.clipboardData);
+      if (!plain.trim()) return;
+
+      if (onPastePlainText?.(plain)) {
+        event.preventDefault();
+        return;
+      }
+
+      // Structured / long pastes → markdown-aware HTML (preserves headings + bullets).
+      const looksStructured =
+        plain.length >= 80 ||
+        /^#{1,4}\s/m.test(plain) ||
+        /^\s*[-*•]\s+/m.test(plain) ||
+        /\*\*[^*]+\*\*/.test(plain) ||
+        (plain.match(/\n/g) || []).length >= 3;
+      if (!looksStructured) return;
+
+      event.preventDefault();
+      const html = plainTextToJobDescriptionHtml(plain);
+      const el = editorRef.current;
+      if (!el) return;
+      syncingRef.current = true;
+      el.innerHTML = html;
+      syncingRef.current = false;
+      onChange(normalizeHtml(html));
+    },
+    [onChange, onPastePlainText],
+  );
 
   return (
     <div
@@ -187,7 +222,8 @@ export function RichTextEditor({
         data-placeholder={placeholder}
         onInput={emitChange}
         onBlur={emitChange}
-        className="job-rte-editor min-h-[var(--rte-min-height,280px)] bg-white px-4 py-3 text-sm leading-relaxed text-slate-900 outline-none ring-0"
+        onPaste={handlePaste}
+        className="job-rte-editor min-h-[var(--rte-min-height,280px)] max-h-[min(70vh,560px)] overflow-y-auto bg-white px-4 py-3 text-sm leading-relaxed text-slate-900 outline-none ring-0"
         style={{ minHeight }}
       />
     </div>

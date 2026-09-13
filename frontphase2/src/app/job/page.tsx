@@ -150,7 +150,7 @@ import type { InterviewPanelMember } from '../../types/interview.types';
 import { getAllTeamMembersForAssign, getAllTeamMembersForDirectory, teamMembersToBackendUsers } from '../../lib/api/teamApi';
 import { formatAssigneeDisplayName } from '../../lib/assigneeDisplay';
 import { getActiveOrgUnitId } from '../../lib/org/orgWorkspaceStorage';
-import { formatJobSalaryAmountPrefix } from '../../constants/jobSalary';
+import { formatJobSalaryDisplay } from '../../constants/jobSalary';
 import { usePermissions } from '../../hooks/usePermissions';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
 import {
@@ -1120,22 +1120,14 @@ function formatSalaryRange(salary?: BackendJob['salary']): string | undefined {
   const currencySymbol = String(
     (salary as { currencySymbol?: string | null }).currencySymbol || '',
   ).trim();
-  const prefix = formatJobSalaryAmountPrefix(currency, currencySymbol);
-  const amount = salary.amount !== undefined && salary.amount !== null ? String(salary.amount).trim() : '';
-
-  if (amount) {
-    const cleanedAmount = amount.replace(/^[A-Z]{3}\s+(?=\d)/, '').trim();
-    return prefix ? `${prefix}${cleanedAmount}` : cleanedAmount;
-  }
-
-  if (salary.min !== undefined || salary.max !== undefined) {
-    const minText = salary.min !== undefined ? `${salary.min}` : '';
-    const maxText = salary.max !== undefined ? `${salary.max}` : '';
-    const range = [minText, maxText].filter(Boolean).join(' - ');
-    return range ? `${prefix}${range}`.trim() : undefined;
-  }
-
-  return undefined;
+  const formatted = formatJobSalaryDisplay({
+    currency,
+    currencySymbol,
+    min: salary.min,
+    max: salary.max,
+    amount: salary.amount !== undefined && salary.amount !== null ? String(salary.amount) : null,
+  });
+  return formatted || undefined;
 }
 
 function emptyMappedJob(id = ''): Job {

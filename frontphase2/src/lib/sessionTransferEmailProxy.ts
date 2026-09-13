@@ -21,16 +21,15 @@ export function publicRequestOrigin(request: NextRequest): string {
   return `${proto}://${host}`.replace(/\/$/, '');
 }
 
+function isLoopbackApiUrl(value: string): boolean {
+  return /localhost|127\.0\.0\.1|\[::1\]|::1/i.test(String(value || ''));
+}
+
 /**
- * Resolve Phase 2 API origin for server-side email approve/reject.
- * Never call localhost from a production / Vercel host.
+ * Resolve Phase 2 API origin for server-side proxies (email approve/reject, client-review assets).
+ * Never call localhost from a production host — even if BACKEND_INTERNAL_URL is mis-set to loopback.
  */
 export function backendApiRoot(request: NextRequest): string {
-  const internal = process.env.BACKEND_INTERNAL_URL?.trim();
-  if (internal) {
-    return internal.replace(/\/api\/v1\/?$/i, '').replace(/\/$/, '');
-  }
-
   const requestHost =
     request.headers.get('x-forwarded-host')?.split(',')[0]?.trim() ||
     request.headers.get('host') ||
@@ -38,8 +37,13 @@ export function backendApiRoot(request: NextRequest): string {
     '';
   const requestIsLocal = isLoopbackHost(requestHost.split(':')[0] || requestHost);
 
+  const internal = process.env.BACKEND_INTERNAL_URL?.trim();
+  if (internal && !(isLoopbackApiUrl(internal) && !requestIsLocal)) {
+    return internal.replace(/\/api\/v1\/?$/i, '').replace(/\/$/, '');
+  }
+
   const publicApi = process.env.NEXT_PUBLIC_API_URL?.trim() || '';
-  const publicIsLocal = !publicApi || /localhost|127\.0\.0\.1/i.test(publicApi);
+  const publicIsLocal = !publicApi || isLoopbackApiUrl(publicApi);
 
   if (!requestIsLocal && publicIsLocal) {
     return PRODUCTION_API_ROOT;
@@ -47,6 +51,11 @@ export function backendApiRoot(request: NextRequest): string {
 
   const raw = publicApi || (requestIsLocal ? 'http://localhost:5001/api/v1' : `${PRODUCTION_API_ROOT}/api/v1`);
   return raw.replace(/\/api\/v1\/?$/i, '').replace(/\/$/, '');
+}
+
+/** Full `/api/v1` base for server-side fetch to the Phase 2 backend. */
+export function backendApiBase(request: NextRequest): string {
+  return `${backendApiRoot(request)}/api/v1`;
 }
 
 export function redirectSessionTransferPage(

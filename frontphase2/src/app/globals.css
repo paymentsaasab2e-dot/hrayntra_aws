@@ -681,7 +681,30 @@ html {
 .job-rich-text-editor .job-rte-editor ul,
 .job-rich-text-editor .job-rte-editor ol {
   margin: 0.5rem 0;
-  padding-left: 1.25rem;
+  padding-left: 1.5rem;
+  list-style-position: outside;
+}
+
+.job-rich-text-editor .job-rte-editor ul {
+  list-style-type: disc;
+}
+
+.job-rich-text-editor .job-rte-editor ol {
+  list-style-type: decimal;
+}
+
+.job-rich-text-editor .job-rte-editor li {
+  display: list-item;
+  margin: 0.2rem 0;
+}
+
+.job-rich-text-editor .job-rte-editor p {
+  display: block;
+  margin: 0.4rem 0;
+}
+
+.job-rich-text-editor .job-rte-editor strong {
+  font-weight: 700;
 }
 
 .job-rich-text-editor .job-rte-editor a {

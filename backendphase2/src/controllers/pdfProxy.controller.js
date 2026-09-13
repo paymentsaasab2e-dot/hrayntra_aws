@@ -38,7 +38,9 @@ export async function getPdfProxy(req, res) {
   }
 
   if (!isAllowedResumeProxyUrl(decoded)) {
-    return res.status(403).send('Forbidden');
+    return res.status(403).send(
+      'Forbidden: this resume URL cannot be loaded through the CV viewer. Re-upload the CV as PDF, or check that the file is stored in the app S3 bucket.',
+    );
   }
 
   let buf;
