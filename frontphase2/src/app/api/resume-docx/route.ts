@@ -1,17 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { backendApiBase } from '../../../lib/sessionTransferEmailProxy';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const DEFAULT_BACKEND_BASE = 'http://localhost:5001/api/v1';
-
-function getBackendResumeDocxUrl(search: string): string {
-  const apiBase = (
-    process.env.BACKEND_INTERNAL_URL ||
-    process.env.NEXT_PUBLIC_API_URL ||
-    DEFAULT_BACKEND_BASE
-  ).replace(/\/+$/, '');
-  return `${apiBase}/resume-preview/bytes${search}`;
+function getBackendResumeDocxUrl(req: NextRequest, search: string): string {
+  return `${backendApiBase(req)}/resume-preview/bytes${search}`;
 }
 
 /**
@@ -23,7 +17,7 @@ export async function GET(req: NextRequest) {
     return new NextResponse('Missing url', { status: 400 });
   }
 
-  const target = getBackendResumeDocxUrl(search);
+  const target = getBackendResumeDocxUrl(req, search);
 
   try {
     const upstream = await fetch(target, {

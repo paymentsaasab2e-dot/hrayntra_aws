@@ -24,16 +24,9 @@ function normalizeHref(raw: string): string {
 }
 
 function linkLabelForUrl(href: string): string {
-  const lower = href.toLowerCase();
-  if (lower.includes('/client-review/')) return 'Open candidate preview';
-  if (lower.includes('/login') || lower.includes('reset')) return 'Open link';
-  try {
-    const u = new URL(href);
-    const path = `${u.host}${u.pathname}`.replace(/\/$/, '');
-    return path.length > 64 ? `${path.slice(0, 61)}…` : path || href;
-  } catch {
-    return href.length > 64 ? `${href.slice(0, 61)}…` : href;
-  }
+  // Show the real URL recipients will open (not a generic CTA label).
+  const url = String(href || '').trim();
+  return url;
 }
 
 const ANCHOR_STYLE =

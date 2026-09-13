@@ -67,9 +67,8 @@ function fieldValueFromSections(detail: ClientReviewData | undefined, label: str
   return '';
 }
 
-function formatEntries(section: ClientReviewSection): string {
-  const entries = Array.isArray(section.entries) ? section.entries : [];
-  if (!entries.length) return '';
+function formatEntryRows(entries: Array<Record<string, unknown>> | undefined): string {
+  if (!Array.isArray(entries) || !entries.length) return '';
   return entries
     .map((entry) => {
       const title =
@@ -82,7 +81,10 @@ function formatEntries(section: ClientReviewSection): string {
         '';
       const meta = [
         displayValue(entry.institutionName) || displayValue(entry.institution) || displayValue(entry.company),
-        [displayValue(entry.startYear) || displayValue(entry.startDate), displayValue(entry.endYear) || displayValue(entry.endDate)]
+        [
+          displayValue(entry.startYear) || displayValue(entry.startDate),
+          displayValue(entry.endYear) || displayValue(entry.endDate),
+        ]
           .filter(Boolean)
           .join('–'),
       ]
@@ -95,46 +97,204 @@ function formatEntries(section: ClientReviewSection): string {
     .join('\n');
 }
 
-function fallbackValue(row: ClientReviewBatchRow, key: string): string {
+function formatEntries(section: ClientReviewSection): string {
+  return formatEntryRows(section.entries as Array<Record<string, unknown>> | undefined);
+}
+
+function splitCandidateName(row: ClientReviewBatchRow): { first: string; last: string; full: string } {
+  const full = displayValue(row.candidateName || row.detail?.candidate?.name);
+  const parts = full.split(/\s+/).filter(Boolean);
+  return {
+    full,
+    first: parts[0] || '',
+    last: parts.slice(1).join(' '),
+  };
+}
+
+function locationFromRow(row: ClientReviewBatchRow): string {
   const candidate = row.detail?.candidate;
+  const parts = [candidate?.city, candidate?.country].map((part) => displayValue(part)).filter(Boolean);
+  if (parts.length) return Array.from(new Set(parts)).join(', ');
+  const address = displayValue(candidate?.address);
+  if (address) return address;
+  return displayValue(row.detail?.cvEditorPreview?.location);
+}
+
+function skillsFromRow(row: ClientReviewBatchRow): string {
+  const candidate = row.detail?.candidate;
+  const fromCandidate = Array.isArray(candidate?.skills)
+    ? candidate.skills.map((skill) => displayValue(skill)).filter(Boolean)
+    : [];
+  if (fromCandidate.length) return fromCandidate.join(', ');
+  const fromCv = Array.isArray(row.detail?.cvEditorPreview?.skills)
+    ? row.detail.cvEditorPreview.skills.map((skill) => displayValue(skill)).filter(Boolean)
+    : [];
+  return fromCv.join(', ');
+}
+
+function educationFromRow(row: ClientReviewBatchRow): string {
+  const candidate = row.detail?.candidate;
+  const fromCandidate = formatEntryRows(
+    (candidate?.cvEducationEntries || []) as Array<Record<string, unknown>>,
+  );
+  if (fromCandidate) return fromCandidate;
+  const fromCv = formatEntryRows(
+    (row.detail?.cvEditorPreview?.education || []).map((entry) => ({
+      degree: entry.degree,
+      institution: entry.school,
+      startDate: entry.period,
+    })) as Array<Record<string, unknown>>,
+  );
+  if (fromCv) return fromCv;
+  return displayValue(candidate?.education);
+}
+
+function workFromRow(row: ClientReviewBatchRow): string {
+  const candidate = row.detail?.candidate;
+  const fromCandidate = formatEntryRows(
+    (candidate?.cvWorkExperienceEntries || []) as Array<Record<string, unknown>>,
+  );
+  if (fromCandidate) return fromCandidate;
+  return formatEntryRows(
+    (row.detail?.cvEditorPreview?.experiences || []).map((entry) => ({
+      title: entry.role,
+      company: entry.company,
+      startDate: entry.period,
+    })) as Array<Record<string, unknown>>,
+  );
+}
+
+/**
+ * When presentation fields are empty for a candidate, pull the same attribute
+ * from profile / CV payload so comparative columns stay filled.
+ */
+function profileFallbackForLabel(row: ClientReviewBatchRow, label: string): string {
+  const key = String(label || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+  const candidate = row.detail?.candidate;
+  const preview = row.detail?.cvEditorPreview;
+  const names = splitCandidateName(row);
+
   switch (key) {
-    case 'location': {
-      const parts = [candidate?.city, candidate?.country].map((part) => displayValue(part)).filter(Boolean);
-      if (parts.length) return Array.from(new Set(parts)).join(', ');
-      return displayValue(candidate?.address);
+    case 'name':
+    case 'name of candidate':
+      return names.full;
+    case 'first name':
+      return names.first;
+    case 'last name':
+      return names.last;
+    case 'e mail':
+    case 'email':
+      return displayValue(candidate?.email) || displayValue(preview?.email);
+    case 'mobile no':
+    case 'mobile':
+    case 'phone':
+    case 'phone number':
+      return displayValue(candidate?.phone) || displayValue(preview?.phone);
+    case 'candidate score':
+    case 'match score':
+    case 'score': {
+      const score = row.matchScore ?? row.detail?.matchScore;
+      return Number.isFinite(Number(score)) ? String(Math.round(Number(score))) : '';
     }
+    case 'city state':
+    case 'city':
+      return displayValue(candidate?.city);
+    case 'state':
+      return '';
+    case 'country':
+      return displayValue(candidate?.country);
+    case 'location display':
+    case 'actual location':
+    case 'location':
+    case 'preferred location':
+      return locationFromRow(row);
+    case 'current address':
+    case 'address':
+      return displayValue(candidate?.address);
+    case 'current company':
+    case 'current employer':
+    case 'company':
     case 'employer':
       return displayValue(candidate?.currentCompany);
+    case 'current designation':
     case 'designation':
-      return displayValue(row.designation || candidate?.designation);
+    case 'job title':
+      return displayValue(row.designation || candidate?.designation || preview?.jobTitle);
+    case 'year of experience':
+    case 'years of experience':
     case 'experience': {
       const years = row.experience ?? candidate?.experience;
       return Number.isFinite(Number(years)) ? String(years) : '';
     }
-    case 'domain': {
-      const skills = Array.isArray(candidate?.skills)
-        ? candidate.skills.map((skill) => displayValue(skill)).filter(Boolean)
+    case 'domain of expertise':
+    case 'skills':
+      return skillsFromRow(row);
+    case 'education':
+    case 'education summary':
+    case 'education entries':
+      return educationFromRow(row);
+    case 'work experience':
+    case 'work experience entries':
+      return workFromRow(row);
+    case 'professional summary':
+    case 'summary':
+    case 'cv summary':
+      return displayValue(candidate?.cvSummary) || displayValue(preview?.summary);
+    case 'languages': {
+      const languages = Array.isArray(candidate?.languages)
+        ? candidate.languages.map((item) => displayValue(item)).filter(Boolean)
         : [];
-      const summary = displayValue(candidate?.cvSummary);
-      if (skills.length && summary) return `${skills.join(', ')}\n\n${summary}`;
-      if (skills.length) return skills.join(', ');
-      return summary;
+      return languages.join(', ');
     }
-    case 'education': {
-      const entries = Array.isArray(candidate?.cvEducationEntries) ? candidate.cvEducationEntries : [];
-      if (entries.length) {
-        return entries
-          .map((entry) => {
-            const degree = displayValue(entry?.degree);
-            const institution = displayValue(entry?.institution);
-            const years = [entry?.startYear, entry?.endYear].map(displayValue).filter(Boolean).join('–');
-            return [degree, institution, years].filter(Boolean).join(' · ');
-          })
-          .filter(Boolean)
-          .join('\n');
-      }
-      return displayValue(candidate?.education);
+    case 'linkedin':
+      return displayValue(preview?.linkedin);
+    case 'stage':
+    case 'candidate stage':
+      return displayValue(row.clientMarkedStage || row.detail?.clientMarkedStage);
+    default:
+      return '';
+  }
+}
+
+function resolveFieldValue(row: ClientReviewBatchRow, label: string): string {
+  return fieldValueFromSections(row.detail, label) || profileFallbackForLabel(row, label);
+}
+
+function resolveEntriesValue(row: ClientReviewBatchRow, sectionId: string): string {
+  const section = sectionsOf(row).find(
+    (item) => String(item.id || item.title || '') === sectionId,
+  );
+  const fromSection = section ? formatEntries(section) : '';
+  if (fromSection) return fromSection;
+  if (sectionId === 'education') return educationFromRow(row);
+  if (sectionId === 'work') return workFromRow(row);
+  return '';
+}
+
+function fallbackValue(row: ClientReviewBatchRow, key: string): string {
+  switch (key) {
+    case 'location':
+      return locationFromRow(row);
+    case 'employer':
+      return profileFallbackForLabel(row, 'Current Employer');
+    case 'designation':
+      return profileFallbackForLabel(row, 'Current Designation');
+    case 'experience':
+      return profileFallbackForLabel(row, 'Year of experience');
+    case 'domain': {
+      const skills = skillsFromRow(row);
+      const summary = profileFallbackForLabel(row, 'Professional summary');
+      if (skills && summary) return `${skills}\n\n${summary}`;
+      return skills || summary;
     }
+    case 'education':
+      return educationFromRow(row);
+    case 'stage':
+      return profileFallbackForLabel(row, 'Stage');
     default:
       return '';
   }
@@ -160,6 +320,22 @@ function buildCompareParams(selectedRows: ClientReviewBatchRow[]): CompareParam[
     valuesByMatchId: nameValues,
   });
 
+  const stageValues: Record<string, string> = {};
+  let anyStage = false;
+  for (const row of selectedRows) {
+    const stage = profileFallbackForLabel(row, 'Stage');
+    if (stage) anyStage = true;
+    stageValues[row.matchId] = cell(stage);
+  }
+  if (anyStage) {
+    params.push({
+      kind: 'field',
+      id: 'stage',
+      label: 'Stage',
+      valuesByMatchId: stageValues,
+    });
+  }
+
   const hasPresentation = selectedRows.some((row) => sectionsOf(row).length > 0);
 
   if (hasPresentation) {
@@ -178,16 +354,22 @@ function buildCompareParams(selectedRows: ClientReviewBatchRow[]): CompareParam[
         const sectionTitle = displayValue(section.title) || sectionId;
         for (const field of section.fields || []) {
           const label = displayValue(field.label);
-          const value = displayValue(field.value);
-          if (!label || !value || shouldHideField(label, value)) continue;
+          if (!label) continue;
+          // Keep the attribute if any selected candidate has it in presentation OR profile/CV.
+          const anyValue = selectedRows.some((candidateRow) => {
+            const value = resolveFieldValue(candidateRow, label);
+            return Boolean(value) && !shouldHideField(label, value);
+          });
+          if (!anyValue) continue;
           const key = `${sectionId}::${label.toLowerCase()}`;
           if (seen.has(key)) continue;
           seen.add(key);
           ordered.push({ sectionId, sectionTitle, label, key });
         }
-        // Entry-based sections (education / work) as a single visible parameter when entries exist.
-        const entryText = formatEntries(section);
-        if (entryText) {
+        const anyEntries = selectedRows.some((candidateRow) =>
+          Boolean(resolveEntriesValue(candidateRow, sectionId)),
+        );
+        if (anyEntries) {
           const label =
             sectionId === 'education'
               ? 'Education entries'
@@ -203,24 +385,41 @@ function buildCompareParams(selectedRows: ClientReviewBatchRow[]): CompareParam[
       }
     }
 
-    // Keep only parameters visible for at least one selected candidate.
-    const visibleFields = ordered.filter((meta) =>
-      selectedRows.some((row) => {
-        if (meta.key.endsWith('::__entries')) {
-          const section = sectionsOf(row).find(
-            (item) => String(item.id || item.title || '') === meta.sectionId,
-          );
-          return Boolean(section && formatEntries(section));
-        }
-        const value = fieldValueFromSections(row.detail, meta.label);
-        return Boolean(value) && !shouldHideField(meta.label, value);
-      }),
-    );
+    // Also surface common profile fields that may exist only on candidates
+    // without a filled presentation section.
+    const profileExtras: Array<{ sectionId: string; sectionTitle: string; label: string }> = [
+      { sectionId: 'personal', sectionTitle: 'Personal Information', label: 'First Name' },
+      { sectionId: 'personal', sectionTitle: 'Personal Information', label: 'Last Name' },
+      { sectionId: 'personal', sectionTitle: 'Personal Information', label: 'Candidate Score' },
+      { sectionId: 'personal', sectionTitle: 'Personal Information', label: 'City' },
+      { sectionId: 'personal', sectionTitle: 'Personal Information', label: 'Country' },
+      { sectionId: 'personal', sectionTitle: 'Personal Information', label: 'Location (display)' },
+      { sectionId: 'personal', sectionTitle: 'Personal Information', label: 'E-mail' },
+      { sectionId: 'personal', sectionTitle: 'Personal Information', label: 'Mobile No' },
+      { sectionId: 'work', sectionTitle: 'Work Experience', label: 'Current Company' },
+      { sectionId: 'work', sectionTitle: 'Work Experience', label: 'Current Designation' },
+      { sectionId: 'professional', sectionTitle: 'Career Preferences', label: 'Year of experience' },
+      { sectionId: 'education', sectionTitle: 'Education', label: 'Education' },
+      { sectionId: 'summary', sectionTitle: 'Summary & Additional', label: 'Skills' },
+    ];
+    for (const extra of profileExtras) {
+      const key = `${extra.sectionId}::${extra.label.toLowerCase()}`;
+      if (seen.has(key)) continue;
+      const anyValue = selectedRows.some((row) => {
+        const value = resolveFieldValue(row, extra.label);
+        return Boolean(value) && !shouldHideField(extra.label, value);
+      });
+      if (!anyValue) continue;
+      seen.add(key);
+      ordered.push({ ...extra, key });
+    }
 
     let lastSection = '';
-    for (const meta of visibleFields) {
+    for (const meta of ordered) {
       const isPersonal =
-        /^(candidate details|personal information|personal)$/i.test(meta.sectionTitle);
+        /^(candidate details|personal information|personal|basic information)$/i.test(
+          meta.sectionTitle,
+        );
       if (meta.sectionTitle !== lastSection) {
         lastSection = meta.sectionTitle;
         if (!isPersonal) {
@@ -235,12 +434,9 @@ function buildCompareParams(selectedRows: ClientReviewBatchRow[]): CompareParam[
       const valuesByMatchId: Record<string, string> = {};
       for (const row of selectedRows) {
         if (meta.key.endsWith('::__entries')) {
-          const section = sectionsOf(row).find(
-            (item) => String(item.id || item.title || '') === meta.sectionId,
-          );
-          valuesByMatchId[row.matchId] = cell(section ? formatEntries(section) : '');
+          valuesByMatchId[row.matchId] = cell(resolveEntriesValue(row, meta.sectionId));
         } else {
-          valuesByMatchId[row.matchId] = cell(fieldValueFromSections(row.detail, meta.label));
+          valuesByMatchId[row.matchId] = cell(resolveFieldValue(row, meta.label));
         }
       }
 
@@ -257,6 +453,9 @@ function buildCompareParams(selectedRows: ClientReviewBatchRow[]): CompareParam[
 
   // Fallback when presentation sections are not configured: only show filled core fields.
   const fallbacks: Array<{ id: string; label: string; get: (row: ClientReviewBatchRow) => string }> = [
+    { id: 'first-name', label: 'First Name', get: (row) => profileFallbackForLabel(row, 'First Name') },
+    { id: 'last-name', label: 'Last Name', get: (row) => profileFallbackForLabel(row, 'Last Name') },
+    { id: 'score', label: 'Candidate Score', get: (row) => profileFallbackForLabel(row, 'Candidate Score') },
     { id: 'location', label: 'Actual Location', get: (row) => fallbackValue(row, 'location') },
     { id: 'employer', label: 'Current Employer', get: (row) => fallbackValue(row, 'employer') },
     { id: 'designation', label: 'Current Designation', get: (row) => fallbackValue(row, 'designation') },

@@ -13,6 +13,7 @@ import {
   appendEmailComposeSignature,
   bodyWithEmailSignatureToHtml,
   resolveComposeSignature,
+  toPublicSignatureAssetUrl,
   type ResolvedComposeSignature,
 } from '../../lib/emailComposeSignature';
 
@@ -71,6 +72,52 @@ async function buildAttachmentPayload(files: File[]) {
   return attachments;
 }
 
+function splitMessageAndSignature(body: string, signatureText: string): {
+  message: string;
+  signature: string;
+} {
+  const base = String(body || '').replace(/\r\n/g, '\n').trimEnd();
+  const sig = String(signatureText || '').replace(/\r\n/g, '\n').trim();
+  const dividerIdx = base.lastIndexOf('\n\n--\n');
+  if (dividerIdx >= 0) {
+    return {
+      message: base.slice(0, dividerIdx).trimEnd(),
+      signature: base.slice(dividerIdx + 4).trim(),
+    };
+  }
+  if (sig && base.endsWith(sig)) {
+    return {
+      message: base.slice(0, -sig.length).replace(/\n*--\s*$/, '').trimEnd(),
+      signature: sig,
+    };
+  }
+  return { message: base, signature: '' };
+}
+
+function ComposeBodyPreview({ text }: { text: string }) {
+  const nodes = useMemo(() => linkifyPlainTextToReactNodes(text), [text]);
+  return (
+    <div className="whitespace-pre-wrap break-words text-sm leading-6 text-[#202124]">
+      {nodes.map((node, index) => {
+        if (typeof node === 'string') {
+          return <React.Fragment key={`t-${index}`}>{node}</React.Fragment>;
+        }
+        return (
+          <a
+            key={`a-${index}-${node.href}`}
+            href={node.href}
+            target="_blank"
+            rel="noreferrer"
+            className="break-all text-[#1a73e8] underline"
+          >
+            {node.label || node.href}
+          </a>
+        );
+      })}
+    </div>
+  );
+}
+
 export function InboxComposePanel({ provider, fromEmail, initial, onClose }: Props) {
   const [to, setTo] = useState(initial.to);
   const [cc, setCc] = useState(initial.cc || '');
@@ -79,6 +126,7 @@ export function InboxComposePanel({ provider, fromEmail, initial, onClose }: Pro
   const [showBcc, setShowBcc] = useState(Boolean(String(initial.bcc || '').trim()));
   const [subject, setSubject] = useState(initial.subject);
   const [body, setBody] = useState(initial.body);
+  const [editingBody, setEditingBody] = useState(false);
   const [attachments, setAttachments] = useState<ComposeAttachment[]>([]);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
@@ -105,8 +153,11 @@ export function InboxComposePanel({ provider, fromEmail, initial, onClose }: Pro
   }, [provider]);
 
   const brand = provider === 'outlook' ? 'Outlook' : 'Gmail';
-  const linkPreview = useMemo(() => linkifyPlainTextToReactNodes(body), [body]);
-  const hasLinks = linkPreview.some((node) => typeof node !== 'string');
+  const signatureLogoSrc = toPublicSignatureAssetUrl(resolvedSig?.logoUrl || '');
+  const { message: messageBody, signature: signaturePreview } = useMemo(
+    () => splitMessageAndSignature(body, resolvedSig?.text || ''),
+    [body, resolvedSig?.text],
+  );
   const attachmentBytes = useMemo(
     () => attachments.reduce((sum, row) => sum + row.file.size, 0),
     [attachments],
@@ -197,7 +248,6 @@ export function InboxComposePanel({ provider, fromEmail, initial, onClose }: Pro
             ? err
             : new Error('Could not send with attachments via Gmail. Reconnect Gmail in Settings and try again.');
         }
-        // Fallback for older Gmail tokens without send/compose: open URL compose.
         const url = buildMailboxComposeUrl({
           provider: 'gmail',
           to: toAddress,
@@ -330,12 +380,59 @@ export function InboxComposePanel({ provider, fromEmail, initial, onClose }: Pro
             placeholder="Subject"
           />
         </label>
-        <textarea
-          value={body}
-          onChange={(event) => setBody(event.target.value)}
-          className="min-h-0 flex-1 resize-none px-4 py-3 text-sm leading-6 outline-none"
-          placeholder="Write your message…"
-        />
+
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+          <div className="flex items-center justify-between border-b border-[#f1f3f4] px-4 py-1.5">
+            <p className="text-[11px] font-medium text-[#5f6368]">Message</p>
+            <button
+              type="button"
+              onClick={() => setEditingBody((open) => !open)}
+              className="text-[11px] font-semibold text-[#0b57d0] hover:underline"
+            >
+              {editingBody ? 'Done editing' : 'Edit text'}
+            </button>
+          </div>
+
+          {editingBody ? (
+            <textarea
+              value={body}
+              onChange={(event) => setBody(event.target.value)}
+              className="min-h-[160px] flex-1 resize-none px-4 py-3 text-sm leading-6 outline-none"
+              placeholder="Write your message…"
+              autoFocus
+            />
+          ) : (
+            <div className="min-h-[160px] flex-1 px-4 py-3">
+              {messageBody.trim() ? (
+                <ComposeBodyPreview text={messageBody} />
+              ) : (
+                <p className="text-sm text-[#9aa0a6]">Write your message…</p>
+              )}
+              {signatureLogoSrc || signaturePreview ? (
+                <div className="mt-4 border-t border-[#dadce0] pt-3">
+                  {signatureLogoSrc ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={signatureLogoSrc}
+                      alt="Signature logo"
+                      className="mb-2 max-h-[72px] max-w-[220px] object-contain"
+                      onError={(event) => {
+                        event.currentTarget.style.display = 'none';
+                      }}
+                    />
+                  ) : null}
+                  {signaturePreview ? (
+                    <div className="whitespace-pre-wrap text-sm leading-6 text-[#202124]">
+                      <div className="mb-1 text-[#5f6368]">--</div>
+                      {signaturePreview}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          )}
+        </div>
+
         {attachments.length ? (
           <div className="border-t border-[#e8eaed] bg-[#f8f9fa] px-4 py-2">
             <ul className="flex flex-wrap gap-2">
@@ -359,24 +456,6 @@ export function InboxComposePanel({ provider, fromEmail, initial, onClose }: Pro
                 </li>
               ))}
             </ul>
-          </div>
-        ) : null}
-        {hasLinks ? (
-          <div className="border-t border-[#e8eaed] bg-[#f8f9fa] px-4 py-2 text-[11px] leading-5 text-[#5f6368]">
-            <span className="font-medium text-[#202124]">Links will send as clickable: </span>
-            {linkPreview.map((node, index) =>
-              typeof node === 'string' ? null : (
-                <a
-                  key={`${node.href}-${index}`}
-                  href={node.href}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="mr-2 text-[#1a73e8] underline"
-                >
-                  {node.label}
-                </a>
-              ),
-            )}
           </div>
         ) : null}
       </div>
@@ -410,7 +489,7 @@ export function InboxComposePanel({ provider, fromEmail, initial, onClose }: Pro
         <p className="text-xs text-[#5f6368]">
           {attachments.length
             ? `${attachments.length} file${attachments.length === 1 ? '' : 's'} · ${formatFileSize(attachmentBytes)}`
-            : `URLs are sent as clickable hyperlinks in ${brand}.`}
+            : `Links send as clickable URLs in ${brand}.`}
         </p>
         {error ? <p className="w-full text-xs text-rose-600">{error}</p> : null}
         {sentHint ? <p className="w-full text-xs text-emerald-700">{sentHint}</p> : null}

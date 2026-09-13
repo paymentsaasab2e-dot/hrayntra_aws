@@ -264,7 +264,7 @@ export function formatJobSalaryAmountPrefix(
   return '';
 }
 
-/** Strip a leading ISO currency code from an already-formatted salary string. */
+/** Strip leading ISO codes and currency symbols from a salary amount/range string. */
 export function stripJobSalaryCurrencyCodePrefix(
   text?: string | null,
   code?: string | null,
@@ -278,8 +278,46 @@ export function stripJobSalaryCurrencyCodePrefix(
     next = next.replace(new RegExp(`^${cleanCode}\\s*`, 'i'), '').trim();
   }
   // Common ISO codes stuck at the start of legacy salaryRange strings.
-  next = next.replace(/^[A-Z]{3}\s+(?=\d)/, '').trim();
+  next = next.replace(/^[A-Z]{3}\s+(?=\d|[₹$€£¥₩₱₫₺₽]|Fr\.?|Rp|RM|kr)/i, '').trim();
+  // Strip one or more leading currency symbols (handles "$ ₹600000" leftovers).
+  next = next
+    .replace(/^(?:[₹$€£¥₩₱₫₺₽]|R\$|A\$|C\$|S\$|HK\$|NZ\$|Mex\$|Fr\.?|Rp|RM|kr|د\.إ)\s*/u, '')
+    .trim();
+  next = next
+    .replace(/^(?:[₹$€£¥₩₱₫₺₽]|R\$|A\$|C\$|S\$|HK\$|NZ\$|Mex\$|Fr\.?|Rp|RM|kr|د\.إ)\s*/u, '')
+    .trim();
   return next;
+}
+
+/**
+ * Build a salary display string using only the job's selected currency symbol.
+ * Strips any symbols already embedded in amount/range text so we never show "$ ₹…".
+ */
+export function formatJobSalaryDisplay(options: {
+  currency?: string | null;
+  currencySymbol?: string | null;
+  min?: number | string | null;
+  max?: number | string | null;
+  amount?: string | null;
+  salaryRange?: string | null;
+}): string {
+  const prefix = formatJobSalaryAmountPrefix(options.currency, options.currencySymbol);
+  const hasMin = options.min !== undefined && options.min !== null && String(options.min).trim() !== '';
+  const hasMax = options.max !== undefined && options.max !== null && String(options.max).trim() !== '';
+
+  if (hasMin || hasMax) {
+    const minText = hasMin ? stripJobSalaryCurrencyCodePrefix(String(options.min), options.currency) : '';
+    const maxText = hasMax ? stripJobSalaryCurrencyCodePrefix(String(options.max), options.currency) : '';
+    const range = [minText, maxText].filter(Boolean).join(' - ');
+    return range ? `${prefix}${range}`.trim() : '';
+  }
+
+  const amount = stripJobSalaryCurrencyCodePrefix(
+    options.amount || options.salaryRange,
+    options.currency,
+  );
+  if (!amount) return '';
+  return prefix ? `${prefix}${amount}`.trim() : amount;
 }
 
 /** Persistable symbol for the selected currency (custom or ISO). */

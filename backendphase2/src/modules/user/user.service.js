@@ -7,6 +7,11 @@ import {
 import { listCrmAssigneeCandidates } from '../../services/crmAssignmentScope.service.js';
 import { resolveAssignmentModulesFromReq } from '../../services/assigneeModuleAccess.service.js';
 import { resolveTenantOrganizationName } from '../setting/recruitmentMode.service.js';
+import {
+  CLIENT_PREVIEW_STAGE_CATALOG,
+  normalizeAllowedClientStages,
+  normalizeClientStageCatalog,
+} from '../../utils/clientTrackerOptions.js';
 
 const JOB_VISIBILITY_DEFAULTS_KEY = 'jobPublicVisibilityDefaults';
 const SUBMIT_TO_CLIENT_VISIBILITY_DEFAULTS_KEY = 'submitToClientFieldVisibility';
@@ -147,8 +152,11 @@ const SUBMIT_TO_CLIENT_FIELDS = [
 ];
 
 function emptySubmitToClientVisibilityDefaults() {
+  const catalog = CLIENT_PREVIEW_STAGE_CATALOG.map((row) => row.name);
   return {
     fieldVisibility: Object.fromEntries(SUBMIT_TO_CLIENT_FIELDS.map((key) => [key, true])),
+    allowedClientStages: catalog,
+    clientStageCatalog: catalog,
     updatedAt: null,
   };
 }
@@ -163,8 +171,17 @@ function normalizeSubmitToClientVisibilityDefaults(raw) {
   for (const key of SUBMIT_TO_CLIENT_FIELDS) {
     fieldVisibility[key] = nested[key] !== false;
   }
+  const clientStageCatalog = normalizeClientStageCatalog(source.clientStageCatalog).map(
+    (row) => row.name,
+  );
+  const allowedClientStages = normalizeAllowedClientStages(source.allowedClientStages, {
+    fallbackAll: true,
+    catalog: normalizeClientStageCatalog(clientStageCatalog),
+  }).map((row) => row.name);
   return {
     fieldVisibility,
+    allowedClientStages,
+    clientStageCatalog,
     updatedAt: typeof source.updatedAt === 'string' && source.updatedAt.trim() ? source.updatedAt : null,
   };
 }

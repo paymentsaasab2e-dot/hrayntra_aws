@@ -5337,6 +5337,8 @@ export async function apiSaveJobVisibilityDefaults(body: JobVisibilityDefaultsPa
 
 export type SubmitToClientVisibilityDefaultsPayload = {
   fieldVisibility?: Record<string, boolean> | null;
+  allowedClientStages?: string[] | null;
+  clientStageCatalog?: string[] | null;
   updatedAt?: string | null;
 };
 
@@ -8095,6 +8097,8 @@ export const apiSubmitMatch = async (
     additionalClients?: Array<{ clientId: string; toEmail?: string }>;
     batchMatchIds?: string[];
     trackerOptions?: Record<string, boolean>;
+    allowedClientStages?: string[];
+    clientStageCatalog?: string[];
   }
 ) => {
   return apiFetch<BackendMatch & { reviewUrl?: string; emailSent?: boolean; emailError?: string | null; trackerOptions?: Record<string, boolean> }>(`/matches/${matchId}/submit`, {

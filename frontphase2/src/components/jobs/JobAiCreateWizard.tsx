@@ -82,6 +82,12 @@ import {
   mergeDescriptionWithCustomJdSections,
   type JobCustomJdSection,
 } from '@/lib/jobCustomJdSections';
+import {
+  plainTextToJobDescriptionHtml,
+  preferFullJobDescriptionHtml,
+  readJdPlainFromClipboard,
+  stripJobDescriptionHtml,
+} from '@/lib/jobDescriptionHtml';
 import { ClientDetailsDrawer } from '@/components/drawers/ClientDetailsDrawer';
 import { useLinkedIn } from '@/hooks/useLinkedIn';
 import { useDrawerUnsavedGuard } from '@/hooks/useDrawerUnsavedGuard';
@@ -447,7 +453,10 @@ function pipelineToDraft(
     salaryCurrency: data.salaryCurrency || base.salaryCurrency,
     payRangeMin: data.payRangeMin || base.payRangeMin,
     payRangeMax: data.payRangeMax || base.payRangeMax,
-    jobDescriptionHtml: data.jobDescriptionHtml || base.jobDescriptionHtml,
+    jobDescriptionHtml: preferFullJobDescriptionHtml(
+      base.jobDescriptionHtml,
+      data.jobDescriptionHtml,
+    ),
     keyResponsibilitiesText:
       data.keyResponsibilitiesText || base.keyResponsibilitiesText,
     qualificationsExperienceText:
@@ -1130,9 +1139,25 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
   );
 
   const applyPipelineToDraft = useCallback(
-    (data: JobCreationPipelineResult) => {
+    (data: JobCreationPipelineResult, sourceJdText?: string) => {
       setDraft((prev) => {
-        const next = pipelineToDraft(prev, data);
+        const withSource =
+          sourceJdText && sourceJdText.trim().length >= 50
+            ? {
+                ...prev,
+                jobDescriptionHtml: preferFullJobDescriptionHtml(
+                  sourceJdText,
+                  prev.jobDescriptionHtml,
+                ),
+              }
+            : prev;
+        const next = pipelineToDraft(withSource, data);
+        if (sourceJdText && sourceJdText.trim().length >= 50) {
+          next.jobDescriptionHtml = preferFullJobDescriptionHtml(
+            sourceJdText,
+            next.jobDescriptionHtml,
+          );
+        }
         if (data.companyId || data.companyName) {
           const matchedClient = clientsForForm.find(
             (client) =>
@@ -1162,6 +1187,12 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
     setJdError('');
     setJdGenerating(true);
     try {
+      // Keep the full paste in the editor immediately (don't wait for AI rewrite).
+      markWizardDirty();
+      setDraft((prev) => ({
+        ...prev,
+        jobDescriptionHtml: plainTextToJobDescriptionHtml(sourceText),
+      }));
       const response = await apiGenerateJobFromPrompt({
         prompt: sourceText,
         currentForm: {
@@ -1183,14 +1214,14 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
       if (!data?.jobTitle) {
         throw new Error('Could not extract enough fields from the pasted description.');
       }
-      applyPipelineToDraft(data);
+      applyPipelineToDraft(data, sourceText);
       setStep('review');
     } catch (err: unknown) {
       setJdError(err instanceof Error ? err.message : 'Failed to auto-fill from pasted JD.');
     } finally {
       setJdGenerating(false);
     }
-  }, [applyPipelineToDraft, draft, jdGenerating, pastedJobDescriptionText]);
+  }, [applyPipelineToDraft, draft, jdGenerating, markWizardDirty, pastedJobDescriptionText]);
 
   const handleJdFilePick = useCallback(
     async (file: File | null | undefined) => {
@@ -1374,7 +1405,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
               },
             });
             const data = response.data;
-            if (data?.jobTitle) applyPipelineToDraft(data);
+            if (data?.jobTitle) applyPipelineToDraft(data, sourceText);
           } catch (err: unknown) {
             setJdError(err instanceof Error ? err.message : 'Failed to auto-fill from JD.');
           } finally {
@@ -2298,10 +2329,17 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
 
                   <div
                     onPasteCapture={(event) => {
-                      const pastedText = event.clipboardData.getData('text/plain')?.trim() || '';
+                      const pastedText = readJdPlainFromClipboard(event.clipboardData);
                       if (pastedText.length >= 50) {
                         setPastedJobDescriptionText(pastedText);
                         setJdError('');
+                        event.preventDefault();
+                        event.stopPropagation();
+                        markWizardDirty();
+                        setDraft((prev) => ({
+                          ...prev,
+                          jobDescriptionHtml: plainTextToJobDescriptionHtml(pastedText),
+                        }));
                       }
                     }}
                   >
@@ -2309,7 +2347,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                       value={draft.jobDescriptionHtml}
                       onChange={(html) => {
                         patchDraft({ jobDescriptionHtml: html });
-                        const plain = stripHtml(html).trim();
+                        const plain = stripJobDescriptionHtml(html);
                         if (plain.length >= 50) setPastedJobDescriptionText(plain);
                       }}
                       placeholder="Paste the full job description here…"
@@ -2841,6 +2879,14 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                       onChange={(html) => patchDraft({ jobDescriptionHtml: html })}
                       placeholder="Job description…"
                       minHeight={320}
+                      onPastePlainText={(pastedText) => {
+                        if (pastedText.trim().length < 50) return false;
+                        setPastedJobDescriptionText(pastedText.trim());
+                        patchDraft({
+                          jobDescriptionHtml: plainTextToJobDescriptionHtml(pastedText),
+                        });
+                        return true;
+                      }}
                     />
                   </ReviewAccordionSection>
 

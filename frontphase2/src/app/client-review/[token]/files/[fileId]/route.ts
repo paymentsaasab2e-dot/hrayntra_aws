@@ -1,17 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { backendApiBase } from '../../../../../lib/sessionTransferEmailProxy';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-const DEFAULT_BACKEND_BASE = 'http://127.0.0.1:5001/api/v1';
-
-function backendApiBase(): string {
-  return (
-    process.env.BACKEND_INTERNAL_URL ||
-    process.env.NEXT_PUBLIC_API_URL ||
-    DEFAULT_BACKEND_BASE
-  ).replace(/\/+$/, '');
-}
+export const maxDuration = 60;
 
 export async function GET(
   req: NextRequest,
@@ -20,20 +12,37 @@ export async function GET(
   const { token, fileId } = await context.params;
   const matchId = req.nextUrl.searchParams.get('matchId') || '';
   const query = matchId ? `?matchId=${encodeURIComponent(matchId)}` : '';
-  const target = `${backendApiBase()}/interviews/public/review/${encodeURIComponent(token)}/files/${encodeURIComponent(fileId)}${query}`;
+  const target = `${backendApiBase(req)}/interviews/public/review/${encodeURIComponent(token)}/files/${encodeURIComponent(fileId)}${query}`;
 
-  const upstream = await fetch(target, {
-    cache: 'no-store',
-    headers: { Accept: 'application/pdf,*/*' },
-  });
+  try {
+    const upstream = await fetch(target, {
+      cache: 'no-store',
+      headers: { Accept: 'application/pdf,*/*' },
+    });
 
-  return new NextResponse(upstream.body, {
-    status: upstream.status,
-    headers: {
-      'Content-Type': upstream.headers.get('content-type') || 'application/pdf',
-      'Content-Disposition':
-        upstream.headers.get('content-disposition') || 'inline; filename="Document.pdf"',
-      'Cache-Control': 'private, max-age=120',
-    },
-  });
+    const bytes = Buffer.from(await upstream.arrayBuffer());
+
+    return new NextResponse(bytes, {
+      status: upstream.status,
+      headers: {
+        'Content-Type': upstream.headers.get('content-type') || 'application/pdf',
+        'Content-Disposition':
+          upstream.headers.get('content-disposition') || 'inline; filename="Document.pdf"',
+        'Cache-Control': 'private, max-age=120',
+        'Content-Length': String(bytes.length),
+      },
+    });
+  } catch (error) {
+    console.error('[client-review/files] upstream failed', {
+      target,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return NextResponse.json(
+      {
+        success: false,
+        message: 'Unable to load file from the API. Check BACKEND_INTERNAL_URL on the frontend host.',
+      },
+      { status: 502 },
+    );
+  }
 }

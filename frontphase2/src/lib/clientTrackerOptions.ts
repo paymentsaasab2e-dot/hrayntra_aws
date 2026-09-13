@@ -62,7 +62,7 @@ export const CLIENT_TRACKER_OPTION_FIELDS: Array<{
     id: 'changeStage',
     label: 'Change stage',
     action: true,
-    hint: 'Pick which stages the client can choose. Shown in the preview table and Client tab (does not move CRM pipeline).',
+    hint: 'Stages the client can choose are set in Settings → Public Visibility. Shown in the preview table and Client tab (does not move CRM pipeline).',
   },
   { id: 'attachDocument', label: 'Attach document', action: true },
   { id: 'downloadFiles', label: 'Download files' },

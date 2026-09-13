@@ -201,17 +201,30 @@ export function parseOurS3Url(urlString) {
       }
     }
 
-    if (u.hostname === `${bucket}.s3.${region}.amazonaws.com`) {
+    // Virtual-hosted–style: bucket.s3.<region>.amazonaws.com / bucket.s3.amazonaws.com / accelerate
+    const host = String(u.hostname || '').toLowerCase();
+    if (
+      host === `${bucket}.s3.amazonaws.com`.toLowerCase() ||
+      host.startsWith(`${bucket}.s3.`.toLowerCase()) ||
+      host === `${bucket}.s3-accelerate.amazonaws.com`.toLowerCase() ||
+      host.startsWith(`${bucket}.s3-accelerate.`.toLowerCase())
+    ) {
       const key = (u.pathname || '').replace(/^\/+/, '');
-      if (key) return { bucket, key: decodeURIComponent(key) };
+      if (key) return { bucket, key: decodeURIComponent(key.replace(/\+/g, ' ')) };
     }
-    if (region === 'us-east-1' && u.hostname === `${bucket}.s3.amazonaws.com`) {
+
+    if (region === 'us-east-1' && host === `${bucket}.s3.amazonaws.com`.toLowerCase()) {
       const key = (u.pathname || '').replace(/^\/+/, '');
       if (key) return { bucket, key: decodeURIComponent(key) };
     }
 
-    const pathHosts = new Set([`s3.${region}.amazonaws.com`, `s3.dualstack.${region}.amazonaws.com`]);
-    if (pathHosts.has(u.hostname)) {
+    const pathHosts = new Set([
+      `s3.${region}.amazonaws.com`,
+      `s3.dualstack.${region}.amazonaws.com`,
+      's3.amazonaws.com',
+    ]);
+    // Also accept any regional path-style host: s3.<anything>.amazonaws.com/<bucket>/...
+    if (pathHosts.has(host) || /^s3([.-]|$)/i.test(host)) {
       const parts = (u.pathname || '').replace(/^\/+/, '').split('/');
       if (parts[0] === bucket && parts.length > 1) {
         return { bucket, key: parts.slice(1).join('/') };

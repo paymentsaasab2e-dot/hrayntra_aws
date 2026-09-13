@@ -1,15 +1,23 @@
 'use client';
 
-import React from 'react';
-import { Eye, FileText } from 'lucide-react';
-import type { ClientReviewBatchRow } from '../../lib/clientReviewTypes';
+import React, { useState } from 'react';
+import { Eye, FileText, Loader2 } from 'lucide-react';
+import {
+  CLIENT_PIPELINE_STAGE_CHOICES,
+  type ClientReviewBatchRow,
+} from '../../lib/clientReviewTypes';
 import { isClientReviewFileHref } from '../../lib/clientReviewAssets';
+import { normalizeClientTrackerOptions } from '../../lib/clientTrackerOptions';
 
 type Props = {
   rows: ClientReviewBatchRow[];
   onView: (row: ClientReviewBatchRow) => void;
   /** matchId → stage label the client marked (overrides row.clientMarkedStage). */
   stageByMatchId?: Record<string, string>;
+  token?: string;
+  apiBase?: string;
+  /** Called after a stage is saved from the table dropdown. */
+  onStageSubmitted?: (matchId: string, stageLabel: string) => void;
 };
 
 function stageBadgeClass(stage: string): string {
@@ -72,7 +80,30 @@ function canOpenCv(row: ClientReviewBatchRow): boolean {
   return url.startsWith('http') || isClientReviewFileHref(url);
 }
 
-export function ClientReviewBatchTable({ rows, onView, stageByMatchId }: Props) {
+function stageOptionsFor(row: ClientReviewBatchRow): Array<{ id: string; name: string }> {
+  const fromDetail =
+    Array.isArray(row.detail?.pipelineStages) && row.detail.pipelineStages.length
+      ? row.detail.pipelineStages
+      : CLIENT_PIPELINE_STAGE_CHOICES;
+  return fromDetail
+    .map((stage) => ({
+      id: String(stage.id || stage.name || '').trim(),
+      name: String(stage.name || '').trim(),
+    }))
+    .filter((stage) => stage.name);
+}
+
+export function ClientReviewBatchTable({
+  rows,
+  onView,
+  stageByMatchId,
+  token,
+  apiBase,
+  onStageSubmitted,
+}: Props) {
+  const [savingMatchId, setSavingMatchId] = useState<string | null>(null);
+  const [stageErrorByMatchId, setStageErrorByMatchId] = useState<Record<string, string>>({});
+
   const showScore = rows.some((row) => {
     const score = row.matchScore ?? row.detail?.matchScore;
     return Number.isFinite(Number(score)) && row.detail?.trackerOptions?.showScore !== false;
@@ -80,7 +111,52 @@ export function ClientReviewBatchTable({ rows, onView, stageByMatchId }: Props) 
   const viewEnabled = rows.some((row) => row.detail?.trackerOptions?.viewProfile !== false);
   const showCompany = rows.some((row) => Boolean(companyLabel(row)));
   const showXp = rows.some((row) => Number.isFinite(Number(row.experience ?? row.detail?.candidate?.experience)));
-  const showStage = rows.some((row) => row.detail?.trackerOptions?.changeStage !== false);
+  const showStage = rows.some((row) => normalizeClientTrackerOptions(row.detail?.trackerOptions).changeStage);
+
+  const saveStage = async (row: ClientReviewBatchRow, nextStage: string) => {
+    const matchId = String(row.matchId || '').trim();
+    const stage = String(nextStage || '').trim();
+    if (!matchId || !stage || !token || !apiBase) return;
+
+    const current = String(
+      stageByMatchId?.[matchId] || row.clientMarkedStage || row.detail?.clientMarkedStage || '',
+    ).trim();
+    if (current.toLowerCase() === stage.toLowerCase()) return;
+
+    setSavingMatchId(matchId);
+    setStageErrorByMatchId((prev) => {
+      const next = { ...prev };
+      delete next[matchId];
+      return next;
+    });
+
+    try {
+      const formData = new FormData();
+      formData.append('stage', stage);
+      formData.append('matchId', matchId);
+
+      const response = await fetch(
+        `${apiBase}/interviews/public/review/${encodeURIComponent(token)}/tag`,
+        {
+          method: 'POST',
+          body: formData,
+        },
+      );
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.success) {
+        throw new Error(payload?.message || 'Unable to save stage');
+      }
+      const stageLabel = String(payload?.data?.stageLabel || stage).trim() || stage;
+      onStageSubmitted?.(matchId, stageLabel);
+    } catch (err: unknown) {
+      setStageErrorByMatchId((prev) => ({
+        ...prev,
+        [matchId]: err instanceof Error ? err.message : 'Unable to save stage',
+      }));
+    } finally {
+      setSavingMatchId((current) => (current === matchId ? null : current));
+    }
+  };
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -122,12 +198,24 @@ export function ClientReviewBatchTable({ rows, onView, stageByMatchId }: Props) 
               const experience = row.experience ?? row.detail?.candidate?.experience;
               const cvUrl = resumeUrlOf(row);
               const cvAvailable = canOpenCv(row);
+              const tracker = normalizeClientTrackerOptions(row.detail?.trackerOptions);
+              const canPickStage = tracker.changeStage;
+              const stageOptions = stageOptionsFor(row);
               const stage = String(
                 stageByMatchId?.[row.matchId] ||
                   row.clientMarkedStage ||
                   row.detail?.clientMarkedStage ||
                   '',
               ).trim();
+              const selectValue =
+                stage &&
+                stageOptions.some((option) => option.name.toLowerCase() === stage.toLowerCase())
+                  ? stageOptions.find((option) => option.name.toLowerCase() === stage.toLowerCase())
+                      ?.name || stage
+                  : stage;
+              const stageError = stageErrorByMatchId[row.matchId];
+              const saving = savingMatchId === row.matchId;
+
               return (
                 <tr
                   key={row.matchId}
@@ -190,8 +278,47 @@ export function ClientReviewBatchTable({ rows, onView, stageByMatchId }: Props) 
                     </td>
                   ) : null}
                   {showStage ? (
-                    <td className="px-4 py-4 sm:px-6">
-                      {stage ? (
+                    <td className="px-4 py-4 sm:px-6" onClick={(event) => event.stopPropagation()}>
+                      {canPickStage && token && apiBase ? (
+                        <div className="min-w-[10.5rem] max-w-[14rem]">
+                          <div className="relative">
+                            <select
+                              value={selectValue}
+                              disabled={saving || !stageOptions.length}
+                              aria-label={`Stage for ${row.candidateName || 'candidate'}`}
+                              onChange={(event) => {
+                                void saveStage(row, event.target.value);
+                              }}
+                              className={`w-full appearance-none rounded-full border-0 bg-slate-50 py-1.5 pl-3 pr-8 text-[11px] font-semibold outline-none ring-1 ring-inset focus:ring-2 focus:ring-indigo-300 disabled:opacity-60 ${
+                                stage
+                                  ? stageBadgeClass(stage)
+                                  : 'text-slate-500 ring-slate-200'
+                              }`}
+                            >
+                              <option value="" disabled>
+                                Select stage…
+                              </option>
+                              {selectValue &&
+                              !stageOptions.some(
+                                (option) => option.name.toLowerCase() === selectValue.toLowerCase(),
+                              ) ? (
+                                <option value={selectValue}>{selectValue}</option>
+                              ) : null}
+                              {stageOptions.map((option) => (
+                                <option key={option.id || option.name} value={option.name}>
+                                  {option.name}
+                                </option>
+                              ))}
+                            </select>
+                            {saving ? (
+                              <Loader2 className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-slate-400" />
+                            ) : null}
+                          </div>
+                          {stageError ? (
+                            <p className="mt-1 text-[10px] font-medium text-rose-600">{stageError}</p>
+                          ) : null}
+                        </div>
+                      ) : stage ? (
                         <span
                           className={`inline-flex max-w-[12rem] truncate rounded-full px-2.5 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${stageBadgeClass(stage)}`}
                           title={stage}

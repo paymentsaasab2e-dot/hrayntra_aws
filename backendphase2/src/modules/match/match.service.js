@@ -1129,6 +1129,11 @@ export const matchService = {
     const trackerOptions = normalizeClientTrackerOptions(data?.trackerOptions, {
       useNewDefaults: true,
     });
+    const clientStageCatalog = normalizeClientStageCatalog(data?.clientStageCatalog);
+    const allowedClientStages = normalizeAllowedClientStages(data?.allowedClientStages, {
+      fallbackAll: true,
+      catalog: clientStageCatalog,
+    });
 
     const reviewUrl = await buildClientReviewUrl(
       match,
@@ -1169,10 +1174,8 @@ export const matchService = {
               ...existingSubmission,
               ...(cvShareMode ? { shareMode: cvShareMode, snapshot } : {}),
               trackerOptions,
-              allowedClientStages: normalizeAllowedClientStages(null, {
-                fallbackAll: true,
-              }).map((row) => row.name),
-              clientStageCatalog: normalizeClientStageCatalog(null).map((row) => row.name),
+              allowedClientStages: allowedClientStages.map((row) => row.name),
+              clientStageCatalog: clientStageCatalog.map((row) => row.name),
               updatedAt: new Date().toISOString(),
               reviewUrl,
             },
