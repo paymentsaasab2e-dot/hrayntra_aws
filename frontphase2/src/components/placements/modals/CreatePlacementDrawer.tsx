@@ -352,13 +352,17 @@ export function CreatePlacementDrawer({
               <DrawerSelectDropdown
                 value={form.candidateId}
                 preferUpward
+                searchable
+                searchPlaceholder="Search candidate…"
                 placeholder="Select candidate"
                 error={Boolean(errors.candidateId)}
                 options={[
                   { value: '', label: 'Select candidate' },
                   ...candidates.map((candidate) => ({
                     value: candidate.id,
-                    label: candidate.name,
+                    label: candidate.email
+                      ? `${candidate.name} · ${candidate.email}`
+                      : candidate.name,
                   })),
                 ]}
                 onChange={(candidateId) => setForm((current) => ({ ...current, candidateId }))}
@@ -377,6 +381,8 @@ export function CreatePlacementDrawer({
               <DrawerSelectDropdown
                 value={form.jobId}
                 preferUpward
+                searchable
+                searchPlaceholder="Search job…"
                 placeholder="Select job"
                 error={Boolean(errors.jobId)}
                 options={[
@@ -416,6 +422,8 @@ export function CreatePlacementDrawer({
             <DrawerSelectDropdown
               value={form.recruiterId}
               preferUpward
+              searchable
+              searchPlaceholder="Search team member…"
               placeholder="Select team member"
               options={[
                 { value: '', label: 'Select team member' },

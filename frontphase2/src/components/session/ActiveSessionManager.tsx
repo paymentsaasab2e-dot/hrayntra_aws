@@ -42,7 +42,9 @@ export default function ActiveSessionManager() {
     pathname?.startsWith('/forgot-password') ||
     pathname?.startsWith('/reset-password') ||
     pathname?.startsWith('/apply') ||
-    pathname?.startsWith('/client-review');
+    pathname?.startsWith('/client-review') ||
+    pathname?.startsWith('/interview-rsvp') ||
+    pathname?.startsWith('/session-transfer');
 
   const forceLogout = useCallback(
     (message?: string, opts?: { silent?: boolean }) => {
@@ -125,6 +127,39 @@ export default function ActiveSessionManager() {
   useEffect(() => {
     if (isAuthRoute || typeof window === 'undefined') return;
 
+    const buildBeaconUrl = (extra: Record<string, string> = {}) => {
+      const token = getAccessToken();
+      const sessionId = getStoredSessionId();
+      if (!token || !sessionId) return null;
+      const tenantDbName = getTenantDbName() || '';
+      const qs = new URLSearchParams({
+        token,
+        sessionId,
+        tenantDbName,
+        ...extra,
+      });
+      return buildApiUrl(`/auth/logout-beacon?${qs.toString()}`);
+    };
+
+    const sendBeaconUrl = (url: string) => {
+      try {
+        if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+          if (navigator.sendBeacon(url)) return;
+        }
+        void fetch(url, { method: 'GET', keepalive: true, credentials: 'include' });
+      } catch {
+        /* best effort only */
+      }
+    };
+
+    /** Reload / bfcache restore must stay logged in — cancel any close-intent ASAP. */
+    const cancelCloseIntent = () => {
+      if (sessionStorage.getItem('oauth_navigation') === '1') return;
+      const url = buildBeaconUrl({ cancel: '1' });
+      if (!url) return;
+      sendBeaconUrl(url);
+    };
+
     const sendBrowserCloseBeacon = () => {
       // OAuth redirects leave the app temporarily — do not mark the session as closed.
       if (sessionStorage.getItem('oauth_navigation') === '1') return;
@@ -138,28 +173,48 @@ export default function ActiveSessionManager() {
       const isLastTab = unregisterAppTab();
       if (!isLastTab) return;
 
-      const tenantDbName = getTenantDbName() || '';
-      const url = buildApiUrl(
-        `/auth/logout-beacon?token=${encodeURIComponent(token)}&sessionId=${encodeURIComponent(sessionId)}&tenantDbName=${encodeURIComponent(tenantDbName)}`,
-      );
-
-      try {
-        void fetch(url, { method: 'GET', keepalive: true, credentials: 'include' });
-      } catch {
-        /* best effort only */
-      }
+      // Mark close-intent only (never finalize). A tab reload also hits pagehide;
+      // pageshow + heartbeat cancel this within the grace window so the user
+      // stays signed in. Real browser/tab close with no resume → session stops
+      // blocking new logins after grace / presence timeout.
+      const url = buildBeaconUrl();
+      if (!url) return;
+      sendBeaconUrl(url);
     };
 
     const handlePageHide = (event: PageTransitionEvent) => {
-      if (event.persisted) return;
+      if (event.persisted) {
+        // Entering bfcache — tab may come back; do not mark closed.
+        return;
+      }
       sendBrowserCloseBeacon();
     };
 
+    const handlePageShow = () => {
+      // Reload or restore from bfcache: clear close-intent so we do not log out.
+      cancelCloseIntent();
+      registerAppTab();
+    };
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        cancelCloseIntent();
+        registerAppTab();
+      }
+    };
+
     window.addEventListener('pagehide', handlePageHide);
-    window.addEventListener('beforeunload', sendBrowserCloseBeacon);
+    // Avoid beforeunload here: it also fires on reload and would race with
+    // pageshow cancel. pagehide is enough for close + navigation away.
+    window.addEventListener('pageshow', handlePageShow);
+    document.addEventListener('visibilitychange', handleVisibility);
+    // If this mount is itself a reload, cancel any intent from the previous page.
+    cancelCloseIntent();
+
     return () => {
       window.removeEventListener('pagehide', handlePageHide);
-      window.removeEventListener('beforeunload', sendBrowserCloseBeacon);
+      window.removeEventListener('pageshow', handlePageShow);
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, [isAuthRoute]);
 

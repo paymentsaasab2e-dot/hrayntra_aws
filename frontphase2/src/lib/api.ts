@@ -47,6 +47,7 @@ const LONG_RUNNING_API_PATH_PREFIXES = [
   '/candidates/bulk-import',
   '/jobs/process-jd-file',
   '/hq/portal/jobs/push-to-feeds',
+  '/hq/portal/jobs/sync-to-phase1',
   '/agreements/parse-document',
   '/kyc/parse-document',
 ];
@@ -4107,6 +4108,29 @@ export async function apiHqPushJobsToExternalFeeds() {
   return apiFetch<HqPushJobsToFeedsResult>('/hq/portal/jobs/push-to-feeds', {
     method: 'POST',
     auth: true,
+  });
+}
+
+export type HqSyncTenantJobsToPhase1Result = {
+  requested: number;
+  synced: number;
+  failed: number;
+  results: Array<{
+    tenantDbName: string;
+    jobId: string;
+    title?: string;
+    ok: boolean;
+    error?: string;
+  }>;
+};
+
+export async function apiHqSyncTenantJobsToPhase1(body: {
+  jobs: Array<{ tenantDbName: string; jobId: string }>;
+}) {
+  return apiFetch<HqSyncTenantJobsToPhase1Result>('/hq/portal/jobs/sync-to-phase1', {
+    method: 'POST',
+    auth: true,
+    body,
   });
 }
 

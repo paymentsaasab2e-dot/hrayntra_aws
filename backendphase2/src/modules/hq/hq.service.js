@@ -1374,6 +1374,11 @@ export const hqService = {
     return hqPortalService.pushEligibleJobsToExternalFeeds();
   },
 
+  async syncTenantJobsToPhase1(reqUser, body = {}) {
+    assertPlatformProvisioner(reqUser);
+    return hqPortalService.syncTenantJobsToPhase1(body);
+  },
+
   async listPackages(reqUser) {
     assertPlatformProvisioner(reqUser);
     const packages = await hqPackagesService.listPackages();

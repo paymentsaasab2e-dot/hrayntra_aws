@@ -5,6 +5,11 @@ import { oauthTokenService } from '../modules/oauth/oauth-token.service.js';
 import { isNotificationTriggerEnabled } from '../modules/setting/notification-trigger-settings.js';
 import { renderNotificationTriggerEmail } from '../modules/setting/notification-trigger-template-settings.js';
 import { interviewScheduledTemplate } from '../utils/emailTemplates.js';
+import {
+  buildInterviewRsvpPublicUrls,
+  shouldShowJoinInterviewCta,
+} from '../modules/interview/interviewRsvpLinks.js';
+import { getActiveTenantDbName } from '../config/prisma.js';
 import { buildPlacementInvoiceEmailHtml } from '../utils/invoiceEmailHtml.js';
 import {
   joiningScheduledCandidateTemplate,
@@ -63,11 +68,35 @@ function buildRichInterviewScheduledHtml(payload, { panelMember = false } = {}) 
     timezone,
     meetingLink,
     interviewerNames,
+    interviewId,
+    modeLabel,
+    location,
+    phoneNumber,
+    mode,
+    interviewType,
+    type,
+    rsvpLinks: providedRsvp,
   } = payload;
 
   const extraDetails = buildInterviewExtraDetails(payload, { includeCandidate: panelMember });
   // Never expose CRM client / company name to candidates — panel emails may still include it.
   const visibleCompanyName = panelMember ? companyName : '';
+  const showJoinCta = shouldShowJoinInterviewCta({
+    meetingLink,
+    mode,
+    modeLabel,
+    type: type || interviewType,
+    interviewType,
+  });
+
+  let rsvpLinks = providedRsvp || null;
+  if (!panelMember && interviewId && !rsvpLinks) {
+    try {
+      rsvpLinks = buildInterviewRsvpPublicUrls(interviewId, getActiveTenantDbName());
+    } catch (err) {
+      console.warn('[email] interview RSVP links failed', err?.message || err);
+    }
+  }
 
   return `
       ${interviewScheduledTemplate({
@@ -78,6 +107,11 @@ function buildRichInterviewScheduledHtml(payload, { panelMember = false } = {}) 
         timezone,
         meetingLink,
         panelNames: interviewerNames || [],
+        showJoinCta: panelMember ? showJoinCta : showJoinCta,
+        rsvpLinks: panelMember ? null : rsvpLinks,
+        location,
+        phoneNumber,
+        modeLabel,
       })}
       <div style="max-width:640px; margin:16px auto 0; background:#ffffff; border:1px solid #e5e7eb; border-radius:16px; padding:24px; font-family: Arial, sans-serif; color:#111827;">
         <h2 style="margin-top:0; font-size:18px;">Interview Details</h2>
@@ -658,7 +692,17 @@ export async function sendCandidateInterviewScheduledEmail(payload) {
       interviewerNames,
       notes,
       senderUserId,
+      interviewId,
+      mode,
+      type,
     } = payload;
+
+    const tzLabel = timezone ? String(timezone).trim() : '';
+    const scheduledLabel = scheduledAt
+      ? `${typeof scheduledAt === 'string' || scheduledAt instanceof Date ? scheduledAt : String(scheduledAt)}${
+          tzLabel ? ` (${tzLabel})` : ''
+        }`
+      : 'TBD';
 
     const rendered = await renderNotificationTriggerEmail(
       'interview.candidate_scheduled',
@@ -668,9 +712,7 @@ export async function sendCandidateInterviewScheduledEmail(payload) {
         jobTitle,
         // Do not send CRM client / company details to candidates.
         companyName: '',
-        scheduledAt: scheduledAt
-          ? `${scheduledAt}${timezone ? ` (${timezone})` : ''}`
-          : 'TBD',
+        scheduledAt: scheduledLabel,
         location: location || 'N/A',
         meetingLink: meetingLink || 'N/A',
       },
@@ -682,12 +724,24 @@ export async function sendCandidateInterviewScheduledEmail(payload) {
           .replace(/\s+at\s+N\/A$/i, '')
           .trim() || `Interview Scheduled: ${jobTitle}`
       : `Interview Scheduled: ${jobTitle}`;
+    // Always use the rich template so Join CTA + RSVP buttons + timezone stay consistent.
+    // Customized trigger HTML (if any) is appended below as optional org messaging.
+    const richHtml = buildRichInterviewScheduledHtml({
+      ...payload,
+      companyName: '',
+      interviewId,
+      mode: mode || modeLabel,
+      type: type || interviewType,
+      interviewType,
+    });
     const html = rendered.effective?.customized
-      ? String(rendered.html || '')
+      ? `${richHtml}<div style="max-width:640px;margin:12px auto 0;padding:12px 16px;font-family:Arial,sans-serif;color:#64748b;font-size:13px;">${String(
+          rendered.html || '',
+        )
           .replace(/\s+at\s+N\/A/gi, '')
           .replace(/\s+at\s+\{\{companyName\}\}/gi, '')
-          .replace(/\s+at\s+(<\/strong>|<\/p>)/gi, '$1')
-      : buildRichInterviewScheduledHtml({ ...payload, companyName: '' });
+          .replace(/\s+at\s+(<\/strong>|<\/p>)/gi, '$1')}</div>`
+      : richHtml;
 
     await sendEmail({
       senderUserId,

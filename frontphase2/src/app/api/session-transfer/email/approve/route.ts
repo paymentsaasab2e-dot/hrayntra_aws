@@ -1,41 +1,36 @@
-import { NextRequest, NextResponse } from 'next/server';
-
-function backendApiRoot() {
-  const raw = process.env.NEXT_PUBLIC_API_URL?.trim() || 'http://localhost:5001/api/v1';
-  return raw.replace(/\/api\/v1\/?$/, '');
-}
+import { NextRequest } from 'next/server';
+import {
+  backendApiRoot,
+  redirectFromBackendLocation,
+  redirectSessionTransferPage,
+} from '@/lib/sessionTransferEmailProxy';
 
 /** Proxy email "Allow login" to Phase 2 API (keeps tenant + avoids direct :5001 links in dev). */
 export async function GET(request: NextRequest) {
   const token = request.nextUrl.searchParams.get('token');
   const tenantDbName = request.nextUrl.searchParams.get('tenantDbName');
   if (!token) {
-    return NextResponse.redirect(new URL('/session-transfer?status=error&message=Missing+token', request.url));
+    return redirectSessionTransferPage(request, 'error', 'Missing token');
   }
 
   const qs = new URLSearchParams({ token });
   if (tenantDbName) qs.set('tenantDbName', tenantDbName);
 
-  const backendUrl = `${backendApiRoot()}/api/v1/auth/session/transfer/email/approve?${qs.toString()}`;
+  const backendUrl = `${backendApiRoot(request)}/api/v1/auth/session/transfer/email/approve?${qs.toString()}`;
 
   try {
-    const res = await fetch(backendUrl, { redirect: 'manual' });
+    const res = await fetch(backendUrl, { redirect: 'manual', cache: 'no-store' });
     const location = res.headers.get('location');
     if (location) {
-      const target = new URL(location, request.url);
-      return NextResponse.redirect(target, 302);
+      return redirectFromBackendLocation(request, location);
     }
     if (res.ok) {
-      return NextResponse.redirect(
-        new URL('/session-transfer?status=approved&message=Approval+Done', request.url),
-        302,
-      );
+      return redirectSessionTransferPage(request, 'approved', 'Approval Done');
     }
+    console.error('[session-transfer] approve upstream status', res.status, backendUrl);
   } catch (error) {
-    console.error('[session-transfer] approve proxy failed:', error);
+    console.error('[session-transfer] approve proxy failed:', error, backendUrl);
   }
 
-  return NextResponse.redirect(
-    new URL('/session-transfer?status=error&message=Could+not+reach+the+server', request.url),
-  );
+  return redirectSessionTransferPage(request, 'error', 'Could not reach the server');
 }

@@ -813,6 +813,15 @@ export const hqController = {
     }
   },
 
+  async syncTenantJobsToPhase1(req, res) {
+    try {
+      const result = await hqService.syncTenantJobsToPhase1(req.user, req.body || {});
+      sendResponse(res, 200, 'Tenant jobs synced to Phase 1 portal', result);
+    } catch (error) {
+      sendError(res, error.statusCode || 400, error.message, error);
+    }
+  },
+
   async deleteTenant(req, res) {
     try {
       // Accept email via body, URL params, or query — the HQ UI uses the

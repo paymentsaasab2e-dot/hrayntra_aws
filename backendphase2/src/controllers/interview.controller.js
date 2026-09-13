@@ -1,6 +1,12 @@
 import { sendError, sendResponse } from '../utils/response.js';
 import { interviewService } from '../services/interview.service.js';
 import { httpStatusFromError } from '../utils/interviewConflict.util.js';
+import {
+  getPublicInterviewRsvp,
+  acceptPublicInterviewRsvp,
+  rejectPublicInterviewRsvp,
+  requestPublicInterviewReschedule,
+} from '../modules/interview/interviewRsvp.service.js';
 
 export const interviewController = {
   async list(req, res) {
@@ -178,6 +184,42 @@ export const interviewController = {
       sendResponse(res, 200, 'Client tag submitted successfully', result);
     } catch (error) {
       sendError(res, 400, error.message, error);
+    }
+  },
+
+  async getPublicInterviewRsvp(req, res) {
+    try {
+      const result = await getPublicInterviewRsvp(req.params.token);
+      sendResponse(res, 200, 'Interview RSVP details retrieved', result);
+    } catch (error) {
+      sendError(res, error.statusCode || 400, error.message, error);
+    }
+  },
+
+  async acceptPublicInterviewRsvp(req, res) {
+    try {
+      const result = await acceptPublicInterviewRsvp(req.params.token);
+      sendResponse(res, 200, 'Interview accepted', result);
+    } catch (error) {
+      sendError(res, error.statusCode || 400, error.message, error);
+    }
+  },
+
+  async rejectPublicInterviewRsvp(req, res) {
+    try {
+      const result = await rejectPublicInterviewRsvp(req.params.token, req.body || {});
+      sendResponse(res, 200, 'Interview declined', result);
+    } catch (error) {
+      sendError(res, error.statusCode || 400, error.message, error);
+    }
+  },
+
+  async reschedulePublicInterviewRsvp(req, res) {
+    try {
+      const result = await requestPublicInterviewReschedule(req.params.token, req.body || {});
+      sendResponse(res, 200, 'Reschedule request submitted', result);
+    } catch (error) {
+      sendError(res, error.statusCode || 400, error.message, error);
     }
   },
 };

@@ -5,7 +5,12 @@ import {
   runWithTenantContext,
   isTransientMongoConnectivityError,
 } from '../../config/prisma.js';
-import { env, normalizePublicUrl, isLoopbackPublicUrl } from '../../config/env.js';
+import {
+  env,
+  normalizePublicUrl,
+  isLoopbackPublicUrl,
+  resolveSessionTransferRedirectBase,
+} from '../../config/env.js';
 import { signToken, signRefreshToken, verifyRefreshToken } from '../../utils/jwt.js';
 import { hashToken } from '../../utils/tokenHash.js';
 import { formatDeviceLabel, formatMacDisplay } from '../../utils/deviceFingerprint.js';
@@ -53,7 +58,17 @@ function closeIntentKey(userId, sessionId) {
 }
 
 function closeIntentGraceMs() {
-  return Number(env.SESSION_CLOSE_GRACE_MS || 12_000);
+  // Long enough that a normal tab reload can mount + heartbeat and clear the
+  // close-intent before the session is treated as abandoned.
+  return Number(env.SESSION_CLOSE_GRACE_MS || 45_000);
+}
+
+/**
+ * If heartbeats stop (tab/browser closed without a reliable beacon), stop blocking
+ * new logins after this window. Heartbeat is ~20s; default allows a few misses.
+ */
+function presenceStaleMs() {
+  return Number(env.SESSION_PRESENCE_STALE_MS || 90_000);
 }
 
 async function audit(userId, action, deviceMeta = {}, metadata = null) {
@@ -128,9 +143,19 @@ async function evaluateSessionBlockingState(row) {
     if (row.refreshTokenHash !== currentHash) return 'token_rotated';
   }
 
-  const hasCloseIntent = await getCache(closeIntentKey(row.userId, row.sessionId));
-  if (hasCloseIntent && inactiveForMs > closeIntentGraceMs()) {
-    return 'tab_closed';
+  const closeIntentRaw = await getCache(closeIntentKey(row.userId, row.sessionId));
+  if (closeIntentRaw) {
+    const markedAt = Number(closeIntentRaw);
+    const closeAgeMs = Number.isFinite(markedAt) && markedAt > 0 ? Date.now() - markedAt : inactiveForMs;
+    if (closeAgeMs > closeIntentGraceMs()) {
+      return 'tab_closed';
+    }
+  }
+
+  // Presence timeout always applies for single-session gating (even when long
+  // inactivity auto-logout is disabled). Stops ghost sessions after browser close.
+  if (Number.isFinite(inactiveForMs) && inactiveForMs > presenceStaleMs()) {
+    return 'presence_stale';
   }
 
   return 'blocking';
@@ -140,7 +165,10 @@ async function expireSessionIfNotBlocking(row) {
   const state = await evaluateSessionBlockingState(row);
   if (state === 'blocking') return false;
   const reason =
-    state === 'logged_out' || state === 'token_rotated' || state === 'tab_closed'
+    state === 'logged_out' ||
+    state === 'token_rotated' ||
+    state === 'tab_closed' ||
+    state === 'presence_stale'
       ? 'LOGOUT'
       : 'INACTIVITY_TIMEOUT';
   await expireSession(row, reason);
@@ -455,8 +483,19 @@ export async function heartbeat(userId, sessionId) {
 
 export async function markSessionCloseIntent(userId, sessionId) {
   if (!userId || !sessionId) return;
-  const ttlSeconds = Math.max(5, Math.ceil(closeIntentGraceMs() / 1000));
-  await setCache(closeIntentKey(userId, sessionId), '1', ttlSeconds);
+  // Keep the intent long enough that login after browser close can see it.
+  // (Previously TTL == grace window, so the flag expired before tab_closed could fire.)
+  const ttlSeconds = Math.max(
+    300,
+    Math.ceil(Math.max(closeIntentGraceMs(), presenceStaleMs()) / 1000) * 4,
+  );
+  await setCache(closeIntentKey(userId, sessionId), String(Date.now()), ttlSeconds);
+}
+
+/** Tab came back (reload / bfcache / new focus) — do not treat as closed. */
+export async function clearSessionCloseIntent(userId, sessionId) {
+  if (!userId || !sessionId) return;
+  await deleteCache(closeIntentKey(userId, sessionId));
 }
 
 /** Last browser tab closed — end this session immediately so the next login is not blocked. */
@@ -654,22 +693,19 @@ async function notifyActiveUserOfSessionTransferRequest({
   const tenantQ = tenantDbName ? `&tenantDbName=${encodeURIComponent(tenantDbName)}` : '';
   const emailPublicOverride = normalizePublicUrl(process.env.SESSION_TRANSFER_EMAIL_PUBLIC_URL || '');
   const frontendBase = normalizePublicUrl(env.FRONTEND_URL);
-  const backendBase = normalizePublicUrl(env.BACKEND_PUBLIC_URL);
+  const redirectBase = resolveSessionTransferRedirectBase();
 
   let approveUrl;
   let rejectUrl;
-  if (emailPublicOverride && !isLoopbackPublicUrl(emailPublicOverride)) {
-    const base = emailPublicOverride;
-    approveUrl = `${base}/api/session-transfer/email/approve?token=${encodeURIComponent(approveToken)}${tenantQ}`;
-    rejectUrl = `${base}/api/session-transfer/email/reject?token=${encodeURIComponent(rejectToken)}${tenantQ}`;
-  } else if (!isLoopbackPublicUrl(frontendBase)) {
-    approveUrl = `${frontendBase}/api/session-transfer/email/approve?token=${encodeURIComponent(approveToken)}${tenantQ}`;
-    rejectUrl = `${frontendBase}/api/session-transfer/email/reject?token=${encodeURIComponent(rejectToken)}${tenantQ}`;
-  } else {
-    // Local dev: frontend proxy → API (keeps redirect on :3001 with ?status=approved)
-    approveUrl = `${frontendBase}/api/session-transfer/email/approve?token=${encodeURIComponent(approveToken)}${tenantQ}`;
-    rejectUrl = `${frontendBase}/api/session-transfer/email/reject?token=${encodeURIComponent(rejectToken)}${tenantQ}`;
-  }
+  const publicBase =
+    emailPublicOverride && !isLoopbackPublicUrl(emailPublicOverride)
+      ? emailPublicOverride
+      : frontendBase && !isLoopbackPublicUrl(frontendBase)
+        ? frontendBase
+        : redirectBase;
+
+  approveUrl = `${publicBase}/api/session-transfer/email/approve?token=${encodeURIComponent(approveToken)}${tenantQ}`;
+  rejectUrl = `${publicBase}/api/session-transfer/email/reject?token=${encodeURIComponent(rejectToken)}${tenantQ}`;
 
   const recipientName =
     [user.firstName, user.lastName].filter(Boolean).join(' ').trim() || user.name || email;
@@ -725,7 +761,7 @@ export async function rejectSessionTransferFromEmailToken(token) {
 }
 
 export function buildSessionTransferEmailRedirect(query) {
-  const base = normalizePublicUrl(env.FRONTEND_URL, 'http://localhost:3001');
+  const base = resolveSessionTransferRedirectBase();
   const params = new URLSearchParams();
   Object.entries(query || {}).forEach(([key, value]) => {
     if (value != null && String(value).trim()) params.set(key, String(value));
@@ -891,6 +927,7 @@ export const sessionService = {
   validateSessionFromToken,
   heartbeat,
   markSessionCloseIntent,
+  clearSessionCloseIntent,
   finalizeBrowserLogout,
   logoutSession,
   refreshWithSession,

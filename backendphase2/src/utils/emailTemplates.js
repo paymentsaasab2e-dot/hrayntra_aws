@@ -8,26 +8,49 @@ const TIMEZONE_ALIASES = {
 
 const normalizeTimeZone = (timezone) => {
   const raw = String(timezone || '').trim();
-  if (!raw) return 'UTC';
+  if (!raw) return 'Asia/Kolkata';
   if (TIMEZONE_ALIASES[raw]) return TIMEZONE_ALIASES[raw];
   try {
     new Intl.DateTimeFormat('en-US', { timeZone: raw }).format(new Date());
     return raw;
   } catch {
-    return 'UTC';
+    if (/ist|kolkata|india/i.test(raw)) return 'Asia/Kolkata';
+    return 'Asia/Kolkata';
   }
+};
+
+const timezoneShortLabel = (timezone) => {
+  const tz = normalizeTimeZone(timezone);
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      timeZoneName: 'short',
+    }).formatToParts(new Date());
+    const name = parts.find((part) => part.type === 'timeZoneName')?.value;
+    if (name) return `${name} · ${tz}`;
+  } catch {
+    /* fall through */
+  }
+  return tz;
 };
 
 const formatDateTime = (value, timezone) => {
   const safeTimeZone = normalizeTimeZone(timezone);
-  return new Intl.DateTimeFormat('en-US', {
+  const formatted = new Intl.DateTimeFormat('en-US', {
     dateStyle: 'medium',
     timeStyle: 'short',
     timeZone: safeTimeZone,
   }).format(new Date(value));
+  return `${formatted} (${timezoneShortLabel(safeTimeZone)})`;
 };
 
-const layout = ({ title, intro, sections, ctaLabel, ctaLink }) => `
+const escapeAttr = (value) =>
+  String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;');
+
+const layout = ({ title, intro, sections, ctaLabel, ctaLink, rsvpLinks }) => `
   <div style="font-family: Arial, sans-serif; background:#f8fafc; padding:24px; color:#111827;">
     <div style="max-width:640px; margin:0 auto; background:#ffffff; border:1px solid #e5e7eb; border-radius:16px; overflow:hidden;">
       <div style="background:#2563eb; color:#ffffff; padding:24px;">
@@ -48,9 +71,33 @@ const layout = ({ title, intro, sections, ctaLabel, ctaLink }) => `
         ${
           ctaLink
             ? `<div style="margin-top:24px;">
-                <a href="${ctaLink}" style="display:inline-block; background:#2563eb; color:#ffffff; text-decoration:none; padding:12px 18px; border-radius:10px; font-weight:700;">
-                  ${ctaLabel}
+                <a href="${escapeAttr(ctaLink)}" style="display:inline-block; background:#2563eb; color:#ffffff; text-decoration:none; padding:12px 18px; border-radius:10px; font-weight:700;">
+                  ${ctaLabel || 'Join Interview'}
                 </a>
+              </div>`
+            : ''
+        }
+        ${
+          rsvpLinks?.acceptUrl || rsvpLinks?.rejectUrl || rsvpLinks?.rescheduleUrl
+            ? `<div style="margin-top:28px; padding-top:20px; border-top:1px solid #e5e7eb;">
+                <div style="font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.08em; color:#6b7280; margin-bottom:12px;">Please respond</div>
+                <div>
+                  ${
+                    rsvpLinks.acceptUrl
+                      ? `<a href="${escapeAttr(rsvpLinks.acceptUrl)}" style="display:inline-block; background:#059669; color:#ffffff; text-decoration:none; padding:10px 16px; border-radius:10px; font-weight:700; margin:0 8px 8px 0;">Accept</a>`
+                      : ''
+                  }
+                  ${
+                    rsvpLinks.rejectUrl
+                      ? `<a href="${escapeAttr(rsvpLinks.rejectUrl)}" style="display:inline-block; background:#ffffff; color:#dc2626; text-decoration:none; padding:10px 16px; border-radius:10px; font-weight:700; border:1px solid #fecaca; margin:0 8px 8px 0;">Reject</a>`
+                      : ''
+                  }
+                  ${
+                    rsvpLinks.rescheduleUrl
+                      ? `<a href="${escapeAttr(rsvpLinks.rescheduleUrl)}" style="display:inline-block; background:#ffffff; color:#1d4ed8; text-decoration:none; padding:10px 16px; border-radius:10px; font-weight:700; border:1px solid #bfdbfe; margin:0 8px 8px 0;">Reschedule</a>`
+                      : ''
+                  }
+                </div>
               </div>`
             : ''
         }
@@ -59,21 +106,54 @@ const layout = ({ title, intro, sections, ctaLabel, ctaLink }) => `
   </div>
 `;
 
-export const interviewScheduledTemplate = ({ candidateName, jobTitle, companyName, date, timezone, meetingLink, panelNames }) => {
+export const interviewScheduledTemplate = ({
+  candidateName,
+  jobTitle,
+  companyName,
+  date,
+  timezone,
+  meetingLink,
+  panelNames,
+  showJoinCta,
+  rsvpLinks,
+  location,
+  phoneNumber,
+  modeLabel,
+}) => {
   const company = String(companyName || '').trim();
+  const joinVisible =
+    showJoinCta !== false &&
+    Boolean(String(meetingLink || '').trim()) &&
+    /^https?:\/\//i.test(String(meetingLink || '').trim());
+
   const sections = [
     { label: 'Role', value: jobTitle },
     ...(company ? [{ label: 'Company', value: company }] : []),
     { label: 'Date & Time', value: formatDateTime(date, timezone) },
-    { label: 'Interviewers', value: panelNames.join(', ') || 'HRYANTRA Hiring Team' },
-    { label: 'Meeting Link', value: meetingLink || 'Your recruiter will share the meeting link shortly.' },
+    ...(modeLabel ? [{ label: 'Interview Mode', value: modeLabel }] : []),
+    { label: 'Interviewers', value: (panelNames || []).join(', ') || 'HRYANTRA Hiring Team' },
   ];
+
+  if (joinVisible) {
+    sections.push({
+      label: 'Meeting Link',
+      value: `<a href="${escapeAttr(meetingLink)}" style="color:#2563eb; word-break:break-all;">${escapeAttr(meetingLink)}</a>`,
+    });
+  } else if (location) {
+    sections.push({ label: 'Location', value: location });
+  } else if (phoneNumber) {
+    sections.push({ label: 'Phone', value: phoneNumber });
+  }
+
   return layout({
     title: company ? `Interview Scheduled: ${jobTitle} at ${company}` : `Interview Scheduled: ${jobTitle}`,
-    intro: `Hello ${candidateName}, your interview has been scheduled. Please review the details below and join on time.`,
+    intro: `Hello ${candidateName}, your interview has been scheduled. Please review the details below${
+      joinVisible ? ' and join on time' : ''
+    }.`,
     sections,
     ctaLabel: 'Join Interview',
-    ctaLink: meetingLink,
+    ctaLink: joinVisible ? meetingLink : null,
+    rsvpLinks,
   });
 };
 
@@ -86,8 +166,14 @@ export const interviewRescheduledTemplate = ({
   timezone,
   reason,
   meetingLink,
+  showJoinCta,
+  rsvpLinks,
 }) => {
   const company = String(companyName || '').trim();
+  const joinVisible =
+    showJoinCta !== false &&
+    Boolean(String(meetingLink || '').trim()) &&
+    /^https?:\/\//i.test(String(meetingLink || '').trim());
   return layout({
     title: company ? `Interview Rescheduled: ${jobTitle} at ${company}` : `Interview Rescheduled: ${jobTitle}`,
     intro: `Hello ${candidateName}, your interview schedule has been updated.`,
@@ -96,10 +182,18 @@ export const interviewRescheduledTemplate = ({
       { label: 'Old Schedule', value: formatDateTime(oldDate, timezone) },
       { label: 'New Schedule', value: formatDateTime(newDate, timezone) },
       { label: 'Reason', value: reason || 'Updated by recruiting team' },
-      { label: 'Meeting Link', value: meetingLink || 'The updated meeting link will be shared shortly.' },
+      ...(joinVisible
+        ? [
+            {
+              label: 'Meeting Link',
+              value: `<a href="${escapeAttr(meetingLink)}" style="color:#2563eb; word-break:break-all;">${escapeAttr(meetingLink)}</a>`,
+            },
+          ]
+        : []),
     ],
     ctaLabel: 'View Updated Meeting',
-    ctaLink: meetingLink,
+    ctaLink: joinVisible ? meetingLink : null,
+    rsvpLinks,
   });
 };
 
@@ -119,12 +213,9 @@ export const interviewCancelledTemplate = ({ candidateName, jobTitle, companyNam
 
 export const feedbackReminderTemplate = ({ interviewerName, candidateName, date, timezone, feedbackUrl }) =>
   layout({
-    title: `Reminder: Submit Feedback for ${candidateName}`,
-    intro: `Hello ${interviewerName}, please submit your interview feedback to keep the hiring process moving.`,
-    sections: [
-      { label: 'Candidate', value: candidateName },
-      { label: 'Interview Time', value: formatDateTime(date, timezone) },
-    ],
+    title: 'Feedback Reminder',
+    intro: `Hello ${interviewerName}, please submit feedback for ${candidateName}.`,
+    sections: [{ label: 'Interview Time', value: formatDateTime(date, timezone) }],
     ctaLabel: 'Submit Feedback',
     ctaLink: feedbackUrl,
   });

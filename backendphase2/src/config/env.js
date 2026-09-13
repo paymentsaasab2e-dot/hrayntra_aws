@@ -108,7 +108,7 @@ export function getMicrosoftOAuthConfig() {
   return { clientId, clientSecret, tenant, redirectUri };
 }
 
-const PRODUCTION_EMPLOYERS_HOST = /(?:^https?:\/\/)?(?:www\.)?(?:employers\.hryantra\.com|phase2\.hryantra\.com|frontendphase2\.vercel\.app)/i;
+const PRODUCTION_EMPLOYERS_HOST = /(?:^https?:\/\/)?(?:www\.)?(?:employers?\.hryantra\.com|phase2\.hryantra\.com|frontendphase2\.vercel\.app)/i;
 
 function isProductionNodeEnv() {
   return String(process.env.NODE_ENV || '').toLowerCase() === 'production';
@@ -151,6 +151,31 @@ export function resolvePublicFrontendUrl() {
     return url;
   }
 
+  return production ? 'https://employers.hryantra.com' : 'http://localhost:3001';
+}
+
+/**
+ * Absolute frontend base for email redirects (approve/reject landing page).
+ * Never returns localhost when NODE_ENV=production.
+ */
+export function resolveSessionTransferRedirectBase() {
+  const production = isProductionNodeEnv();
+  const candidates = [
+    process.env.SESSION_TRANSFER_EMAIL_PUBLIC_URL,
+    process.env.EMPLOYERS_APP_URL,
+    process.env.PHASE2_FRONTEND_URL,
+    process.env.FRONTEND_URL,
+    process.env.CLIENT_URL,
+    process.env.NEXT_PUBLIC_APP_URL,
+    process.env.APP_PUBLIC_URL,
+    process.env.PUBLIC_APP_URL,
+  ];
+  for (const raw of candidates) {
+    const url = normalizePublicUrl(raw || '');
+    if (!url) continue;
+    if (isLoopbackHost(url)) continue;
+    return url;
+  }
   return production ? 'https://employers.hryantra.com' : 'http://localhost:3001';
 }
 
