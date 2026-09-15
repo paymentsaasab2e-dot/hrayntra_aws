@@ -34,8 +34,9 @@ const mainPanelVariants: Variants = {
 };
 
 const centeredPanelVariants: Variants = {
-  hidden: { scale: 0.98, y: 10, transition: { duration: 0.16, ease: EASE_OUT } },
-  visible: { scale: 1, y: 0, transition: { duration: 0.2, ease: EASE_OUT } },
+  // Transform only — avoid scale/opacity (they flash white on open/close).
+  hidden: { y: 12, transition: { duration: 0.16, ease: EASE_OUT } },
+  visible: { y: 0, transition: { duration: 0.2, ease: EASE_OUT } },
 };
 
 type DetailsModalShellProps = {
@@ -53,12 +54,18 @@ type DetailsModalShellProps = {
    * `main` — fills the workspace to the right of the sidenav (below the top header).
    */
   variant?: 'centered' | 'main';
+  /**
+   * `viewport` — tall drawer-style panel (default).
+   * `content` — height follows children (small confirm / feedback popups). Avoids empty tall flash.
+   */
+  fit?: 'viewport' | 'content';
 };
 
 /**
  * Centered / main-workspace shell matching Lead / Client detail drawers.
  * Single motion root so AnimatePresence can run enter/exit without a remount flash.
  * Panel never fades opacity (only transforms) — opacity fades cause a white flash.
+ * Always flex-centers from the first paint — do not position with top-% then recalculate.
  */
 export function DetailsModalShell({
   children,
@@ -70,8 +77,13 @@ export function DetailsModalShell({
   backdropClassName = '',
   dialogTitleId,
   variant = 'centered',
+  fit = 'viewport',
 }: DetailsModalShellProps) {
   const maxWidth = SIZE_MAX_WIDTH[size];
+  const heightClass =
+    fit === 'content'
+      ? 'h-auto max-h-[min(90dvh,40rem)]'
+      : 'h-[min(100dvh-16px,920px)] sm:h-[min(92vh,920px)]';
 
   if (variant === 'main') {
     const mainInset = {
@@ -128,7 +140,7 @@ export function DetailsModalShell({
       <motion.div
         variants={backdropVariants}
         onClick={onBackdropClick}
-        className={`absolute inset-0 bg-slate-900/50 backdrop-blur-[3px] pointer-events-auto ${backdropClassName}`.trim()}
+        className={`absolute inset-0 bg-slate-900/50 pointer-events-auto ${backdropClassName}`.trim()}
         data-drawer-skip-dirty="true"
       />
       <motion.div
@@ -139,7 +151,7 @@ export function DetailsModalShell({
         aria-labelledby={dialogTitleId}
         onClick={(e) => e.stopPropagation()}
         data-app-page-drawer="panel"
-        className={`pointer-events-auto relative flex h-[min(100dvh-16px,920px)] w-full ${maxWidth} flex-col overflow-hidden rounded-2xl border border-indigo-100/70 bg-white shadow-[0_24px_64px_-20px_rgba(79,70,229,0.35)] ring-1 ring-indigo-500/10 sm:h-[min(92vh,920px)] sm:rounded-[1.35rem] ${panelClassName}`.trim()}
+        className={`pointer-events-auto relative flex w-full ${maxWidth} ${heightClass} flex-col overflow-hidden rounded-2xl border border-indigo-100/70 bg-white shadow-[0_24px_64px_-20px_rgba(79,70,229,0.35)] ring-1 ring-indigo-500/10 sm:rounded-[1.35rem] ${panelClassName}`.trim()}
       >
         {children}
       </motion.div>

@@ -66,6 +66,25 @@ export function getPlacementStatusLabel(status: PlacementStatus) {
     .join(' ');
 }
 
+/** Join first/last name without leaking JS null/undefined into the UI. */
+export function formatPlacementPersonName(
+  person?: { firstName?: string | null; lastName?: string | null; name?: string | null } | null,
+  fallback = 'Candidate',
+) {
+  if (!person) return fallback;
+  const clean = (value: unknown) => {
+    const text = String(value ?? '').trim();
+    if (!text) return '';
+    const lower = text.toLowerCase();
+    if (lower === 'null' || lower === 'undefined') return '';
+    return text;
+  };
+  const fromParts = [clean(person.firstName), clean(person.lastName)].filter(Boolean).join(' ').trim();
+  if (fromParts) return fromParts;
+  const fromName = clean(person.name);
+  return fromName || fallback;
+}
+
 /** All statuses available in the placements table dropdown / filters */
 export const PLACEMENT_STATUS_OPTIONS: PlacementStatus[] = [
   'OFFER_SENT',

@@ -76,6 +76,7 @@ import {
 import {
   loadSubmitToClientVisibilityDefaults,
   readCachedSubmitToClientVisibilityDefaults,
+  subscribeSubmitToClientVisibilityDefaultsChanged,
 } from '../../lib/submitToClientFieldVisibilityDefaults';
 import { ClientOfferLetterCard } from '../candidates/ClientOfferLetterCard';
 import { useFiles } from '../../hooks/useFiles';
@@ -453,6 +454,19 @@ export function SubmitToClientDrawer({
     () => readCachedSubmitToClientVisibilityDefaults().visibility,
   );
   const [cvShareMode, setCvShareMode] = useState<CvShareMode | null>(null);
+
+  useEffect(() => {
+    return subscribeSubmitToClientVisibilityDefaultsChanged((defaults) => {
+      const fieldVisibility = parseSubmitToClientFieldVisibility(defaults.visibility);
+      setClientFieldVisibility(fieldVisibility);
+      setClientSectionVisibility((current) =>
+        mergeSectionVisibilityWithSubmitFields(current, fieldVisibility),
+      );
+      setPhase1ClientSectionVisibility((current) =>
+        mergePhase1SectionVisibilityWithSubmitFields(current, fieldVisibility),
+      );
+    });
+  }, []);
 
   const resolvedClientSectionVisibility = useMemo(
     () => mergeSectionVisibilityWithSubmitFields(clientSectionVisibility, clientFieldVisibility),

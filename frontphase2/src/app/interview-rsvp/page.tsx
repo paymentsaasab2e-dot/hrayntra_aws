@@ -2,10 +2,10 @@
 
 import { Suspense } from 'react';
 import { Loader2 } from 'lucide-react';
-import InterviewRsvpClient from '../../../components/interviews/InterviewRsvpClient';
+import InterviewRsvpClient from '../../components/interviews/InterviewRsvpClient';
 
-/** Legacy path RSVP: /interview-rsvp/{token}?action=accept (older emails). */
-export default function InterviewRsvpTokenPage() {
+/** Public RSVP entry: /interview-rsvp?token=…&action=accept (mobile-Gmail safe). */
+export default function InterviewRsvpQueryPage() {
   return (
     <Suspense
       fallback={

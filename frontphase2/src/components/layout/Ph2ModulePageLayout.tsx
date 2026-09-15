@@ -4,7 +4,7 @@ import React from 'react';
 
 /** Shared `<select>` styling — Leads / Client toolbar (indigo). */
 export const PH2_TOOLBAR_SELECT_CLASS =
-  'h-9 min-h-9 rounded-lg border border-indigo-100/90 bg-white/95 px-2.5 py-1.5 text-xs font-medium text-slate-800 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-300 cursor-pointer hover:border-indigo-200/90 hover:bg-indigo-50/40';
+  'h-9 min-h-9 appearance-none bg-none rounded-lg border border-indigo-100/90 bg-white/95 px-2.5 py-1.5 text-xs font-medium text-slate-800 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-300 cursor-pointer hover:border-indigo-200/90 hover:bg-indigo-50/40';
 
 /** Frosted table / panel wrapper — viewport-locked list card (fills remaining height). */
 export const PH2_TABLE_CARD_CLASS =

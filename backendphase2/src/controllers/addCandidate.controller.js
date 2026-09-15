@@ -16,7 +16,6 @@ import {
   findExistingCandidateDuplicate,
   nextCopyLastNameForBulk,
   normalizeCandidateEmailForDuplicate,
-  notDeletedClause,
 } from '../services/bulkCvDuplicate.service.js';
 import { hardDeleteCandidateById } from '../services/bulkCvHardDelete.service.js';
 import { waitBulkCvDuplicateDecision } from '../socket/bulkCvDuplicateWait.registry.js';

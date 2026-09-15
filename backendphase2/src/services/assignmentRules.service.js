@@ -17,11 +17,15 @@
  * - Lookup prefers company-specific key, then tenant-wide `_` (All / active company).
  */
 import { prisma } from '../config/prisma.js';
-import { resolveAssignmentModules, filterUsersByAssignmentAccess } from './assigneeModuleAccess.service.js';
+import {
+  resolveAssignmentModules,
+  filterUsersByAssignmentAccess,
+  filterUsersByAssignableCompany,
+} from './assigneeModuleAccess.service.js';
 import { isSuperAdminUserId } from './taskAssignmentScope.service.js';
 import { isSuperAdminUser } from '../utils/superAdminScope.js';
 import { requestedAssignCompanyId } from './orgListScope.service.js';
-import { isHqPlatformUser } from '../utils/hqPlatformUser.js';
+import { excludeHqPlatformUsers, isHqPlatformUser } from '../utils/hqPlatformUser.js';
 
 const idStr = (id) => String(id || '').trim();
 
@@ -179,6 +183,45 @@ async function loadActiveAssigneesByIds(ids) {
   }
 
   return unique.map((id) => byId.get(id)).filter(Boolean);
+}
+
+/**
+ * Active users who have access to the given module (role permissions).
+ * Optional orgUnitId limits to that company subtree.
+ */
+export async function listEligibleAssigneeUserIdsForModule(module, orgUnitId = null) {
+  const moduleName = normalizeModule(module);
+  const companyId = normalizeOrgUnitId(orgUnitId);
+
+  const users = await prisma.user.findMany({
+    where: {
+      OR: [{ status: 'ACTIVE' }, { status: null }],
+    },
+    select: {
+      id: true,
+      roleId: true,
+      email: true,
+      orgUnitId: true,
+      firstName: true,
+      lastName: true,
+      name: true,
+      systemRole: {
+        select: { roleName: true },
+      },
+      credential: { select: { loginId: true } },
+    },
+  });
+
+  let pool = excludeHqPlatformUsers(users);
+  if (companyId) {
+    const orgUnits = await prisma.orgUnit.findMany({
+      select: { id: true, parentId: true },
+    });
+    pool = filterUsersByAssignableCompany(pool, companyId, orgUnits);
+  }
+
+  const eligible = await filterUsersByAssignmentAccess(pool, { modules: [moduleName] });
+  return eligible.map((user) => idStr(user.id)).filter(Boolean);
 }
 
 export async function applyAssignmentRules(actorUserId, module, candidates, { req = null, orgUnitId = null } = {}) {
@@ -418,9 +461,15 @@ export async function getAssignmentRulesForAssignor({
   const companyId = normalizeOrgUnitId(orgUnitId);
   const row = await findAssignmentRuleRow(assignorId, moduleName, companyId);
 
-  const suggestedAssigneeIds = await listDescendantUserIds(assignorId);
+  const eligibleAssigneeUserIds = await listEligibleAssigneeUserIdsForModule(moduleName, companyId);
+  const eligibleSet = new Set(eligibleAssigneeUserIds);
+
+  const hierarchyIds = await listDescendantUserIds(assignorId);
+  const suggestedAssigneeIds = hierarchyIds.filter((id) => eligibleSet.has(id));
   const configured = Boolean(row);
-  const savedIds = row ? parseAssigneeIds(row.value) : [];
+  const savedIds = row
+    ? parseAssigneeIds(row.value).filter((id) => eligibleSet.has(id))
+    : [];
 
   return {
     module: moduleName,
@@ -430,6 +479,7 @@ export async function getAssignmentRulesForAssignor({
     // When not saved, UI shows hierarchy as the effective "already selected" set.
     assigneeUserIds: configured ? savedIds : suggestedAssigneeIds,
     suggestedAssigneeIds,
+    eligibleAssigneeUserIds,
     usingHierarchyDefault: !configured,
   };
 }
@@ -470,6 +520,14 @@ export async function replaceAssignmentRules({
     }
   }
 
+  const eligibleIds = new Set(await listEligibleAssigneeUserIdsForModule(moduleName, companyId));
+  const filteredAssigneeIds = uniqueAssigneeIds.filter((id) => eligibleIds.has(id));
+  if (uniqueAssigneeIds.length && !filteredAssigneeIds.length) {
+    throw new Error(
+      `None of the selected people have access to the ${moduleName} module. Pick members who can use that module.`,
+    );
+  }
+
   if (companyId) {
     const unit = await prisma.orgUnit.findUnique({
       where: { id: companyId },
@@ -480,7 +538,7 @@ export async function replaceAssignmentRules({
 
   const key = settingKey(moduleName, companyId);
   const value = {
-    assigneeUserIds: uniqueAssigneeIds,
+    assigneeUserIds: filteredAssigneeIds,
     createdById: createdById ? idStr(createdById) : null,
     module: moduleName,
     orgUnitId: companyId,

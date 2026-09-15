@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import dynamic from 'next/dynamic';
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence, motion, type Variants } from 'motion/react';
 import { CheckCircle2, ExternalLink, FileText, FileUp, UserRound } from 'lucide-react';
 import { ClientReviewSectionsPanel } from './ClientReviewSectionsPanel';
 import { ResumeInlinePreview } from './ResumeInlinePreview';
@@ -18,6 +18,23 @@ import {
   normalizeClientTrackerOptions,
 } from '../../lib/clientTrackerOptions';
 import { isClientReviewFileHref } from '../../lib/clientReviewAssets';
+
+const EASE_OUT = [0.22, 1, 0.36, 1] as const;
+
+const shellVariants: Variants = {
+  hidden: { transition: { when: 'afterChildren', duration: 0.01 } },
+  visible: { transition: { when: 'beforeChildren', staggerChildren: 0 } },
+};
+
+const backdropVariants: Variants = {
+  hidden: { opacity: 0, transition: { duration: 0.16, ease: EASE_OUT } },
+  visible: { opacity: 1, transition: { duration: 0.16, ease: EASE_OUT } },
+};
+
+const panelVariants: Variants = {
+  hidden: { x: 28, transition: { duration: 0.18, ease: EASE_OUT } },
+  visible: { x: 0, transition: { duration: 0.2, ease: EASE_OUT } },
+};
 
 const CVEditorModal = dynamic(() => import('../CVEditorModal'), { ssr: false });
 
@@ -334,8 +351,8 @@ export function ClientReviewCandidateDrawer({
                 ))}
               </select>
               <span className="mt-1 block text-xs font-normal text-slate-500">
-                Your stage choice appears in the candidate table on this page and on the recruiter
-                Client tab. It does not change the CRM pipeline stage.
+                Your stage choice appears here, on the recruiter Client tab, and updates the
+                candidate stage in Job Details → Candidates (including custom stages).
               </span>
             </label>
           ) : null}
@@ -380,26 +397,26 @@ export function ClientReviewCandidateDrawer({
   const drawerTree = (
     <AnimatePresence>
       {canShowDrawer && row && reviewData ? (
-        <>
+        <motion.div
+          key="client-candidate-review"
+          className="pointer-events-none fixed inset-0 z-[200]"
+          variants={shellVariants}
+          initial="hidden"
+          animate="visible"
+          exit="hidden"
+        >
           <motion.div
-            key="client-candidate-review-backdrop"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            variants={backdropVariants}
             onClick={onClose}
-            className="fixed inset-0 z-[200] bg-slate-900/50 backdrop-blur-[2px]"
+            className="pointer-events-auto absolute inset-0 bg-slate-900/50"
             data-drawer-skip-dirty="true"
           />
           <motion.aside
-            key="client-candidate-review-panel"
             role="dialog"
             aria-modal="true"
             aria-labelledby="client-candidate-review-title"
-            initial={{ x: '100%' }}
-            animate={{ x: 0 }}
-            exit={{ x: '100%' }}
-            transition={{ type: 'spring', damping: 28, stiffness: 320 }}
-            className="fixed right-0 top-0 z-[201] flex h-full w-full max-w-[min(100vw,96rem)] flex-col overflow-hidden border-l border-indigo-100/70 bg-white shadow-2xl sm:w-[min(96vw,96rem)]"
+            variants={panelVariants}
+            className="pointer-events-auto absolute right-0 top-0 flex h-full w-full max-w-[min(100vw,96rem)] flex-col overflow-hidden border-l border-indigo-100/70 bg-white shadow-2xl sm:w-[min(96vw,96rem)]"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="relative flex h-full min-h-0 flex-col">
@@ -459,11 +476,11 @@ export function ClientReviewCandidateDrawer({
           </motion.aside>
 
           {confirmOpen ? (
-            <div className="fixed inset-0 z-[220] flex items-center justify-center px-4">
+            <div className="pointer-events-auto fixed inset-0 z-[220] flex items-center justify-center px-4">
               <button
                 type="button"
                 aria-label="Cancel submit"
-                className="absolute inset-0 bg-slate-900/50 backdrop-blur-[2px]"
+                className="absolute inset-0 bg-slate-900/50"
                 onClick={() => setConfirmOpen(false)}
               />
               <div
@@ -485,10 +502,9 @@ export function ClientReviewCandidateDrawer({
                     {tracker.changeStage && selectedStage ? (
                       <>
                         {' '}
-                        will show their stage as{' '}
-                        <span className="font-semibold text-slate-900">{selectedStage}</span> in the
-                        candidate table and on the recruiter Client tab (it will not change the CRM
-                        pipeline stage)
+                        will update their stage to{' '}
+                        <span className="font-semibold text-slate-900">{selectedStage}</span> for the
+                        recruiter (Job Details → Candidates and Client tab)
                       </>
                     ) : selectedTag ? (
                       <>
@@ -521,7 +537,7 @@ export function ClientReviewCandidateDrawer({
               </div>
             </div>
           ) : null}
-        </>
+        </motion.div>
       ) : null}
     </AnimatePresence>
   );

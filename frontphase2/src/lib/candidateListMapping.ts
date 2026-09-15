@@ -97,14 +97,6 @@ function hasCompletedInterviewOnly(c: BackendCandidate): boolean {
   return relevant.every((row) => COMPLETED_INTERVIEW_STATUSES.has(normalizeInterviewStatus(row)));
 }
 
-function hasFreshSubmittedApplication(c: BackendCandidate): boolean {
-  const apps = Array.isArray(c.applications) ? c.applications : [];
-  return apps.some((row) => {
-    const status = String((row as { status?: string }).status || '').toUpperCase();
-    return status === 'SUBMITTED' || status === 'UNDER_REVIEW';
-  });
-}
-
 function stageLooksTerminalHire(stage: string): boolean {
   const s = String(stage || '').trim().toLowerCase();
   return /\b(hired|placed|joined|onboarded)\b/.test(s);
@@ -190,9 +182,6 @@ export function resolveCandidateListStage(c: BackendCandidate): string {
   if (explicit && explicitLower !== 'new') {
     if (!hasTenantJob) {
       return 'New';
-    }
-    if (hasFreshSubmittedApplication(c) && stageLooksTerminalHire(explicit)) {
-      return 'Applied';
     }
     return explicit;
   }

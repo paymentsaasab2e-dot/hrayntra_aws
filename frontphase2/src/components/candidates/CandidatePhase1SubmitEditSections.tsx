@@ -146,6 +146,10 @@ function Phase1EditSection({
   clientVisible?: boolean;
   onToggleClientVisibility?: (sectionId: Phase1ClientSectionId) => void;
 }) {
+  const childList = React.Children.toArray(children).filter(Boolean);
+  // Settings hid every field in this block — don't keep an empty shell in Submit to Client.
+  if (showClientVisibilityToggle && childList.length === 0) return null;
+
   const hidden = showClientVisibilityToggle && !clientVisible;
   return (
     <section
@@ -202,7 +206,7 @@ function Phase1EditSection({
       </div>
       {open ? (
         clientVisible ? (
-          <div className="space-y-3 border-t border-violet-200/60 px-4 pb-4 pt-3">{children}</div>
+          <div className="space-y-3 border-t border-violet-200/60 px-4 pb-4 pt-3">{childList}</div>
         ) : (
           <p className="border-t border-violet-200/60 px-4 py-3 text-xs text-slate-500">
             This section will not appear on the client review link. Click Visible to include it.

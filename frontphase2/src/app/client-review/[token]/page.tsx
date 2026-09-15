@@ -6,6 +6,7 @@ import { Columns2, Loader2 } from 'lucide-react';
 import { ClientReviewBatchTable } from '../../../components/candidates/ClientReviewBatchTable';
 import { ClientReviewCandidateDrawer } from '../../../components/candidates/ClientReviewCandidateDrawer';
 import { ClientReviewComparativeAnalysisDrawer } from '../../../components/candidates/ClientReviewComparativeAnalysisDrawer';
+import { ClientReviewFeedbackModal } from '../../../components/candidates/ClientReviewFeedbackModal';
 import { PURPOSE_COPY, type ClientReviewBatchRow, type ClientReviewData } from '../../../lib/clientReviewTypes';
 import { getApiErrorMessage, readApiJson } from '../../../lib/apiNetworkErrors';
 import { maskClientReviewStorageUrls } from '../../../lib/clientReviewAssets';
@@ -38,6 +39,7 @@ export default function ClientReviewPage() {
   const [error, setError] = useState('');
   const [reviewData, setReviewData] = useState<ClientReviewData | null>(null);
   const [drawerRow, setDrawerRow] = useState<ClientReviewBatchRow | null>(null);
+  const [feedbackRow, setFeedbackRow] = useState<ClientReviewBatchRow | null>(null);
   const [compareOpen, setCompareOpen] = useState(false);
   const [reviewedMatchIds, setReviewedMatchIds] = useState<string[]>([]);
   const [stageByMatchId, setStageByMatchId] = useState<Record<string, string>>({});
@@ -238,6 +240,7 @@ export default function ClientReviewPage() {
               apiBase={apiBase}
               onStageSubmitted={markReviewedWithStage}
               onView={(row) => setDrawerRow(row)}
+              onFeedback={(row) => setFeedbackRow(row)}
             />
             <div className="border-t border-slate-100 px-4 py-3.5 sm:px-6 lg:px-8">
               {reviewedMatchIds.length > 0 ? (
@@ -247,7 +250,7 @@ export default function ClientReviewPage() {
                 </p>
               ) : (
                 <p className="text-sm text-slate-500">
-                  Click a row or View to open the candidate profile.
+                  Use CV, View, or Feedback on a row to review and comment.
                 </p>
               )}
             </div>
@@ -261,6 +264,15 @@ export default function ClientReviewPage() {
         token={token}
         apiBase={apiBase}
         onClose={() => setDrawerRow(null)}
+        onSubmitted={handleDrawerSubmitted}
+      />
+
+      <ClientReviewFeedbackModal
+        open={Boolean(feedbackRow)}
+        row={feedbackRow}
+        token={token}
+        apiBase={apiBase}
+        onClose={() => setFeedbackRow(null)}
         onSubmitted={handleDrawerSubmitted}
       />
 

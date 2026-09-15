@@ -139,6 +139,7 @@ export function ClientReviewCandidatePanel({ reviewData, variant = 'page' }: Pro
             hideLinkedIn={!tracker.showLinkedIn}
             hideInternalNotes={!tracker.showNotes}
             hideResumeLinks={!tracker.downloadResume}
+            visibleFields={reviewData?.visibleFields ?? null}
           />
         ) : (
           <div className="rounded-3xl bg-slate-50 px-5 py-4 ring-1 ring-slate-200/70">

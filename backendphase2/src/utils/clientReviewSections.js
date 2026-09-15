@@ -500,7 +500,8 @@ function isSubmitReviewLabelVisible(label, visibility) {
   let ids = SUBMIT_FIELD_LABEL_MAP[key];
   if (!ids && /^skill\s+\d+$/.test(key)) ids = ['skills'];
   if (!ids && /^language\s+\d+$/.test(key)) ids = ['languageProficiency'];
-  if (!ids) return true;
+  // Unknown labels must not leak when the tenant configured Submit-to-Client visibility.
+  if (!ids) return false;
   return ids.some((id) => isSubmitFieldVisible(visibility, id));
 }
 

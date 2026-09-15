@@ -3,7 +3,7 @@ import os from 'os';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import { prisma } from '../config/prisma.js';
-import { notDeletedClause } from './bulkCvDuplicate.service.js';
+import { activeCandidateClause } from './bulkCvDuplicate.service.js';
 import {
   candidateNameNeedsRepair,
   extractResumeName,
@@ -180,7 +180,7 @@ export async function repairBadCandidateNames(options = {}) {
   const orgUnitId = String(options.orgUnitId || '').trim() || null;
 
   const where = {
-    ...notDeletedClause(),
+    ...activeCandidateClause,
     ...(orgUnitId ? { orgUnitId } : {}),
   };
 
@@ -217,6 +217,9 @@ export async function repairBadCandidateNames(options = {}) {
     skippedUnparseable: 0,
     unchanged: 0,
     dryRun,
+    /** Full list of name changes (preview + execute). */
+    changes: [],
+    /** First 25 changes — kept for older clients. */
     samples: [],
   };
 
@@ -315,14 +318,18 @@ export async function repairBadCandidateNames(options = {}) {
     else if (outcome.status === 'skippedUnparseable') summary.skippedUnparseable += 1;
     else if (outcome.status === 'unchanged') summary.unchanged += 1;
 
+    const entry = {
+      id: outcome.id,
+      status: outcome.status,
+      from: outcome.from,
+      to: outcome.to,
+      source: outcome.sourceUsed || outcome.reason || null,
+    };
+    if (outcome.status === 'updated' || outcome.status === 'wouldUpdate') {
+      summary.changes.push(entry);
+    }
     if (summary.samples.length < 25) {
-      summary.samples.push({
-        id: outcome.id,
-        status: outcome.status,
-        from: outcome.from,
-        to: outcome.to,
-        source: outcome.sourceUsed || outcome.reason || null,
-      });
+      summary.samples.push(entry);
     }
   }
 

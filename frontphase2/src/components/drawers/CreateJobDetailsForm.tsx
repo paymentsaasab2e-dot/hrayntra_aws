@@ -380,16 +380,34 @@ export function CreateJobDetailsForm({
   const needsOrganizationFirst = assignable.canSelectCompany && !assignable.companyId;
   const needsManagerFirst = !formData.managerId;
 
-  /** Team under the selected manager only (org → manager → team). Manager is never listed as a recruiter. */
+  /** Team under the selected manager only (org → manager → team). Always include the selected manager. */
   const filteredRecruiterUsers = useMemo(() => {
     if (!formData.managerId) return [];
-    return recruiterUsers.filter((user) => {
-      if (user.id === formData.managerId) return false;
+    const managerId = String(formData.managerId).trim();
+    const team = recruiterUsers.filter((user) => {
+      if (user.id === managerId) return true;
       const member = assignable.members.find((row) => row.id === user.id);
       const reportsTo = member?.manager?.id || member?.managerId || user.managerId || '';
-      return reportsTo === formData.managerId;
+      return reportsTo === managerId;
     });
-  }, [assignable.members, formData.managerId, recruiterUsers]);
+    const managerAlreadyListed = team.some((user) => user.id === managerId);
+    if (managerAlreadyListed) return team;
+
+    const managerUser =
+      managerUsers.find((user) => user.id === managerId) ||
+      lineManagerOptions.find((user) => user.id === managerId) ||
+      recruiterUsers.find((user) => user.id === managerId) ||
+      users.find((user) => user.id === managerId);
+    if (!managerUser) return team;
+    return [managerUser, ...team];
+  }, [
+    assignable.members,
+    formData.managerId,
+    lineManagerOptions,
+    managerUsers,
+    recruiterUsers,
+    users,
+  ]);
   const selectedCompany = clients.find((c) => c.id === formData.companyId);
   const ownCompanyName = (client: BackendClient) =>
     ownCompanyDisplayName || client.companyName || 'Your organization';
@@ -406,9 +424,7 @@ export function CreateJobDetailsForm({
   }, [formData.assignedToId, formData.assignedToIds]);
 
   const selectedAssignees = useMemo(() => {
-    const managerId = String(formData.managerId || '').trim();
     return selectedAssigneeIds
-      .filter((id) => id !== managerId)
       .map((id) => {
         const fromFiltered = filteredRecruiterUsers.find((u) => u.id === id);
         if (fromFiltered) return fromFiltered;
@@ -425,7 +441,6 @@ export function CreateJobDetailsForm({
     filteredRecruiterUsers,
     formData.assignedToId,
     formData.assignedToName,
-    formData.managerId,
     recruiterUsers,
     selectedAssigneeIds,
     users,
@@ -442,12 +457,11 @@ export function CreateJobDetailsForm({
 
   const applyAssigneeIds = useCallback(
     (ids: string[]) => {
-      const selectedManagerId = String(formData.managerId || '').trim();
       const unique = [
         ...new Set(
           ids
             .map((id) => String(id || '').trim())
-            .filter((id) => id && id !== selectedManagerId),
+            .filter(Boolean),
         ),
       ];
       const primary = unique[0] || '';
@@ -484,7 +498,7 @@ export function CreateJobDetailsForm({
     const patch: Partial<CreateJobDetailsFormData> = { managerId: userId };
     if (selectedAssigneeIds.length) {
       const kept = selectedAssigneeIds.filter((id) => {
-        if (userId && id === userId) return false; // manager cannot also be a recruiter
+        if (userId && id === userId) return true; // keep manager if already selected as assignee
         const member = assignable.members.find((row) => row.id === id);
         const reportsTo = member?.manager?.id || member?.managerId || '';
         return !userId || reportsTo === userId;
@@ -1623,8 +1637,9 @@ export function CreateJobDetailsForm({
             : null}
         </div>
         <p className="mt-1 text-xs text-slate-500">
-          Choose organization → manager → team. The first selected member is the primary recruiter;
-          others are supporting assignees and can also see this job.
+          Choose organization → manager → team. The selected manager appears in this list too.
+          The first selected member is the primary recruiter; others are supporting assignees and can
+          also see this job.
         </p>
       </div>
     </div>
