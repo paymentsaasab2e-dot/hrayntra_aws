@@ -6,7 +6,12 @@ import { AnimatePresence, motion, type Variants } from 'motion/react';
 import { Columns2, FileSpreadsheet, FileText, Loader2, Printer, X } from 'lucide-react';
 import type { ClientReviewBatchRow, ClientReviewData } from '../../lib/clientReviewTypes';
 import type { ClientReviewSection } from '../../lib/clientPresentationSections';
-import { isSubmitToClientReviewFieldVisible } from '../../lib/submitToClientFieldVisibility';
+import {
+  isSubmitToClientReviewFieldVisible,
+  SUBMIT_TO_CLIENT_FIELD_GROUPS,
+  type SubmitToClientFieldId,
+} from '../../lib/submitToClientFieldVisibility';
+import { normalizeClientTrackerOptions } from '../../lib/clientTrackerOptions';
 
 const EASE_OUT = [0.22, 1, 0.36, 1] as const;
 
@@ -108,20 +113,43 @@ function isEmptyCompareValue(value: unknown): boolean {
   return !text;
 }
 
-function shouldHideField(label: string, value: string): boolean {
+/** Permanently hide sensitive / non-compare rows (not empty-value filtering). */
+function isPermanentlyHiddenCompareLabel(label: string, value = ''): boolean {
   const key = String(label || '')
     .trim()
     .toLowerCase();
   if (!key) return true;
-  if (isEmptyCompareValue(value)) return true;
   if (key === 'resume url' || key === 'file url') return true;
+  if (key === 'candidate image' || key === 'avatar') return true;
   if (key.includes('url') && /amazonaws\.com|\/uploads\//i.test(value)) return true;
-  if (key === 'candidate image' && /^on file$/i.test(value)) return true;
   return false;
 }
 
-function sectionsOf(row: ClientReviewBatchRow): ClientReviewSection[] {
-  return Array.isArray(row.detail?.presentationSections) ? row.detail.presentationSections : [];
+function shouldHideField(label: string, value: string): boolean {
+  return isPermanentlyHiddenCompareLabel(label, value);
+}
+
+function visibleFieldsOf(row: ClientReviewBatchRow): Record<string, boolean> | null {
+  const raw = row.detail?.visibleFields;
+  return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : null;
+}
+
+function resolveBatchVisibility(
+  selectedRows: ClientReviewBatchRow[],
+): Record<string, boolean> | null {
+  for (const row of selectedRows) {
+    const fields = visibleFieldsOf(row);
+    if (fields) return fields;
+  }
+  return null;
+}
+
+function isFieldIdVisibleForClient(
+  fieldId: SubmitToClientFieldId,
+  visibility: Record<string, boolean> | null,
+): boolean {
+  if (!visibility) return true;
+  return visibility[fieldId] !== false;
 }
 
 function fieldValueFromSections(detail: ClientReviewData | undefined, label: string): string {
@@ -174,6 +202,10 @@ function formatEntryRows(entries: Array<Record<string, unknown>> | undefined): s
 
 function formatEntries(section: ClientReviewSection): string {
   return formatEntryRows(section.entries as Array<Record<string, unknown>> | undefined);
+}
+
+function sectionsOf(row: ClientReviewBatchRow): ClientReviewSection[] {
+  return Array.isArray(row.detail?.presentationSections) ? row.detail.presentationSections : [];
 }
 
 function splitCandidateName(row: ClientReviewBatchRow): { first: string; last: string; full: string } {
@@ -354,10 +386,25 @@ function isCompareLabelAllowed(row: ClientReviewBatchRow, label: string): boolea
   return isSubmitToClientReviewFieldVisible(label, visibleFieldsOf(row));
 }
 
+/** Resolve value for compare/export — do not blank out when the cell is empty. */
+function resolveFieldValueRaw(row: ClientReviewBatchRow, label: string): string {
+  return profileFallbackForLabel(row, label) || fieldValueFromSections(row.detail, label);
+}
+
 function resolveFieldValue(row: ClientReviewBatchRow, label: string): string {
   if (!isCompareLabelAllowed(row, label)) return '';
-  // Tenant candidate / profile first — then presentation sections (already visibility-filtered).
-  return profileFallbackForLabel(row, label) || fieldValueFromSections(row.detail, label);
+  return resolveFieldValueRaw(row, label);
+}
+
+function resolveEntriesValueRaw(row: ClientReviewBatchRow, sectionId: string): string {
+  const section = sectionsOf(row).find(
+    (item) => String(item.id || item.title || '') === sectionId,
+  );
+  const fromSection = section ? formatEntries(section) : '';
+  if (fromSection) return fromSection;
+  if (sectionId === 'education') return educationFromRow(row);
+  if (sectionId === 'work') return workFromRow(row);
+  return '';
 }
 
 function resolveEntriesValue(row: ClientReviewBatchRow, sectionId: string): string {
@@ -370,18 +417,35 @@ function resolveEntriesValue(row: ClientReviewBatchRow, sectionId: string): stri
       return '';
     }
   }
-  if (sectionId === 'work' && !isCompareLabelAllowed(row, 'Work experience')) {
+  if (
+    sectionId === 'work' &&
+    !isCompareLabelAllowed(row, 'Work experience') &&
+    !isCompareLabelAllowed(row, 'Work experience entries')
+  ) {
     return '';
   }
+  return resolveEntriesValueRaw(row, sectionId);
+}
 
-  const section = sectionsOf(row).find(
-    (item) => String(item.id || item.title || '') === sectionId,
-  );
-  const fromSection = section ? formatEntries(section) : '';
-  if (fromSection) return fromSection;
-  if (sectionId === 'education') return educationFromRow(row);
-  if (sectionId === 'work') return workFromRow(row);
-  return '';
+function resolveCompareCellValue(
+  row: ClientReviewBatchRow,
+  fieldId: SubmitToClientFieldId,
+  label: string,
+): string {
+  if (fieldId === 'cvEducationEntries') {
+    return resolveEntriesValueRaw(row, 'education') || resolveFieldValueRaw(row, label);
+  }
+  if (fieldId === 'cvWorkExperienceEntries') {
+    return resolveEntriesValueRaw(row, 'work') || resolveFieldValueRaw(row, label);
+  }
+  if (fieldId === 'educationSummary') {
+    return (
+      resolveFieldValueRaw(row, 'Education summary') ||
+      resolveFieldValueRaw(row, 'Education') ||
+      educationFromRow(row)
+    );
+  }
+  return resolveFieldValueRaw(row, label);
 }
 
 function fallbackValue(row: ClientReviewBatchRow, key: string): string {
@@ -432,6 +496,10 @@ function aliasCompareLabelKey(label: string): string {
 function buildCompareParams(selectedRows: ClientReviewBatchRow[]): CompareParam[] {
   const params: CompareParam[] = [];
   const seenFieldIds = new Set<string>();
+  const visibility = resolveBatchVisibility(selectedRows);
+  const showStage = selectedRows.some((row) =>
+    Boolean(normalizeClientTrackerOptions(row.detail?.trackerOptions, true).changeStage),
+  );
 
   const nameValues: Record<string, string> = {};
   for (const row of selectedRows) {
@@ -447,14 +515,11 @@ function buildCompareParams(selectedRows: ClientReviewBatchRow[]): CompareParam[
   });
   seenFieldIds.add('name');
 
-  const stageValues: Record<string, string> = {};
-  let anyStage = false;
-  for (const row of selectedRows) {
-    const stage = profileFallbackForLabel(row, 'Stage');
-    if (stage) anyStage = true;
-    stageValues[row.matchId] = cell(stage);
-  }
-  if (anyStage) {
+  if (showStage) {
+    const stageValues: Record<string, string> = {};
+    for (const row of selectedRows) {
+      stageValues[row.matchId] = cell(profileFallbackForLabel(row, 'Stage'));
+    }
     params.push({
       kind: 'field',
       id: 'stage',
@@ -464,162 +529,44 @@ function buildCompareParams(selectedRows: ClientReviewBatchRow[]): CompareParam[
     seenFieldIds.add('stage');
   }
 
-  const hasPresentation = selectedRows.some((row) => sectionsOf(row).length > 0);
+  // Mirror Settings → Submit to Client visibility: show every allowed field even when empty.
+  for (const group of SUBMIT_TO_CLIENT_FIELD_GROUPS) {
+    const visibleFields = group.fields.filter(
+      (field) =>
+        isFieldIdVisibleForClient(field.id, visibility) &&
+        !isPermanentlyHiddenCompareLabel(field.label),
+    );
+    if (!visibleFields.length) continue;
 
-  if (hasPresentation) {
-    type FieldKey = {
-      sectionId: string;
-      sectionTitle: string;
-      label: string;
-      key: string;
-    };
-    const ordered: FieldKey[] = [];
-    const seen = new Set<string>(seenFieldIds);
-
-    for (const row of selectedRows) {
-      for (const section of sectionsOf(row)) {
-        const sectionId = String(section.id || section.title || 'section').trim() || 'section';
-        const sectionTitle = displayValue(section.title) || sectionId;
-        for (const field of section.fields || []) {
-          const label = displayValue(field.label);
-          if (!label) continue;
-          const anyValue = selectedRows.some((candidateRow) => {
-            const value = resolveFieldValue(candidateRow, label);
-            return Boolean(value) && !shouldHideField(label, value);
-          });
-          if (!anyValue) continue;
-          const key = aliasCompareLabelKey(label);
-          if (seen.has(key)) continue;
-          seen.add(key);
-          ordered.push({ sectionId, sectionTitle, label, key });
-        }
-        const anyEntries = selectedRows.some((candidateRow) =>
-          Boolean(resolveEntriesValue(candidateRow, sectionId)),
-        );
-        if (anyEntries) {
-          const label =
-            sectionId === 'education'
-              ? 'Education'
-              : sectionId === 'work'
-                ? 'Work experience'
-                : `${sectionTitle} entries`;
-          const key = aliasCompareLabelKey(label);
-          if (!seen.has(key)) {
-            seen.add(key);
-            ordered.push({ sectionId, sectionTitle, label, key });
-          }
-        }
-      }
-    }
-
-    // Also surface common profile fields that may exist only on candidates
-    // without a filled presentation section.
-    const profileExtras: Array<{ sectionId: string; sectionTitle: string; label: string }> = [
-      { sectionId: 'personal', sectionTitle: 'Personal Information', label: 'First Name' },
-      { sectionId: 'personal', sectionTitle: 'Personal Information', label: 'Last Name' },
-      { sectionId: 'personal', sectionTitle: 'Personal Information', label: 'Candidate Score' },
-      { sectionId: 'personal', sectionTitle: 'Personal Information', label: 'City' },
-      { sectionId: 'personal', sectionTitle: 'Personal Information', label: 'Country' },
-      { sectionId: 'personal', sectionTitle: 'Personal Information', label: 'Location (display)' },
-      { sectionId: 'personal', sectionTitle: 'Personal Information', label: 'E-mail' },
-      { sectionId: 'personal', sectionTitle: 'Personal Information', label: 'Mobile No' },
-      { sectionId: 'work', sectionTitle: 'Work Experience', label: 'Current Company' },
-      { sectionId: 'work', sectionTitle: 'Work Experience', label: 'Current Designation' },
-      { sectionId: 'professional', sectionTitle: 'Career Preferences', label: 'Year of experience' },
-      { sectionId: 'education', sectionTitle: 'Education', label: 'Education' },
-      { sectionId: 'summary', sectionTitle: 'Summary & Additional', label: 'Skills' },
-      { sectionId: 'summary', sectionTitle: 'Summary & Additional', label: 'Language & proficiency' },
-    ];
-    for (const extra of profileExtras) {
-      const key = aliasCompareLabelKey(extra.label);
-      if (seen.has(key)) continue;
-      const anyValue = selectedRows.some((row) => {
-        const value = resolveFieldValue(row, extra.label);
-        return Boolean(value) && !shouldHideField(extra.label, value);
+    const isPersonal = group.id === 'personal';
+    if (!isPersonal) {
+      params.push({
+        kind: 'section',
+        id: `section-${group.id}`,
+        label: group.title,
       });
-      if (!anyValue) continue;
-      seen.add(key);
-      ordered.push({ ...extra, key });
     }
 
-    let lastSection = '';
-    const seenSectionIds = new Set<string>(['candidate-details']);
-    for (const meta of ordered) {
-      const isPersonal =
-        /^(candidate details|personal information|personal|basic information)$/i.test(
-          meta.sectionTitle,
-        );
-      if (meta.sectionTitle !== lastSection) {
-        lastSection = meta.sectionTitle;
-        if (!isPersonal) {
-          let sectionKey = `section-${meta.sectionId}`;
-          if (seenSectionIds.has(sectionKey)) {
-            sectionKey = `section-${meta.sectionId}-${meta.sectionTitle}`;
-          }
-          if (!seenSectionIds.has(sectionKey)) {
-            seenSectionIds.add(sectionKey);
-            params.push({
-              kind: 'section',
-              id: sectionKey,
-              label: meta.sectionTitle,
-            });
-          }
-        }
-      }
-
-      if (seenFieldIds.has(meta.key)) continue;
-      seenFieldIds.add(meta.key);
+    for (const field of visibleFields) {
+      const key = aliasCompareLabelKey(field.label) || field.id;
+      if (seenFieldIds.has(key) || seenFieldIds.has(field.id)) continue;
+      seenFieldIds.add(key);
+      seenFieldIds.add(field.id);
 
       const valuesByMatchId: Record<string, string> = {};
       for (const row of selectedRows) {
-        if (meta.key.endsWith('::__entries')) {
-          valuesByMatchId[row.matchId] = cell(resolveEntriesValue(row, meta.sectionId));
-        } else {
-          valuesByMatchId[row.matchId] = cell(resolveFieldValue(row, meta.label));
-        }
+        valuesByMatchId[row.matchId] = cell(
+          resolveCompareCellValue(row, field.id, field.label),
+        );
       }
 
       params.push({
         kind: 'field',
-        id: meta.key,
-        label: meta.label,
+        id: field.id,
+        label: field.label,
         valuesByMatchId,
       });
     }
-
-    return params;
-  }
-
-  // Fallback when presentation sections are not configured: only show filled core fields.
-  const fallbacks: Array<{ id: string; label: string; get: (row: ClientReviewBatchRow) => string }> = [
-    { id: 'first-name', label: 'First Name', get: (row) => profileFallbackForLabel(row, 'First Name') },
-    { id: 'last-name', label: 'Last Name', get: (row) => profileFallbackForLabel(row, 'Last Name') },
-    { id: 'score', label: 'Candidate Score', get: (row) => profileFallbackForLabel(row, 'Candidate Score') },
-    { id: 'location', label: 'Actual Location', get: (row) => fallbackValue(row, 'location') },
-    { id: 'employer', label: 'Current Employer', get: (row) => fallbackValue(row, 'employer') },
-    { id: 'designation', label: 'Current Designation', get: (row) => fallbackValue(row, 'designation') },
-    { id: 'experience', label: 'Year of experience', get: (row) => fallbackValue(row, 'experience') },
-    { id: 'domain', label: 'Domain of expertise', get: (row) => fallbackValue(row, 'domain') },
-    { id: 'education', label: 'Education', get: (row) => fallbackValue(row, 'education') },
-  ];
-
-  for (const item of fallbacks) {
-    if (seenFieldIds.has(item.id) || seenFieldIds.has(aliasCompareLabelKey(item.label))) continue;
-    const valuesByMatchId: Record<string, string> = {};
-    let anyVisible = false;
-    for (const row of selectedRows) {
-      const value = displayValue(item.get(row));
-      if (value) anyVisible = true;
-      valuesByMatchId[row.matchId] = cell(value);
-    }
-    if (!anyVisible) continue;
-    seenFieldIds.add(item.id);
-    params.push({
-      kind: 'field',
-      id: item.id,
-      label: item.label,
-      valuesByMatchId,
-    });
   }
 
   return params;
@@ -638,7 +585,8 @@ function buildCompareExportModel(
     'Attribute',
     ...selectedRows.map((row) => row.candidateName || 'Candidate'),
   ];
-  const rawRows: CompareExportRow[] = compareParams.map((param) => {
+  // Keep the same rows as the on-screen table — including empty (—) client-visible fields.
+  const rows: CompareExportRow[] = compareParams.map((param) => {
     if (param.kind === 'section') return { kind: 'section', label: param.label };
     return {
       kind: 'field',
@@ -651,30 +599,6 @@ function buildCompareExportModel(
     };
   });
 
-  // Drop empty field rows (e.g. "[]") and section banners with no following content.
-  const compact: CompareExportRow[] = [];
-  for (let i = 0; i < rawRows.length; i += 1) {
-    const row = rawRows[i];
-    if (row.kind === 'section') {
-      let hasContent = false;
-      for (let j = i + 1; j < rawRows.length; j += 1) {
-        const next = rawRows[j];
-        if (next.kind === 'section') break;
-        if (next.values.some((value) => !isEmptyCompareValue(value) && value !== '—')) {
-          hasContent = true;
-          break;
-        }
-      }
-      if (hasContent) compact.push(row);
-      continue;
-    }
-    if (row.values.every((value) => isEmptyCompareValue(value) || value === '—')) continue;
-    compact.push({
-      ...row,
-      values: row.values.map((value) => (isEmptyCompareValue(value) ? '—' : value)),
-    });
-  }
-
   const title = meta?.jobTitle
     ? `Comparative analysis — ${meta.jobTitle}`
     : 'Comparative analysis — Shortlisted candidates';
@@ -685,7 +609,7 @@ function buildCompareExportModel(
   ]
     .filter(Boolean)
     .join(' · ');
-  return { title, subtitle, headers, rows: compact };
+  return { title, subtitle, headers, rows };
 }
 
 function escapeHtml(value: string): string {
