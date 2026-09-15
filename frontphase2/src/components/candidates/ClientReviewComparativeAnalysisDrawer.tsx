@@ -377,11 +377,6 @@ function profileFallbackForLabel(row: ClientReviewBatchRow, label: string): stri
   }
 }
 
-function visibleFieldsOf(row: ClientReviewBatchRow): Record<string, boolean> | null {
-  const raw = row.detail?.visibleFields;
-  return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : null;
-}
-
 function isCompareLabelAllowed(row: ClientReviewBatchRow, label: string): boolean {
   return isSubmitToClientReviewFieldVisible(label, visibleFieldsOf(row));
 }
