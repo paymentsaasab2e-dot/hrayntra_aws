@@ -6,7 +6,7 @@ import {
   useBulkCvLeaveGuardRegistration,
 } from '../../contexts/BulkCvLeaveGuardContext';
 import { createPortal } from 'react-dom';
-import { motion } from 'motion/react';
+import { AnimatePresence, motion } from 'motion/react';
 import {
   AlertCircle,
   Check,
@@ -26,6 +26,7 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { DetailsModalShell } from '../drawers/DetailsModalShell';
 import {
   apiBulkCvDownloadStoredFile,
   apiBulkCvExpandZip,
@@ -1639,12 +1640,27 @@ function AddCandidateDrawerInner({
   // Bulk CV identity fallback
   //
   // Many CVs omit an email. We do not invent placeholder emails — the API stores
-  // `null` when none is parsed. Names may still be derived from the file name when
-  // the parser returns blanks so create validation (first/last name) can succeed.
+  // null when none is parsed. Prefer safe placeholders over filename titles when
+  // the parser cannot find a real person name (avoids "Operations Manager Copy 1").
   // ─────────────────────────────────────────────────────────────────────────
+  const looksLikePersonNameClient = (value) => {
+    const cleaned = String(value || '').replace(/\s+/g, ' ').trim();
+    if (!cleaned || /[@\d]/.test(cleaned)) return false;
+    if (
+      /\b(?:copy\s*\d*|certificate|certificates|obtained|curriculum|vitae|resume|cv|manager|operations|school|university|college|lusaka|zambia)\b/i.test(
+        cleaned,
+      )
+    ) {
+      return false;
+    }
+    const parts = cleaned.split(' ').filter(Boolean);
+    if (parts.length < 2 || parts.length > 4) return false;
+    return parts.every((part) => /^[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ.'-]*$/.test(part));
+  };
+
   const deriveBulkResumeIdentity = (parsed, file) => {
-    const firstName = String(parsed?.firstName || '').trim();
-    const lastName = String(parsed?.lastName || '').trim();
+    let firstName = String(parsed?.firstName || '').trim();
+    let lastName = String(parsed?.lastName || '').trim();
     const trimmedEmail = normalizeCandidateEmailInput(parsed?.email, { firstName, lastName });
     const identity = {
       firstName,
@@ -1653,17 +1669,25 @@ function AddCandidateDrawerInner({
       syntheticName: false,
     };
 
-    if (!identity.firstName || !identity.lastName) {
+    const full = [identity.firstName, identity.lastName].filter(Boolean).join(' ').trim();
+    if (!identity.firstName || !identity.lastName || !looksLikePersonNameClient(full)) {
       const base = String(file?.name || '')
         .replace(/\.[^.]+$/, '')
         .replace(/^[0-9_,\-\s]+/, '')
-        .replace(/(^|\s)(cv|resume)\b/gi, ' ')
+        .replace(/\bcopy\s*\d*\b/gi, ' ')
+        .replace(/(^|\s)(cv|resume|curriculum|vitae|certificate|certificates|obtained)\b/gi, ' ')
         .replace(/[_,\-]+/g, ' ')
         .replace(/\s+/g, ' ')
         .trim();
       const tokens = base.split(' ').filter(Boolean);
-      if (!identity.firstName) identity.firstName = tokens.shift() || 'Unknown';
-      if (!identity.lastName) identity.lastName = tokens.join(' ') || 'Candidate';
+      const fromFile = tokens.join(' ');
+      if (looksLikePersonNameClient(fromFile)) {
+        identity.firstName = tokens[0] || 'Unknown';
+        identity.lastName = tokens.slice(1).join(' ') || 'Candidate';
+      } else {
+        identity.firstName = 'Unknown';
+        identity.lastName = 'Candidate';
+      }
       identity.syntheticName = true;
     }
 
@@ -3056,16 +3080,13 @@ function AddCandidateDrawerInner({
 
   const showAiChatStage = Boolean(!embeddedBulkCv && activeTab === 'manual' && aiFlowStage === 'chat');
   const showAiFormStage = Boolean(!embeddedBulkCv && activeTab === 'manual' && aiFlowStage === 'form');
-  const isCenteredPopup = Boolean(!embeddedBulkCv && activeTab === 'manual');
+  const isCenteredPopup = false;
 
   const embeddedShellClass =
     'relative mb-6 flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm';
   const drawerPanelClass = isCenteredPopup
     ? 'relative z-10 flex h-[min(92vh,920px)] w-full max-w-6xl flex-col overflow-hidden rounded-[28px] border-0 bg-white shadow-[0_40px_120px_-24px_rgba(15,23,42,0.45)] ring-1 ring-white/70'
-    : `relative z-10 flex w-full flex-col overflow-hidden bg-white shadow-2xl transition-transform duration-300 ease-out
-    h-[92vh] max-h-[92vh] rounded-t-[1.5rem] border-t border-slate-200
-    sm:h-full sm:max-h-none sm:w-[min(100vw,560px)] sm:shrink-0 sm:rounded-none sm:border-t-0 sm:border-l sm:border-slate-200
-    ${isOpen ? 'translate-y-0 sm:translate-x-0' : 'translate-y-full sm:translate-y-0 sm:translate-x-full'}`;
+    : 'relative flex h-full min-h-0 w-full flex-col overflow-hidden bg-white';
 
   const drawerBody = (
     <div className={embeddedBulkCv ? embeddedShellClass : drawerPanelClass}>
@@ -4054,19 +4075,18 @@ function AddCandidateDrawerInner({
   }
 
   return createPortal(
-    <div
-      className="fixed inset-0 z-[90] flex flex-col justify-end sm:flex-row sm:justify-end"
-      dir="ltr"
-      role="presentation"
-    >
-      <button
-        type="button"
-        className="absolute inset-0 bg-slate-900/50"
-        aria-label="Close drawer"
-        onClick={handleDrawerClose}
-      />
-      {drawerBody}
-    </div>,
+    <AnimatePresence>
+      {isOpen ? (
+        <DetailsModalShell
+          key="add-candidate-drawer"
+          variant="main"
+          dialogTitleId="add-candidate-modal-title"
+          onBackdropClick={handleDrawerClose}
+        >
+          {drawerBody}
+        </DetailsModalShell>
+      ) : null}
+    </AnimatePresence>,
     document.body
   );
 }

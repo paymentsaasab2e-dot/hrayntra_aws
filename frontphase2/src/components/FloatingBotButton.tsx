@@ -19,6 +19,7 @@ import {
   type AssistantStructuredResponse,
   type AssistantTaskChain,
 } from '../lib/api';
+import { isEmployerPublicAuthPath } from '@/lib/sessionAuth';
 
 const STORAGE_KEY = 'floating-bot-position';
 const HISTORY_STORAGE_PREFIX = 'floating-bot-history';
@@ -132,16 +133,9 @@ function getAssistantPageConfig(pathname: string | null): AssistantPageConfig | 
   if (
     pathname.startsWith('/api') ||
     pathname.startsWith('/auth') ||
-    pathname === '/login' ||
-    pathname === '/hq/login' ||
-    pathname === '/forgot-password' ||
-    pathname === '/reset-password' ||
+    isEmployerPublicAuthPath(pathname) ||
     pathname === '/hq' ||
-    pathname.startsWith('/hq/') ||
-    pathname.startsWith('/lead-form') ||
-    pathname.startsWith('/apply') ||
-    pathname.startsWith('/client-review') ||
-    pathname.startsWith('/session-transfer')
+    pathname.startsWith('/hq/')
   ) {
     return null;
   }

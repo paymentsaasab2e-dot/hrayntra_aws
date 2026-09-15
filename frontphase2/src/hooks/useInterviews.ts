@@ -72,11 +72,13 @@ const statusMap: Record<string, Interview['status']> = {
   FEEDBACK_PENDING: 'Scheduled',
   FEEDBACK_SUBMITTED: 'Completed',
   IN_PROGRESS: 'Scheduled',
-  CONFIRMED: 'Scheduled',
+  // Candidate accepted via email RSVP
+  CONFIRMED: 'Accepted',
 };
 
 const uiStatusToBackend: Record<Interview['status'], string> = {
   Scheduled: 'SCHEDULED',
+  Accepted: 'CONFIRMED',
   Completed: 'COMPLETED',
   Cancelled: 'CANCELLED',
   Rescheduled: 'RESCHEDULED',
@@ -554,7 +556,7 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
           limit: pagination.pageSize,
           status:
             filters.status !== ALL_STATUS_LABEL
-              ? filters.status.toUpperCase().replace(/\s+/g, '_')
+              ? mapInterviewStatusToBackend(filters.status)
               : undefined,
           round:
             filters.round !== 'All Rounds'
@@ -851,7 +853,7 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
         const updated = await apiGetInterviews({
           page: pagination.page,
           limit: pagination.pageSize,
-          status: filters.status !== ALL_STATUS_LABEL ? filters.status.toUpperCase().replace(/\s+/g, '_') : undefined,
+          status: filters.status !== ALL_STATUS_LABEL ? mapInterviewStatusToBackend(filters.status) : undefined,
           round: filters.round !== 'All Rounds' ? filters.round.toUpperCase().replace(/\s+/g, '_') : undefined,
           mode: filters.mode === 'Online' ? 'ONLINE' : filters.mode === 'Offline' ? 'OFFLINE' : undefined,
           interviewerId:
@@ -985,7 +987,7 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
     const buildParams = (page: number, limit: number) => ({
       page,
       limit,
-      status: filters.status !== ALL_STATUS_LABEL ? filters.status.toUpperCase().replace(/\s+/g, '_') : undefined,
+      status: filters.status !== ALL_STATUS_LABEL ? mapInterviewStatusToBackend(filters.status) : undefined,
       round: filters.round !== 'All Rounds' ? filters.round.toUpperCase().replace(/\s+/g, '_') : undefined,
       mode: filters.mode === 'Online' ? 'ONLINE' : filters.mode === 'Offline' ? 'OFFLINE' : undefined,
       interviewerId:

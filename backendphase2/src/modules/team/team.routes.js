@@ -50,6 +50,24 @@ router.delete(
   teamController.delete,
 );
 
+// Assignment Rules — before /:id
+router.get(
+  '/assignment-rules',
+  requireAnyPermission(['manage_assignment_rules', 'edit_team_member', 'add_team_member', 'assign_roles']),
+  async (req, res) => {
+    const { getAssignmentRules } = await import('../../controllers/teamController.js');
+    return getAssignmentRules(req, res);
+  },
+);
+router.put(
+  '/assignment-rules',
+  requireAnyPermission(['manage_assignment_rules', 'edit_team_member']),
+  async (req, res) => {
+    const { putAssignmentRules } = await import('../../controllers/teamController.js');
+    return putAssignmentRules(req, res);
+  },
+);
+
 // Team Member routes (individual users as team members)
 router.get('/', teamMemberController.getAll);
 router.get('/:id', teamMemberController.getById);

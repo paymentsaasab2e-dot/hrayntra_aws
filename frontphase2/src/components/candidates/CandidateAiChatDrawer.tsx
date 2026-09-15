@@ -129,7 +129,7 @@ export function CandidateAiChatDrawer({
       setError('Paste or type candidate details first.');
       return;
     }
-    if (!pasteGate.confirmAndUnlock()) return;
+    if (!(await pasteGate.confirmAndUnlock())) return;
     setBusy(true);
     setError('');
     setStatus('');
@@ -160,7 +160,7 @@ export function CandidateAiChatDrawer({
   const runChatTurn = async () => {
     const input = chatInput.trim();
     if (!input) return;
-    if (!chatGate.confirmAndUnlock()) return;
+    if (!(await chatGate.confirmAndUnlock())) return;
     setBusy(true);
     setError('');
     const nextHistory: LeadAiChatMessage[] = [...chatHistory, { role: 'user', content: input }];

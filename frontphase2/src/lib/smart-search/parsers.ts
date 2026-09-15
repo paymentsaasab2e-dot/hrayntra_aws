@@ -672,7 +672,7 @@ export function parseInterviewsSmartSearchPrompt(
   const consumed: string[] = [];
   const stopWords = new Set([...BASE_STOP_WORDS, 'interview', 'interviews']);
 
-  const statusOptions = ['Scheduled', 'Completed', 'Cancelled', 'Rescheduled', 'No Show'];
+  const statusOptions = ['Scheduled', 'Accepted', 'Completed', 'Cancelled', 'Rescheduled', 'No Show'];
   const status = matchStatusFromList(prompt, statusOptions) || '';
   if (status) {
     consumed.push(status);

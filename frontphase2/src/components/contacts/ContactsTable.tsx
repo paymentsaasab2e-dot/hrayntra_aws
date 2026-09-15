@@ -15,6 +15,7 @@ import { visibleContactEmail } from '../../lib/contactEmail';
 import { PH2_TABLE_BODY_SCROLL_CLASS, PH2_TABLE_CARD_FOOTER_CLASS } from '../layout/Ph2ModulePageLayout';
 import { extractAuditMeta } from '../../utils/auditMeta';
 import { TableAuditColumnHeader, TableAuditCell } from '../table/TableAuditCell';
+import { requestAlert } from '../../lib/appDialog';
 
 interface ContactsTableProps {
   contacts: BackendContact[];
@@ -76,7 +77,7 @@ export function ContactsTable({
   const openWhatsApp = (contact: BackendContact) => {
     const rawPhone = contact.phone?.replace(/[^\d+]/g, '').trim();
     if (!rawPhone) {
-      window.alert('No phone number is available for this contact.');
+      void requestAlert('No phone number is available for this contact.', { tone: 'warning' });
       return;
     }
 

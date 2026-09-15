@@ -141,9 +141,21 @@ function publicInterviewView(interview) {
     mode: interview.mode,
     type: interview.type,
   });
+  const notes = String(interview.notes || '');
+  const status = String(interview.status || '').toUpperCase();
+  let candidateResponse = null;
+  if (status === 'CONFIRMED' || /Candidate accepted on /i.test(notes)) {
+    candidateResponse = 'accepted';
+  } else if (status === 'CANCELLED' || /Candidate declined on /i.test(notes)) {
+    candidateResponse = 'declined';
+  } else if (/Candidate reschedule request on /i.test(notes)) {
+    candidateResponse = 'reschedule_requested';
+  }
+
   return {
     interviewId: interview.id,
     status: interview.status,
+    candidateResponse,
     jobTitle: interview.job?.title || 'Interview',
     candidateName: candidateDisplayName(interview.candidate),
     scheduledAt: interview.scheduledAt,
@@ -187,6 +199,27 @@ export async function acceptPublicInterviewRsvp(token) {
     if (interview.status === 'CANCELLED') {
       throw Object.assign(new Error('This interview was cancelled'), { statusCode: 400 });
     }
+    // Already accepted — return confirmation without re-notifying or appending notes.
+    if (interview.status === 'CONFIRMED' || /Candidate accepted on /i.test(String(interview.notes || ''))) {
+      if (interview.status !== 'CONFIRMED') {
+        const synced = await prisma.interview.update({
+          where: { id: interview.id },
+          data: { status: 'CONFIRMED' },
+          include: {
+            candidate: { select: { id: true, firstName: true, lastName: true, email: true } },
+            job: { select: { id: true, title: true } },
+            createdBy: {
+              select: { id: true, email: true, firstName: true, lastName: true, name: true },
+            },
+            interviewer: {
+              select: { id: true, email: true, firstName: true, lastName: true, name: true },
+            },
+          },
+        });
+        return publicInterviewView(synced);
+      }
+      return publicInterviewView(interview);
+    }
     const updated = await prisma.interview.update({
       where: { id: interview.id },
       data: {
@@ -213,6 +246,12 @@ export async function acceptPublicInterviewRsvp(token) {
 
 export async function rejectPublicInterviewRsvp(token, { reason } = {}) {
   return withRsvpInterview(token, async (interview) => {
+    if (
+      interview.status === 'CANCELLED' ||
+      /Candidate declined on /i.test(String(interview.notes || ''))
+    ) {
+      return publicInterviewView(interview);
+    }
     const message = String(reason || '').trim();
     const updated = await prisma.interview.update({
       where: { id: interview.id },

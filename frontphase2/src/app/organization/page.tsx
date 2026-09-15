@@ -16,6 +16,7 @@ import {
   Users,
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
+import { requestConfirm } from '../../lib/appDialog';
 import { usePermissions } from '../../hooks/usePermissions';
 import { getDepartments, getRoles, getTeamMembers } from '../../lib/api/teamApi';
 import type { Department, Role, TeamMember } from '../../types/team';
@@ -919,7 +920,13 @@ export default function OrganizationPage() {
         : mode === 'copy'
           ? `Duplicate ${selectedTotal} record(s) into ${targetLabel}? The originals stay where they are.`
           : `Move ${selectedTotal} record(s) to ${targetLabel}? They will disappear from the source company.`;
-    if (!window.confirm(confirmText)) {
+    if (
+      !(await requestConfirm(confirmText, {
+        tone: mode === 'copy' ? 'info' : 'warning',
+        confirmLabel: mode === 'copy' ? 'Duplicate' : 'Move',
+        cancelLabel: 'Cancel',
+      }))
+    ) {
       return;
     }
     setSaving(true);
@@ -962,7 +969,15 @@ export default function OrganizationPage() {
       action === 'copy'
         ? `Revert this copy? Copied records will be removed from ${row.toLabel}. Originals stay in ${row.fromLabel}.`
         : `Revert this move? Records will be sent back from ${row.toLabel} to ${row.fromLabel}.`;
-    if (!window.confirm(confirmText)) return;
+    if (
+      !(await requestConfirm(confirmText, {
+        tone: 'warning',
+        confirmLabel: 'Revert',
+        cancelLabel: 'Cancel',
+      }))
+    ) {
+      return;
+    }
     setRevertingId(row.id);
     try {
       const result = await apiRevertOrgTransfer(row.id);
@@ -991,7 +1006,15 @@ export default function OrganizationPage() {
     const confirmText = ids?.length
       ? `Remove ${ids.length} duplicate ${kind}? The original stays. Copies go to Recycle Bin.`
       : `Remove all ${count} duplicate ${kind}? In each group the oldest record is kept as original. Copies in other companies go to Recycle Bin.`;
-    if (!window.confirm(confirmText)) return;
+    if (
+      !(await requestConfirm(confirmText, {
+        tone: 'warning',
+        confirmLabel: 'Remove duplicates',
+        cancelLabel: 'Cancel',
+      }))
+    ) {
+      return;
+    }
     setRemovingDuplicates(true);
     try {
       const result = await apiRemoveOrgDuplicates({ type: duplicateType, ids });
@@ -1040,9 +1063,10 @@ export default function OrganizationPage() {
 
   const adoptInto = async (id: string) => {
     if (
-      !window.confirm(
+      !(await requestConfirm(
         'Move people who are still on this tenant (not in a company) into this unit? Super Admin stays at HQ. Untagged jobs, leads, clients, and candidates will also be assigned to this company id.',
-      )
+        { tone: 'warning', confirmLabel: 'Move in', cancelLabel: 'Cancel' }
+      ))
     ) {
       return;
     }
@@ -1067,9 +1091,10 @@ export default function OrganizationPage() {
 
   const stampDataInto = async (id: string) => {
     if (
-      !window.confirm(
+      !(await requestConfirm(
         'Assign leftover team members and all untagged jobs, leads, clients, and candidates to this company/branch id? Both users and data get the same id so switching companies shows separate sets. Super Admin stays at HQ.',
-      )
+        { tone: 'warning', confirmLabel: 'Assign', cancelLabel: 'Cancel' }
+      ))
     ) {
       return;
     }
@@ -1092,7 +1117,15 @@ export default function OrganizationPage() {
   };
 
   const removeUnit = async (id: string) => {
-    if (!window.confirm('Remove this company or branch? People must be moved first.')) return;
+    if (
+      !(await requestConfirm('Remove this company or branch? People must be moved first.', {
+        tone: 'error',
+        confirmLabel: 'Remove',
+        cancelLabel: 'Cancel',
+      }))
+    ) {
+      return;
+    }
     try {
       await apiDeleteOrgUnit(id);
       toast.success('Removed');

@@ -8,6 +8,7 @@ import {
   FilePenLine,
   FlagTriangleRight,
   MoreHorizontal,
+  Video,
   XCircle,
 } from 'lucide-react';
 import type { Interview } from '../../types/interview.types';
@@ -59,7 +60,9 @@ function groupInterviewsForTable(items: Interview[]): InterviewGroup[] {
 function representativeInterview(rounds: Interview[]): Interview {
   const sorted = [...rounds];
   const now = Date.now();
-  const active = sorted.filter((r) => r.status === 'Scheduled' || r.status === 'Rescheduled');
+  const active = sorted.filter(
+    (r) => r.status === 'Scheduled' || r.status === 'Accepted' || r.status === 'Rescheduled',
+  );
   const upcoming = active.find((r) => new Date(r.scheduledAt || 0).getTime() >= now - 60 * 60 * 1000);
   return upcoming ?? active[active.length - 1] ?? sorted[sorted.length - 1];
 }
@@ -129,11 +132,12 @@ interface InterviewTableProps {
 }
 
 const statusClasses = {
-  Scheduled: 'bg-blue-50 text-[#2563EB]',
-  Completed: 'bg-green-50 text-[#16A34A]',
-  Cancelled: 'bg-red-50 text-[#DC2626]',
-  Rescheduled: 'bg-orange-50 text-[#F59E0B]',
-  'No Show': 'bg-slate-100 text-[#6B7280]',
+  Scheduled: 'bg-blue-50 text-[#2563EB] border-blue-200',
+  Accepted: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  Completed: 'bg-green-50 text-[#16A34A] border-green-200',
+  Cancelled: 'bg-red-50 text-[#DC2626] border-red-200',
+  Rescheduled: 'bg-orange-50 text-[#F59E0B] border-orange-200',
+  'No Show': 'bg-slate-100 text-[#6B7280] border-slate-200',
 };
 
 const feedbackClasses = {
@@ -141,6 +145,16 @@ const feedbackClasses = {
   Submitted: 'text-[#16A34A]',
   'N/A': 'text-[#9CA3AF]',
 };
+
+function isJoinableMeetingLink(link?: string | null) {
+  return /^https?:\/\//i.test(String(link || '').trim());
+}
+
+function interviewStatusLabel(status: Interview['status']) {
+  if (status === 'Completed') return 'Interview completed';
+  if (status === 'Accepted') return 'Candidate accepted';
+  return status;
+}
 
 function resolveInterviewGroupStatusBadge(
   rounds: Interview[],
@@ -394,17 +408,22 @@ export function InterviewTable({
                 </th>
               ) : null}
               {show('status') ? (
-                <th className="min-w-[16rem] border-l border-indigo-100/40 pl-10 pr-3 py-2 sm:pl-12 sm:pr-4 sm:py-2">Status</th>
+                <th className="min-w-[9rem] px-3 py-2 sm:px-4">Status</th>
               ) : null}
-              {show('scheduled') ? <th className="px-3 py-2 sm:px-4">Date / time</th> : null}
+              {show('meeting') ? (
+                <th className="min-w-[5.5rem] px-3 py-2 sm:px-4">Meeting</th>
+              ) : null}
+              {show('scheduled') ? <th className="min-w-[8rem] px-3 py-2 sm:px-4">Date / time</th> : null}
               {show('duration') ? <th className="px-3 py-2 sm:px-4">Duration</th> : null}
               {show('type') ? <th className="px-3 py-2 sm:px-4">Interview type</th> : null}
               {show('mode') ? <th className="px-3 py-2 sm:px-4">Mode</th> : null}
               {show('platform') ? <th className="px-3 py-2 sm:px-4">Meeting platform</th> : null}
               {show('location') ? <th className="px-3 py-2 sm:px-4">Location</th> : null}
-              {show('feedback') ? <th className="px-3 py-2 sm:px-4">Feedback</th> : null}
+              {show('feedback') ? <th className="min-w-[6rem] px-3 py-2 sm:px-4">Feedback</th> : null}
               {show('createdBy') ? <th className="px-3 py-2 sm:px-4">Created by</th> : null}
-              {show('candidateStage') ? <th className="px-3 py-2 sm:px-4">Candidate stage</th> : null}
+              {show('candidateStage') ? (
+                <th className="min-w-[7rem] px-3 py-2 sm:px-4">Pipeline stage</th>
+              ) : null}
               {showAiAlertColumn ? <WorkspaceAlertTableHeader /> : null}
               {show('audit') ? <TableAuditColumnHeader /> : null}
               <th className="px-3 py-2 text-right sm:px-4">Actions</th>
@@ -522,27 +541,36 @@ export function InterviewTable({
                   {show('panel') ? (
                   <td className="w-[6rem] min-w-[5.5rem] max-w-[7rem] shrink-0 px-3 py-2.5 sm:py-2.5">
                     <div className="flex items-center justify-center">
-                      {panelMerged.slice(0, 3).map((member, index) => (
-                        <div
-                          key={member.id}
-                          title={member.name}
-                          className="-ml-2 flex size-7 items-center justify-center rounded-full border-2 border-white bg-[#DBEAFE] text-[10px] font-semibold text-[#2563EB]"
-                          style={{ marginLeft: index === 0 ? 0 : -8 }}
-                        >
-                          {member.avatar}
-                        </div>
-                      ))}
-                      {panelMerged.length > 3 ? (
-                        <div className="-ml-2 flex size-7 items-center justify-center rounded-full border-2 border-white bg-[#F3F4F6] text-[10px] font-semibold text-[#374151]">
-                          +{panelMerged.length - 3}
-                        </div>
-                      ) : null}
+                      {panelMerged.length === 0 ? (
+                        <span className="text-[11px] text-slate-400">—</span>
+                      ) : (
+                        <>
+                          {panelMerged.slice(0, 3).map((member, index) => (
+                            <div
+                              key={member.id}
+                              title={member.name}
+                              className="-ml-2 flex size-7 items-center justify-center rounded-full border-2 border-white bg-[#DBEAFE] text-[10px] font-semibold text-[#2563EB]"
+                              style={{ marginLeft: index === 0 ? 0 : -8 }}
+                            >
+                              {member.avatar}
+                            </div>
+                          ))}
+                          {panelMerged.length > 3 ? (
+                            <div className="-ml-2 flex size-7 items-center justify-center rounded-full border-2 border-white bg-[#F3F4F6] text-[10px] font-semibold text-[#374151]">
+                              +{panelMerged.length - 3}
+                            </div>
+                          ) : null}
+                        </>
+                      )}
                     </div>
                   </td>
                   ) : null}
                   {show('status') ? (
-                  <td className="min-w-[16rem] border-l border-slate-100/90 pl-10 pr-3 py-2.5 sm:pl-12 sm:pr-4 sm:py-2.5">
-                    <div className="flex flex-col gap-y-0.5 leading-tight">
+                  <td
+                    className="min-w-[9rem] px-3 py-2.5 sm:px-4"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <div className="flex flex-col gap-1.5">
                       {rounds.map((interview, index) => {
                         const roundLabel = resolveInterviewRoundLabel(
                           interview,
@@ -550,46 +578,90 @@ export function InterviewTable({
                           roundNumberByInterviewId,
                         );
                         return (
-                        <div
-                          key={interview.id}
-                          className="font-mono text-[11px] tabular-nums text-[#374151]"
-                          title={`Round ${roundLabel}: ${interview.status}, feedback ${interview.feedbackStatus}`}
-                        >
-                          <span className="font-semibold text-[#2563EB]">R{roundLabel}</span>
-                          <span className="text-[#64748B]"> · </span>
-                          <span
-                            className={
-                              interview.status === 'Completed'
-                                ? 'font-semibold text-emerald-700'
-                                : undefined
-                            }
-                          >
-                            {interview.status === 'Completed' ? 'Interview completed' : interview.status}
-                          </span>
-                          <span className="text-[#64748B]"> · </span>
-                          <span className={`font-semibold ${feedbackClasses[interview.feedbackStatus]}`}>
-                            {interview.feedbackStatus}
-                          </span>
-                        </div>
+                          <div key={interview.id} className="flex flex-col gap-0.5">
+                            {rounds.length > 1 ? (
+                              <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                                R{roundLabel}
+                              </span>
+                            ) : null}
+                            <span
+                              className={`inline-flex w-fit rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
+                                statusClasses[interview.status] || statusClasses.Scheduled
+                              }`}
+                            >
+                              {interviewStatusLabel(interview.status)}
+                            </span>
+                          </div>
                         );
                       })}
                     </div>
-                    {statusBadge ? (
-                      <div className="mt-1.5">
-                        <span
-                          className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold ${statusBadge.className}`}
-                        >
-                          {statusBadge.label}
-                        </span>
-                      </div>
-                    ) : null}
+                  </td>
+                  ) : null}
+                  {show('meeting') ? (
+                  <td
+                    className="min-w-[5.5rem] px-3 py-2.5 sm:px-4"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <div className="flex flex-col gap-1.5">
+                      {rounds.map((interview, index) => {
+                        const roundLabel = resolveInterviewRoundLabel(
+                          interview,
+                          index,
+                          roundNumberByInterviewId,
+                        );
+                        const meetingLink = String(interview.meetingLink || '').trim();
+                        const canJoin = isJoinableMeetingLink(meetingLink);
+                        return (
+                          <div key={interview.id} className="flex flex-col gap-0.5">
+                            {rounds.length > 1 ? (
+                              <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                                R{roundLabel}
+                              </span>
+                            ) : null}
+                            {canJoin ? (
+                              <a
+                                href={meetingLink}
+                                target="_blank"
+                                rel="noreferrer"
+                                onClick={(event) => event.stopPropagation()}
+                                className="inline-flex w-fit items-center gap-1 rounded-full bg-blue-600 px-2.5 py-1 text-[11px] font-semibold text-white shadow-sm transition hover:bg-blue-700"
+                                title="Join video interview"
+                              >
+                                <Video className="size-3" />
+                                Join
+                              </a>
+                            ) : (
+                              <span className="text-[12px] text-slate-400">—</span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </td>
                   ) : null}
                   {show('scheduled') ? (
-                    <td className="px-3 py-2.5 sm:px-4">
-                      <span className="text-[12px] text-[#111827]">
-                        {[primary.date, primary.time].filter(Boolean).join(' ') || '—'}
-                      </span>
+                    <td className="min-w-[8rem] px-3 py-2.5 sm:px-4">
+                      <div className="flex flex-col gap-1.5">
+                        {rounds.map((interview, index) => {
+                          const roundLabel = resolveInterviewRoundLabel(
+                            interview,
+                            index,
+                            roundNumberByInterviewId,
+                          );
+                          return (
+                            <div key={interview.id} className="flex flex-col gap-0.5">
+                              {rounds.length > 1 ? (
+                                <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                                  R{roundLabel}
+                                </span>
+                              ) : null}
+                              <span className="text-[12px] text-[#111827]">
+                                {[interview.date, interview.time].filter(Boolean).join(' ') || '—'}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </td>
                   ) : null}
                   {show('duration') ? (
@@ -620,14 +692,32 @@ export function InterviewTable({
                     </td>
                   ) : null}
                   {show('feedback') ? (
-                    <td className="px-3 py-2.5 sm:px-4">
-                      <span
-                        className={`text-[12px] font-semibold ${
-                          feedbackClasses[primary.feedbackStatus] || 'text-[#9CA3AF]'
-                        }`}
-                      >
-                        {primary.feedbackStatus || '—'}
-                      </span>
+                    <td className="min-w-[6rem] px-3 py-2.5 sm:px-4">
+                      <div className="flex flex-col gap-1.5">
+                        {rounds.map((interview, index) => {
+                          const roundLabel = resolveInterviewRoundLabel(
+                            interview,
+                            index,
+                            roundNumberByInterviewId,
+                          );
+                          return (
+                            <div key={interview.id} className="flex flex-col gap-0.5">
+                              {rounds.length > 1 ? (
+                                <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                                  R{roundLabel}
+                                </span>
+                              ) : null}
+                              <span
+                                className={`text-[12px] font-semibold ${
+                                  feedbackClasses[interview.feedbackStatus] || 'text-[#9CA3AF]'
+                                }`}
+                              >
+                                {interview.feedbackStatus || '—'}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </td>
                   ) : null}
                   {show('createdBy') ? (
@@ -638,8 +728,14 @@ export function InterviewTable({
                     </td>
                   ) : null}
                   {show('candidateStage') ? (
-                    <td className="px-3 py-2.5 sm:px-4">
-                      {primary.candidate?.stage ? (
+                    <td className="min-w-[7rem] px-3 py-2.5 sm:px-4">
+                      {statusBadge ? (
+                        <span
+                          className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold ${statusBadge.className}`}
+                        >
+                          {statusBadge.label}
+                        </span>
+                      ) : primary.candidate?.stage ? (
                         <span
                           className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getCandidateStageBadgeClasses(primary.candidate.stage)}`}
                         >

@@ -122,6 +122,7 @@ const normalizeArrayPayload = <T>(payload: unknown): T[] => {
 const TEAM_CACHE_KEYS = {
   roles: 'team:roles:cache',
   permissions: 'team:permissions:cache',
+  departments: 'team:departments:cache',
 } as const;
 
 function isOfflineBrowser() {
@@ -486,6 +487,109 @@ export async function getSalesGroups() {
   const payload = json.data;
   const list = normalizeArrayPayload<SalesGroup>(payload);
   return { data: list, success: json.success };
+}
+
+export const ASSIGNMENT_RULE_MODULE_OPTIONS = [
+  { value: 'Leads', label: 'Leads' },
+  { value: 'Clients', label: 'Clients' },
+  { value: 'RecruitmentClients', label: 'Recruitment Clients' },
+  { value: 'Jobs', label: 'Jobs' },
+  { value: 'Candidates', label: 'Candidates' },
+  { value: 'Interviews', label: 'Interviews' },
+  { value: 'Tasks', label: 'Tasks' },
+] as const;
+
+export type AssignmentRulesPayload = {
+  module: string;
+  assignorUserId: string;
+  orgUnitId?: string | null;
+  configured: boolean;
+  assigneeUserIds: string[];
+  suggestedAssigneeIds: string[];
+  usingHierarchyDefault?: boolean;
+  modules?: string[];
+};
+
+export type AssignmentRuleListPerson = {
+  id: string;
+  name: string;
+  email?: string;
+  roleName?: string;
+  departmentName?: string;
+};
+
+export type AssignmentRuleListItem = {
+  module: string;
+  assignorUserId: string;
+  orgUnitId?: string | null;
+  assigneeUserIds: string[];
+  configured: boolean;
+  updatedAt?: string | null;
+  assignor: AssignmentRuleListPerson;
+  assignees: AssignmentRuleListPerson[];
+};
+
+export async function listAssignmentRules(params?: {
+  orgUnitId?: string;
+}): Promise<AssignmentRuleListItem[]> {
+  const query = new URLSearchParams();
+  query.set('list', '1');
+  if (params?.orgUnitId) query.set('orgUnitId', params.orgUnitId);
+  const path = buildPath(`/team/assignment-rules?${query.toString()}`);
+  const res = await fetch(`${API_BASE_NEW}${path}`, {
+    method: 'GET',
+    headers: getTeamAuthHeaders(),
+    cache: 'no-store',
+  });
+  const json = await parseTeamFetchJson(res);
+  if (!res.ok || json?.success === false) {
+    throwTeamApiError(json, res);
+  }
+  return Array.isArray(json.data) ? (json.data as AssignmentRuleListItem[]) : [];
+}
+
+export async function getAssignmentRules(params: {
+  module: string;
+  assignorUserId: string;
+  orgUnitId?: string;
+}): Promise<AssignmentRulesPayload> {
+  const query = new URLSearchParams();
+  query.set('module', params.module);
+  query.set('assignorUserId', params.assignorUserId);
+  if (params.orgUnitId) query.set('orgUnitId', params.orgUnitId);
+  const path = buildPath(`/team/assignment-rules?${query.toString()}`);
+  const res = await fetch(`${API_BASE_NEW}${path}`, {
+    method: 'GET',
+    headers: getTeamAuthHeaders(),
+    cache: 'no-store',
+  });
+  const json = await parseTeamFetchJson(res);
+  if (!res.ok || json?.success === false) {
+    throwTeamApiError(json, res);
+  }
+  return json.data as AssignmentRulesPayload;
+}
+
+export async function saveAssignmentRules(payload: {
+  module: string;
+  assignorUserId: string;
+  assigneeUserIds: string[];
+  orgUnitId?: string | null;
+}): Promise<AssignmentRulesPayload> {
+  const path = buildPath('/team/assignment-rules');
+  const res = await fetch(`${API_BASE_NEW}${path}`, {
+    method: 'PUT',
+    headers: {
+      ...getTeamAuthHeaders(),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+  const json = await parseTeamFetchJson(res);
+  if (!res.ok || json?.success === false) {
+    throwTeamApiError(json, res);
+  }
+  return json.data as AssignmentRulesPayload;
 }
 
 export async function createSalesGroup(payload: {
@@ -940,7 +1044,8 @@ export async function getRoles() {
     if (cached?.length) {
       return { data: cached, success: true };
     }
-    throw error;
+    console.warn('[teamApi] getRoles failed', error);
+    return { data: [], success: false };
   }
 }
 
@@ -948,21 +1053,37 @@ export async function getRoles() {
  * Get all departments
  */
 export async function getDepartments() {
+  if (isOfflineBrowser()) {
+    return { data: readCache<Department[]>(TEAM_CACHE_KEYS.departments) || [], success: true };
+  }
+
   const path = buildPath('/departments');
   const headers = getTeamAuthHeaders();
 
-  const res = await fetch(`${API_BASE_NEW}${path}`, {
-    method: 'GET',
-    headers,
-    cache: 'no-store',
-  });
-  
-  const json = await res.json();
-  if (!res.ok || json?.success === false) {
-    throw new Error(json?.message || `Request failed with status ${res.status}`);
+  try {
+    const res = await fetch(`${API_BASE_NEW}${path}`, {
+      method: 'GET',
+      headers,
+      cache: 'no-store',
+    });
+
+    const json = await res.json();
+    if (!res.ok || json?.success === false) {
+      throw new Error(json?.message || `Request failed with status ${res.status}`);
+    }
+
+    const departments = normalizeArrayPayload<Department>(json.data);
+    writeCache(TEAM_CACHE_KEYS.departments, departments);
+    return { data: departments, success: json.success };
+  } catch (error) {
+    const cached = readCache<Department[]>(TEAM_CACHE_KEYS.departments);
+    if (cached?.length) {
+      return { data: cached, success: true };
+    }
+    // Don't hard-fail Edit Member / Add Member drawers when departments are briefly unreachable.
+    console.warn('[teamApi] getDepartments failed', error);
+    return { data: [], success: false };
   }
-  
-  return { data: normalizeArrayPayload<Department>(json.data), success: json.success };
 }
 
 /**

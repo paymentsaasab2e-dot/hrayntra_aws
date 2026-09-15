@@ -119,6 +119,7 @@ router.get('/candidates/bulk-cv/failed', addCandidateController.bulkCvListFailed
 router.get('/candidates/bulk-cv/failed/:id/file', addCandidateController.bulkCvDownloadFailedFile);
 router.post('/candidates/bulk-cv/failed/trash', addCandidateController.bulkCvTrashFailed);
 router.post('/candidates/bulk-cv/failed/resolve', addCandidateController.bulkCvResolveFailed);
+router.post('/candidates/repair-bad-names', addCandidateController.repairBadNames);
 router.post('/candidates/import-linkedin', addCandidateController.importLinkedIn);
 router.get('/candidates/check-duplicate', addCandidateController.checkDuplicate);
 router.post('/candidates/bulk-import', csvUpload.single('csvFile'), addCandidateController.bulkImport);

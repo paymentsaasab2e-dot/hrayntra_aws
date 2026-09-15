@@ -252,7 +252,7 @@ export const taskService = {
 
     const actorId = req?.user?.id || data.performedById || data.createdById;
     if (actorId && !data.skipAssignScopeCheck) {
-      await assertCanAssignTask(actorId, assignedToId);
+      await assertCanAssignTask(actorId, assignedToId, req);
     }
 
     const completionApproverId = data.completionApproverId
@@ -490,7 +490,7 @@ export const taskService = {
     if (newAssigneeId !== undefined) {
       const actorId = req?.user?.id || data.performedById;
       if (actorId) {
-        await assertCanAssignTask(actorId, newAssigneeId);
+        await assertCanAssignTask(actorId, newAssigneeId, req);
       }
     }
 
@@ -593,7 +593,7 @@ export const taskService = {
       throw new Error('Choose a different team member to delegate to');
     }
 
-    await assertCanAssignTask(actorId, assignToId);
+    await assertCanAssignTask(actorId, assignToId, req);
 
     let completionApproverId = data.completionApproverId
       ? String(data.completionApproverId).trim()

@@ -477,7 +477,7 @@ export default function MatchesPage() {
       const [jobsResponse, usersResponse, clientsResponse] = await Promise.all([
         apiGetJobs({ status: 'OPEN', limit: 100 }),
         apiGetUsers({ assignable: true, role: 'RECRUITER', isActive: true, limit: 100 }),
-        apiGetClients({ page: 1, limit: 500, includeContacts: true }),
+        apiGetClients({ page: 1, limit: 500, includeContacts: true, recruitmentEnabled: true }),
       ]);
 
       const clients = unwrapCollection(clientsResponse.data) as BackendClient[];

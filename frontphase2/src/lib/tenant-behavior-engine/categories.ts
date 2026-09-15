@@ -59,7 +59,9 @@ export function isMeaningfulPhase2Path(pathname: string): boolean {
   if (!path || path === '/') return false;
   if (path.startsWith('/login') || path.startsWith('/hq')) return false;
   if (path.startsWith('/forgot-password') || path.startsWith('/reset-password')) return false;
-  if (path.startsWith('/apply') || path.startsWith('/client-review')) return false;
+  if (path.startsWith('/apply') || path.startsWith('/client-review') || path.startsWith('/interview-rsvp')) {
+    return false;
+  }
   if (path === '/thebehave' || path.startsWith('/tenant-behave')) return false;
   return true;
 }

@@ -15,6 +15,7 @@ import {
   normalizeResumeHref,
 } from '../../lib/resumePreview';
 import { triggerFileDownload } from '../../utils/triggerFileDownload';
+import { requestError } from '../../lib/appDialog';
 
 interface ResumePreviewModalProps {
   isOpen: boolean;
@@ -66,7 +67,7 @@ export function ResumePreviewModal({
       });
     } catch (error) {
       console.error('Resume download failed:', error);
-      window.alert(
+      await requestError(
         error instanceof Error ? error.message : 'Could not download this resume. Try Open in tab instead.',
       );
     } finally {

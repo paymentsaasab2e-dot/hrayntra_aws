@@ -1,5 +1,4 @@
 import { prisma } from '../config/prisma.js';
-import { isSuperAdminUser } from '../utils/superAdminScope.js';
 import {
   applyDepartmentRoles,
   departmentRoleInclude,
@@ -9,46 +8,13 @@ import {
   pickDefaultManagerFromCandidates,
 } from '../services/departmentRole.service.js';
 
-async function buildAccessibleDepartmentWhere(req) {
-  if (!isSuperAdminUser(req) || !req?.user?.id) {
-    return {};
-  }
-
-  const ownerId = req.user.id;
-  const activityRows = await prisma.userActivity.findMany({
-    where: {
-      userId: ownerId,
-      module: 'Team',
-      action: 'Department created',
-    },
-    select: { metadata: true },
-    orderBy: { timestamp: 'desc' },
-    take: 500,
-  });
-
-  const createdDepartmentIds = [
-    ...new Set(
-      activityRows
-        .map((row) => row?.metadata?.departmentId)
-        .filter((id) => typeof id === 'string' && id.length > 0)
-    ),
-  ];
-
-  return {
-    OR: [
-      {
-        users: {
-          some: {
-            OR: [
-              { id: ownerId },
-              { credential: { is: { createdBy: ownerId } } },
-            ],
-          },
-        },
-      },
-      ...(createdDepartmentIds.length ? [{ id: { in: createdDepartmentIds } }] : []),
-    ],
-  };
+/**
+ * Super Admins share the full tenant department list so any Super Admin can
+ * assign departments when creating members / roles / permissions.
+ * Non–Super Admin callers also receive the full list (route permissions still apply).
+ */
+async function buildAccessibleDepartmentWhere(_req) {
+  return {};
 }
 
 /**
@@ -65,14 +31,6 @@ export async function getAllDepartments(req, res) {
         users: {
           where: {
             status: 'ACTIVE',
-            ...(isSuperAdminUser(req) && req?.user?.id
-              ? {
-                  OR: [
-                    { id: req.user.id },
-                    { credential: { is: { createdBy: req.user.id } } },
-                  ],
-                }
-              : {}),
           },
           select: {
             id: true,
@@ -138,14 +96,6 @@ export async function getDepartmentById(req, res) {
       include: {
         ...departmentRoleInclude,
         users: {
-          where: isSuperAdminUser(req) && req?.user?.id
-            ? {
-                OR: [
-                  { id: req.user.id },
-                  { credential: { is: { createdBy: req.user.id } } },
-                ],
-              }
-            : undefined,
           include: {
             systemRole: {
               select: {

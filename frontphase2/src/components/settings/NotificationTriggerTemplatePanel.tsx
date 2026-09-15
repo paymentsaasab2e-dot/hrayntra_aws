@@ -30,6 +30,7 @@ import {
   buildPreviewVariables,
   interpolateNotificationTemplate,
 } from '@/lib/notificationTriggerTemplateUtils';
+import { requestPrompt } from '@/lib/appDialog';
 
 type Props = {
   triggerId: string;
@@ -189,8 +190,13 @@ export function NotificationTriggerTemplatePanel({
     setBodyHtml((prev) => `${prev}${prev.endsWith('\n') || !prev ? '' : '\n'}${token}`);
   };
 
-  const handleInsertLink = () => {
-    const url = window.prompt('Link URL (you can use a {{variable}} too)', 'https://');
+  const handleInsertLink = async () => {
+    const url = await requestPrompt('Link URL (you can use a {{variable}} too)', {
+      defaultValue: 'https://',
+      confirmLabel: 'Insert',
+      cancelLabel: 'Cancel',
+      inputPlaceholder: 'https:// or {{variable}}',
+    });
     if (!url) return;
     runEditorCommand('createLink', url);
   };

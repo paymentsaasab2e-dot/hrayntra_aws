@@ -18,7 +18,7 @@ const fieldMeta: Array<{
   options: string[];
 }> = [
   { key: 'date', label: 'Date', icon: CalendarDays, options: ['This Week', 'Today', 'This Month'] },
-  { key: 'status', label: 'Status', icon: CircleDot, options: [ALL_STATUS_LABEL, 'Scheduled', 'Completed', 'Cancelled', 'Rescheduled', 'No Show'] },
+  { key: 'status', label: 'Status', icon: CircleDot, options: [ALL_STATUS_LABEL, 'Scheduled', 'Accepted', 'Completed', 'Cancelled', 'Rescheduled', 'No Show'] },
   { key: 'round', label: 'Interview Round', icon: BriefcaseBusiness, options: ['All Rounds', 'Screening', 'Technical', 'HR', 'Managerial', 'Client', 'Final'] },
   { key: 'mode', label: 'Mode', icon: Video, options: ['All Modes', 'Online', 'Offline', 'Video', 'Phone', 'In-Person', 'Technical Test', 'Assessment'] },
 ];
@@ -87,7 +87,7 @@ export function InterviewFilters({
               onChange={(event) => onChange('clientJob', event.target.value)}
               className="flex-1 appearance-none bg-transparent font-semibold outline-none"
             >
-              <option value="All Clients">All Clients</option>
+              <option value="All Clients">All Recruitment Clients / Jobs</option>
               {clientJobOptions.map((option, idx) => (
                 <option key={`${option}-${idx}`} value={option}>
                   {option}

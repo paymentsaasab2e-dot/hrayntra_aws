@@ -115,7 +115,7 @@ export function LeadAiChatDrawer({
       setError('Paste or type lead details first.');
       return;
     }
-    if (!pasteGate.confirmAndUnlock()) return;
+    if (!(await pasteGate.confirmAndUnlock())) return;
     setBusy(true);
     setError('');
     setStatus('');
@@ -146,7 +146,7 @@ export function LeadAiChatDrawer({
   const runChatTurn = async () => {
     const input = chatInput.trim();
     if (!input) return;
-    if (!chatGate.confirmAndUnlock()) return;
+    if (!(await chatGate.confirmAndUnlock())) return;
     setBusy(true);
     setError('');
     const nextHistory: LeadAiChatMessage[] = [...chatHistory, { role: 'user', content: input }];

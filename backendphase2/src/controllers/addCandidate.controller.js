@@ -37,6 +37,7 @@ import {
   saveFailedBulkResume,
   trashFailedBulkResumes,
 } from '../services/bulkCvFailed.service.js';
+import { repairBadCandidateNames } from '../services/repairCandidateNames.service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -310,7 +311,7 @@ function looksLikePersonName(value = '') {
     .trim();
 
   if (!cleaned || /[@\d]/.test(cleaned)) return false;
-  if (/\b(?:resume|curriculum vitae|cv|profile|summary|skills|experience|education|projects|contact)\b/i.test(cleaned)) {
+  if (/\b(?:resume|curriculum vitae|cv|profile|summary|skills|experience|education|projects|contact|certificate|certificates|obtained|copy\s*\d*|manager|operations|school|university|college|lusaka|zambia)\b/i.test(cleaned)) {
     return false;
   }
 
@@ -1063,12 +1064,14 @@ export const addCandidateController = {
         console.error('Resume parsing failed, using non-AI fallback:', parseError.message);
         const fileNameFallback = path.parse(file.originalname || 'resume').name;
         const extractedName = extractResumeName(fileNameFallback, file.originalname || fileNameFallback);
+        const firstName = extractedName.firstName || 'Unknown';
+        const lastName = extractedName.lastName || 'Candidate';
 
         return res.status(200).json({
           success: true,
           data: {
-            firstName: extractedName.firstName,
-            lastName: extractedName.lastName,
+            firstName,
+            lastName,
             email: '',
             phone: '',
             currentCompany: '',
@@ -2081,6 +2084,47 @@ export const addCandidateController = {
       return res.status(500).json({
         success: false,
         message: error.message,
+      });
+    }
+  },
+
+  /**
+   * Auto-fix candidate names that look like CV filenames / titles / locations.
+   * Re-reads stored resume text (no AI) and updates firstName/lastName in bulk.
+   * Body: { execute?: boolean, dryRun?: boolean, limit?: number, orgUnitId?: string }
+   */
+  async repairBadNames(req, res) {
+    try {
+      if (!req.user?.id) {
+        return res.status(401).json({ success: false, message: 'Authentication required' });
+      }
+
+      const body = req.body && typeof req.body === 'object' ? req.body : {};
+      const execute = body.execute === true || body.dryRun === false;
+      const orgUnitId =
+        String(body.orgUnitId || req.user?.orgUnitId || req.headers['x-org-unit-id'] || '').trim() ||
+        null;
+      const limit = Number(body.limit);
+
+      const result = await repairBadCandidateNames({
+        execute,
+        dryRun: !execute,
+        limit: Number.isFinite(limit) && limit > 0 ? limit : undefined,
+        orgUnitId: body.scopeAllCompanies === true ? null : orgUnitId,
+      });
+
+      return res.status(200).json({
+        success: true,
+        data: result,
+        message: execute
+          ? `Updated ${result.updated} candidate name(s).`
+          : `Found ${result.badNames} bad name(s). Pass execute:true to apply.`,
+      });
+    } catch (error) {
+      console.error('[repair-names] failed:', error?.message || error);
+      return res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to repair candidate names',
       });
     }
   },

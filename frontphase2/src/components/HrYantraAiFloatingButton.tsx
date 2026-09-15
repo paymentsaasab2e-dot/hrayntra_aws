@@ -13,6 +13,7 @@ import {
   type HrYantraChatMessage,
 } from '../lib/hrYantraLocalAssistant';
 import { HqBrandLogo } from './hq/HqBrandLogo';
+import { isEmployerPublicAuthPath } from '@/lib/sessionAuth';
 
 const STORAGE_KEY = 'hryantra-ai-floating-position';
 const SIZE = 56;
@@ -89,16 +90,9 @@ export function HrYantraAiFloatingButton() {
 
   const hidden =
     !pathname ||
-    pathname === '/login' ||
-    pathname === '/hq/login' ||
-    pathname === '/forgot-password' ||
-    pathname === '/reset-password' ||
+    isEmployerPublicAuthPath(pathname) ||
     pathname === '/hq' ||
-    pathname.startsWith('/hq/') ||
-    pathname.startsWith('/apply') ||
-    pathname.startsWith('/lead-form') ||
-    pathname.startsWith('/client-review') ||
-    pathname.startsWith('/session-transfer');
+    pathname.startsWith('/hq/');
 
   useEffect(() => {
     try {

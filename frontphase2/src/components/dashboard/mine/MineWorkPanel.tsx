@@ -25,9 +25,12 @@ function kindLabel(kind: string) {
 export function DashScopeBanner({
   access,
   mineTab,
+  product = 'crm',
 }: {
   access?: DashboardStatsAccess | null;
   mineTab?: boolean;
+  /** CRM vs recruitment wording for self-scope. */
+  product?: 'crm' | 'recruitment';
 }) {
   if (mineTab) {
     return (
@@ -54,10 +57,13 @@ export function DashScopeBanner({
           ? 'this company'
           : 'all companies');
 
+  const selfRecords =
+    product === 'recruitment' ? 'your jobs & candidates only' : 'your leads & clients only';
+
   if (level === 'self') {
     return (
       <p className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2 text-[12px] text-amber-900">
-        Showing <span className="font-semibold">your jobs only</span>
+        Showing <span className="font-semibold">{selfRecords}</span>
         {' — '}
         numbers are limited to records assigned to you. Department Rank 1 sees the whole department;
         company heads see their company; Super Admin (or{' '}

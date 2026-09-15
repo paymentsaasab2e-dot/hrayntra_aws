@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { prisma, runWithTenantContext, getActiveTenantDbName } from '../../config/prisma.js';
-import { env, getMicrosoftOAuthConfig } from '../../config/env.js';
+import { env, getMicrosoftOAuthConfig, resolveGoogleRedirectUri } from '../../config/env.js';
 import { encryption } from '../../utils/encryption.js';
 import { createOAuthState, verifyOAuthState } from '../../utils/oauth-state.js';
 import { consumeOAuthPkce, storeOAuthPkce } from '../../utils/oauth-pkce-store.js';
@@ -98,7 +98,7 @@ function getCallbackUrl(provider) {
   const config = ensureProvider(provider);
 
   if (config.family === 'google') {
-    return env.GOOGLE_REDIRECT_URI || `${env.BACKEND_PUBLIC_URL}/api/v1/oauth/google/callback`;
+    return resolveGoogleRedirectUri();
   }
 
   if (config.family === 'microsoft') {

@@ -94,73 +94,125 @@ const router = express.Router();
 
 router.use(authMiddleware);
 
+/** Short TTL so shell remounts / focus storms don't re-hit HQ every time. */
+const SUMMARY_CACHE_TTL_MS = 45_000;
+const summaryCacheByTenant = new Map();
+const summaryInflightByTenant = new Map();
+
+function summaryCacheKey(req) {
+  const tenant = String(getActiveTenantDbName() || '').trim() || 'default';
+  const userId = String(req.user?.id || req.user?.email || '').trim();
+  return `${tenant}:${userId}`;
+}
+
+async function buildRecruitmentSummary(req) {
+  const tenantDbName = String(getActiveTenantDbName() || '').trim();
+
+  const [
+    recruitmentMode,
+    subscriptionPlan,
+    defaultCurrency,
+    clientPageFieldVisibility,
+    tenantModules,
+    organizationNameRaw,
+  ] = await Promise.all([
+    getRecruitmentMode(),
+    getEffectiveSubscriptionPlan(),
+    getDefaultCurrency(),
+    getClientPageFieldVisibility(),
+    getHqEnabledModules(),
+    getOrganizationName(),
+  ]);
+
+  // Reuse the already-synced plan — avoids a second HQ sync inside getPlanUsageSnapshot.
+  const planUsage = await getPlanUsageSnapshot(subscriptionPlan);
+
+  let organizationName = organizationNameRaw;
+  let tenantPaused = false;
+  let tenantPausedAt = null;
+  let productLine = tenantModules.productLine || '';
+  let enabledModules = tenantModules.enabledModules || [];
+  let modulesRestricted = Boolean(tenantModules.modulesRestricted);
+  let phase1CommonPoolEnabled = tenantModules.phase1CommonPoolEnabled !== false;
+
+  if (tenantDbName || req.user?.email) {
+    try {
+      const hqTenant = await headquartersAuthService.findTenantModulesForSession({
+        email: req.user?.email,
+        tenantDbName,
+      });
+      tenantPaused = headquartersAuthService.isTenantPaused(hqTenant);
+      tenantPausedAt = hqTenant?.pausedAt || null;
+      if (hqTenant) {
+        if (hqTenant.productLine) productLine = hqTenant.productLine;
+        if (hqTenant.modulesRestricted || (Array.isArray(hqTenant.enabledModules) && hqTenant.enabledModules.length > 0)) {
+          modulesRestricted = true;
+          enabledModules = Array.isArray(hqTenant.enabledModules) ? hqTenant.enabledModules : [];
+        }
+        if (Object.prototype.hasOwnProperty.call(hqTenant, 'phase1CommonPoolEnabled')) {
+          phase1CommonPoolEnabled = hqTenant.phase1CommonPoolEnabled !== false;
+        }
+        const hqOrgName = String(hqTenant.organizationName || '').trim();
+        if (hqOrgName && !organizationName) {
+          organizationName = hqOrgName;
+          try {
+            await setOrganizationName(hqOrgName);
+          } catch {
+            /* cache miss is non-blocking */
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[recruitment-summary] tenant modules lookup failed:', err?.message || err);
+    }
+  }
+
+  return {
+    recruitmentMode,
+    billingEnabled: recruitmentMode !== 'standalone',
+    subscriptionPlan,
+    planUsage,
+    subscriptionPlanOptions: SUBSCRIPTION_PLAN_OPTIONS,
+    defaultCurrency,
+    supportedCurrencies: SUPPORTED_CURRENCIES,
+    clientPageFieldVisibility,
+    tenantPaused,
+    tenantPausedAt,
+    productLine: productLine || null,
+    enabledModules,
+    modulesRestricted,
+    phase1CommonPoolEnabled,
+    organizationName: organizationName || '',
+    companyName: organizationName || '',
+  };
+}
+
 /** Any authenticated tenant user — for shell / billing visibility / plan badge (defaults to agency). */
 router.get('/recruitment-summary', async (req, res) => {
   try {
-    const recruitmentMode = await getRecruitmentMode();
-    const subscriptionPlan = await getEffectiveSubscriptionPlan();
-    const planUsage = await getPlanUsageSnapshot();
-    const defaultCurrency = await getDefaultCurrency();
-    const clientPageFieldVisibility = await getClientPageFieldVisibility();
-    const tenantModules = await getHqEnabledModules();
-    const tenantDbName = String(getActiveTenantDbName() || '').trim();
-    let organizationName = await getOrganizationName();
-    let tenantPaused = false;
-    let tenantPausedAt = null;
-    let productLine = tenantModules.productLine || '';
-    let enabledModules = tenantModules.enabledModules || [];
-    let modulesRestricted = Boolean(tenantModules.modulesRestricted);
-    let phase1CommonPoolEnabled = tenantModules.phase1CommonPoolEnabled !== false;
-    if (tenantDbName || req.user?.email) {
-      try {
-        const hqTenant = await headquartersAuthService.findTenantModulesForSession({
-          email: req.user?.email,
-          tenantDbName,
-        });
-        tenantPaused = headquartersAuthService.isTenantPaused(hqTenant);
-        tenantPausedAt = hqTenant?.pausedAt || null;
-        if (hqTenant) {
-          if (hqTenant.productLine) productLine = hqTenant.productLine;
-          // HQ directory is authoritative for tab entitlements after HQ saves tabs.
-          if (hqTenant.modulesRestricted || (Array.isArray(hqTenant.enabledModules) && hqTenant.enabledModules.length > 0)) {
-            modulesRestricted = true;
-            enabledModules = Array.isArray(hqTenant.enabledModules) ? hqTenant.enabledModules : [];
-          }
-          if (Object.prototype.hasOwnProperty.call(hqTenant, 'phase1CommonPoolEnabled')) {
-            phase1CommonPoolEnabled = hqTenant.phase1CommonPoolEnabled !== false;
-          }
-          const hqOrgName = String(hqTenant.organizationName || '').trim();
-          if (hqOrgName && !organizationName) {
-            organizationName = hqOrgName;
-            try {
-              await setOrganizationName(hqOrgName);
-            } catch {
-              /* cache miss is non-blocking */
-            }
-          }
-        }
-      } catch (err) {
-        console.warn('[recruitment-summary] tenant modules lookup failed:', err?.message || err);
-      }
+    const cacheKey = summaryCacheKey(req);
+    const cached = summaryCacheByTenant.get(cacheKey);
+    if (cached && Date.now() - cached.at < SUMMARY_CACHE_TTL_MS) {
+      return sendResponse(res, 200, 'OK', cached.data);
     }
-    sendResponse(res, 200, 'OK', {
-      recruitmentMode,
-      billingEnabled: recruitmentMode !== 'standalone',
-      subscriptionPlan,
-      planUsage,
-      subscriptionPlanOptions: SUBSCRIPTION_PLAN_OPTIONS,
-      defaultCurrency,
-      supportedCurrencies: SUPPORTED_CURRENCIES,
-      clientPageFieldVisibility,
-      tenantPaused,
-      tenantPausedAt,
-      productLine: productLine || null,
-      enabledModules,
-      modulesRestricted,
-      phase1CommonPoolEnabled,
-      organizationName: organizationName || '',
-      companyName: organizationName || '',
-    });
+
+    if (summaryInflightByTenant.has(cacheKey)) {
+      const data = await summaryInflightByTenant.get(cacheKey);
+      return sendResponse(res, 200, 'OK', data);
+    }
+
+    const work = buildRecruitmentSummary(req)
+      .then((data) => {
+        summaryCacheByTenant.set(cacheKey, { at: Date.now(), data });
+        return data;
+      })
+      .finally(() => {
+        summaryInflightByTenant.delete(cacheKey);
+      });
+
+    summaryInflightByTenant.set(cacheKey, work);
+    const data = await work;
+    sendResponse(res, 200, 'OK', data);
   } catch (error) {
     sendError(res, 500, error.message || 'Failed to load org summary', error);
   }

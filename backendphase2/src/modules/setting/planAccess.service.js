@@ -8,6 +8,11 @@ import {
 } from '../hq/hq-packages.config.js';
 import { hqPackagesService } from '../hq/hq-packages.service.js';
 
+/** Avoid hammering HQ on every shell poll / page mount. */
+const HQ_PLAN_SYNC_TTL_MS = 60_000;
+const hqPlanSyncAtByTenant = new Map();
+const hqPlanSyncInflight = new Map();
+
 function planIdentity(plan) {
   if (!plan) return '';
   const slug = resolvePackageSlug(plan.id, plan.name);
@@ -96,48 +101,70 @@ export async function applyTenantSubscriptionPlan(tenantDbName, plan, { throwOnF
  * HQ is the source of truth for tenant packages. When HQ assigns Starter → Enterprise,
  * Phase 2 reads the updated plan on the next API call.
  */
-export async function syncSubscriptionPlanFromHq() {
+export async function syncSubscriptionPlanFromHq({ force = false } = {}) {
   const tenantDbName = String(getActiveTenantDbName() || '').trim();
   if (!tenantDbName) return null;
 
-  let hqTenant = null;
-  try {
-    hqTenant = await headquartersAuthService.findTenantByDbName(tenantDbName);
-  } catch (err) {
-    console.warn('[planAccess] HQ tenant lookup failed:', err?.message || err);
-    return null;
+  const now = Date.now();
+  const lastAt = hqPlanSyncAtByTenant.get(tenantDbName) || 0;
+  if (!force && now - lastAt < HQ_PLAN_SYNC_TTL_MS) {
+    return getSubscriptionPlan();
   }
 
-  const hqPlan = hqTenant?.subscriptionPlan;
-  if (!hqPlan?.name && !hqPlan?.id) return null;
-
-  let resolvedPlan = null;
-  try {
-    // Pass the full HQ plan object so planEndDate / trial fields are not dropped.
-    // For trials, look up the base package (without "Trial" suffix) for limits only.
-    const lookupRaw = hqPlan.isTrial
-      ? {
-          ...hqPlan,
-          name: packageLookupName(hqPlan.name) || hqPlan.name,
-        }
-      : hqPlan;
-    resolvedPlan = await hqPackagesService.resolvePlanInput(
-      lookupRaw,
-      hqPlan.billingCycle,
-      hqPlan.planStartDate,
-    );
-  } catch (err) {
-    console.warn('[planAccess] failed to resolve HQ plan:', err?.message || err);
+  if (hqPlanSyncInflight.has(tenantDbName)) {
+    return hqPlanSyncInflight.get(tenantDbName);
   }
 
-  const targetPlan = mergeHqPlanMetadata(resolvedPlan, hqPlan) || hqPlan;
-  const localPlan = await getSubscriptionPlan();
-  if (planRecordsMatch(localPlan, targetPlan)) {
-    return localPlan;
-  }
+  const work = (async () => {
+    let hqTenant = null;
+    try {
+      hqTenant = await headquartersAuthService.findTenantByDbName(tenantDbName);
+    } catch (err) {
+      console.warn('[planAccess] HQ tenant lookup failed:', err?.message || err);
+      return null;
+    }
 
-  await setSubscriptionPlan(targetPlan);
-  return targetPlan;
+    const hqPlan = hqTenant?.subscriptionPlan;
+    if (!hqPlan?.name && !hqPlan?.id) {
+      hqPlanSyncAtByTenant.set(tenantDbName, Date.now());
+      return null;
+    }
+
+    let resolvedPlan = null;
+    try {
+      // Pass the full HQ plan object so planEndDate / trial fields are not dropped.
+      // For trials, look up the base package (without "Trial" suffix) for limits only.
+      const lookupRaw = hqPlan.isTrial
+        ? {
+            ...hqPlan,
+            name: packageLookupName(hqPlan.name) || hqPlan.name,
+          }
+        : hqPlan;
+      resolvedPlan = await hqPackagesService.resolvePlanInput(
+        lookupRaw,
+        hqPlan.billingCycle,
+        hqPlan.planStartDate,
+      );
+    } catch (err) {
+      console.warn('[planAccess] failed to resolve HQ plan:', err?.message || err);
+    }
+
+    const targetPlan = mergeHqPlanMetadata(resolvedPlan, hqPlan) || hqPlan;
+    const localPlan = await getSubscriptionPlan();
+    if (planRecordsMatch(localPlan, targetPlan)) {
+      hqPlanSyncAtByTenant.set(tenantDbName, Date.now());
+      return localPlan;
+    }
+
+    await setSubscriptionPlan(targetPlan);
+    hqPlanSyncAtByTenant.set(tenantDbName, Date.now());
+    return targetPlan;
+  })().finally(() => {
+    hqPlanSyncInflight.delete(tenantDbName);
+  });
+
+  hqPlanSyncInflight.set(tenantDbName, work);
+  return work;
 }
 
 function enterpriseFallbackPlan() {
@@ -232,8 +259,8 @@ export async function countBillableUsers() {
   });
 }
 
-export async function getPlanUsageSnapshot() {
-  const plan = await getEffectiveSubscriptionPlan();
+export async function getPlanUsageSnapshot(existingPlan = null) {
+  const plan = existingPlan || (await getEffectiveSubscriptionPlan({ assignIfMissing: false }));
   const [activeJobs, activeUsers] = await Promise.all([countActiveJobPostings(), countBillableUsers()]);
   return {
     plan,

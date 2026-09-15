@@ -144,6 +144,105 @@ const NON_NAME_WORD_PARTS = new Set([
   'competenze',
   'lingue',
   'conhecimentos',
+  // Document / filename noise (Bulk CV often uses file titles as names)
+  'certificate',
+  'certificates',
+  'certificat',
+  'obtained',
+  'copy',
+  'year',
+  'years',
+  'document',
+  'documents',
+  'scanned',
+  'scan',
+  'original',
+  'draft',
+  'version',
+  'untitled',
+  'download',
+  'uploaded',
+  'final',
+  'updated',
+  'revised',
+  'curriculum',
+  'vitae',
+  'resume',
+  'cv',
+  'attachment',
+  'file',
+  'pdf',
+  'docx',
+  'doc',
+]);
+
+/** Common place / geo tokens that look like 2-word "names" (e.g. Lusaka Zambia). */
+const LOCATION_NAME_STOPWORDS = new Set([
+  'lusaka',
+  'zambia',
+  'zimbabwe',
+  'malawi',
+  'botswana',
+  'namibia',
+  'angola',
+  'mozambique',
+  'tanzania',
+  'kenya',
+  'uganda',
+  'rwanda',
+  'nigeria',
+  'ghana',
+  'senegal',
+  'cameroon',
+  'ethiopia',
+  'somalia',
+  'sudan',
+  'egypt',
+  'morocco',
+  'tunisia',
+  'algeria',
+  'south',
+  'africa',
+  'india',
+  'delhi',
+  'mumbai',
+  'bangalore',
+  'bengaluru',
+  'hyderabad',
+  'chennai',
+  'kolkata',
+  'pune',
+  'dubai',
+  'abu',
+  'dhabi',
+  'qatar',
+  'saudi',
+  'arabia',
+  'london',
+  'paris',
+  'berlin',
+  'madrid',
+  'toronto',
+  'ontario',
+  'california',
+  'texas',
+  'florida',
+  'new',
+  'york',
+  'city',
+  'town',
+  'province',
+  'district',
+  'country',
+  'region',
+  'address',
+  'location',
+  'state',
+  'united',
+  'kingdom',
+  'states',
+  'emirates',
+  'republic',
 ]);
 
 const FALLBACK_SKILL_KEYWORDS = [
@@ -727,7 +826,7 @@ const RESUME_TITLE_STOPWORDS = new Set([
   'resources',
 ]);
 
-function looksLikePersonName(value = '') {
+export function looksLikePersonName(value = '') {
   const cleaned = String(value || '')
     .replace(/[\u2013\u2014|,]/g, ' ')
     .replace(/\s+/g, ' ')
@@ -735,18 +834,55 @@ function looksLikePersonName(value = '') {
 
   if (!cleaned || /[@\d]/.test(cleaned)) return false;
   if (isResumeSectionHeaderLine(cleaned)) return false;
+  if (/\b(?:copy\s*\d*|certificate|certificates|obtained|curriculum|vitae)\b/i.test(cleaned)) {
+    return false;
+  }
 
   const parts = cleaned.split(' ').filter(Boolean);
   if (parts.length < 2 || parts.length > 4) return false;
 
-  const lowerParts = parts.map((part) => part.toLowerCase());
+  const lowerParts = parts.map((part) => part.toLowerCase().replace(/[^a-zà-ÿ']/gi, ''));
   if (lowerParts.some((part) => NON_NAME_WORD_PARTS.has(part))) return false;
   if (lowerParts.some((part) => RESUME_TITLE_STOPWORDS.has(part))) return false;
+  if (lowerParts.some((part) => LOCATION_NAME_STOPWORDS.has(part))) return false;
+  // Reject when every token is a known place/document word mix (both location-like).
+  if (lowerParts.length >= 2 && lowerParts.every((part) => LOCATION_NAME_STOPWORDS.has(part))) {
+    return false;
+  }
   if (lowerParts.some((part) => /(?:engineer|developer|designer|manager|analyst|consultant|architect|student|intern)/.test(part))) {
     return false;
   }
 
   return parts.every((part) => /^[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ.'-]*$/.test(part));
+}
+
+/** True when stored first/last name looks like a filename, title, location, or section header. */
+export function candidateNameNeedsRepair(firstName = '', lastName = '') {
+  const raw = `${String(firstName || '').trim()} ${String(lastName || '').trim()}`
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!raw) return true;
+  if (/^unknown(\s+candidate)?$/i.test(raw)) return false;
+
+  const withoutCopy = raw.replace(/\bcopy\s*\d*\b/gi, ' ').replace(/\s+/g, ' ').trim();
+  if (!withoutCopy) return true;
+  if (looksLikePersonName(withoutCopy)) return false;
+
+  const parts = withoutCopy.split(' ').filter(Boolean);
+  if (parts.length === 1) {
+    const token = parts[0].toLowerCase().replace(/[^a-zà-ÿ']/gi, '');
+    if (
+      NON_NAME_WORD_PARTS.has(token) ||
+      RESUME_TITLE_STOPWORDS.has(token) ||
+      LOCATION_NAME_STOPWORDS.has(token)
+    ) {
+      return true;
+    }
+    // Keep plausible single given names (e.g. mononyms).
+    return !/^[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ.'-]{1,40}$/.test(parts[0]);
+  }
+
+  return true;
 }
 
 function splitNameCandidate(value = '') {
@@ -772,15 +908,20 @@ function nameFromFileName(fileName = '') {
   const base = path
     .parse(String(fileName || ''))
     .name.replace(/^[0-9_,\-\s.]+/i, '')
+    .replace(/\bcopy\s*\d*\b/gi, ' ')
+    .replace(
+      /\b(cv|resume|curriculum|vitae|certificate|certificates|obtained|scanned|scan|document|untitled|final|draft|version|updated|revised)\b/gi,
+      ' ',
+    )
     .replace(/[_.-]+/g, ' ')
+    .replace(/\s+/g, ' ')
     .trim();
   return splitNameCandidate(base);
 }
 
-function extractResumeName(fullText = '', fileName = '') {
+export function extractResumeName(fullText = '', fileName = '') {
   const cleanedText = preprocessResumeTextForParsing(fullText);
   const primary = extractPrimaryResumeBlock(cleanedText);
-  let nameGuess = '';
 
   const headerName = extractNameFromContactHeader(cleanedText);
   if (headerName.firstName || headerName.lastName) {
@@ -801,72 +942,49 @@ function extractResumeName(fullText = '', fileName = '') {
       /^[A-Z][A-Z\s.'-]{4,60}$/.test(line) &&
       line.split(/\s+/).length >= 2 &&
       line.split(/\s+/).length <= 5 &&
-      !/EXPERIENCE|EDUCATION|SKILLS|SUMMARY|PROFILE|CONTACT|FORMATION|COMPÉTENCES|LANGUES|PROJETS|ACTIVIT|CURRICULAR|VOLUNTEER|CERTIFICATION|PROJECT/i.test(
+      !/EXPERIENCE|EDUCATION|SKILLS|SUMMARY|PROFILE|CONTACT|TEXTE|COMPÉTENCE|LANGUES|PROJETS|ACTIVIT|CURRICULAR|VOLUNTEER|CERTIFICATION|CERTIFICATE|OBTAINED|PROJECT/i.test(
         line
       ) &&
       !isResumeSectionHeaderLine(line)
     ) {
-      nameGuess = line.trim();
-      break;
+      const fromCaps = splitNameCandidate(line.trim());
+      if (fromCaps.firstName) return fromCaps;
     }
   }
 
-  if (!nameGuess) {
-    const spacedMatch = primary.match(/\b([A-Z]\s){2,}[A-Z](\s{2,}([A-Z]\s){1,}[A-Z])?\b/);
-    if (spacedMatch) {
-      let s = spacedMatch[0].replace(/\s+/g, ' ').trim();
-      s = s.replace(/([A-Z])\s+(?=[A-Z])/g, '$1');
-      nameGuess = s;
+  const spacedMatch = primary.match(/\b([A-Z]\s){2,}[A-Z](\s{2,}([A-Z]\s){1,}[A-Z])?\b/);
+  if (spacedMatch) {
+    let spaced = spacedMatch[0].replace(/\s+/g, ' ').trim();
+    spaced = spaced.replace(/([A-Z])\s+(?=[A-Z])/g, '$1');
+    const fromSpaced = splitNameCandidate(spaced);
+    if (fromSpaced.firstName) return fromSpaced;
+  }
+
+  const lines = primary.split('\n').map((l) => l.trim()).filter(Boolean);
+  for (const line of lines.slice(0, 25)) {
+    if (isResumeSectionHeaderLine(line)) continue;
+    const words = line.split(/\s+/);
+    if (
+      words.length >= 2 &&
+      words.length <= 4 &&
+      !line.includes('.') &&
+      !line.includes(',') &&
+      !line.includes('@') &&
+      !line.includes('http') &&
+      !line.includes('+') &&
+      !/\d/.test(line) &&
+      !/experience|engineer|developer|manager|analyst|intern|worked|designed|developed|summary|education|skills|profile|contact|formation|compétences|langues|computer|software|mechanical|electrical|frontend|backend|fullstack|at |pvt|ltd|inc|interface|dynamic|responsive|curricular|activities|volunteer|certification|certificate|obtained|project|school|university|college|lusaka|zambia|location|address/i.test(
+        line
+      ) &&
+      /^[A-Za-zÀ-ÿ\s\-']+$/.test(line) &&
+      words.every((w) => /^[A-ZÀ-Ÿa-zà-ÿ\-']{1,}$/.test(w))
+    ) {
+      const fromLine = splitNameCandidate(line.trim());
+      if (fromLine.firstName) return fromLine;
     }
   }
 
-  if (!nameGuess) {
-    const lines = primary.split('\n').map((l) => l.trim()).filter(Boolean);
-    for (const line of lines.slice(0, 25)) {
-      if (isResumeSectionHeaderLine(line)) continue;
-      const words = line.split(/\s+/);
-      if (
-        words.length >= 2 &&
-        words.length <= 4 &&
-        !line.includes('.') &&
-        !line.includes(',') &&
-        !line.includes('@') &&
-        !line.includes('http') &&
-        !line.includes('+') &&
-        !/\d/.test(line) &&
-        !/experience|engineer|developer|manager|analyst|intern|worked|designed|developed|summary|education|skills|profile|contact|formation|compétences|langues|computer|software|mechanical|electrical|frontend|backend|fullstack|at |pvt|ltd|inc|interface|dynamic|responsive|curricular|activities|volunteer|certification|project/i.test(
-          line
-        ) &&
-        /^[A-Za-zÀ-ÿ\s\-']+$/.test(line) &&
-        words.every((w) => /^[A-ZÀ-Ÿa-zà-ÿ\-']{1,}$/.test(w))
-      ) {
-        nameGuess = line.trim();
-        break;
-      }
-    }
-  }
-
-  if (!nameGuess && fileName) {
-    const cleaned = String(fileName)
-      .replace(/\.(pdf|docx|doc|txt)$/i, '')
-      .replace(/[_\-\d]+/g, ' ')
-      .replace(/cv|resume|curriculum|vitae/gi, '')
-      .trim();
-    const words = cleaned.split(/\s+/).filter(Boolean);
-    if (words.length >= 2 && words.length <= 4) {
-      nameGuess = words.map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
-    }
-  }
-
-  if (nameGuess) {
-    const fromLine = splitNameCandidate(nameGuess);
-    if (fromLine.firstName || fromLine.lastName) return fromLine;
-    const w = nameGuess.trim().split(/\s+/).filter(Boolean);
-    if (w.length >= 2 && /^[A-Z][A-Z0-9\s'-]+$/i.test(nameGuess.replace(/\s+/g, ' '))) {
-      return { firstName: w[0], lastName: w.slice(1).join(' ') };
-    }
-  }
-
+  // Filename only when it already looks like a real person name (never document titles).
   const fileCandidate = nameFromFileName(fileName);
   if (fileCandidate.firstName || fileCandidate.lastName) return fileCandidate;
 
@@ -1918,10 +2036,13 @@ function mergeAiWithFallback(ai, fallback) {
   const aiFull = [a.firstName, a.lastName].filter(Boolean).join(' ').trim();
   const fbOk = looksLikePersonName(fbFull);
   const aiOk = looksLikePersonName(aiFull);
-  if (aiOk || !fbOk) {
-    if (isPresentVal(a.firstName)) out.firstName = String(a.firstName).trim();
-    if (isPresentVal(a.lastName)) out.lastName = String(a.lastName).trim();
-  } else {
+  // Never keep document-title / filename garbage as the candidate name.
+  out.firstName = '';
+  out.lastName = '';
+  if (aiOk) {
+    out.firstName = String(a.firstName || '').trim();
+    out.lastName = String(a.lastName || '').trim();
+  } else if (fbOk) {
     out.firstName = String(fallback.firstName || '').trim();
     out.lastName = String(fallback.lastName || '').trim();
   }
@@ -2000,6 +2121,7 @@ async function extractStructuredResumeDataWithOpenAI(cleanedText, file, options 
 
 Rules:
 - Use only resume facts. Never invent. Use null for missing scalars.
+- Never set firstName/lastName from the resume file name or a document/certificate/job title.
 - Return one valid JSON object only (no markdown).
 - Include all emails in rawEmailsFound and all phones in rawPhonesFound.
 - Keep score.* fields as integers 0..100.
@@ -2026,6 +2148,7 @@ Rules:
 - Extract all supported fields from localized section headers, sidebars, and tables.
 - Extract every email into rawEmailsFound and every phone into rawPhonesFound.
 - Never invent data: use null for missing scalar fields. Omit empty extraFields keys.
+- Never set firstName/lastName from the resume file name or a document/certificate/job title.
 - Return ONLY one valid JSON object. No markdown or commentary.
 - All score.* values: integers 0-100 (never decimals like 0.85).
 

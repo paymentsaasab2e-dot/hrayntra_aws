@@ -22,6 +22,7 @@ const PUBLIC_PREFIXES = [
   '/reset-password',
   '/apply',
   '/client-review',
+  '/interview-rsvp',
   '/hq',
 ];
 

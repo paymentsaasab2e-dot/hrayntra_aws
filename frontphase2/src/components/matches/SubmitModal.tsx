@@ -12,6 +12,7 @@ import {
   type UpdateJobData,
 } from '../../lib/api';
 import { formatDateTimeDMY } from '../../utils/dateDisplay';
+import { requestAlert, requestError, requestWarning } from '../../lib/appDialog';
 import { SUBMISSION_TYPES } from '../interviews/SubmitToClientDrawer';
 
 type SubmissionTypeValue = (typeof SUBMISSION_TYPES)[number]['value'];
@@ -207,7 +208,9 @@ export default function SubmitModal({
     }
 
     if (email && !selectedJob.clientContactId) {
-      window.alert('This client does not have a primary contact record, so the email could not be saved. The company details were updated.');
+      await requestWarning(
+        'This client does not have a primary contact record, so the email could not be saved. The company details were updated.'
+      );
     }
   };
 
@@ -224,7 +227,7 @@ export default function SubmitModal({
     } catch (sectionError: any) {
       const message = sectionError?.message || 'Unable to save changes.';
       setErrorText(message);
-      window.alert(message);
+      await requestError(message);
     } finally {
       setSavingSection(null);
     }
@@ -232,7 +235,7 @@ export default function SubmitModal({
 
   const handleSend = async () => {
     if (!canSendClientEmail) {
-      window.alert('Client email is not available for this job. Please edit the client first.');
+      await requestWarning('Client email is not available for this job. Please edit the client first.');
       return;
     }
 
@@ -241,7 +244,7 @@ export default function SubmitModal({
       // (offer-letter upload for OFFER_CONFIRMATION, etc.), so we force the
       // recruiter to be explicit here just like in the interview drawer.
       setSubmissionTypeError('Pick what this submission is for');
-      window.alert('Please choose a submission purpose before sending.');
+      await requestWarning('Please choose a submission purpose before sending.');
       return;
     }
 
@@ -257,7 +260,7 @@ export default function SubmitModal({
     } catch (sendError: any) {
       const message = sendError?.message || 'Unable to send client email.';
       setErrorText(message);
-      window.alert(message);
+      await requestError(message);
     } finally {
       setIsSubmitting(false);
     }

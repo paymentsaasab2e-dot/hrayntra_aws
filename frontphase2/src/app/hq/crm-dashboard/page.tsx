@@ -372,7 +372,8 @@ export default function HqCrmDashboardPage() {
     const winRate = closed ? Math.round((converted / closed) * 1000) / 10 : 0;
 
     const closed30 = closedLeads.filter((l) => {
-      const t = l.createdAt ? +new Date(l.createdAt) : 0;
+      const stamp = l.updatedAt || l.closedAt || l.createdAt;
+      const t = stamp ? +new Date(stamp) : 0;
       return t >= +d30;
     });
     const won30 = closed30.filter((l) => l.stage === 'converted').length;

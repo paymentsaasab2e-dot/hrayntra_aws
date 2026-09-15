@@ -120,6 +120,7 @@ export function isEmployerPublicAuthPath(pathname: string | null | undefined) {
     '/session-transfer',
     '/apply',
     '/client-review',
+    '/interview-rsvp',
     '/lead-form',
   ].some((prefix) => p === prefix || p.startsWith(`${prefix}/`));
 }
@@ -352,7 +353,7 @@ export async function finalizeAuthAfterTokens(data: {
     localStorage.setItem('requirePasswordReset', 'true');
   }
 
-  await syncOrgRecruitmentSummaryFromApi();
+  await syncOrgRecruitmentSummaryFromApi({ force: true });
   return { user: userData, permissions, requirePasswordReset: data.requirePasswordReset || false };
 }
 

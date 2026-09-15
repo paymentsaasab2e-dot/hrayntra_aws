@@ -1219,11 +1219,12 @@ export function TaskDetailsDrawer({
     onExitEdit?.();
   };
 
-  if (!isOpen) return null;
-
   return (
+    <>
     <AnimatePresence>
+      {isOpen ? (
       <DetailsModalShell
+        key="task-detail-drawer"
         panelRef={taskDrawerPanelRef}
         onBackdropClick={handleClose}
         size="lg"
@@ -2114,6 +2115,8 @@ export function TaskDetailsDrawer({
           )}
         </AnimatePresence>
       </DetailsModalShell>
+      ) : null}
+    </AnimatePresence>
 
       <CreateJobDrawer
         isOpen={createJobDrawerOpen}
@@ -2132,6 +2135,6 @@ export function TaskDetailsDrawer({
           onUpdateSuccess?.();
         }}
       />
-    </AnimatePresence>
+    </>
   );
 }

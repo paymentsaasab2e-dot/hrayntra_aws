@@ -12,11 +12,12 @@ import { DepartmentsTab } from '../../components/team/tabs/DepartmentsTab';
 import { TargetsTab } from '../../components/team/tabs/TargetsTab';
 import { CredentialsTab } from '../../components/team/tabs/CredentialsTab';
 import { SalesGroupsTab } from '../../components/team/tabs/SalesGroupsTab';
+import { AssignmentRulesTab } from '../../components/team/tabs/AssignmentRulesTab';
 import { AddMemberDrawer } from '../../components/team/AddMemberDrawer';
 
 export const dynamic = 'force-dynamic';
 
-type TabType = 'members' | 'roles' | 'departments' | 'sales' | 'targets' | 'credentials';
+type TabType = 'members' | 'roles' | 'departments' | 'sales' | 'assignment-rules' | 'targets' | 'credentials';
 
 function TeamPageContent() {
   const searchParams = useSearchParams();
@@ -26,7 +27,15 @@ function TeamPageContent() {
   const { hasPermission, isSuperAdmin } = usePermissions();
   const [mounted, setMounted] = useState(false);
   const tabFromUrl = searchParams?.get('tab') as TabType | null;
-  const validTabs: TabType[] = ['members', 'roles', 'departments', 'sales', 'targets', 'credentials'];
+  const validTabs: TabType[] = [
+    'members',
+    'roles',
+    'departments',
+    'sales',
+    'assignment-rules',
+    'targets',
+    'credentials',
+  ];
   const [activeTab, setActiveTab] = useState<TabType>(
     tabFromUrl && validTabs.includes(tabFromUrl) ? tabFromUrl : 'members'
   );
@@ -55,6 +64,7 @@ function TeamPageContent() {
           { id: 'members' as TabType, label: 'Members' },
           { id: 'roles' as TabType, label: 'Roles' },
           { id: 'departments' as TabType, label: 'Departments' },
+          { id: 'assignment-rules' as TabType, label: 'Assignment Rules' },
           { id: 'sales' as TabType, label: 'Sales teams' },
           { id: 'targets' as TabType, label: 'Targets & KPI' },
           { id: 'credentials' as TabType, label: 'Credentials' },
@@ -63,6 +73,9 @@ function TeamPageContent() {
           { id: 'members' as TabType, label: 'Members' },
           ...(hasPermission('assign_roles') ? [{ id: 'roles' as TabType, label: 'Roles' }] : []),
           ...(hasPermission('add_team_member') ? [{ id: 'departments' as TabType, label: 'Departments' }] : []),
+          ...(hasPermission('manage_assignment_rules') || hasPermission('edit_team_member')
+            ? [{ id: 'assignment-rules' as TabType, label: 'Assignment Rules' }]
+            : []),
           ...(hasPermission('edit_team_member') || hasPermission('add_team_member')
             ? [{ id: 'sales' as TabType, label: 'Sales teams' }]
             : []),
@@ -212,6 +225,7 @@ function TeamPageContent() {
                 {activeTab === 'members' && <MembersTab onHeaderExtrasChange={setMembersHeaderExtras} />}
                 {activeTab === 'roles' && <RolesTab />}
                 {activeTab === 'departments' && <DepartmentsTab />}
+                {activeTab === 'assignment-rules' && <AssignmentRulesTab />}
                 {activeTab === 'sales' && <SalesGroupsTab />}
                 {activeTab === 'targets' && <TargetsTab />}
                 {activeTab === 'credentials' && <CredentialsTab />}

@@ -210,7 +210,10 @@ function inferSubmissionType(interview: Interview | null): SubmissionTypeValue |
     if (last?.recommendation === 'Pass') return 'OFFER_CONFIRMATION';
     return 'INTERIM_REVIEW';
   }
-  if (interview.status === 'Scheduled' && completedFeedback.length === 0) {
+  if (
+    (interview.status === 'Scheduled' || interview.status === 'Accepted') &&
+    completedFeedback.length === 0
+  ) {
     return 'INITIAL_REVIEW';
   }
   return '';
@@ -838,7 +841,12 @@ export function SubmitToClientDrawer({
     let cancelled = false;
     void (async () => {
       try {
-        const clientsRaw = await apiGetClients({ page: 1, limit: 500, includeContacts: true });
+        const clientsRaw = await apiGetClients({
+          page: 1,
+          limit: 500,
+          includeContacts: true,
+          recruitmentEnabled: true,
+        });
         const clients = parseClientsListFromResponse(clientsRaw);
         if (cancelled) return;
         setClientCatalog(mapUniqueClientOptions(clients));
@@ -1605,7 +1613,7 @@ export function SubmitToClientDrawer({
                       }}
                       className="min-w-[14rem] flex-1 rounded-lg border border-[#D1D5DB] bg-white px-3 py-2 text-sm text-[#111827]"
                     >
-                      <option value="">Choose another client…</option>
+                      <option value="">Choose another Recruitment Client…</option>
                       {clientCatalog
                         .filter((item) => !selectedClients.some((slot) => slot.clientId === item.id))
                         .map((item) => (

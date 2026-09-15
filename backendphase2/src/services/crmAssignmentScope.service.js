@@ -21,6 +21,7 @@ import {
   resolveAssignmentModules,
   resolveAssignmentModulesFromReq,
 } from './assigneeModuleAccess.service.js';
+import { applyAssignmentRules, assertAssignmentRuleAllows } from './assignmentRules.service.js';
 
 const idStr = (id) => String(id || '').trim();
 
@@ -132,12 +133,10 @@ export function newlyAddedAssigneeIds(previousIds, nextIds) {
 }
 
 /**
- * CRM (leads/clients) assignee list for Add Lead / Assign To.
- * Prefer sales-team members (Team.kind = SALES). Organization is not required
- * in the UI — Super Admin / cross-company without companyId gets the tenant
- * sales-team pool instead of an empty list.
+ * Assignee list for Assign To pickers (leads/clients/jobs/…).
+ * Organization, department, module access, then Assignment Rules.
+ * Sales-team filtering is no longer applied — use Assignment Rules instead.
  * Never includes HQ platform accounts or other tenants.
- * Optional `modules` (or ?module=) then keeps only users with that module access.
  */
 export async function listCrmAssigneeCandidates(actorUserId, { req = null, modules = [] } = {}) {
   if (!actorUserId) return [];
@@ -177,14 +176,14 @@ export async function listCrmAssigneeCandidates(actorUserId, { req = null, modul
   ];
 
   const useCompanyWalk = Boolean((isSuperAdmin || crossCompany) && requestedCompany);
-  /** Cross-company / SA with no org pick: tenant pool, then sales-team filter. */
-  const tenantSalesPool = Boolean((isSuperAdmin || crossCompany) && !requestedCompany);
+  /** Cross-company / SA with no org pick: tenant-wide active pool. */
+  const tenantWidePool = Boolean((isSuperAdmin || crossCompany) && !requestedCompany);
 
   if (!useCompanyWalk) {
     if (!(isSuperAdmin || crossCompany) && !viewAll && actorDeptId) {
       clauses.push({ departmentId: actorDeptId });
     }
-    if (req && !tenantSalesPool) {
+    if (req && !tenantWidePool) {
       const orgWhere = await applyOrgCompanyUserWhere(req, { forAssign: true });
       if (orgWhere) clauses.push(orgWhere);
     }
@@ -214,24 +213,19 @@ export async function listCrmAssigneeCandidates(actorUserId, { req = null, modul
     });
     labeled = filterUsersByAssignableCompany(labeled, requestedCompany, orgUnits);
   }
-  if (!requiredModules.length) {
-    return filterBySalesTeams(labeled, requestedCompany || null);
-  }
-  const moduleFiltered = filterUsersByAssignmentAccess(labeled, { modules: requiredModules });
-  return filterBySalesTeams(moduleFiltered, requestedCompany || null);
-}
 
-async function filterBySalesTeams(members, orgUnitId = null) {
-  try {
-    const { getActiveSalesTeamMemberIdSet } = await import('../modules/team/team.service.js');
-    const allowed = await getActiveSalesTeamMemberIdSet({ orgUnitId });
-    if (!allowed) return members;
-    if (!allowed.size) return [];
-    return (members || []).filter((member) => allowed.has(String(member.id)));
-  } catch (error) {
-    console.warn('[crm-assign] sales team filter skipped:', error?.message || error);
-    return members;
+  let eligible = labeled;
+  if (requiredModules.length) {
+    eligible = filterUsersByAssignmentAccess(labeled, { modules: requiredModules });
   }
+
+  const ruleModule = requiredModules[0] || null;
+  if (!ruleModule) return eligible;
+
+  return applyAssignmentRules(actorUserId, ruleModule, eligible, {
+    req,
+    orgUnitId: requestedCompany || null,
+  });
 }
 
 export async function canAssignCrmTo(actorUserId, assigneeUserId, { req = null, modules = [] } = {}) {
@@ -249,6 +243,11 @@ export async function assertCanAssignCrm(actorUserId, assigneeUserId, { req = nu
   }
 
   if (await isSuperAdminUserId(actorUserId)) return;
+
+  if (requiredModules[0]) {
+    await assertAssignmentRuleAllows(actorUserId, requiredModules[0], assigneeUserId, { req });
+  }
+
   if (req && canViewCrossCompanyMembers(req)) return;
   if (idStr(actorUserId) === idStr(assigneeUserId)) return;
 

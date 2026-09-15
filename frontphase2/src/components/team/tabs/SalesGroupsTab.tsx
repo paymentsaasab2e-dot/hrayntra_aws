@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Plus, Trash2, Users, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
+import { requestConfirm } from '../../../lib/appDialog';
 import {
   createSalesGroup,
   deleteSalesGroup,
@@ -146,7 +147,12 @@ export const SalesGroupsTab: React.FC = () => {
   };
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm('Delete this sales team group? Lead/client assignees will update immediately.')) {
+    if (
+      !(await requestConfirm(
+        'Delete this sales team group? Lead/client assignees will update immediately.',
+        { tone: 'warning', confirmLabel: 'Delete', cancelLabel: 'Cancel' }
+      ))
+    ) {
       return;
     }
     try {

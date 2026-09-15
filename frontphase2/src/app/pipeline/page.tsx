@@ -1068,7 +1068,7 @@ export default function App() {
                   onChange={(e) => setSelectedClientId(e.target.value)}
                   className="bg-transparent text-slate-900 outline-none"
                 >
-                  <option value="">All Clients</option>
+                  <option value="">All Recruitment Clients</option>
                   {clientOptions.map((client) => (
                     <option key={client.id} value={client.id}>
                       {client.label}

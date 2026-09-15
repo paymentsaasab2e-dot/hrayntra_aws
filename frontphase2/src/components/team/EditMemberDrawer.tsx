@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { X, Trash2, User, Shield } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
+import useSWR from 'swr';
 import {
   DrawerFieldLabel,
   DrawerSectionCard,
@@ -22,9 +23,19 @@ import {
   getAllPermissions,
   getMemberPermissions,
   updateMemberPermissions,
+  updateRole,
 } from '../../lib/api/teamApi';
 import { requestConfirm } from '../../lib/appDialog';
-import type { TeamMember, Role, UpdateMemberPayload, UserStatus, Permission, SystemRole } from '../../types/team';
+import type {
+  TeamMember,
+  Role,
+  UpdateMemberPayload,
+  UserStatus,
+  Permission,
+  SystemRole,
+  RoleCompanyAccess,
+} from '../../types/team';
+import { emptyRoleCompanyAccess } from '../../types/team';
 import {
   filterReportingManagers,
   getRoleRankInDepartment,
@@ -37,11 +48,71 @@ import {
 } from '../../lib/teamReporting';
 import { startAsyncLoad } from '../../lib/asyncLoadGuard';
 import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
-import { PermissionPicker } from './PermissionPicker';
+import { PermissionPicker, selectedSetHasSwitchCompanies, companyAccessHasPicks } from './PermissionPicker';
 import {
   buildFallbackPermissionsMap,
   mergePermissionMaps,
 } from './permissionCatalog';
+
+/** Map API permission ids/names onto the catalog ids used by PermissionPicker checkboxes. */
+function normalizeSelectedPermissionIds(
+  selectedIds: Iterable<string> | null | undefined,
+  selectedNames: Iterable<string> | null | undefined,
+  permissionsByModule: Record<string, Permission[]>,
+): Set<string> {
+  const all = Object.values(permissionsByModule || {}).flat();
+  const byId = new Map(all.map((permission) => [String(permission.id), permission]));
+  const byName = new Map(
+    all.map((permission) => [String(permission.permissionName || '').trim(), permission]),
+  );
+  const next = new Set<string>();
+
+  for (const raw of selectedIds || []) {
+    const key = String(raw || '').trim();
+    if (!key) continue;
+    if (byId.has(key)) {
+      next.add(key);
+      continue;
+    }
+    const byPermissionName = byName.get(key);
+    if (byPermissionName?.id) next.add(String(byPermissionName.id));
+  }
+
+  for (const raw of selectedNames || []) {
+    const key = String(raw || '').trim();
+    if (!key || key === 'all') continue;
+    const byPermissionName = byName.get(key);
+    if (byPermissionName?.id) {
+      next.add(String(byPermissionName.id));
+      continue;
+    }
+    if (byId.has(key)) next.add(key);
+  }
+
+  return next;
+}
+
+function companyAccessFromRole(role?: SystemRole | Role | null): RoleCompanyAccess {
+  if (!role?.companyAccess) return emptyRoleCompanyAccess();
+  return {
+    crm: [...(role.companyAccess.crm || [])],
+    recruitment: [...(role.companyAccess.recruitment || [])],
+  };
+}
+
+function selectedIdsFromRole(
+  role: SystemRole | Role | null | undefined,
+  permissionsByModule: Record<string, Permission[]>,
+): Set<string> {
+  const ids: string[] = [];
+  const names: string[] = [];
+  const rolePerms = (role as SystemRole | undefined)?.rolePermissions || [];
+  rolePerms.forEach((rp) => {
+    if (rp.permission?.id) ids.push(String(rp.permission.id));
+    if (rp.permission?.permissionName) names.push(String(rp.permission.permissionName));
+  });
+  return normalizeSelectedPermissionIds(ids, names, permissionsByModule);
+}
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const KNOWN_DOMAINS = [
   'gmail.com',
@@ -109,6 +180,8 @@ interface EditMemberDrawerProps {
 }
 
 export const EditMemberDrawer: React.FC<EditMemberDrawerProps> = ({ isOpen, member, onClose, onSuccess }) => {
+  const memberId = String(member?.id || '').trim();
+
   const [formData, setFormData] = useState<UpdateMemberPayload>({
     firstName: member.firstName || '',
     lastName: member.lastName || '',
@@ -122,85 +195,148 @@ export const EditMemberDrawer: React.FC<EditMemberDrawerProps> = ({ isOpen, memb
     status: member.status || 'ACTIVE',
   });
 
-  const [roles, setRoles] = useState<Role[]>([]);
   const [departments, setDepartments] = useState<DepartmentWithRoles[]>([]);
   const [teamDirectory, setTeamDirectory] = useState<TeamMember[]>([]);
   const [reportingManagers, setReportingManagers] = useState<TeamMember[]>([]);
   const [loadingReporting, setLoadingReporting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [loadingOptions, setLoadingOptions] = useState(true);
   const [roleChanged, setRoleChanged] = useState(false);
-  const [permissionsByModule, setPermissionsByModule] = useState<Record<string, Permission[]>>({});
   const [selectedPermissions, setSelectedPermissions] = useState<Set<string>>(new Set());
+  const [companyAccess, setCompanyAccess] = useState<RoleCompanyAccess>(emptyRoleCompanyAccess());
   const [overrideCount, setOverrideCount] = useState(0);
   const [permissionsLoading, setPermissionsLoading] = useState(false);
   const [memberIsSuperAdmin, setMemberIsSuperAdmin] = useState(false);
+  const [permissionsHydratedFor, setPermissionsHydratedFor] = useState('');
 
-  // Load options
+  // Same shared catalog as Roles tab — avoids slow re-fetch and keeps permission ids aligned.
+  const fetchRolesAndPermissions = useCallback(async () => {
+    const [rolesRes, permsRes] = await Promise.all([getRoles(), getAllPermissions()]);
+    return {
+      roles: rolesRes.data || [],
+      permissions: mergePermissionMaps(permsRes.data || {}),
+    };
+  }, []);
+
+  const { data: catalogData, isLoading: catalogLoading } = useSWR(
+    isOpen ? 'team:roles:permissions' : null,
+    fetchRolesAndPermissions,
+    {
+      revalidateOnFocus: false,
+      dedupingInterval: 60_000,
+      shouldRetryOnError: true,
+      errorRetryCount: 2,
+      onError: (error) => {
+        toast.error((error as Error)?.message || 'Failed to load permissions catalog');
+      },
+    },
+  );
+
+  const roles = useMemo(
+    () => mergeRolesWithDepartmentEmbedded(catalogData?.roles || [], departments),
+    [catalogData?.roles, departments],
+  );
+
+  const permissionsByModule = useMemo(
+    () =>
+      mergePermissionMaps(
+        catalogData?.permissions && Object.keys(catalogData.permissions).length > 0
+          ? catalogData.permissions
+          : buildFallbackPermissionsMap(),
+      ),
+    [catalogData?.permissions],
+  );
+
+  const loadingOptions = catalogLoading && !catalogData;
+
+  // Form basics + departments (soft-fail so drawer still opens).
   useEffect(() => {
-    if (isOpen && member) {
-      loadOptions();
-      setFormData({
-        firstName: member.firstName || '',
-        lastName: member.lastName || '',
-        email: member.email || '',
-        phone: member.phone || '',
-        designation: member.designation || '',
-        location: member.location || '',
-        departmentId: member.department?.id || '',
-        roleId: getMemberRoleId(member) || '',
-        managerId: member.manager?.id || member.managerRelation?.id || '',
-        status: member.status || 'ACTIVE',
+    if (!isOpen || !memberId) return;
+    let cancelled = false;
+
+    setFormData({
+      firstName: member.firstName || '',
+      lastName: member.lastName || '',
+      email: member.email || '',
+      phone: member.phone || '',
+      designation: member.designation || '',
+      location: member.location || '',
+      departmentId: member.department?.id || '',
+      roleId: getMemberRoleId(member) || '',
+      managerId: member.manager?.id || member.managerRelation?.id || '',
+      status: member.status || 'ACTIVE',
+    });
+    setRoleChanged(false);
+    setPermissionsHydratedFor('');
+    setSelectedPermissions(new Set());
+    setCompanyAccess(emptyRoleCompanyAccess());
+    setOverrideCount(0);
+
+    void getDepartments()
+      .then((deptsRes) => {
+        if (!cancelled) setDepartments((deptsRes.data || []) as DepartmentWithRoles[]);
+      })
+      .catch(() => {
+        if (!cancelled) setDepartments([]);
       });
-      setRoleChanged(false);
-      void loadMemberPermissions(member.id);
-    }
-  }, [isOpen, member]);
 
-  const loadMemberPermissions = async (memberId: string) => {
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, memberId]);
+
+  // Hydrate ticks the same way as Roles tab (role.rolePermissions), then overlay member effective grants.
+  useEffect(() => {
+    if (!isOpen || !memberId || !catalogData) return;
+    if (permissionsHydratedFor === memberId) return;
+
+    let cancelled = false;
     setPermissionsLoading(true);
-    try {
-      const detailRes = await getMemberPermissions(memberId);
-      const detail = detailRes.data;
-      setMemberIsSuperAdmin(Boolean(detail?.isSuperAdmin));
-      setOverrideCount(Number(detail?.overrideCount || 0));
-      setSelectedPermissions(new Set(detail?.effectivePermissionIds || []));
-    } catch {
-      setOverrideCount(0);
-      setSelectedPermissions(new Set());
-    } finally {
-      setPermissionsLoading(false);
-    }
-  };
 
-  const loadOptions = async () => {
-    setLoadingOptions(true);
-    try {
-      const [rolesRes, deptsRes, permsRes] = await Promise.all([
-        getRoles(),
-        getDepartments(),
-        getAllPermissions(),
-      ]);
-      const departmentList = deptsRes.data || [];
-      const mergedRoles = mergeRolesWithDepartmentEmbedded(rolesRes.data || [], departmentList);
+    void (async () => {
+      const roleId = getMemberRoleId(member) || '';
+      const role =
+        (roles.find((item) => String(item.id) === String(roleId)) as SystemRole | undefined) || null;
+      const roleSelected = selectedIdsFromRole(role, permissionsByModule);
+      const roleCompany = companyAccessFromRole(role);
+      let detailOk = false;
+      let fromApi = new Set<string>();
 
-      setRoles(mergedRoles);
-      setDepartments(departmentList);
-      setReportingManagers([]);
-      setPermissionsByModule(
-        mergePermissionMaps(
-          Object.keys(permsRes.data || {}).length > 0
-            ? permsRes.data
-            : buildFallbackPermissionsMap(),
-        ),
-      );
-    } catch (error: any) {
-      toast.error('Failed to load options');
-    } finally {
-      setLoadingOptions(false);
-    }
-  };
+      try {
+        const detailRes = await getMemberPermissions(memberId);
+        if (cancelled) return;
+        detailOk = true;
+        const detail = detailRes.data;
+        setMemberIsSuperAdmin(Boolean(detail?.isSuperAdmin));
+        setOverrideCount(Number(detail?.overrideCount || 0));
+        fromApi = normalizeSelectedPermissionIds(
+          detail?.effectivePermissionIds,
+          detail?.effectivePermissionNames,
+          permissionsByModule,
+        );
+        setSelectedPermissions(fromApi.size > 0 ? fromApi : roleSelected);
+        setCompanyAccess(roleCompany);
+      } catch {
+        if (cancelled) return;
+        setMemberIsSuperAdmin(false);
+        setOverrideCount(0);
+        setSelectedPermissions(roleSelected);
+        setCompanyAccess(roleCompany);
+      } finally {
+        if (!cancelled) {
+          setPermissionsLoading(false);
+          // Wait until we have role ticks or a successful member permissions response.
+          if (detailOk || roleSelected.size > 0 || roles.length > 0) {
+            setPermissionsHydratedFor(memberId);
+          }
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, memberId, catalogData, permissionsByModule, roles, member, permissionsHydratedFor]);
 
   const availableRoles = useMemo(
     () => getRolesForDepartment(formData.departmentId, departments, roles),
@@ -211,22 +347,11 @@ export const EditMemberDrawer: React.FC<EditMemberDrawerProps> = ({ isOpen, memb
     (availableRoles.find((r) => String(r.id) === String(formData.roleId)) ||
       roles.find((r) => String(r.id) === String(formData.roleId))) as SystemRole | undefined;
 
-  const effectivePermissions = useMemo(
-    () =>
-      mergePermissionMaps(
-        Object.keys(permissionsByModule).length > 0
-          ? permissionsByModule
-          : buildFallbackPermissionsMap(),
-      ),
-    [permissionsByModule],
-  );
+  const effectivePermissions = permissionsByModule;
 
   const seedPermissionsFromRole = (role?: SystemRole | null) => {
-    const next = new Set<string>();
-    (role?.rolePermissions || []).forEach((rp) => {
-      if (rp.permission?.id) next.add(rp.permission.id);
-    });
-    setSelectedPermissions(next);
+    setSelectedPermissions(selectedIdsFromRole(role, effectivePermissions));
+    setCompanyAccess(companyAccessFromRole(role));
     setOverrideCount(0);
   };
 
@@ -374,6 +499,17 @@ export const EditMemberDrawer: React.FC<EditMemberDrawerProps> = ({ isOpen, memb
       }
     }
     if (!formData.roleId) newErrors.roleId = 'Role is required';
+    if (!memberIsSuperAdmin && selectedPermissions.size === 0) {
+      newErrors.permissions = 'At least one permission is required';
+    }
+    if (
+      !memberIsSuperAdmin &&
+      selectedSetHasSwitchCompanies(selectedPermissions, effectivePermissions) &&
+      !companyAccessHasPicks(companyAccess)
+    ) {
+      newErrors.permissions =
+        'Switch companies needs at least one CRM or Recruitment organization ticked below it';
+    }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -403,6 +539,16 @@ export const EditMemberDrawer: React.FC<EditMemberDrawerProps> = ({ isOpen, memb
       const result = await updateTeamMember(member.id, payload);
       if (!memberIsSuperAdmin) {
         await updateMemberPermissions(member.id, Array.from(selectedPermissions));
+        if (
+          formData.roleId &&
+          selectedSetHasSwitchCompanies(selectedPermissions, effectivePermissions)
+        ) {
+          try {
+            await updateRole(formData.roleId, { companyAccess });
+          } catch {
+            /* organization access is role-scoped; member permissions still saved */
+          }
+        }
       }
       console.log('✅ Update result:', result);
       toast.success('Team member updated successfully');
@@ -682,8 +828,8 @@ export const EditMemberDrawer: React.FC<EditMemberDrawerProps> = ({ isOpen, memb
               </DrawerSectionCard>
 
               <DrawerSectionCard
-                title="Member permissions"
-                subtitle="Defaults follow the role. Changes here apply only to this member; role updates still flow through for unticked deltas."
+                title="Permissions"
+                subtitle="Same catalog as Roles. Defaults follow this member's role; ticks here are personal overrides. Organization access appears when Switch companies is selected."
                 icon={Shield}
                 accent="indigo"
               >
@@ -717,14 +863,19 @@ export const EditMemberDrawer: React.FC<EditMemberDrawerProps> = ({ isOpen, memb
                         Reset to role defaults
                       </button>
                     </div>
+                    {errors.permissions ? (
+                      <p className="text-xs text-red-600">{errors.permissions}</p>
+                    ) : null}
                     <PermissionPicker
                       permissionsByModule={effectivePermissions}
                       selectedIds={selectedPermissions}
                       onToggle={handlePermissionToggle}
                       onModuleSelectAll={handleModuleSelectAll}
                       onSelectionChange={setSelectedPermissions}
+                      companyAccess={companyAccess}
+                      onCompanyAccessChange={setCompanyAccess}
                       disabled={isSubmitting}
-                      maxHeightClass="max-h-[360px]"
+                      maxHeightClass="max-h-[420px]"
                     />
                   </div>
                 )}

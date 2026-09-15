@@ -33,7 +33,7 @@ export function SmartSearchToggleButton({
       type="button"
       onClick={() => {
         if (gate.locked) {
-          gate.confirmAndUnlock();
+          void gate.confirmAndUnlock();
           return;
         }
         onToggle();
@@ -75,8 +75,8 @@ export function SmartSearchPromptPanel({
 }: Omit<SmartSearchToolbarProps, 'open' | 'onToggle'> & { placeholder?: string }) {
   const gate = useAiCoinGate('ai.smart_search');
 
-  const handleApply = () => {
-    if (!gate.confirmAndUnlock()) return;
+  const handleApply = async () => {
+    if (!(await gate.confirmAndUnlock())) return;
     onApply();
   };
 

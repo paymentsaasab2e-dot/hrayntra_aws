@@ -244,7 +244,7 @@ export function AssistantChatPanel({
   const send = useCallback(async (prefilledText?: string) => {
     const text = (prefilledText ?? input).trim();
     if (!text || loading) return;
-    if (!assistantGate.confirmAndUnlock()) return;
+    if (!(await assistantGate.confirmAndUnlock())) return;
     setError(null);
     if (!prefilledText) {
       setInput('');

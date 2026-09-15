@@ -108,6 +108,19 @@ export function getMicrosoftOAuthConfig() {
   return { clientId, clientSecret, tenant, redirectUri };
 }
 
+/**
+ * Google OAuth callback URL.
+ * Production never uses localhost — even if GOOGLE_REDIRECT_URI was copied from local .env.
+ */
+export function resolveGoogleRedirectUri() {
+  const production = isProductionNodeEnv();
+  const configured = firstNonEmptyEnvValue('GOOGLE_REDIRECT_URI');
+  if (configured && !(production && isLoopbackHost(configured))) {
+    return normalizePublicUrl(configured);
+  }
+  return `${publicBackendUrl}/api/v1/oauth/google/callback`;
+}
+
 const PRODUCTION_EMPLOYERS_HOST = /(?:^https?:\/\/)?(?:www\.)?(?:employers?\.hryantra\.com|phase2\.hryantra\.com|frontendphase2\.vercel\.app)/i;
 
 function isProductionNodeEnv() {
@@ -329,10 +342,8 @@ export const env = {
   // OAuth state JWT (fallback: JWT_ACCESS_SECRET)
   OAUTH_STATE_SECRET: process.env.OAUTH_STATE_SECRET || process.env.NEXTAUTH_SECRET,
 
-  // Google OAuth (Gmail + Calendar)
-  GOOGLE_REDIRECT_URI:
-    process.env.GOOGLE_REDIRECT_URI ||
-    `http://localhost:${parseInt(process.env.PORT || '5001', 10)}/api/v1/oauth/google/callback`,
+  // Google OAuth (Gmail + Calendar) — production ignores localhost redirect from .env
+  GOOGLE_REDIRECT_URI: resolveGoogleRedirectUri(),
 
   // Microsoft OAuth (Outlook + Teams). Always tenant "common" for personal + work accounts.
   MICROSOFT_CLIENT_ID: process.env.MICROSOFT_CLIENT_ID || process.env.MS_CLIENT_ID,

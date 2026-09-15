@@ -30,6 +30,7 @@ export function UserPermissionsSync() {
     const refresh = async () => {
       if (pathname === '/apply' || pathname?.startsWith('/apply/')) return;
       if (pathname === '/client-review' || pathname?.startsWith('/client-review/')) return;
+      if (pathname === '/interview-rsvp' || pathname?.startsWith('/interview-rsvp/')) return;
       if (inFlightRef.current) return;
       const now = Date.now();
       if (now - lastRunRef.current < MIN_INTERVAL_MS) return;

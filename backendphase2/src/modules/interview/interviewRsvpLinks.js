@@ -9,9 +9,26 @@ export function shouldShowJoinInterviewCta({ meetingLink, mode, modeLabel, type,
 
   const modeRaw = `${mode || ''} ${modeLabel || ''}`.toLowerCase();
   const typeRaw = `${type || ''} ${interviewType || ''}`.toLowerCase();
+  const combined = `${modeRaw} ${typeRaw}`.trim();
+
+  // Explicit online / video signals win (e.g. "Video Call" must not be treated as phone).
+  const onlineHints = [
+    'video',
+    'online',
+    'virtual',
+    'remote',
+    'meet',
+    'zoom',
+    'teams',
+    'webex',
+  ];
+  if (onlineHints.some((hint) => combined.includes(hint))) {
+    return true;
+  }
+
+  // Do not use bare "call" — it matches "Video Call" and incorrectly hides Meet links.
   const offlineHints = [
     'phone',
-    'call',
     'in-person',
     'in person',
     'visit',
@@ -19,10 +36,14 @@ export function shouldShowJoinInterviewCta({ meetingLink, mode, modeLabel, type,
     'onsite',
     'on-site',
     'in_person',
+    'walk-in',
+    'walk in',
   ];
-  if (offlineHints.some((hint) => modeRaw.includes(hint) || typeRaw.includes(hint))) {
+  if (offlineHints.some((hint) => combined.includes(hint))) {
     return false;
   }
+
+  // Valid https link with no clear offline signal → show join CTA / meeting link.
   return true;
 }
 

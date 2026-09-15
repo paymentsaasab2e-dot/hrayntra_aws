@@ -143,6 +143,7 @@ model User {
 
   @@index([role])
   @@index([roleId])
+  @@index([managerId])
   @@map("users")
 }
 

@@ -161,6 +161,9 @@ CRITICAL for short or narrative-only resumes:
 
 Personal Information:
   Name → firstName, lastName | E-mail → email | Mobile → phone
+  CRITICAL for Name: use only the person's real name from the CV contact header/body.
+  Never use the resume file name, document title, certificate title, job title, company, or location (e.g. "Operations Manager", "Lusaka Zambia", "Year School Certificates") as firstName/lastName.
+  If the person's name is unclear, set firstName and lastName to null.
   Age → age | Candidate Score → candidateScore (0-100) or use score.overall
   City & State → city, state | Current Address → currentAddress | Zip → zip
   Nationality → nationality | Current Company Website → currentCompanyWebsite

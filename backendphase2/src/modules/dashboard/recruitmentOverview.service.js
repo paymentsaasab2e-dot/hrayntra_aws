@@ -1,6 +1,6 @@
 import { prisma } from '../../config/prisma.js';
 import { appendEntityActivityVisibilityToWhere } from '../../services/activityVisibility.service.js';
-import { assigneeIdFilter, orHasStringArray } from './assigneeFilter.js';
+import { assigneeIdFilter, companyRecordScope, orgUnitIdsFromQuery, orHasStringArray } from './assigneeFilter.js';
 
 function formatPersonName(person) {
   if (!person) return '';
@@ -142,11 +142,22 @@ function sparkBySource(rows, days = 14) {
 }
 
 /**
+ * Merge non-empty where fragments with AND (avoids OR clobber between scope + search).
+ */
+function withAnd(parts) {
+  const filtered = (parts || []).filter((p) => p && typeof p === 'object' && Object.keys(p).length);
+  if (!filtered.length) return {};
+  if (filtered.length === 1) return filtered[0];
+  return { AND: filtered };
+}
+
+/**
  * Recruitment Command Center overview: Jobs + Candidates + Interviews + Placements.
  */
 export async function getRecruitmentOverview(req) {
   const q = req?.query || {};
   const assignedTo = assigneeIdFilter(q);
+  const unitIds = orgUnitIdsFromQuery(q);
   const search = String(q.search || '').trim() || undefined;
 
   const now = new Date();
@@ -154,6 +165,8 @@ export async function getRecruitmentOverview(req) {
   const in7Days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
   const daysAgo7 = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
   const range = resolveRangeBounds(q);
+  const periodCreated =
+    range.start && range.end ? { createdAt: { gte: range.start, lte: range.end } } : {};
   const sparkStart = range.start || daysAgo7;
   const sparkDays =
     range.key === 'today' || range.key === 'yesterday'
@@ -162,65 +175,96 @@ export async function getRecruitmentOverview(req) {
         ? 7
         : 14;
 
-  const jobBase = {
-    isDeleted: { not: true },
-    ...(assignedTo
+  const jobOwnerFilter = assignedTo
+    ? {
+        OR: [
+          { assignedToId: assignedTo },
+          { createdById: assignedTo },
+          ...orHasStringArray('supportingRecruiters', assignedTo),
+        ],
+      }
+    : null;
+
+  // Company scope: jobs stamped to org units + legacy untagged rows still owned by company people.
+  const jobScopeFilter = unitIds.length
+    ? {
+        OR: [
+          { orgUnitId: { in: unitIds } },
+          ...(jobOwnerFilter
+            ? [
+                {
+                  AND: [
+                    { OR: [{ orgUnitId: null }, { orgUnitId: { isSet: false } }] },
+                    jobOwnerFilter,
+                  ],
+                },
+              ]
+            : []),
+        ],
+      }
+    : jobOwnerFilter;
+
+  const jobSearch = search
+    ? {
+        OR: [
+          { title: { contains: search, mode: 'insensitive' } },
+          { department: { contains: search, mode: 'insensitive' } },
+          { location: { contains: search, mode: 'insensitive' } },
+          { city: { contains: search, mode: 'insensitive' } },
+          { country: { contains: search, mode: 'insensitive' } },
+        ],
+      }
+    : null;
+
+  const jobBase = withAnd([{ isDeleted: { not: true } }, jobScopeFilter, jobSearch]);
+
+  const candidateScope = companyRecordScope(q, 'assignedToId');
+  const candidateSearch = search
+    ? {
+        OR: [
+          { firstName: { contains: search, mode: 'insensitive' } },
+          { lastName: { contains: search, mode: 'insensitive' } },
+          { email: { contains: search, mode: 'insensitive' } },
+          { phone: { contains: search, mode: 'insensitive' } },
+          { currentTitle: { contains: search, mode: 'insensitive' } },
+          { currentCompany: { contains: search, mode: 'insensitive' } },
+          { location: { contains: search, mode: 'insensitive' } },
+          { source: { contains: search, mode: 'insensitive' } },
+        ],
+      }
+    : null;
+
+  const candidateBase = withAnd([{ isDeleted: { not: true } }, candidateScope, candidateSearch]);
+  const candidatePeriod = withAnd([candidateBase, periodCreated]);
+
+  const interviewBase = unitIds.length
+    ? {
+        OR: [
+          { job: { orgUnitId: { in: unitIds } } },
+          ...(assignedTo
+            ? [{ createdById: assignedTo }, { job: { assignedToId: assignedTo } }]
+            : []),
+        ],
+      }
+    : assignedTo
+      ? { OR: [{ createdById: assignedTo }, { job: { assignedToId: assignedTo } }] }
+      : {};
+
+  const placementBase = withAnd([
+    { deletedAt: null },
+    unitIds.length
       ? {
           OR: [
-            { assignedToId: assignedTo },
-            { createdById: assignedTo },
-            ...orHasStringArray('supportingRecruiters', assignedTo),
+            { job: { orgUnitId: { in: unitIds } } },
+            ...(assignedTo
+              ? [{ recruiterId: assignedTo }, { job: { assignedToId: assignedTo } }]
+              : []),
           ],
         }
-      : {}),
-    ...(search
-      ? {
-          OR: [
-            { title: { contains: search, mode: 'insensitive' } },
-            { department: { contains: search, mode: 'insensitive' } },
-            { location: { contains: search, mode: 'insensitive' } },
-            { city: { contains: search, mode: 'insensitive' } },
-            { country: { contains: search, mode: 'insensitive' } },
-          ],
-        }
-      : {}),
-  };
-
-  const candidateBase = {
-    isDeleted: { not: true },
-    ...(assignedTo ? { assignedToId: assignedTo } : {}),
-    ...(search
-      ? {
-          OR: [
-            { firstName: { contains: search, mode: 'insensitive' } },
-            { lastName: { contains: search, mode: 'insensitive' } },
-            { email: { contains: search, mode: 'insensitive' } },
-            { phone: { contains: search, mode: 'insensitive' } },
-            { currentTitle: { contains: search, mode: 'insensitive' } },
-            { currentCompany: { contains: search, mode: 'insensitive' } },
-            { location: { contains: search, mode: 'insensitive' } },
-            { source: { contains: search, mode: 'insensitive' } },
-          ],
-        }
-      : {}),
-  };
-
-  const interviewBase = {
-    ...(assignedTo
-      ? {
-          OR: [{ createdById: assignedTo }, { job: { assignedToId: assignedTo } }],
-        }
-      : {}),
-  };
-
-  const placementBase = {
-    deletedAt: null,
-    ...(assignedTo
-      ? {
-          OR: [{ recruiterId: assignedTo }, { job: { assignedToId: assignedTo } }],
-        }
-      : {}),
-  };
+      : assignedTo
+        ? { OR: [{ recruiterId: assignedTo }, { job: { assignedToId: assignedTo } }] }
+        : null,
+  ]);
 
   const viewerId = req?.user?.id || req?.user?._id || null;
   let activityWhere = {
@@ -251,6 +295,8 @@ export async function getRecruitmentOverview(req) {
     jobsSlaRisk,
     totalCandidates,
     newCandidates,
+    newCandidatesToday,
+    newCandidatesInPeriod,
     activeCandidates,
     placedCandidates,
     inactiveCandidates,
@@ -279,7 +325,7 @@ export async function getRecruitmentOverview(req) {
     prisma.candidate.groupBy({ by: ['status'], where: candidateBase, _count: { _all: true } }).catch(() => []),
     prisma.interview.groupBy({ by: ['status'], where: interviewBase, _count: { _all: true } }).catch(() => []),
     prisma.placement.groupBy({ by: ['status'], where: placementBase, _count: { _all: true } }).catch(() => []),
-    prisma.candidate.groupBy({ by: ['source'], where: candidateBase, _count: { _all: true } }).catch(() => []),
+    prisma.candidate.groupBy({ by: ['source'], where: candidatePeriod, _count: { _all: true } }).catch(() => []),
     prisma.job
       .groupBy({ by: ['department'], where: { ...jobBase, status: 'OPEN' }, _count: { _all: true } })
       .catch(() => []),
@@ -294,6 +340,10 @@ export async function getRecruitmentOverview(req) {
     prisma.job.count({ where: { ...jobBase, status: 'OPEN', slaRisk: true } }).catch(() => 0),
     prisma.candidate.count({ where: candidateBase }).catch(() => 0),
     prisma.candidate.count({ where: { ...candidateBase, status: 'NEW' } }).catch(() => 0),
+    prisma.candidate
+      .count({ where: { ...candidateBase, createdAt: { gte: startOfToday, lte: endOfToday } } })
+      .catch(() => 0),
+    prisma.candidate.count({ where: candidatePeriod }).catch(() => 0),
     prisma.candidate.count({ where: { ...candidateBase, status: 'ACTIVE' } }).catch(() => 0),
     prisma.candidate.count({ where: { ...candidateBase, status: 'PLACED' } }).catch(() => 0),
     prisma.candidate.count({ where: { ...candidateBase, status: 'INACTIVE' } }).catch(() => 0),
@@ -758,6 +808,7 @@ export async function getRecruitmentOverview(req) {
     jobsSlaRisk,
     totalCandidates,
     newCandidates,
+    newCandidatesInPeriod,
     activeCandidates,
     placedCandidates,
     inactiveCandidates,
@@ -787,9 +838,10 @@ export async function getRecruitmentOverview(req) {
     todaySummary: {
       interviewsToday,
       openJobs,
-      newCandidates,
+      newCandidates: newCandidatesToday,
       pendingOffers: offersSent,
       placementRevenue: Math.round(revenue),
+      newCandidatesInPeriod,
     },
     insights: insights.slice(0, 10),
     recommendations: recommendations.slice(0, 8),

@@ -183,6 +183,7 @@ export type CrmOverview = {
     meetingsScheduled: number;
     hotClients: number;
     estimatedBusinessValue: number;
+    overdueFollowups?: number;
   };
   insights?: DashboardInsight[];
   recommendations?: Array<{ id: string; text: string; detail?: string; href?: string }>;
@@ -457,6 +458,7 @@ export type RecruitmentOverview = {
     newCandidates: number;
     pendingOffers: number;
     placementRevenue: number;
+    newCandidatesInPeriod?: number;
   };
   insights?: DashboardInsight[];
   recommendations?: Array<{ id: string; text: string; detail?: string; href?: string }>;
