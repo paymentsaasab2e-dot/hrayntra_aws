@@ -10,7 +10,7 @@ import {
   assertUserHasAssignmentAccess,
   filterUsersByAssignmentAccess,
 } from './assigneeModuleAccess.service.js';
-import { applyAssignmentRules, assertAssignmentRuleAllows } from './assignmentRules.service.js';
+import { applyAssignmentRules, assertAssignmentRuleAllows, getAssignmentRuleState } from './assignmentRules.service.js';
 
 const idStr = (id) => String(id || '').trim();
 
@@ -198,7 +198,11 @@ export async function assertCanAssignTask(actorUserId, assigneeUserId, req = nul
   await assertUserHasAssignmentAccess(assigneeUserId, { modules: ['Tasks'] });
   if (await isSuperAdminUserId(actorUserId)) return;
 
+  const companyId = requestedAssignCompanyId(req) || null;
+  const state = await getAssignmentRuleState(actorUserId, 'Tasks', companyId);
   await assertAssignmentRuleAllows(actorUserId, 'Tasks', assigneeUserId, { req });
+  // Saved Assignment Rules override department/rank limits for Tasks.
+  if (state.configured) return;
 
   const ok = await canAssignTaskTo(actorUserId, assigneeUserId, { req });
   if (!ok) {

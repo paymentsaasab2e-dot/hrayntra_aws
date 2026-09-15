@@ -1,8 +1,22 @@
 import { Resend } from 'resend';
 import { env } from '../config/env.js';
 import { getEmailFromForTrigger } from '../config/emailFromAddresses.js';
+import { isDeliverableEmail } from './emailDeliverability.js';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
+
+/** Resend SDK returns { data, error } and does not throw on API failures. */
+function assertResendDelivery(result, toEmail) {
+  const deliveryId = result?.data?.id || result?.id || null;
+  const resendError = result?.error;
+  const errorMessage =
+    resendError?.message ||
+    (typeof resendError === 'string' ? resendError : '');
+  if (!deliveryId && (errorMessage || resendError)) {
+    throw new Error(errorMessage || `Resend rejected email to ${toEmail}`);
+  }
+  return deliveryId;
+}
 
 /**
  * Send credential invite email to a new team member
@@ -110,17 +124,26 @@ export async function sendCredentialInvite({
 </html>
   `;
 
+  const recipient = String(email || '').trim();
+  if (!isDeliverableEmail(recipient)) {
+    throw new Error(`Invalid invite recipient email: ${recipient || '(empty)'}`);
+  }
+  if (!process.env.RESEND_API_KEY) {
+    throw new Error('Email service not configured (RESEND_API_KEY)');
+  }
+
   try {
     const result = await resend.emails.send({
       from: getEmailFromForTrigger('team.invite_email'),
-      to: email,
+      to: recipient,
       subject: trialDays
         ? `Your ${trialDays}-day HRYANTRA try-free access`
         : `Welcome to HRYANTRA - Your Login Credentials`,
       html,
     });
 
-    return { success: true, messageId: result.id };
+    const messageId = assertResendDelivery(result, recipient);
+    return { success: true, messageId };
   } catch (error) {
     console.error('Error sending credential invite email:', error);
     throw new Error(`Failed to send email: ${error.message}`);
@@ -186,7 +209,8 @@ export async function sendHqTeamInviteEmail({ email, loginId, tempPassword, role
       subject: 'Your HRYANTRA Headquarters login credentials',
       html,
     });
-    return { success: true, messageId: result.id };
+    const messageId = assertResendDelivery(result, email);
+    return { success: true, messageId };
   } catch (error) {
     console.error('Error sending HQ team invite email:', error);
     throw new Error(`Failed to send email: ${error.message}`);

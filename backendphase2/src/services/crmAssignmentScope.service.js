@@ -21,7 +21,7 @@ import {
   resolveAssignmentModules,
   resolveAssignmentModulesFromReq,
 } from './assigneeModuleAccess.service.js';
-import { applyAssignmentRules, assertAssignmentRuleAllows } from './assignmentRules.service.js';
+import { applyAssignmentRules, assertAssignmentRuleAllows, getAssignmentRuleState } from './assignmentRules.service.js';
 
 const idStr = (id) => String(id || '').trim();
 
@@ -244,8 +244,13 @@ export async function assertCanAssignCrm(actorUserId, assigneeUserId, { req = nu
 
   if (await isSuperAdminUserId(actorUserId)) return;
 
-  if (requiredModules[0]) {
-    await assertAssignmentRuleAllows(actorUserId, requiredModules[0], assigneeUserId, { req });
+  const ruleModule = requiredModules[0] || null;
+  if (ruleModule) {
+    const companyId = requestedAssignCompanyId(req) || null;
+    const state = await getAssignmentRuleState(actorUserId, ruleModule, companyId);
+    await assertAssignmentRuleAllows(actorUserId, ruleModule, assigneeUserId, { req });
+    // Saved “Can assign to” list is authoritative (still requires module access above).
+    if (state.configured) return;
   }
 
   if (req && canViewCrossCompanyMembers(req)) return;

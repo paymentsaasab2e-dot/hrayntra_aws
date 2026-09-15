@@ -1,6 +1,6 @@
 /**
  * Centralized module-wise Assignment Rules.
- * Restricts (never expands) who an actor may assign records to.
+ * Custom “Can assign to” lists define who the assignor may assign to.
  *
  * Persistence: existing `settings` collection (no new Mongo collection required).
  * key = assignment_rule:<module>:<orgKey>
@@ -12,13 +12,16 @@
  * - No setting row → default to reporting hierarchy (descendants via managerId).
  *   If the assignor has no reports, keep the existing eligible pool (no extra filter).
  * - Setting exists with [] → assign to nobody.
- * - Setting exists with ids → intersect with existing eligible pool.
+ * - Setting exists with ids → those people (active) appear in Assign To; prefer
+ *   members already in the eligible pool, then backfill any missing checked ids.
+ * - Lookup prefers company-specific key, then tenant-wide `_` (All / active company).
  */
 import { prisma } from '../config/prisma.js';
-import { resolveAssignmentModules } from './assigneeModuleAccess.service.js';
+import { resolveAssignmentModules, filterUsersByAssignmentAccess } from './assigneeModuleAccess.service.js';
 import { isSuperAdminUserId } from './taskAssignmentScope.service.js';
 import { isSuperAdminUser } from '../utils/superAdminScope.js';
 import { requestedAssignCompanyId } from './orgListScope.service.js';
+import { isHqPlatformUser } from '../utils/hqPlatformUser.js';
 
 const idStr = (id) => String(id || '').trim();
 
@@ -66,6 +69,33 @@ function parseAssigneeIds(value) {
   return [...new Set(raw.map(idStr).filter(Boolean))];
 }
 
+async function findAssignmentRuleRow(assignorUserId, moduleName, orgUnitId = null) {
+  const actorId = idStr(assignorUserId);
+  if (!actorId || !moduleName) return null;
+
+  const companyId = normalizeOrgUnitId(orgUnitId);
+  if (companyId) {
+    const companyRow = await prisma.setting.findFirst({
+      where: {
+        userId: actorId,
+        key: settingKey(moduleName, companyId),
+        scope: SETTING_SCOPE,
+      },
+      select: { value: true, key: true },
+    });
+    if (companyRow) return companyRow;
+  }
+
+  return prisma.setting.findFirst({
+    where: {
+      userId: actorId,
+      key: settingKey(moduleName, null),
+      scope: SETTING_SCOPE,
+    },
+    select: { value: true, key: true },
+  });
+}
+
 /**
  * @returns {{ configured: boolean, allowedIds: Set<string> | null }}
  */
@@ -80,15 +110,7 @@ export async function getAssignmentRuleState(assignorUserId, module, orgUnitId =
     return { configured: false, allowedIds: null };
   }
 
-  const row = await prisma.setting.findFirst({
-    where: {
-      userId: actorId,
-      key: settingKey(moduleName, orgUnitId),
-      scope: SETTING_SCOPE,
-    },
-    select: { value: true },
-  });
-
+  const row = await findAssignmentRuleRow(actorId, moduleName, orgUnitId);
   if (!row) return { configured: false, allowedIds: null };
 
   return {
@@ -97,9 +119,70 @@ export async function getAssignmentRuleState(assignorUserId, module, orgUnitId =
   };
 }
 
+async function loadActiveAssigneesByIds(ids) {
+  const unique = [...new Set((ids || []).map(idStr).filter(Boolean))];
+  if (!unique.length) return [];
+
+  const rows = await prisma.user.findMany({
+    where: {
+      id: { in: unique },
+      OR: [{ status: 'ACTIVE' }, { status: null }],
+    },
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      name: true,
+      email: true,
+      departmentId: true,
+      roleId: true,
+      managerId: true,
+      status: true,
+      orgUnitId: true,
+      systemRole: {
+        select: {
+          id: true,
+          roleName: true,
+          color: true,
+        },
+      },
+      departmentRelation: {
+        select: { id: true, name: true },
+      },
+    },
+  });
+
+  const byId = new Map();
+  for (const user of rows) {
+    if (!user || isHqPlatformUser(user)) continue;
+    const firstName = user.firstName || '';
+    const lastName = user.lastName || '';
+    const name =
+      user.name ||
+      `${firstName} ${lastName}`.trim() ||
+      user.email ||
+      'User';
+    byId.set(idStr(user.id), {
+      id: user.id,
+      firstName,
+      lastName,
+      name,
+      email: user.email,
+      departmentId: user.departmentId,
+      roleId: user.roleId,
+      managerId: user.managerId || null,
+      status: user.status,
+      role: user.systemRole || null,
+      department: user.departmentRelation || null,
+      orgUnitId: user.orgUnitId || null,
+    });
+  }
+
+  return unique.map((id) => byId.get(id)).filter(Boolean);
+}
+
 export async function applyAssignmentRules(actorUserId, module, candidates, { req = null, orgUnitId = null } = {}) {
   const list = Array.isArray(candidates) ? candidates : [];
-  if (!list.length) return list;
 
   const companyId =
     normalizeOrgUnitId(orgUnitId) ||
@@ -110,8 +193,37 @@ export async function applyAssignmentRules(actorUserId, module, candidates, { re
   // Custom saved rules apply to everyone (including Super Admin).
   if (state.configured) {
     const allowed = state.allowedIds || new Set();
-    return list.filter((member) => allowed.has(idStr(member?.id || member)));
+    if (!allowed.size) return [];
+
+    const fromPool = list.filter((member) => allowed.has(idStr(member?.id || member)));
+    const found = new Set(fromPool.map((member) => idStr(member?.id || member)));
+    const missing = [...allowed].filter((id) => !found.has(id));
+    if (!missing.length) return fromPool;
+
+    // Checked “Can assign to” people must appear even if outside the pre-filtered pool
+    // (e.g. other department). Keep module-access gate so Assign To stays actionable.
+    const extrasRaw = await loadActiveAssigneesByIds(missing);
+    let extras = extrasRaw;
+    try {
+      const moduleName = normalizeModule(module);
+      extras = await filterUsersByAssignmentAccess(extrasRaw, { modules: [moduleName] });
+    } catch {
+      extras = extrasRaw;
+    }
+    if (!extras.length) return fromPool;
+
+    const merged = [...fromPool];
+    const seen = new Set(found);
+    for (const member of extras) {
+      const id = idStr(member.id);
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      merged.push(member);
+    }
+    return merged;
   }
+
+  if (!list.length) return list;
 
   // Unsaved default: Super Admin keeps full access.
   if (req && isSuperAdminUser(req)) return list;
@@ -304,14 +416,7 @@ export async function getAssignmentRulesForAssignor({
   if (!assignor) throw new Error('Assignor not found');
 
   const companyId = normalizeOrgUnitId(orgUnitId);
-  const row = await prisma.setting.findFirst({
-    where: {
-      userId: assignorId,
-      key: settingKey(moduleName, companyId),
-      scope: SETTING_SCOPE,
-    },
-    select: { value: true },
-  });
+  const row = await findAssignmentRuleRow(assignorId, moduleName, companyId);
 
   const suggestedAssigneeIds = await listDescendantUserIds(assignorId);
   const configured = Boolean(row);

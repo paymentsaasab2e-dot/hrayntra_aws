@@ -32,6 +32,8 @@ const PERMISSIONS_TEAM_DIRECTORY_READ = [
   'add_team_member',
   'edit_team_member',
   'assign_roles',
+  'manage_assignment_rules',
+  'view_team',
   'clients_read',
   'recruitment_clients_read',
   'recruitment_clients_create',
