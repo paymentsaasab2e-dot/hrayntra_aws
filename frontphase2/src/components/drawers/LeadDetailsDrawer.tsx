@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
+import { useDrawerBodyScrollLock } from '../../hooks/useDrawerBodyScrollLock';
 import { buildFileHref } from '../../utils/cloudinaryUrls';
 import {
   splitDateTimeForDisplay,
@@ -2119,10 +2120,10 @@ export function LeadDetailsDrawer({
     void requestLeadDrawerClose();
   }, [closeLeadDrawerDropdowns, requestLeadDrawerClose]);
 
+  const { release: releaseLeadBodyScrollLock } = useDrawerBodyScrollLock(drawerIsOpen);
+
   useEffect(() => {
     if (!drawerIsOpen) return;
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && !leadAiChatOpen) {
         handleLeadDrawerClose();
@@ -2130,7 +2131,6 @@ export function LeadDetailsDrawer({
     };
     window.addEventListener('keydown', onKeyDown);
     return () => {
-      document.body.style.overflow = prevOverflow;
       window.removeEventListener('keydown', onKeyDown);
     };
   }, [drawerIsOpen, leadAiChatOpen, handleLeadDrawerClose]);
@@ -3276,15 +3276,14 @@ export function LeadDetailsDrawer({
       ];
 
   const drawerTree = (
-    <AnimatePresence>
-      {(lead || addLeadMode) && (
-        <>
-          <LeadDetailsPanelShell
-            mode="modal"
+    <>
+    <AnimatePresence onExitComplete={releaseLeadBodyScrollLock}>
+      {drawerIsOpen ? (
+          <DetailsModalShell
+            key={addLeadMode ? 'add-lead-drawer' : `lead-drawer-${lead?.id || 'detail'}`}
+            variant="main"
             dialogTitleId={addLeadMode ? 'add-lead-modal-title' : 'lead-detail-modal-title'}
             panelRef={leadDrawerPanelRef}
-            drawerWidth={addLeadDrawerWidth}
-            onBeginResize={beginAddLeadDrawerResize}
             onBackdropClick={() => void handleLeadDrawerClose()}
           >
           <div className="relative flex h-full min-h-0 flex-col">
@@ -3403,7 +3402,7 @@ export function LeadDetailsDrawer({
                       type="button"
                       onClick={() => {
                         if (leadAiGate.locked) {
-                          leadAiGate.confirmAndUnlock();
+                          void leadAiGate.confirmAndUnlock();
                           return;
                         }
                         setLeadAiChatOpen(true);
@@ -6851,7 +6850,9 @@ export function LeadDetailsDrawer({
           ) : null}
 
           </div>
-          </LeadDetailsPanelShell>
+          </DetailsModalShell>
+      ) : null}
+    </AnimatePresence>
 
         {/* Duplicate lead notification — shown before create when duplicate-check matches */}
         <AnimatePresence>
@@ -6964,14 +6965,9 @@ export function LeadDetailsDrawer({
           }}
           onConfirm={() => void handleConfirmHqTrialGrant()}
         />
-        </>
-      )}
-    </AnimatePresence>
+    </>
   );
 
-  if (drawerIsOpen && leadPanelPortalReady && typeof document !== 'undefined') {
-    return createPortal(drawerTree, document.body);
-  }
-
-  return drawerTree;
+  if (!leadPanelPortalReady || typeof document === 'undefined') return null;
+  return createPortal(drawerTree, document.body);
 }

@@ -42,7 +42,7 @@ const INSIGHT_KPI_DEFS: KpiDef[] = [
     module: 'leads',
     info: 'Overall % of leads converted in the selected period (all stages → converted). Differs from Insights “Qualified → win”, which only measures the qualified subset.',
     subtitle: (o) =>
-      `${formatNum(o?.kpis?.convertedLeads)} converted of ${formatNum(o?.kpis?.totalLeads)} leads`,
+      `${formatNum(o?.kpis?.convertedLeads)} converted of ${formatNum(o?.kpis?.periodLeadCount ?? o?.kpis?.totalLeads)} leads in period`,
   },
   {
     key: 'overdueFollowups',

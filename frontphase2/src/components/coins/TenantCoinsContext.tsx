@@ -118,7 +118,7 @@ export function TenantCoinsProvider({ children }: { children: React.ReactNode })
     window.addEventListener(TENANT_COINS_REFRESH_EVENT, onCoins);
     window.addEventListener(AI_FEATURE_COSTS_UPDATED_EVENT, onCostsUpdated);
     window.addEventListener('storage', onStorage);
-    const poll = window.setInterval(() => void refresh(), 30_000);
+    const poll = window.setInterval(() => void refresh(), 120_000);
 
     return () => {
       window.removeEventListener('focus', onFocus);

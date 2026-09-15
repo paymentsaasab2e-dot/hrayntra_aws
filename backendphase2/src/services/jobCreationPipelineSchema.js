@@ -113,20 +113,50 @@ function extractLabeledValue(text, labels) {
 
 /**
  * Keep Add Job titles short and scannable in the Jobs table.
- * Drops method/specialty parentheses and trims long "Role – Domain – Detail" tails.
+ * Drops method/specialty parentheses, location/salary tails, and long JD blurbs.
  *
- * Example:
+ * Examples:
  *   "Assistant Project Manager – Bridge Construction (Balanced Cantilever Method)"
  *   → "Assistant Project Manager – Bridge Construction"
+ *   "We are looking for a Senior React Developer with 5+ years based in Mumbai"
+ *   → "Senior React Developer"
  */
-export function normalizeExtractedJobTitle(raw, { maxLength = 72 } = {}) {
+export function normalizeExtractedJobTitle(raw, { maxLength = 56, maxWords = 8 } = {}) {
   let title = String(raw || '')
     .replace(/\r?\n+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
   if (!title) return '';
 
-  title = title.replace(/^(?:job\s*title|role|position|designation)\s*[:\-–—]\s*/i, '').trim();
+  title = title
+    .replace(
+      /^(?:job\s*title|role|position|designation|opening\s+for|vacancy\s+for)\s*[:\-–—]\s*/i,
+      '',
+    )
+    .trim();
+
+  // "We are looking for a Senior Developer…" → "Senior Developer…"
+  const lookingMatch = title.match(
+    /^(?:we\s+are\s+)?(?:currently\s+)?(?:looking\s+for|seeking|hiring|recruiting)\s+(?:an?\s+|the\s+)?(.+)$/i,
+  );
+  if (lookingMatch?.[1]) {
+    title = lookingMatch[1].trim();
+  }
+
+  // Cut marketing / requirement tails that often get glued onto titles.
+  title = title
+    .replace(/\s*[|•·]\s*.*$/u, '')
+    .replace(
+      /\s+[-–—]\s*(?:we\s+are|looking|seeking|hiring|join|based|remote|hybrid|onsite|on-site|immediate).*$/i,
+      '',
+    )
+    .replace(/\s+(?:with|having)\s+\d+\+?\s*(?:-\s*\d+\+?\s*)?(?:years?|yrs?).*$/i, '')
+    .replace(/\s+(?:with)\s+(?:\d+\+?\s*)?(?:years?|yrs?)\s+of\b.*$/i, '')
+    .replace(/\s+(?:based\s+in|located\s+in|work\s+from|working\s+from)\b.*$/i, '')
+    .replace(/\s+(?:for\s+our|to\s+join|who\s+(?:can|will|have)|responsible\s+for)\b.*$/i, '')
+    .replace(/\s+(?:salary|ctc|lpa|compensation|package|₹|\$|usd|inr)\b.*$/i, '')
+    .replace(/\s+(?:full[-\s]?time|part[-\s]?time|contract|internship)\s*$/i, '')
+    .trim();
 
   // Strip trailing parenthetical notes (construction method, shift, band, etc.).
   let prev = '';
@@ -135,10 +165,46 @@ export function normalizeExtractedJobTitle(raw, { maxLength = 72 } = {}) {
     title = title.replace(/\s*[([（][^)\]]{2,160}[)\]][）]?\s*$/g, '').trim();
   }
 
-  // Drop trailing " - Remote/Hybrid/Onsite" noise from title (belongs in workplace type).
+  // Drop trailing " - Remote/Hybrid/Onsite/Full Time" noise from title.
   title = title
-    .replace(/\s*[–—|-]\s*(?:remote|hybrid|on[-\s]?site|onsite|wfh)\s*$/i, '')
+    .replace(
+      /\s*[–—|-]\s*(?:remote|hybrid|on[-\s]?site|onsite|wfh|full[-\s]?time|part[-\s]?time|contract|internship)\s*$/i,
+      '',
+    )
+    .replace(/\s+(?:full[-\s]?time|part[-\s]?time|contract|internship)\s*$/i, '')
     .trim();
+
+  // Drop trailing place names after an em dash (e.g. "React Developer – Mumbai").
+  title = title
+    .replace(
+      /\s*[–—|-]\s*((?:Mumbai|Delhi|Bengaluru|Bangalore|Hyderabad|Chennai|Pune|Kolkata|Gurgaon|Gurugram|Noida|India|USA|UK|UAE|Remote)(?:\s*,\s*[A-Za-z]+)*)\s*$/i,
+      '',
+    )
+    .trim();
+
+  // Prefer Role – Domain (at most two segments).
+  const dashParts = title.split(/\s*[–—]\s*/).map((part) => part.trim()).filter(Boolean);
+  if (dashParts.length > 2) {
+    title = `${dashParts[0]} – ${dashParts[1]}`;
+  }
+
+  // Place may remain as the second segment — drop known cities there.
+  if (/^(?:Mumbai|Delhi|Bengaluru|Bangalore|Hyderabad|Chennai|Pune|Kolkata|Gurgaon|Gurugram|Noida|India|USA|UK|UAE|Remote)$/i.test(dashParts[1] || '')) {
+    title = dashParts[0];
+  }
+
+  let words = title.split(/\s+/).filter(Boolean);
+  // Drop leftover filler words that make titles look like sentences.
+  if (words.length > maxWords || /\b(looking|seeking|hiring|responsible|experience)\b/i.test(title)) {
+    words = words.filter(
+      (w) => !/^(?:an?|the|for|our|your|with|and|or|to|of|in|at|on)$/i.test(w),
+    );
+  }
+  if (words.length > maxWords) {
+    title = words.slice(0, maxWords).join(' ');
+  } else {
+    title = words.join(' ');
+  }
 
   if (title.length > maxLength) {
     const parts = title.split(/\s*[–—]\s*/).map((part) => part.trim()).filter(Boolean);
@@ -157,6 +223,42 @@ export function normalizeExtractedJobTitle(raw, { maxLength = 72 } = {}) {
   }
 
   return title.replace(/\s*[–—|,;:.\-]+\s*$/g, '').trim();
+}
+
+/** Prefer short document headings when labeled Role/Title is missing or too noisy. */
+function inferTitleFromDocumentHead(text) {
+  const lines = String(text || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 15);
+
+  for (const line of lines) {
+    if (line.length < 3 || line.length > 90) continue;
+    if (
+      /^(?:about|overview|summary|responsibilities|requirements?|qualification|skills?|benefits?|company|location|experience|salary|compensation|description|job\s+description|who\s+we|what\s+you|equal\s+opportunity)\b/i.test(
+        line,
+      )
+    ) {
+      continue;
+    }
+    if (/^https?:\/\//i.test(line) || /^www\./i.test(line)) continue;
+    if (/[:：]\s*$/.test(line)) continue;
+    if (/^\d+[.)]\s/.test(line) || /^[-•*]\s/.test(line)) continue;
+    if (/[.!?]{1}\s+[A-Z]/.test(line)) continue; // multi-sentence
+
+    const words = line.split(/\s+/).filter(Boolean);
+    if (words.length > 12) continue;
+    if (/\b(we\s+are|looking\s+for|seeking|you\s+will|must\s+have)\b/i.test(line) && words.length > 8) {
+      continue;
+    }
+
+    const cleaned = normalizeExtractedJobTitle(line);
+    if (cleaned && cleaned.length >= 3 && cleaned.split(/\s+/).length <= 8) {
+      return cleaned;
+    }
+  }
+  return '';
 }
 
 /** Language / requirement sentences that must never be stored as city/location. */
@@ -741,7 +843,14 @@ function inferJobTitleFromNaturalText(text) {
   const clean = String(text || '').trim().replace(/\s+/g, ' ');
   if (!clean) return '';
 
-  const labeled = extractLabeledValue(clean, ['role', 'job title', 'position', 'title']);
+  const labeled = extractLabeledValue(clean, [
+    'job title',
+    'role title',
+    'position title',
+    'designation',
+    'role',
+    'position',
+  ]);
   if (labeled) return normalizeExtractedJobTitle(labeled);
 
   const patterns = [
@@ -793,10 +902,31 @@ function inferSalaryFromNaturalText(text) {
 
 export function extractJobRegexFallback(cleanedText) {
   const text = String(cleanedText || '');
-  const jobTitle = normalizeExtractedJobTitle(
-    extractLabeledValue(text, ['role', 'job title', 'position', 'title']) ||
-      inferJobTitleFromNaturalText(text),
-  );
+  const labeledTitle = extractLabeledValue(text, [
+    'job title',
+    'role title',
+    'position title',
+    'designation',
+    'role',
+    'position',
+  ]);
+  // Avoid bare "title" — it often captures long marketing lines.
+  const labeledTitleLoose = labeledTitle
+    ? ''
+    : extractLabeledValue(text, ['title']);
+  const labeledNormalized = normalizeExtractedJobTitle(labeledTitle || labeledTitleLoose);
+  const headTitle = inferTitleFromDocumentHead(text);
+  const naturalTitle = normalizeExtractedJobTitle(inferJobTitleFromNaturalText(text));
+
+  let jobTitle = labeledNormalized;
+  // If the labeled value is still long/noisy, prefer a short document heading.
+  if (!jobTitle || jobTitle.split(/\s+/).length > 8 || jobTitle.length > 56) {
+    jobTitle = headTitle || naturalTitle || jobTitle;
+  }
+  if (!jobTitle) {
+    jobTitle = headTitle || naturalTitle;
+  }
+  jobTitle = normalizeExtractedJobTitle(jobTitle);
   const openingsRaw = extractLabeledValue(text, [
     'openings',
     'number of openings',
@@ -1054,10 +1184,14 @@ export function buildJobExtractionPromptInstructions(isNaturalLanguagePrompt = f
     );
   }
   lines.push(
-    'jobTitle: SHORT professional role title only (max ~8 words). Example: "Assistant Project Manager – Bridge Construction".',
-    'Do NOT put construction methods, tools, certifications, shifts, salary, or long parenthetical notes in jobTitle.',
+    'jobTitle: SHORT professional role title only (max 6–8 words, under ~55 characters).',
+    'Example good: "Senior React Developer", "Assistant Project Manager – Bridge Construction".',
+    'Do NOT put construction methods, tools, certifications, shifts, salary, years of experience, city, or long parenthetical notes in jobTitle.',
+    'Do NOT return sentences like "We are looking for a Senior React Developer with 5 years experience in Mumbai".',
     'Bad jobTitle: "Assistant Project Manager – Bridge Construction (Balanced Cantilever Method)".',
-    'Good jobTitle: "Assistant Project Manager – Bridge Construction" (put method details in jobDescriptionHtml / requirements).',
+    'Bad jobTitle: "Senior Full Stack Developer with 5+ years of experience in React and Node.js based in Bangalore".',
+    'Good jobTitle: "Assistant Project Manager – Bridge Construction" (put method/location/experience in other fields).',
+    'Good jobTitle: "Senior Full Stack Developer".',
     'city / state / jobLocation: real geographic places only. Never put language preferences (e.g. "French is strongly preferred") into location fields — put those in languages or candidateRequirementsText.',
     'priority: High | Medium | Low. employmentType: Full Time | Part Time | Contract | Internship.',
     'jobLocationType: Remote | Hybrid | On-site. targetHireDate: YYYY-MM-DD or empty.',

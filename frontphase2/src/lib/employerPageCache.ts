@@ -1,7 +1,8 @@
 import { createSessionCache, clearSessionStorageByPrefixes } from '@/lib/session-cache';
 
 export const EMPLOYER_LIST_STALE_MS = 2 * 60_000;
-export const EMPLOYER_DASH_STALE_MS = 5 * 60_000;
+/** CRM/recruitment dashboards poll every 60s — keep cache shorter than the poll. */
+export const EMPLOYER_DASH_STALE_MS = 45_000;
 
 const PREFIX = 'hrayntra:page-cache:v1:';
 const LEGACY_JOBS_PAGE_KEY = 'jobs:page-cache:v1';

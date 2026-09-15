@@ -5,6 +5,7 @@ import { Calendar, FileText, LayoutGrid, Plus, Pencil, Sparkles, StickyNote, Tra
 import { DrawerTabBar } from '../drawers/DrawerTabBar';
 import { ImageWithFallback } from '../ImageWithFallback';
 import { apiAddCandidateNote, apiDeleteCandidateNote, apiGetCandidate, apiUpdateCandidateNote } from '../../lib/api';
+import { requestAlert, requestConfirm, requestError } from '../../lib/appDialog';
 import { formatDateTimeDMY } from '../../utils/dateDisplay';
 import type { MatchCandidate } from './types';
 
@@ -84,7 +85,7 @@ export default function ProfileDrawer({
     if (!candidate?.id) return;
     const text = noteText.trim();
     if (!text) {
-      window.alert('Please enter a remark before saving.');
+      await requestAlert('Please enter a remark before saving.', { tone: 'warning' });
       return;
     }
 
@@ -98,7 +99,7 @@ export default function ProfileDrawer({
       await refreshCandidateData();
       cancelEditNote();
     } catch (error: any) {
-      window.alert(error?.message || 'Failed to save remark.');
+      await requestError(error?.message || 'Failed to save remark.');
     } finally {
       setIsSavingNote(false);
     }
@@ -106,7 +107,15 @@ export default function ProfileDrawer({
 
   const handleDeleteNote = async (noteId: string) => {
     if (!candidate?.id) return;
-    if (!window.confirm('Delete this remark?')) return;
+    if (
+      !(await requestConfirm('Delete this remark?', {
+        tone: 'warning',
+        confirmLabel: 'Delete',
+        cancelLabel: 'Cancel',
+      }))
+    ) {
+      return;
+    }
 
     try {
       setIsSavingNote(true);
@@ -114,7 +123,7 @@ export default function ProfileDrawer({
       await refreshCandidateData();
       if (editingNoteId === noteId) cancelEditNote();
     } catch (error: any) {
-      window.alert(error?.message || 'Failed to delete remark.');
+      await requestError(error?.message || 'Failed to delete remark.');
     } finally {
       setIsSavingNote(false);
     }

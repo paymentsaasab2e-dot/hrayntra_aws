@@ -25,7 +25,7 @@ export function useClientPageFieldVisibility(): ClientPageFieldVisibility {
 
     const loadFromServer = async () => {
       try {
-        await syncOrgRecruitmentSummaryFromApi();
+        await syncOrgRecruitmentSummaryFromApi({ force: true });
         if (!cancelled) refresh();
       } catch {
         // Keep cached/local values when sync fails.

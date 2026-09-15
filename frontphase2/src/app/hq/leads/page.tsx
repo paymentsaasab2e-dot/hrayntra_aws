@@ -1014,7 +1014,7 @@ export default function HqLeadsPage() {
                   aria-pressed={createLeadMode === 'ai'}
                   onClick={() => {
                     if (leadAiGate.locked) {
-                      leadAiGate.confirmAndUnlock();
+                      void leadAiGate.confirmAndUnlock();
                       return;
                     }
                     setCreateLeadMode('ai');

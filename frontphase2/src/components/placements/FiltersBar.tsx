@@ -159,7 +159,7 @@ export function FiltersBar({
               onChange={(event) => onFilterChange({ companyId: event.target.value })}
               className={nativeSelectClass}
             >
-              <option value="">All Clients</option>
+              <option value="">All Recruitment Clients</option>
               {clientOptions.map((client) => (
                 <option key={client.id} value={client.id}>
                   {client.companyName}

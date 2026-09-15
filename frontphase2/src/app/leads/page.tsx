@@ -1499,7 +1499,7 @@ export default function RecruitmentAgencyDashboard() {
           'Lead converted. A client record was created — open the Clients page to view it.',
           {
             action: {
-              label: 'Open Clients',
+              label: 'Open CRM Clients',
               onClick: () => router.push('/client'),
             },
           }
@@ -1712,7 +1712,7 @@ export default function RecruitmentAgencyDashboard() {
             : `${newlyConvertedCount} leads were converted and added as clients.`,
           {
             action: {
-              label: 'Open Clients',
+              label: 'Open CRM Clients',
               onClick: () => router.push('/client'),
             },
           }
@@ -1971,7 +1971,7 @@ export default function RecruitmentAgencyDashboard() {
                   aria-pressed={createLeadMode === 'ai'}
                   onClick={() => {
                     if (leadAiGate.locked) {
-                      leadAiGate.confirmAndUnlock();
+                      void leadAiGate.confirmAndUnlock();
                       return;
                     }
                     setCreateLeadMode('ai');
@@ -2698,8 +2698,7 @@ export default function RecruitmentAgencyDashboard() {
           </div>
         </div>
 
-        {(selectedLead || addLeadDrawerOpen) && (
-          <LeadDetailsDrawer
+        <LeadDetailsDrawer
             lead={selectedLead ?? null}
             addLeadMode={addLeadDrawerOpen}
             initialOpenAiChat={addLeadWithAi}
@@ -2760,7 +2759,7 @@ export default function RecruitmentAgencyDashboard() {
                     'Lead converted. A client record was created — open the Clients page to view it.',
                     {
                       action: {
-                        label: 'Open Clients',
+                        label: 'Open CRM Clients',
                         onClick: () => router.push('/client'),
                       },
                     },
@@ -2800,7 +2799,6 @@ export default function RecruitmentAgencyDashboard() {
               }
             } : undefined}
           />
-        )}
         {canCreateLead && (
           <LeadImportDrawer
             isOpen={importDrawerOpen}

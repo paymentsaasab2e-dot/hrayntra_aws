@@ -16,7 +16,9 @@ import { assertCanCreateUser } from '../setting/planAccess.service.js';
 import {
   mergeOrgCompanyUserScope,
   resolveWriteOrgUnitId,
+  canViewCrossCompanyMembers,
 } from '../../services/orgListScope.service.js';
+import { assertValidReportsTo } from '../../services/assignmentRules.service.js';
 
 /**
  * Best-effort: register the new credential's email/loginId in the HQ directory
@@ -318,6 +320,24 @@ export const teamMemberService = {
       orgUnitId = await resolveWriteOrgUnitId(req);
     }
 
+    if (managerId) {
+      const allowCrossCompany = Boolean(req && canViewCrossCompanyMembers(req));
+      const manager = await prisma.user.findUnique({
+        where: { id: String(managerId) },
+        select: { id: true, orgUnitId: true },
+      });
+      if (!manager) throw new Error('Reports To manager not found');
+      if (!allowCrossCompany) {
+        const memberOrg = String(orgUnitId || '').trim();
+        const managerOrg = String(manager.orgUnitId || '').trim();
+        if (memberOrg && managerOrg && memberOrg !== managerOrg) {
+          throw new Error(
+            'Reports To must be in the same company unless you have cross-company authority',
+          );
+        }
+      }
+    }
+
     // Create user - passwordHash is required, use a placeholder if no credentials
     const user = await prisma.user.create({
       data: {
@@ -331,7 +351,7 @@ export const teamMemberService = {
         location,
         departmentId,
         roleId,
-        managerId,
+        managerId: managerId || null,
         status: status || 'ACTIVE',
         isActive: status !== 'INACTIVE',
         passwordHash: 'PLACEHOLDER', // Will be set if credentials generated, or user can set later
@@ -421,7 +441,7 @@ export const teamMemberService = {
     };
   },
 
-  async update(id, data) {
+  async update(id, data, req = null) {
     const {
       firstName,
       lastName,
@@ -450,9 +470,15 @@ export const teamMemberService = {
     }
 
     const existingMember =
-      roleId !== undefined
-        ? await prisma.user.findUnique({ where: { id }, select: { roleId: true } })
+      roleId !== undefined || managerId !== undefined
+        ? await prisma.user.findUnique({ where: { id }, select: { roleId: true, orgUnitId: true } })
         : null;
+
+    if (managerId !== undefined && managerId) {
+      await assertValidReportsTo(id, managerId, {
+        allowCrossCompany: Boolean(req && canViewCrossCompanyMembers(req)),
+      });
+    }
 
     const updateData = {};
     if (firstName !== undefined) updateData.firstName = firstName;
@@ -466,7 +492,7 @@ export const teamMemberService = {
     if (location !== undefined) updateData.location = location;
     if (departmentId !== undefined) updateData.departmentId = departmentId;
     if (roleId !== undefined) updateData.roleId = roleId;
-    if (managerId !== undefined) updateData.managerId = managerId;
+    if (managerId !== undefined) updateData.managerId = managerId || null;
     if (status !== undefined) {
       updateData.status = status;
       updateData.isActive = status !== 'INACTIVE';

@@ -26,7 +26,10 @@ type DialogRequest = {
   cancelLabel?: string;
   placement: AppDialogPlacement;
   autoCloseMs?: number;
+  defaultValue?: string;
+  inputPlaceholder?: string;
   resolve: (result: boolean) => void;
+  resolvePrompt?: (value: string | null) => void;
 };
 
 const TONE_STYLES: Record<
@@ -84,7 +87,10 @@ function toDialogRequest(detail: AppDialogRequestDetail): DialogRequest {
     cancelLabel: detail.cancelLabel,
     placement: detail.placement || 'modal',
     autoCloseMs: detail.autoCloseMs,
+    defaultValue: detail.defaultValue,
+    inputPlaceholder: detail.inputPlaceholder,
     resolve: detail.resolve,
+    resolvePrompt: detail.resolvePrompt,
   };
 }
 
@@ -112,29 +118,41 @@ export function GlobalAlertHost() {
   const flushQueues = useCallback(() => {
     setCornerQueue((prev) => {
       if (!prev.length) return prev;
-      prev.forEach((item) => item.resolve(false));
+      prev.forEach((item) => {
+        item.resolvePrompt?.(null);
+        item.resolve(false);
+      });
       return [];
     });
     setModalQueue((prev) => {
       if (!prev.length) return prev;
-      prev.forEach((item) => item.resolve(false));
+      prev.forEach((item) => {
+        item.resolvePrompt?.(null);
+        item.resolve(false);
+      });
       return [];
     });
   }, []);
 
-  const closeCorner = useCallback((result: boolean) => {
+  const closeCorner = useCallback((result: boolean, promptValue?: string | null) => {
     setCornerQueue((prev) => {
       if (prev.length === 0) return prev;
       const [head, ...rest] = prev;
+      if (head.kind === 'prompt') {
+        head.resolvePrompt?.(result ? String(promptValue ?? '') : null);
+      }
       head.resolve(result);
       return rest;
     });
   }, []);
 
-  const closeModal = useCallback((result: boolean) => {
+  const closeModal = useCallback((result: boolean, promptValue?: string | null) => {
     setModalQueue((prev) => {
       if (prev.length === 0) return prev;
       const [head, ...rest] = prev;
+      if (head.kind === 'prompt') {
+        head.resolvePrompt?.(result ? String(promptValue ?? '') : null);
+      }
       head.resolve(result);
       return rest;
     });
@@ -153,6 +171,7 @@ export function GlobalAlertHost() {
       const detail = customEvent.detail;
       if (!detail) return;
       if (isEmployerPublicAuthPath(window.location.pathname)) {
+        detail.resolvePrompt?.(null);
         detail.resolve(false);
         return;
       }
@@ -216,14 +235,20 @@ function ModalDialogCard({
 }: {
   request: DialogRequest;
   remaining: number;
-  onClose: (result: boolean) => void;
+  onClose: (result: boolean, promptValue?: string | null) => void;
 }) {
-  const isConfirm = request.kind === 'confirm';
+  const isConfirm = request.kind === 'confirm' || request.kind === 'prompt';
+  const isPrompt = request.kind === 'prompt';
   const style = TONE_STYLES[request.tone || 'info'];
   const Icon = ICON_MAP[request.tone || 'info'];
   const title = request.title || (isConfirm ? SYSTEM_ALERT_TITLE : style.title);
   const confirmLabel = request.confirmLabel || (isConfirm ? 'Confirm' : 'OK');
   const cancelLabel = request.cancelLabel || 'Dismiss';
+  const [promptValue, setPromptValue] = useState(String(request.defaultValue || ''));
+
+  useEffect(() => {
+    setPromptValue(String(request.defaultValue || ''));
+  }, [request.defaultValue, request.message, request.kind]);
 
   return (
     <div className="fixed inset-0 z-[10050] flex items-center justify-center bg-slate-900/40 p-4">
@@ -235,6 +260,22 @@ function ModalDialogCard({
           <div className="min-w-0 flex-1">
             <h3 className="text-base font-semibold text-slate-900">{title}</h3>
             <p className="mt-2 whitespace-pre-wrap text-sm text-slate-600">{request.message}</p>
+            {isPrompt ? (
+              <input
+                autoFocus
+                type="text"
+                value={promptValue}
+                placeholder={request.inputPlaceholder || ''}
+                onChange={(e) => setPromptValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    onClose(true, promptValue);
+                  }
+                }}
+                className="mt-3 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none ring-blue-100 focus:border-blue-400 focus:ring-2"
+              />
+            ) : null}
             {remaining > 0 ? (
               <p className="mt-2 text-[11px] font-medium text-slate-400">
                 {remaining} more dialog{remaining === 1 ? '' : 's'} waiting
@@ -246,7 +287,7 @@ function ModalDialogCard({
           {isConfirm && (
             <button
               type="button"
-              onClick={() => onClose(false)}
+              onClick={() => onClose(false, null)}
               className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
             >
               {cancelLabel}
@@ -254,7 +295,7 @@ function ModalDialogCard({
           )}
           <button
             type="button"
-            onClick={() => onClose(true)}
+            onClick={() => onClose(true, isPrompt ? promptValue : undefined)}
             className={`rounded-xl px-4 py-2 text-sm font-semibold text-white transition-colors ${style.button}`}
           >
             {confirmLabel}

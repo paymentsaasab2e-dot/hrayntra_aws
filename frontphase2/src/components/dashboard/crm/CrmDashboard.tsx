@@ -27,7 +27,6 @@ import { PeoplePerfPanel } from '@/components/dashboard/people-perf/PeoplePerfPa
 import { crmTextFont, dashFontVars } from './crmStatNumber';
 import { useDashboardAccess } from '@/lib/dashboard/useDashboardAccess';
 import {
-  isCrmOverviewCacheFresh,
   readCrmOverviewCache,
   writeCrmOverviewCache,
 } from '@/lib/employerPageCache';
@@ -209,12 +208,16 @@ function CrmDashboardInner() {
     const id = window.setInterval(() => {
       const query =
         category === 'mine' ? { ...filters, scope: 'self' as const, assignedTo: undefined } : filters;
-      const cacheFilters = { ...query, category } as Record<string, string | undefined | null>;
-      if (isCrmOverviewCacheFresh(readCrmOverviewCache(cacheFilters))) return;
+      // Always refresh live — do not skip when session cache is still "fresh".
       void apiCrmDashboardOverview(query)
         .then((data) => {
           setOverview(data);
-          if (data) writeCrmOverviewCache(data as Record<string, unknown>, cacheFilters);
+          if (data) {
+            writeCrmOverviewCache(data as Record<string, unknown>, {
+              ...query,
+              category,
+            } as Record<string, string | undefined | null>);
+          }
         })
         .catch(() => undefined);
     }, POLL_MS);
@@ -238,6 +241,7 @@ function CrmDashboardInner() {
 
       {category !== 'mine' ? (
         <DashScopeBanner
+          product="crm"
           access={{
             dashboardLevel: access.dashboardLevel,
             statsScope: access.canFullStats ? 'full' : 'self',
@@ -270,7 +274,7 @@ function CrmDashboardInner() {
       ) : null}
 
       {category === 'team' && access.crmTabs.team && !hiddenSections.has('team') ? (
-        <CrmTeamIntelligence overview={overview} />
+        <CrmTeamIntelligence overview={overview} loading={loading} />
       ) : null}
       {category === 'people' && access.crmTabs.people && !hiddenSections.has('people') ? (
         <PeoplePerfPanel product="crm" />

@@ -222,17 +222,38 @@ const MAX_JOB_CV_FILE_BYTES = 25 * 1024 * 1024;
 function identityFromParsedCv(parsed: ImportedProfileData, file: File) {
   let firstName = String(parsed.firstName || '').trim();
   let lastName = String(parsed.lastName || '').trim();
-  if (!firstName || !lastName) {
+  const looksLikePersonName = (value: string) => {
+    const cleaned = String(value || '').replace(/\s+/g, ' ').trim();
+    if (!cleaned || /[@\d]/.test(cleaned)) return false;
+    if (
+      /\b(?:copy\s*\d*|certificate|certificates|obtained|curriculum|vitae|resume|cv|manager|operations|school|university|college|lusaka|zambia)\b/i.test(
+        cleaned,
+      )
+    ) {
+      return false;
+    }
+    const parts = cleaned.split(' ').filter(Boolean);
+    if (parts.length < 2 || parts.length > 4) return false;
+    return parts.every((part) => /^[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ.'-]*$/.test(part));
+  };
+  const full = [firstName, lastName].filter(Boolean).join(' ').trim();
+  if (!firstName || !lastName || !looksLikePersonName(full)) {
     const base = String(file.name || '')
       .replace(/\.[^.]+$/, '')
       .replace(/^[0-9_,\-\s]+/, '')
-      .replace(/(^|\s)(cv|resume)\b/gi, ' ')
+      .replace(/\bcopy\s*\d*\b/gi, ' ')
+      .replace(/(^|\s)(cv|resume|curriculum|vitae|certificate|certificates|obtained)\b/gi, ' ')
       .replace(/[_,\-]+/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
     const tokens = base.split(' ').filter(Boolean);
-    if (!firstName) firstName = tokens.shift() || 'Unknown';
-    if (!lastName) lastName = tokens.join(' ') || 'Candidate';
+    if (looksLikePersonName(tokens.join(' '))) {
+      firstName = tokens[0] || 'Unknown';
+      lastName = tokens.slice(1).join(' ') || 'Candidate';
+    } else {
+      firstName = 'Unknown';
+      lastName = 'Candidate';
+    }
   }
   const email =
     normalizeCandidateEmailInput(parsed.email, { firstName, lastName }) || null;
@@ -1038,10 +1059,15 @@ function JobDrawerAiMatchesTab({
           <Loader2 className="size-5 animate-spin text-indigo-600" />
           {aiPipelineRunning ? 'Running AI matching pipeline…' : 'Loading matches…'}
         </div>
-      ) : sortedAiMatchCandidates.length === 0 ? (
+      ) : aiMatchCandidates.length === 0 ? (
         <div className="py-12 text-center">
           <Sparkles size={32} className="mx-auto mb-3 text-indigo-200" />
           <p className="text-sm text-slate-500">No AI matches yet. Run the pipeline to score candidates.</p>
+        </div>
+      ) : sortedAiMatchCandidates.length === 0 ? (
+        <div className="py-12 text-center">
+          <Search size={28} className="mx-auto mb-3 text-slate-300" />
+          <p className="text-sm text-slate-500">No AI matches match your search.</p>
         </div>
       ) : (
         <>
@@ -1209,6 +1235,7 @@ export function JobDetailsDrawer({
   );
   const [candidatesPage, setCandidatesPage] = useState(1);
   const [candidatesPageSize, setCandidatesPageSize] = useState<TablePageSize>(10);
+  const [jobCandidatesSearch, setJobCandidatesSearch] = useState('');
   const prevCandidatesTabJobIdRef = useRef<string | null>(null);
   const wasOnCandidatesTabRef = useRef(false);
   const [showMatchScores, setShowMatchScores] = useState(false);
@@ -1446,25 +1473,48 @@ export function JobDetailsDrawer({
     [displayJobCandidates, job?.id, job?.title],
   );
 
+  const filteredJobTableCandidates = useMemo(() => {
+    const query = jobCandidatesSearch.trim().toLowerCase();
+    if (!query) return jobTableCandidates;
+    return jobTableCandidates.filter((row) => {
+      const haystack = [
+        row.name,
+        row.email,
+        row.designation,
+        row.company,
+        row.location,
+        row.stage,
+        ...(Array.isArray(row.assignedJobs) ? row.assignedJobs : []),
+      ]
+        .map((value) => String(value || '').toLowerCase())
+        .join(' ');
+      return haystack.includes(query);
+    });
+  }, [jobTableCandidates, jobCandidatesSearch]);
+
   const candidatesTotalPages = Math.max(
     1,
-    Math.ceil(jobTableCandidates.length / candidatesPageSize),
+    Math.ceil(filteredJobTableCandidates.length / candidatesPageSize),
   );
   const safeCandidatesPage = Math.min(Math.max(candidatesPage, 1), candidatesTotalPages);
   const pagedJobTableCandidates = useMemo(() => {
     const start = (safeCandidatesPage - 1) * candidatesPageSize;
-    return jobTableCandidates.slice(start, start + candidatesPageSize);
-  }, [jobTableCandidates, safeCandidatesPage, candidatesPageSize]);
+    return filteredJobTableCandidates.slice(start, start + candidatesPageSize);
+  }, [filteredJobTableCandidates, safeCandidatesPage, candidatesPageSize]);
 
   useEffect(() => {
     setCandidatesPage(1);
-  }, [job?.id, candidatesPageSize]);
+  }, [job?.id, candidatesPageSize, jobCandidatesSearch]);
 
   useEffect(() => {
     if (candidatesPage > candidatesTotalPages) {
       setCandidatesPage(candidatesTotalPages);
     }
   }, [candidatesPage, candidatesTotalPages]);
+
+  useEffect(() => {
+    setJobCandidatesSearch('');
+  }, [job?.id, isOpen]);
 
   const pipelineJobOptions = useMemo((): CandidatePipelineJobOption[] => {
     if (!job?.id) return [];
@@ -1562,15 +1612,22 @@ export function JobDetailsDrawer({
     }
     setSubmitCandidatePickerOpen(false);
     openBulkSubmit(
-      rows.map((row) => ({
-        candidateId: row.id,
-        jobId: job.id,
-        candidateName: row.candidateName,
-        jobTitle: job.title,
-        clientId: job.clientId ?? undefined,
-        matchScore: parseJobCandidateScore(row.score),
-        cvShareMode: pickerCvModeById[row.id],
-      })),
+      Array.from(
+        new Map(
+          rows.map((row) => [
+            row.id,
+            {
+              candidateId: row.id,
+              jobId: job.id,
+              candidateName: row.candidateName,
+              jobTitle: job.title,
+              clientId: job.clientId ?? undefined,
+              matchScore: parseJobCandidateScore(row.score),
+              cvShareMode: pickerCvModeById[row.id],
+            },
+          ]),
+        ).values(),
+      ),
     );
     setSelectedCandidateIds([]);
     setPickerSelectedIds([]);
@@ -2171,8 +2228,27 @@ export function JobDetailsDrawer({
     [aiMatchCandidates],
   );
 
-  const aiTierStats = useMemo(() => computeAiTierStats(aiMatchCandidates), [aiMatchCandidates]);
+  const filteredSortedAiMatchCandidates = useMemo(() => {
+    const query = jobCandidatesSearch.trim().toLowerCase();
+    if (!query) return sortedAiMatchCandidates;
+    return sortedAiMatchCandidates.filter((row) => {
+      const haystack = [
+        row.name,
+        row.email,
+        row.currentTitle,
+        row.currentCompany,
+        row.location,
+      ]
+        .map((value) => String(value || '').toLowerCase())
+        .join(' ');
+      return haystack.includes(query);
+    });
+  }, [sortedAiMatchCandidates, jobCandidatesSearch]);
 
+  const aiTierStats = useMemo(
+    () => computeAiTierStats(filteredSortedAiMatchCandidates),
+    [filteredSortedAiMatchCandidates],
+  );
   useEffect(() => {
     if (!isOpen || !job?.id) {
       prevAiTabJobIdRef.current = null;
@@ -2757,12 +2833,12 @@ export function JobDetailsDrawer({
     });
   }, [pipelineStages, jobCandidates]);
 
-  if (!isOpen) return null;
-
   return (
     <>
     <AnimatePresence>
+      {isOpen ? (
       <DetailsModalShell
+        key="job-detail-drawer"
         panelRef={jobDrawerPanelRef}
         onBackdropClick={() => void requestJobDrawerClose()}
         size="lg"
@@ -3067,43 +3143,69 @@ export function JobDetailsDrawer({
 
               {activeTab === 'candidates' && (
                 <div className="space-y-4">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                     <JobCandidateMatchModeToggle
                       mode={candidateMatchMode}
                       onChange={setCandidateMatchMode}
                     />
-                    {candidateMatchMode === 'applied' && canAddCandidate && job?.id ? (
-                      <>
-                        <input
-                          ref={fileInputRef}
-                          type="file"
-                          accept={BULK_CV_ACCEPT_INPUT}
-                          multiple
-                          className="hidden"
-                          onChange={(event) => {
-                            void handleJobCvFileSelected(event.target.files);
-                          }}
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+                      <div className="relative min-w-0 flex-1 sm:w-64 sm:flex-none">
+                        <Search
+                          size={15}
+                          className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
                         />
-                        <button
-                          type="button"
-                          onClick={() => fileInputRef.current?.click()}
-                          disabled={uploadingJobCv}
-                          className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-white px-4 py-2 text-sm font-semibold text-indigo-700 shadow-sm transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60"
-                          title={`Upload one or more CVs (${BULK_CV_FORMAT_LABEL}) to create candidates for this job`}
-                        >
-                          {uploadingJobCv ? (
-                            <Loader2 size={16} className="animate-spin" strokeWidth={2.25} />
-                          ) : (
-                            <Upload size={16} strokeWidth={2.25} />
-                          )}
-                          {uploadingJobCv
-                            ? jobCvUploadProgress
-                              ? `Creating ${jobCvUploadProgress.done}/${jobCvUploadProgress.total}…`
-                              : 'Creating candidates…'
-                            : 'Upload CV'}
-                        </button>
-                      </>
-                    ) : null}
+                        <input
+                          type="search"
+                          value={jobCandidatesSearch}
+                          onChange={(event) => setJobCandidatesSearch(event.target.value)}
+                          placeholder="Search candidates…"
+                          className="h-10 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-9 text-sm text-slate-800 placeholder:text-slate-400 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/20"
+                          aria-label="Search candidates on this job"
+                        />
+                        {jobCandidatesSearch.trim() ? (
+                          <button
+                            type="button"
+                            onClick={() => setJobCandidatesSearch('')}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                            aria-label="Clear candidate search"
+                          >
+                            <X size={14} />
+                          </button>
+                        ) : null}
+                      </div>
+                      {candidateMatchMode === 'applied' && canAddCandidate && job?.id ? (
+                        <>
+                          <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept={BULK_CV_ACCEPT_INPUT}
+                            multiple
+                            className="hidden"
+                            onChange={(event) => {
+                              void handleJobCvFileSelected(event.target.files);
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => fileInputRef.current?.click()}
+                            disabled={uploadingJobCv}
+                            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-white px-4 py-2 text-sm font-semibold text-indigo-700 shadow-sm transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60"
+                            title={`Upload one or more CVs (${BULK_CV_FORMAT_LABEL}) to create candidates for this job`}
+                          >
+                            {uploadingJobCv ? (
+                              <Loader2 size={16} className="animate-spin" strokeWidth={2.25} />
+                            ) : (
+                              <Upload size={16} strokeWidth={2.25} />
+                            )}
+                            {uploadingJobCv
+                              ? jobCvUploadProgress
+                                ? `Creating ${jobCvUploadProgress.done}/${jobCvUploadProgress.total}…`
+                                : 'Creating candidates…'
+                              : 'Upload CV'}
+                          </button>
+                        </>
+                      ) : null}
+                    </div>
                   </div>
 
                   {candidateMatchMode === 'applied' ? (
@@ -3195,6 +3297,20 @@ export function JobDetailsDrawer({
                         </button>
                       ) : null}
                     </div>
+                  ) : filteredJobTableCandidates.length === 0 ? (
+                    <div className="p-8 text-center">
+                      <Search size={28} className="mx-auto mb-3 text-slate-300" />
+                      <p className="text-sm text-slate-500">
+                        No candidates match “{jobCandidatesSearch.trim()}”.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setJobCandidatesSearch('')}
+                        className="mt-3 text-sm font-semibold text-indigo-600 hover:text-indigo-700"
+                      >
+                        Clear search
+                      </button>
+                    </div>
                   ) : (
                     <>
                     <CandidateTable
@@ -3241,7 +3357,7 @@ export function JobDetailsDrawer({
                       <PaginationAll
                         initialPage={safeCandidatesPage}
                         totalPages={candidatesTotalPages}
-                        totalCount={jobTableCandidates.length}
+                        totalCount={filteredJobTableCandidates.length}
                         pageSize={candidatesPageSize}
                         pageSizeOptions={[...TABLE_PAGE_SIZE_OPTIONS]}
                         onPageSizeChange={(n) => {
@@ -3260,7 +3376,7 @@ export function JobDetailsDrawer({
                 <JobDrawerAiMatchesTab
                   job={job}
                   aiMatchCandidates={aiMatchCandidates}
-                  sortedAiMatchCandidates={sortedAiMatchCandidates}
+                  sortedAiMatchCandidates={filteredSortedAiMatchCandidates}
                   aiTierStats={aiTierStats}
                   aiMatchesLoading={aiMatchesLoading}
                   aiPipelineRunning={aiPipelineRunning}
@@ -3278,9 +3394,9 @@ export function JobDetailsDrawer({
                   }
                   onToggleSelectAll={() =>
                     setAiMatchSelectedIds((prev) =>
-                      prev.length === sortedAiMatchCandidates.length
+                      prev.length === filteredSortedAiMatchCandidates.length
                         ? []
-                        : sortedAiMatchCandidates.map((row) => row.id),
+                        : filteredSortedAiMatchCandidates.map((row) => row.id),
                     )
                   }
                   onToggleSave={(candidateId) => {
@@ -3437,8 +3553,13 @@ export function JobDetailsDrawer({
                             <button
                               type="button"
                               onClick={async () => {
-                                const ok = window.confirm(
-                                  'Reset this job\'s pipeline to the organization default template? This wipes the current stages and any candidates already on them.'
+                                const ok = await requestConfirm(
+                                  'Reset this job\'s pipeline to the organization default template? This wipes the current stages and any candidates already on them.',
+                                  {
+                                    tone: 'warning',
+                                    confirmLabel: 'Reset pipeline',
+                                    cancelLabel: 'Cancel',
+                                  }
                                 );
                                 if (!ok) return;
                                 try {
@@ -4272,6 +4393,7 @@ export function JobDetailsDrawer({
           </div>
         )}
       </DetailsModalShell>
+      ) : null}
     </AnimatePresence>
 
     <AddToPipelineModal

@@ -28,6 +28,9 @@ const SKIP_PREFIXES = [
   '/reset-password',
   '/apply',
   '/client-review',
+  '/interview-rsvp',
+  '/lead-form',
+  '/session-transfer',
 ];
 
 function isSkippedPath(path: string) {

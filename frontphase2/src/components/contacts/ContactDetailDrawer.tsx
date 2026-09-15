@@ -18,6 +18,7 @@ import { extractAuditMeta } from '../../utils/auditMeta';
 import { EntityAuditSummary } from '../table/TableAuditCell';
 import { DrawerEntityChatTab } from '../drawers/DrawerEntityChatTab';
 import { DrawerLinkActions } from '../drawers/DrawerLinkActions';
+import { requestAlert } from '../../lib/appDialog';
 
 interface ContactDetailDrawerProps {
   contact: BackendContact | null;
@@ -36,7 +37,7 @@ export function ContactDetailDrawer({ contact, isOpen, onClose, onEdit, onDelete
   const openWhatsApp = () => {
     const rawPhone = contact.phone?.replace(/[^\d+]/g, '').trim();
     if (!rawPhone) {
-      window.alert('No phone number is available for this contact.');
+      void requestAlert('No phone number is available for this contact.', { tone: 'warning' });
       return;
     }
 

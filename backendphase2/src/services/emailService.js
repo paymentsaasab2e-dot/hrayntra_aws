@@ -39,8 +39,15 @@ function buildInterviewExtraDetails(payload, { includeCandidate = false } = {}) 
     platformLabel,
     location,
     phoneNumber,
+    meetingLink,
     notes,
   } = payload;
+
+  const link = String(meetingLink || '').trim();
+  const meetingLinkHtml =
+    link && /^https?:\/\//i.test(link)
+      ? `<p><strong>Meeting Link:</strong> <a href="${link}" style="color:#2563eb; word-break:break-all;">${link}</a></p>`
+      : '';
 
   return [
     includeCandidate && candidateName ? `<p><strong>Candidate:</strong> ${candidateName}</p>` : '',
@@ -50,6 +57,7 @@ function buildInterviewExtraDetails(payload, { includeCandidate = false } = {}) 
     modeLabel
       ? `<p><strong>Mode:</strong> ${modeLabel}${platformLabel ? ` (${platformLabel})` : ''}</p>`
       : '',
+    meetingLinkHtml,
     location ? `<p><strong>Location:</strong> ${location}</p>` : '',
     phoneNumber ? `<p><strong>Phone Number:</strong> ${phoneNumber}</p>` : '',
     notes ? `<p><strong>Additional Notes:</strong> ${notes}</p>` : '',

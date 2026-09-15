@@ -49,7 +49,7 @@ export const CRM_CATEGORY_TABS: Array<{
   {
     id: 'team',
     label: 'Team & outreach',
-    blurb: 'Team stats, recruiter performance & outreach activity',
+    blurb: 'Team stats, CRM owner performance & outreach activity',
   },
   {
     id: 'people',

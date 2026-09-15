@@ -99,7 +99,7 @@ export function RecruitmentWorkflowSettings() {
       const saved = res.data?.clientPageFieldVisibility ?? draftClientPageFields;
       setClientPageFields(saved);
       setDraftClientPageFields(saved);
-      await syncOrgRecruitmentSummaryFromApi();
+      await syncOrgRecruitmentSummaryFromApi({ force: true });
       toast.success('Client page field visibility saved');
     } catch (e: any) {
       toast.error(e?.message || 'Failed to save client page fields');
@@ -184,7 +184,7 @@ export function RecruitmentWorkflowSettings() {
       const res = await apiSetOrgDefaultCurrency(code);
       const next = String(res.data?.code || code).trim().toUpperCase();
       setCurrency(next);
-      await syncOrgRecruitmentSummaryFromApi();
+      await syncOrgRecruitmentSummaryFromApi({ force: true });
       toast.success(`Default currency set to ${next}`);
     } catch (e: any) {
       toast.error(e?.message || 'Failed to save currency');

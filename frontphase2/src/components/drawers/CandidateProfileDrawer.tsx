@@ -30,7 +30,7 @@ import { EntityAuditSummary } from '../table/TableAuditCell';
 import { DrawerEntityChatTab } from './DrawerEntityChatTab';
 import { DrawerSectionCard, DRAWER_FORM_SCROLL_BG } from './drawerFormUi';
 import { extractAuditMeta } from '../../utils/auditMeta';
-import { requestSuccess } from '../../lib/appDialog';
+import { requestConfirm, requestError, requestSuccess } from '../../lib/appDialog';
 import { orEmpty, startAsyncLoad } from '../../lib/asyncLoadGuard';
 import {
   ArrowRightCircle,
@@ -94,7 +94,6 @@ import { extractApiData } from '../../lib/mapCandidateProfile';
 import { getAllTeamMembersForAssign, getLineManagersForJobPicker, teamMembersToBackendUsers } from '../../lib/api/teamApi';
 import { getActiveOrgUnitId } from '../../lib/org/orgWorkspaceStorage';
 import { toast } from 'sonner';
-import { requestError } from '../../lib/appDialog';
 import { parseClientsListFromResponse, parseJobsListFromResponse } from '../../lib/parseApiList';
 import {
   clampDateToMinLocal,
@@ -3309,10 +3308,10 @@ export function AddToPipelineModal({
   const handleRemoveFromPipeline = async () => {
     if (!candidate || !selectedJobId || !onRemoveFromPipeline) return;
     const jobTitle = existingEntryForSelectedJob?.title || selectedJob?.title || 'this job';
-    const confirmed =
-      typeof window === 'undefined'
-        ? true
-        : window.confirm(`Remove this candidate from the pipeline for ${jobTitle}?`);
+    const confirmed = await requestConfirm(
+      `Remove this candidate from the pipeline for ${jobTitle}?`,
+      { tone: 'warning', confirmLabel: 'Remove', cancelLabel: 'Cancel' }
+    );
     if (!confirmed) return;
 
     try {

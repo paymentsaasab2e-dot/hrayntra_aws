@@ -196,8 +196,8 @@ export async function getCoinsOverview() {
   const { coins, planName } = await getTenantCoinBalance();
   let features = [];
   try {
-    // Fresh HQ costs so Phase 2 badges match the latest Save coin costs.
-    features = await hqAiFeaturesService.listFeatures({ bypassCache: true });
+    // Use cached HQ costs (TTL inside hqAiFeaturesService) — bypass was making every shell poll slow.
+    features = await hqAiFeaturesService.listFeatures({ bypassCache: false });
   } catch (err) {
     console.warn('[coins] failed to load HQ AI feature costs:', err?.message || err);
     features = listAiFeaturesWithLockState(coins);

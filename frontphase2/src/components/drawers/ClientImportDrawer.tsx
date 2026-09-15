@@ -312,7 +312,9 @@ export function ClientImportDrawer({
         className="fixed right-0 top-0 h-full w-3/4 max-w-6xl bg-white shadow-2xl z-50 pointer-events-auto border-l border-slate-200 flex flex-col"
       >
         <motion.div className="shrink-0 border-b border-slate-200 p-5 flex items-center justify-between">
-          <h2 className="text-lg font-bold text-slate-900">Import Clients</h2>
+          <h2 className="text-lg font-bold text-slate-900">
+            {recruitmentEnabled ? 'Import Recruitment Clients' : 'Import CRM Clients'}
+          </h2>
           <button
             type="button"
             onClick={handleClose}
@@ -463,7 +465,8 @@ export function ClientImportDrawer({
                 {isCheckingDuplicates ? (
                   <div className="flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
                     <Loader2 size={16} className="animate-spin" />
-                    Comparing imported clients with existing CRM clients...
+                    Comparing imported clients with existing{' '}
+                    {recruitmentEnabled ? 'recruitment' : 'CRM'} clients...
                   </div>
                 ) : (duplicateCheckResult?.duplicateCount ?? 0) > 0 ? (
                   <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
@@ -513,7 +516,7 @@ export function ClientImportDrawer({
           step={step}
           isImporting={isImporting}
           importPercent={importProgress.percent}
-          importButtonLabel="Import Clients"
+          importButtonLabel={recruitmentEnabled ? 'Import Recruitment Clients' : 'Import CRM Clients'}
           importProgressLabel="Importing clients into CRM…"
           continueDisabled={
             isCheckingDuplicates ||

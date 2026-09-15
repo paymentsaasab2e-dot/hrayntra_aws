@@ -1,19 +1,9 @@
-import { Inter, Plus_Jakarta_Sans } from 'next/font/google';
+/**
+ * Dashboard typefaces without next/font/google.
+ * Google Fonts downloads fail offline / behind firewalls and spam Turbopack warnings.
+ * Keep the same CSS variable names (--font-crm-num / --font-crm-text) used by globals.css.
+ */
 
-export const dashNumSans = Inter({
-  subsets: ['latin'],
-  display: 'swap',
-  weight: ['500', '600', '700'],
-  variable: '--font-crm-num',
-});
-
-export const dashTextSans = Plus_Jakarta_Sans({
-  subsets: ['latin'],
-  display: 'swap',
-  weight: ['400', '500', '600', '700'],
-  variable: '--font-crm-text',
-});
-
-export const dashFontVars = `${dashNumSans.variable} ${dashTextSans.variable}`;
-export const dashNumFont = dashNumSans.className;
-export const dashTextFont = dashTextSans.className;
+export const dashFontVars = 'dash-crm-font-vars';
+export const dashNumFont = 'dash-crm-num-font';
+export const dashTextFont = 'dash-crm-text-font';

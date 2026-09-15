@@ -39,8 +39,25 @@ const AI_CACHE = {
   jobsApi: new Map(),
 };
 const PRE_FILTER_LIMIT = 50;
-const AI_TOP_LIMIT = 5;
+/** Deterministic top-N always considered for AI enrichment. */
+const AI_TOP_LIMIT = Number(process.env.PHASE1_AI_TOP_LIMIT || 25);
+/** Also include jobs posted within this many days in the AI pool. */
+const AI_RECENT_DAYS = Number(process.env.PHASE1_AI_RECENT_DAYS || 7);
+/** Cap AI pool size after merging top-N + recent. */
+const AI_POOL_MAX = Number(process.env.PHASE1_AI_POOL_MAX || 30);
 const MIN_VISIBLE_SCORE = 20;
+/** Rule / AI blend for Match Accuracy. */
+const RULE_WEIGHT = Number(process.env.PHASE1_RULE_WEIGHT || 0.7);
+const AI_WEIGHT = Number(process.env.PHASE1_AI_WEIGHT || 0.3);
+/** Ranking blend: Match Accuracy vs Freshness. */
+const RANK_MATCH_WEIGHT = Number(process.env.PHASE1_RANK_MATCH_WEIGHT || 0.85);
+const RANK_FRESHNESS_WEIGHT = Number(process.env.PHASE1_RANK_FRESHNESS_WEIGHT || 0.15);
+/** Freshness half-life style decay: freshness = 100 * exp(-ageDays / tau). */
+const FRESHNESS_TAU_DAYS = Number(process.env.PHASE1_FRESHNESS_TAU_DAYS || 30);
+/** Below this match accuracy, freshness must not promote the job. */
+const RELEVANCE_FLOOR = Number(process.env.PHASE1_RELEVANCE_FLOOR || 55);
+/** Cap Match Accuracy when zero required skills match (hard miss). */
+const HARD_SKILL_MISS_CAP = Number(process.env.PHASE1_HARD_SKILL_MISS_CAP || 45);
 const SYSTEM_PROMPT = `
 You are an expert AI hiring engine.
 
@@ -74,19 +91,22 @@ From job:
 
 ----------------------------------------
 
-STEP 2: SCORING
+STEP 2: SCORING (each dimension 0-100 contribution before backend weights)
 
-1. Skills Match (0-40)
-2. Experience Relevance (0-25)
-3. Responsibilities Match (0-20)
-4. Industry Alignment (0-10)
-5. Location (0-5)
+1. Skills Match (0-100)
+2. Experience Relevance (0-100)
+3. Responsibilities Match (0-100)
+4. Role Alignment (0-100)
+5. Industry Alignment (0-100)
+6. Location / Work Mode (0-100)
+7. Education (0-100)
 
 ----------------------------------------
 
 STEP 3: FINAL SCORE
 
-finalScore = sum of all
+finalScore = weighted average of dimensions above, clamped 0-100
+Do NOT invent mandatory skills that are not in the job.
 
 ----------------------------------------
 
@@ -259,10 +279,14 @@ function computeMatchedSkills(candidateSkills, requiredSkills) {
   const normalizedCandidateSkills = sanitizeSkillList(candidateSkills);
   const normalizedRequiredSkills = sanitizeSkillList(requiredSkills);
   const matched = normalizedRequiredSkills.filter((jobSkill) =>
-    normalizedCandidateSkills.some((candidateSkill) => isSkillMatch(candidateSkill, jobSkill))
+    normalizedCandidateSkills.some(
+      (candidateSkill) => isSkillMatch(candidateSkill, jobSkill) || fuzzySkillMatch(candidateSkill, jobSkill)
+    )
   );
   const missing = normalizedRequiredSkills.filter((jobSkill) =>
-    !normalizedCandidateSkills.some((candidateSkill) => isSkillMatch(candidateSkill, jobSkill))
+    !normalizedCandidateSkills.some(
+      (candidateSkill) => isSkillMatch(candidateSkill, jobSkill) || fuzzySkillMatch(candidateSkill, jobSkill)
+    )
   );
 
   return {
@@ -273,44 +297,68 @@ function computeMatchedSkills(candidateSkills, requiredSkills) {
 
 function calculateSkillsScore(candidateFeatures, jobFeatures) {
   const candidateSkills = sanitizeSkillList(candidateFeatures.skills || []);
-  const jobSkills = sanitizeSkillList(jobFeatures.requiredSkills || []);
+  const requiredSkills = sanitizeSkillList(jobFeatures.requiredSkills || []);
+  const preferredSkills = sanitizeSkillList(jobFeatures.preferredSkills || []).filter(
+    (skill) => !requiredSkills.some((required) => isSkillMatch(skill, required) || fuzzySkillMatch(skill, required))
+  );
 
-  if (!jobSkills.length) {
+  if (!requiredSkills.length && !preferredSkills.length) {
     return {
-      score: 0,
+      score: 20,
+      requiredScore: 15,
+      preferredScore: 5,
       matchedSkills: [],
       missingSkills: [],
+      matchedPreferredSkills: [],
       matchPercent: 0,
+      preferredMatchPercent: 0,
+      hardSkillMiss: false,
     };
   }
 
-  const { matchedSkills, missingSkills } = computeMatchedSkills(candidateSkills, jobSkills);
-  const matchPercent = jobSkills.length === 0
-    ? 0
-    : matchedSkills.length / jobSkills.length;
+  const requiredMatch = requiredSkills.length
+    ? computeMatchedSkills(candidateSkills, requiredSkills)
+    : { matchedSkills: [], missingSkills: [] };
+  const preferredMatch = preferredSkills.length
+    ? computeMatchedSkills(candidateSkills, preferredSkills)
+    : { matchedSkills: [], missingSkills: [] };
 
-  let score = 0;
-  if (matchPercent >= 0.7) score = 40;
-  else if (matchPercent >= 0.5) score = 30;
-  else if (matchPercent >= 0.3) score = 20;
-  else if (matchPercent > 0) score = 10;
-  else score = 0;
+  const requiredRatio = requiredSkills.length
+    ? requiredMatch.matchedSkills.length / requiredSkills.length
+    : 1;
+  const preferredRatio = preferredSkills.length
+    ? preferredMatch.matchedSkills.length / preferredSkills.length
+    : 1;
+
+  // Required skills drive up to 30 pts; preferred only add up to 5 (never penalize missing preferred).
+  const requiredScore = Math.round(30 * requiredRatio * 100) / 100;
+  const preferredScore = preferredSkills.length
+    ? Math.round(5 * preferredRatio * 100) / 100
+    : 5;
+  const hardSkillMiss = requiredSkills.length > 0 && requiredMatch.matchedSkills.length === 0;
 
   return {
-    score: Math.round(score * 100) / 100,
-    matchedSkills,
-    missingSkills,
-    matchPercent: Math.round(matchPercent * 100),
+    score: Math.round((requiredScore + preferredScore) * 100) / 100,
+    requiredScore,
+    preferredScore,
+    matchedSkills: requiredMatch.matchedSkills,
+    missingSkills: requiredMatch.missingSkills,
+    matchedPreferredSkills: preferredMatch.matchedSkills,
+    matchPercent: Math.round(requiredRatio * 100),
+    preferredMatchPercent: Math.round(preferredRatio * 100),
+    hardSkillMiss,
   };
 }
 
 function calculateRoleScore(candidateFeatures, jobFeatures) {
   const candidateRoles = new Set(candidateFeatures.roleCategories || []);
-  const jobRoles = (jobFeatures.roleCategories || []).slice(0, 2);
+  const jobRoles = (jobFeatures.roleCategories || []).slice(0, 3);
+  const candidateTitle = String(candidateFeatures.currentTitle || '').toLowerCase();
+  const jobTitle = String(jobFeatures.title || '').toLowerCase();
 
   const exactMatches = jobRoles.filter((role) => candidateRoles.has(role));
-  if (exactMatches.length > 0) {
-    return { score: 20, matchedRoles: exactMatches, matchType: 'exact' };
+  if (exactMatches.length > 0 || (candidateTitle && jobTitle && (candidateTitle.includes(jobTitle) || jobTitle.includes(candidateTitle)))) {
+    return { score: 15, matchedRoles: exactMatches, matchType: 'exact' };
   }
 
   const candidateRoleText = Array.from(candidateRoles).join(' ').toLowerCase();
@@ -321,13 +369,15 @@ function calculateRoleScore(candidateFeatures, jobFeatures) {
     (candidateRoles.has('Full Stack') && (jobRoles.includes('Frontend') || jobRoles.includes('Backend'))) ||
     (jobRoles.includes('Full Stack') && (candidateRoles.has('Frontend') || candidateRoles.has('Backend')));
   const sharedRoleToken = jobTokens.some((token) => candidateTokens.has(token));
-  const related = hasFullStackBridge || sharedRoleToken;
 
-  if (related) {
-    return { score: 12, matchedRoles: [], matchType: 'related' };
+  if (hasFullStackBridge) {
+    return { score: 11, matchedRoles: [], matchType: 'closely_related' };
+  }
+  if (sharedRoleToken) {
+    return { score: 7, matchedRoles: [], matchType: 'related' };
   }
 
-  return { score: 4, matchedRoles: [], matchType: 'none' };
+  return { score: 2, matchedRoles: [], matchType: 'none' };
 }
 
 function calculateExperienceScore(candidateFeatures, jobFeatures) {
@@ -338,46 +388,176 @@ function calculateExperienceScore(candidateFeatures, jobFeatures) {
     return 15;
   }
 
-  if (candidateYears >= requiredYears) {
-    return 15;
-  }
-
-  const ratio = clamp(candidateYears / requiredYears, 0.2, 1);
-  return Math.round(ratio * 15 * 100) / 100;
+  // Smooth progressive curve — avoids a harsh cliff at the minimum.
+  const ratio = candidateYears / requiredYears;
+  if (ratio >= 1) return 15;
+  if (ratio >= 0.85) return 13;
+  if (ratio >= 0.7) return 11;
+  if (ratio >= 0.5) return 8;
+  if (ratio >= 0.33) return 5;
+  if (ratio >= 0.15) return 3;
+  return 1;
 }
 
 function calculateLocationScore(candidateFeatures, jobFeatures) {
-  const candidateTokens = new Set(candidateFeatures.location?.tokens || []);
+  const candidateTokens = new Set([
+    ...(candidateFeatures.location?.tokens || []),
+    ...((candidateFeatures.preferredLocations || []).flatMap((loc) =>
+      String(loc || '')
+        .toLowerCase()
+        .split(/[,\s/()-]+/)
+        .filter(Boolean)
+    )),
+  ]);
   const jobLocation = jobFeatures.jobLocation?.normalized || 'unknown';
+  const workMode = String(jobFeatures.workMode || '').toUpperCase();
 
-  if (jobFeatures.workMode === 'REMOTE') {
-    return 10;
+  if (workMode === 'REMOTE') {
+    return 5;
   }
 
   if (jobLocation === 'unknown') {
-    return 5;
+    return 3;
   }
 
   const jobTokens = jobFeatures.jobLocation?.tokens || [];
   if (jobTokens.some((token) => candidateTokens.has(token))) {
-    return 9;
+    return 5;
   }
 
-  if (jobFeatures.workMode === 'HYBRID') {
-    return 7;
+  if (workMode === 'HYBRID') {
+    return 3;
   }
 
-  return 4;
+  return 1;
 }
 
 function calculateEducationScore(candidateFeatures, jobFeatures) {
   const candidateRank = Number(candidateFeatures.educationRank || 0);
   const requiredRank = Number(jobFeatures.educationRequirementRank || 0);
 
-  if (!requiredRank) return 3;
+  if (!requiredRank) return 5;
   if (candidateRank >= requiredRank) return 5;
   if (candidateRank === requiredRank - 1) return 3;
-  return 2;
+  return 1;
+}
+
+function calculateIndustryScore(candidateFeatures, jobFeatures) {
+  const candidateIndustry = String(
+    candidateFeatures.preferredIndustry ||
+      candidateFeatures.industry ||
+      candidateFeatures.domainFamily ||
+      ''
+  )
+    .toLowerCase()
+    .trim();
+  const jobIndustry = String(jobFeatures.industry || jobFeatures.domainFamily || '')
+    .toLowerCase()
+    .trim();
+
+  if (!jobIndustry) return 5;
+  if (!candidateIndustry) return 2;
+  if (candidateIndustry === jobIndustry) return 5;
+  if (candidateIndustry.includes(jobIndustry) || jobIndustry.includes(candidateIndustry)) return 4;
+
+  const candidateTokens = new Set(tokenizeText(candidateIndustry));
+  const jobTokens = tokenizeText(jobIndustry);
+  if (jobTokens.some((token) => candidateTokens.has(token))) return 3;
+  return 1;
+}
+
+function calculateWorkModeScore(candidateFeatures, jobFeatures) {
+  const preferred = String(candidateFeatures.workModePreference || '').toUpperCase();
+  const jobMode = String(jobFeatures.workMode || '').toUpperCase();
+
+  if (!jobMode) return 5;
+  if (!preferred) return 3;
+  if (preferred === jobMode) return 5;
+  if (jobMode === 'REMOTE' || preferred === 'REMOTE') return 4;
+  if (
+    (preferred === 'HYBRID' && (jobMode === 'ON_SITE' || jobMode === 'REMOTE')) ||
+    (jobMode === 'HYBRID' && (preferred === 'ON_SITE' || preferred === 'REMOTE'))
+  ) {
+    return 3;
+  }
+  return 1;
+}
+
+function calculateResponsibilitiesScore(candidateFeatures, jobFeatures) {
+  const jobTokens = Array.from(new Set(jobFeatures.responsibilityTokens || [])).slice(0, 80);
+  if (!jobTokens.length) return 8;
+
+  const candidateTokens = new Set(candidateFeatures.responsibilityTokens || []);
+  if (!candidateTokens.size) return 4;
+
+  let hits = 0;
+  for (const token of jobTokens) {
+    if (candidateTokens.has(token)) hits += 1;
+  }
+  const ratio = hits / jobTokens.length;
+  return Math.round(clamp(ratio * 15, 0, 15) * 100) / 100;
+}
+
+function resolveJobPostedAt(rawJob = {}, jobFeatures = {}) {
+  return (
+    rawJob.postedAt ||
+    rawJob.postedDate ||
+    rawJob.createdAt ||
+    rawJob.updatedAt ||
+    jobFeatures.postedAt ||
+    null
+  );
+}
+
+function calculateFreshnessScore(postedAt, { now = Date.now(), tauDays = FRESHNESS_TAU_DAYS } = {}) {
+  if (!postedAt) return 35;
+  const ts = new Date(postedAt).getTime();
+  if (!Number.isFinite(ts)) return 35;
+  const ageDays = Math.max(0, (now - ts) / (1000 * 60 * 60 * 24));
+  const freshness = 100 * Math.exp(-ageDays / Math.max(1, tauDays));
+  return Math.round(clamp(freshness, 0, 100) * 100) / 100;
+}
+
+function calculateRankingScore(matchAccuracy, freshnessScore, { relevanceFloor = RELEVANCE_FLOOR } = {}) {
+  const match = clamp(Number(matchAccuracy) || 0, 0, 100);
+  const fresh = clamp(Number(freshnessScore) || 0, 0, 100);
+  if (match < relevanceFloor) {
+    // Freshness must not promote low-relevance jobs.
+    return Math.round(match * 100) / 100;
+  }
+  return (
+    Math.round((match * RANK_MATCH_WEIGHT + fresh * RANK_FRESHNESS_WEIGHT) * 100) / 100
+  );
+}
+
+function combineMatchAccuracy(ruleScore, aiScore, { hardSkillMiss = false } = {}) {
+  let matchAccuracy = Number(ruleScore) || 0;
+  if (aiScore != null && aiScore !== '' && Number.isFinite(Number(aiScore))) {
+    matchAccuracy = matchAccuracy * RULE_WEIGHT + Number(aiScore) * AI_WEIGHT;
+  }
+  matchAccuracy = clamp(matchAccuracy, 0, 100);
+  if (hardSkillMiss) {
+    matchAccuracy = Math.min(matchAccuracy, HARD_SKILL_MISS_CAP);
+  }
+  return Math.round(matchAccuracy * 100) / 100;
+}
+
+function selectAiCandidateJobs(scoredJobs, { now = Date.now() } = {}) {
+  const byId = new Map();
+  const top = scoredJobs.slice(0, Math.max(1, AI_TOP_LIMIT));
+  for (const job of top) byId.set(String(job.jobId), job);
+
+  const recentCutoff = now - AI_RECENT_DAYS * 24 * 60 * 60 * 1000;
+  for (const job of scoredJobs) {
+    if (byId.size >= AI_POOL_MAX) break;
+    const postedAt = resolveJobPostedAt(job.rawJob, job.jobFeatures);
+    const ts = postedAt ? new Date(postedAt).getTime() : NaN;
+    if (Number.isFinite(ts) && ts >= recentCutoff) {
+      byId.set(String(job.jobId), job);
+    }
+  }
+
+  return Array.from(byId.values()).slice(0, AI_POOL_MAX);
 }
 
 function computeMatchLabel(score) {
@@ -395,17 +575,20 @@ function computeScoreColorHint(score) {
 
 function deriveLowMatchReason(scoring) {
   const reasons = [];
-  if ((scoring.breakdown.skills || 0) < 18 && scoring.missingSkills.length) {
+  if ((scoring.breakdown.skills || 0) < 14 && scoring.missingSkills.length) {
     reasons.push(`missing ${scoring.missingSkills.slice(0, 2).join(' and ')}`);
   }
-  if ((scoring.breakdown.role || 0) <= 4) {
+  if ((scoring.breakdown.role || 0) <= 3) {
     reasons.push('weak role alignment');
   }
-  if ((scoring.breakdown.location || 0) <= 4) {
+  if ((scoring.breakdown.location || 0) <= 2) {
     reasons.push('location mismatch');
   }
   if ((scoring.breakdown.experience || 0) <= 7) {
     reasons.push('experience gap');
+  }
+  if ((scoring.breakdown.responsibilities || 0) <= 5) {
+    reasons.push('limited responsibility overlap');
   }
   if (!reasons.length) {
     reasons.push('limited overall alignment');
@@ -994,22 +1177,46 @@ function scoreDeterministic(candidateFeatures, jobFeatures) {
   const experience = calculateExperienceScore(candidateFeatures, jobFeatures);
   const location = calculateLocationScore(candidateFeatures, jobFeatures);
   const education = calculateEducationScore(candidateFeatures, jobFeatures);
+  const industry = calculateIndustryScore(candidateFeatures, jobFeatures);
+  const workMode = calculateWorkModeScore(candidateFeatures, jobFeatures);
+  const responsibilities = calculateResponsibilitiesScore(candidateFeatures, jobFeatures);
+
+  const deterministicScore = Math.round(
+    (
+      skills.score +
+      role.score +
+      experience +
+      responsibilities +
+      industry +
+      location +
+      education +
+      workMode
+    ) * 100
+  ) / 100;
 
   return {
-    deterministicScore: Math.round((skills.score + role.score + experience + location + education) * 100) / 100,
+    deterministicScore: clamp(deterministicScore, 0, 100),
     matchedSkills: skills.matchedSkills,
     missingSkills: skills.missingSkills,
+    hardSkillMiss: Boolean(skills.hardSkillMiss),
     breakdown: {
       skills: Math.round(skills.score * 100) / 100,
+      requiredSkills: Math.round((skills.requiredScore || 0) * 100) / 100,
+      preferredSkills: Math.round((skills.preferredScore || 0) * 100) / 100,
       role: Math.round(role.score * 100) / 100,
       experience: Math.round(experience * 100) / 100,
+      responsibilities: Math.round(responsibilities * 100) / 100,
+      industry: Math.round(industry * 100) / 100,
       location: Math.round(location * 100) / 100,
       education: Math.round(education * 100) / 100,
+      workMode: Math.round(workMode * 100) / 100,
       semanticBoost: 0,
     },
     diagnostics: {
       skillMatchPercent: skills.matchPercent,
+      preferredSkillMatchPercent: skills.preferredMatchPercent,
       roleMatchType: role.matchType,
+      hardSkillMiss: Boolean(skills.hardSkillMiss),
     },
   };
 }
@@ -1047,10 +1254,17 @@ function formatJobResponse(scoredJob) {
   const expectedSalary = rawJob.expectedSalary ?? salaryJson?.amount ?? null;
 
   // Surface the same scoring vocabulary the candidate UI uses for the legacy AI pipeline:
-  // - `matchScore` is the percentage badge ("AI Fit XX% Match")
+  // - `matchScore` is the percentage badge ("AI Fit XX% Match") — Match Accuracy only
+  // - `rankingScore` is used for personalized ordering (match + freshness)
   // - `confidenceTag` drives the secondary chip (Excellent/Strong/Good/Partial)
   // - `shortReason` / `whyNotMatched` populate the low-score helper text
-  const matchScoreValue = Math.round(Math.max(0, Math.min(100, Number(scoredJob.finalScore) || 0)));
+  const matchScoreValue = Math.round(Math.max(0, Math.min(100, Number(scoredJob.matchAccuracy ?? scoredJob.finalScore) || 0)));
+  const rankingScoreValue = Math.round(
+    Math.max(0, Math.min(100, Number(scoredJob.rankingScore ?? matchScoreValue) || 0)) * 100
+  ) / 100;
+  const freshnessScoreValue = Math.round(
+    Math.max(0, Math.min(100, Number(scoredJob.freshnessScore ?? 0) || 0)) * 100
+  ) / 100;
   const confidenceTag =
     matchScoreValue >= 85 ? 'Excellent Match'
     : matchScoreValue >= 70 ? 'Strong Match'
@@ -1066,9 +1280,14 @@ function formatJobResponse(scoredJob) {
     company: scoredJob.company,
     companyLogo: rawJob.company?.logoUrl || rawJob.client?.logo || null,
     openings: rawJob.openings ?? 1,
-    finalScore: scoredJob.finalScore,
+    finalScore: scoredJob.matchAccuracy ?? scoredJob.finalScore,
     matchScore: matchScoreValue,
+    matchAccuracy: matchScoreValue,
+    matchPercentage: matchScoreValue,
+    rankingScore: rankingScoreValue,
+    freshnessScore: freshnessScoreValue,
     normalizedScore: matchScoreValue,
+    matchBreakdown: scoredJob.breakdown,
     breakdown: scoredJob.breakdown,
     matchedSkills: scoredJob.matchedSkills,
     missingSkills: scoredJob.missingSkills,
@@ -1081,13 +1300,13 @@ function formatJobResponse(scoredJob) {
     confidenceScore: scoredJob.confidenceScore,
     confidenceTag,
     matchLabel: finalLabel,
-    scoreColorHint: computeScoreColorHint(scoredJob.finalScore),
+    scoreColorHint: computeScoreColorHint(scoredJob.matchAccuracy ?? scoredJob.finalScore),
     location: scoredJob.location,
     workMode: scoredJob.workMode,
     deterministicScore: scoredJob.deterministicScore,
     aiScore: scoredJob.aiScore ?? null,
     aiAnalysis: scoredJob.aiAnalysis ?? null,
-    whyNotMatched: scoredJob.finalScore < 50 ? scoredJob.whyNotMatched : null,
+    whyNotMatched: (scoredJob.matchAccuracy ?? scoredJob.finalScore) < 50 ? scoredJob.whyNotMatched : null,
     aiEnhanced: Boolean(scoredJob.aiEnhanced),
     diagnostics: scoredJob.diagnostics,
     type: rawJob.type || rawJob.employmentType || null,
@@ -1181,6 +1400,12 @@ async function runJobMatchingPipeline({ candidate, cleanedResumeText, limit, ski
     const deterministic = scoreDeterministic(candidateFeatures, jobFeatures);
     const candidateSkills = sanitizeSkillList(candidateFeatures.skills || []);
     const jobSkills = sanitizeSkillList(jobFeatures.requiredSkills || []);
+    const postedAt = resolveJobPostedAt(rawJob, jobFeatures);
+    const freshnessScore = calculateFreshnessScore(postedAt);
+    const matchAccuracy = combineMatchAccuracy(deterministic.deterministicScore, null, {
+      hardSkillMiss: deterministic.hardSkillMiss,
+    });
+    const rankingScore = calculateRankingScore(matchAccuracy, freshnessScore);
 
     console.log('STEP 5: SCORING PER JOB:');
     console.log(`job=${rawJob.title} (${rawJob.id})`);
@@ -1190,9 +1415,14 @@ async function runJobMatchingPipeline({ candidate, cleanedResumeText, limit, ski
     console.log(`Role Score: ${deterministic.breakdown.role}`);
     console.log(`Role Match Type: ${deterministic.diagnostics.roleMatchType}`);
     console.log(`Experience Score: ${deterministic.breakdown.experience}`);
+    console.log(`Responsibilities Score: ${deterministic.breakdown.responsibilities}`);
+    console.log(`Industry Score: ${deterministic.breakdown.industry}`);
     console.log(`Location Score: ${deterministic.breakdown.location}`);
     console.log(`Education Score: ${deterministic.breakdown.education}`);
-    console.log(`Total Score: ${deterministic.deterministicScore}`);
+    console.log(`Work Mode Score: ${deterministic.breakdown.workMode}`);
+    console.log(`Rule Score: ${deterministic.deterministicScore}`);
+    console.log(`Freshness Score: ${freshnessScore}`);
+    console.log(`Ranking Score: ${rankingScore}`);
     console.log(`Matched Skills: ${deterministic.matchedSkills.join(', ') || '-'}`);
     console.log(`Missing Skills: ${deterministic.missingSkills.join(', ') || '-'}`);
     console.log('Clean Candidate Skills:', candidateSkills);
@@ -1204,13 +1434,18 @@ async function runJobMatchingPipeline({ candidate, cleanedResumeText, limit, ski
       company: publicCompanyLabel(rawJob, ''),
       location: rawJob.location,
       workMode: rawJob.workMode || rawJob.jobLocationType || null,
+      postedAt,
       deterministicScore: deterministic.deterministicScore,
-      finalScore: deterministic.deterministicScore,
+      matchAccuracy,
+      finalScore: matchAccuracy,
+      freshnessScore,
+      rankingScore,
       breakdown: deterministic.breakdown,
       matchedSkills: deterministic.matchedSkills,
       missingSkills: deterministic.missingSkills,
+      hardSkillMiss: deterministic.hardSkillMiss,
       explanation: 'Deterministic match generated.',
-      whyNotMatched: deterministic.deterministicScore < 55 ? deriveLowMatchReason(deterministic) : null,
+      whyNotMatched: matchAccuracy < 55 ? deriveLowMatchReason(deterministic) : null,
       diagnostics: deterministic.diagnostics,
       confidenceScore: computeConfidence({
         deterministicScore: deterministic.deterministicScore,
@@ -1236,7 +1471,7 @@ async function runJobMatchingPipeline({ candidate, cleanedResumeText, limit, ski
   });
   const deterministicDurationMs = Date.now() - deterministicStartedAt;
 
-  console.log('STEP 6: Ranking');
+  console.log('STEP 6: Ranking (deterministic)');
   scoredJobs.sort((a, b) => {
     if (b.deterministicScore !== a.deterministicScore) return b.deterministicScore - a.deterministicScore;
     return (b.breakdown.skills || 0) - (a.breakdown.skills || 0);
@@ -1247,11 +1482,11 @@ async function runJobMatchingPipeline({ candidate, cleanedResumeText, limit, ski
   });
 
   // The candidate explore page needs every job scored, not just the AI-elite top-N.
-  // Caching the AI pass at AI_TOP_LIMIT (cost guard) but returning all scored jobs.
+  // AI pool = top deterministic jobs + recent jobs (deduped), capped for cost control.
   const requestedLimit = Number(limit);
   const hasExplicitLimit = Number.isFinite(requestedLimit) && requestedLimit > 0;
   const safeLimit = hasExplicitLimit ? Math.min(Math.max(requestedLimit, 5), 500) : 500;
-  const topJobs = scoredJobs.slice(0, AI_TOP_LIMIT);
+  const topJobs = selectAiCandidateJobs(scoredJobs);
 
   let aiApplied = false;
   const aiStartedAt = Date.now();
@@ -1259,9 +1494,13 @@ async function runJobMatchingPipeline({ candidate, cleanedResumeText, limit, ski
     for (const job of topJobs) {
       job.breakdown.aiScore = 0;
       job.breakdown.semanticBoost = 0;
-      job.finalScore = job.deterministicScore;
+      job.matchAccuracy = combineMatchAccuracy(job.deterministicScore, null, {
+        hardSkillMiss: job.hardSkillMiss,
+      });
+      job.finalScore = job.matchAccuracy;
+      job.rankingScore = calculateRankingScore(job.matchAccuracy, job.freshnessScore);
       job.explanation = 'Deterministic match generated.';
-      job.whyNotMatched = job.finalScore < 50 ? deriveLowMatchReason(job) : null;
+      job.whyNotMatched = job.matchAccuracy < 50 ? deriveLowMatchReason(job) : null;
       const confidence = computeConfidence(job, null);
       job.confidenceScore = confidence.confidenceScore;
       job.confidenceLevel = confidence.confidenceLevel;
@@ -1269,6 +1508,7 @@ async function runJobMatchingPipeline({ candidate, cleanedResumeText, limit, ski
     }
   } else {
     console.log('[PIPELINE MODE] AI_MATCH_V2_ACTIVE');
+    console.log(`[AI POOL] size=${topJobs.length} (top=${AI_TOP_LIMIT}, recentDays=${AI_RECENT_DAYS}, max=${AI_POOL_MAX})`);
     await Promise.all(
       topJobs.map(async (job) => {
         try {
@@ -1280,32 +1520,33 @@ async function runJobMatchingPipeline({ candidate, cleanedResumeText, limit, ski
             console.error('AI MATCH ERROR', err);
           }
 
-          let finalScore = job.deterministicScore;
-          if (aiData && Number.isFinite(Number(aiData.finalScore))) {
-            finalScore = Math.min(
-              100,
-              (job.deterministicScore * 0.6) + (Number(aiData.finalScore) * 0.4)
-            );
-          }
+          const aiScoreRaw = aiData && Number.isFinite(Number(aiData.finalScore))
+            ? Number(aiData.finalScore)
+            : null;
+          const matchAccuracy = combineMatchAccuracy(job.deterministicScore, aiScoreRaw, {
+            hardSkillMiss: job.hardSkillMiss,
+          });
 
           const aiMatchedSkills = sanitizeSkillList(aiData?.matchedSkills || []);
           const aiMissingSkills = sanitizeSkillList(aiData?.missingCriticalSkills || []);
 
-          job.breakdown.aiScore = aiData?.finalScore ?? 0;
+          job.breakdown.aiScore = aiScoreRaw ?? 0;
           job.breakdown.semanticBoost = 0;
-          job.finalScore = Math.round(finalScore * 100) / 100;
+          job.matchAccuracy = matchAccuracy;
+          job.finalScore = matchAccuracy;
+          job.rankingScore = calculateRankingScore(matchAccuracy, job.freshnessScore);
           if (aiMatchedSkills.length) {
             job.matchedSkills = aiMatchedSkills;
           }
           if (aiMissingSkills.length) {
             job.missingSkills = aiMissingSkills;
           }
-          job.aiScore = aiData?.finalScore || null;
+          job.aiScore = aiScoreRaw;
           job.matchLabel = aiData?.verdict || 'Closest Match';
           job.aiAnalysis = aiData?.analysis || null;
           job.explanation = aiData?.analysis?.summary || 'Deterministic match generated.';
-          job.whyNotMatched = job.finalScore < 50 ? deriveLowMatchReason(job) : null;
-          const confidence = computeConfidence(job, aiData?.finalScore ?? null);
+          job.whyNotMatched = job.matchAccuracy < 50 ? deriveLowMatchReason(job) : null;
+          const confidence = computeConfidence(job, aiScoreRaw);
           job.confidenceScore = confidence.confidenceScore;
           job.confidenceLevel = confidence.confidenceLevel;
           job.aiEnhanced = Boolean(aiData);
@@ -1313,17 +1554,23 @@ async function runJobMatchingPipeline({ candidate, cleanedResumeText, limit, ski
 
           console.log('[AI MATCH V2]');
           console.log(`Deterministic Score: ${job.deterministicScore}`);
-          console.log(`AI Score: ${aiData?.finalScore ?? 0}`);
-          console.log(`Combined Score: ${job.finalScore}`);
+          console.log(`AI Score: ${aiScoreRaw ?? 0}`);
+          console.log(`Match Accuracy: ${job.matchAccuracy}`);
+          console.log(`Freshness: ${job.freshnessScore}`);
+          console.log(`Ranking Score: ${job.rankingScore}`);
           console.log(`Matched Skills: ${job.matchedSkills.join(', ') || '-'}`);
           console.log(`Missing Skills: ${job.missingSkills.join(', ') || '-'}`);
         } catch (error) {
           console.log('[AI ERROR FALLBACK]');
           job.breakdown.aiScore = 0;
           job.breakdown.semanticBoost = 0;
-          job.finalScore = job.deterministicScore;
+          job.matchAccuracy = combineMatchAccuracy(job.deterministicScore, null, {
+            hardSkillMiss: job.hardSkillMiss,
+          });
+          job.finalScore = job.matchAccuracy;
+          job.rankingScore = calculateRankingScore(job.matchAccuracy, job.freshnessScore);
           job.explanation = `You match this role through ${job.matchedSkills.slice(0, 3).join(', ') || 'strong core alignment'}. Adding ${job.missingSkills.slice(0, 2).join(', ') || 'clearer role-specific evidence'} would improve your fit.`;
-          job.whyNotMatched = job.finalScore < 50 ? deriveLowMatchReason(job) : null;
+          job.whyNotMatched = job.matchAccuracy < 50 ? deriveLowMatchReason(job) : null;
           const confidence = computeConfidence(job, null);
           job.confidenceScore = confidence.confidenceScore;
           job.confidenceLevel = confidence.confidenceLevel;
@@ -1334,13 +1581,29 @@ async function runJobMatchingPipeline({ candidate, cleanedResumeText, limit, ski
   }
   const aiDurationMs = Date.now() - aiStartedAt;
 
-  // Return every scored job so brand-new roles are not hidden when their deterministic
-  // score is still low. The candidate UI now shows real "missing skills" and "low score
-  // reason" badges for every entry instead of falling back to "Not scored yet".
+  // Ensure non-AI jobs still have ranking fields populated.
+  for (const job of scoredJobs) {
+    if (job.matchAccuracy == null) {
+      job.matchAccuracy = combineMatchAccuracy(job.deterministicScore, null, {
+        hardSkillMiss: job.hardSkillMiss,
+      });
+      job.finalScore = job.matchAccuracy;
+    }
+    if (job.rankingScore == null) {
+      job.rankingScore = calculateRankingScore(job.matchAccuracy, job.freshnessScore);
+    }
+  }
+
+  // Sort by Ranking Score (match + freshness), never by freshness alone.
+  // Displayed match % stays Match Accuracy.
   const finalRanked = [...scoredJobs]
     .sort((a, b) => {
-      if (b.finalScore !== a.finalScore) return b.finalScore - a.finalScore;
-      return b.deterministicScore - a.deterministicScore;
+      if (b.rankingScore !== a.rankingScore) return b.rankingScore - a.rankingScore;
+      if (b.matchAccuracy !== a.matchAccuracy) return b.matchAccuracy - a.matchAccuracy;
+      const aPosted = new Date(a.postedAt || 0).getTime() || 0;
+      const bPosted = new Date(b.postedAt || 0).getTime() || 0;
+      if (bPosted !== aPosted) return bPosted - aPosted;
+      return String(a.jobId || '').localeCompare(String(b.jobId || ''));
     })
     .slice(0, safeLimit);
 
@@ -1395,19 +1658,22 @@ async function scoreCandidateAgainstJob({ candidate, cleanedResumeText = '', job
 
   const candidateFeatures = buildCandidateFeatures(normalizedCandidate);
   const deterministic = scoreDeterministic(candidateFeatures, validated.jobFeatures);
-  let finalScore = deterministic.deterministicScore;
+  const postedAt = resolveJobPostedAt(validated.rawJob, validated.jobFeatures);
+  const freshnessScore = calculateFreshnessScore(postedAt);
+  let matchAccuracy = combineMatchAccuracy(deterministic.deterministicScore, null, {
+    hardSkillMiss: deterministic.hardSkillMiss,
+  });
   let aiEnhanced = false;
   let aiScore = null;
 
-  if (finalScore >= 55) {
+  if (matchAccuracy >= 50) {
     try {
       const aiData = await getAIMatchScore(normalizedCandidate, validated.rawJob);
       if (aiData && Number.isFinite(Number(aiData.finalScore))) {
         aiScore = Number(aiData.finalScore);
-        finalScore = Math.min(
-          100,
-          deterministic.deterministicScore * 0.6 + aiScore * 0.4,
-        );
+        matchAccuracy = combineMatchAccuracy(deterministic.deterministicScore, aiScore, {
+          hardSkillMiss: deterministic.hardSkillMiss,
+        });
         aiEnhanced = true;
       }
     } catch (error) {
@@ -1415,17 +1681,21 @@ async function scoreCandidateAgainstJob({ candidate, cleanedResumeText = '', job
     }
   }
 
-  finalScore = Math.round(finalScore * 100) / 100;
-  const matchScore = Math.round(Math.max(0, Math.min(100, finalScore)));
+  const rankingScore = calculateRankingScore(matchAccuracy, freshnessScore);
+  const matchScore = Math.round(Math.max(0, Math.min(100, matchAccuracy)));
 
   return {
-    finalScore,
+    finalScore: matchAccuracy,
     matchScore,
+    matchAccuracy,
+    rankingScore,
+    freshnessScore,
     deterministicScore: deterministic.deterministicScore,
     aiScore,
     aiEnhanced,
     matchedSkills: deterministic.matchedSkills,
     missingSkills: deterministic.missingSkills,
+    breakdown: deterministic.breakdown,
   };
 }
 
@@ -1433,4 +1703,16 @@ module.exports = {
   runJobMatchingPipeline,
   scoreCandidateAgainstJob,
   resolveCandidateResumeText,
+  // Exported for unit tests / debugging
+  scoreDeterministic,
+  calculateFreshnessScore,
+  calculateRankingScore,
+  combineMatchAccuracy,
+  selectAiCandidateJobs,
+  calculateSkillsScore,
+  calculateExperienceScore,
+  RANK_MATCH_WEIGHT,
+  RANK_FRESHNESS_WEIGHT,
+  FRESHNESS_TAU_DAYS,
+  RELEVANCE_FLOOR,
 };

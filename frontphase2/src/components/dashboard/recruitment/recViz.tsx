@@ -505,7 +505,7 @@ export function RecFunnel({
                 fill="#fff"
                 fontSize="11"
                 fontWeight="600"
-                style={{ fontFamily: 'Plus Jakarta Sans, system-ui, sans-serif' }}
+                style={{ fontFamily: 'ui-sans-serif, system-ui, sans-serif' }}
               >
                 {s.name}
                 <tspan dx="6" fontSize="13" fontWeight="700" style={{ fontFamily: 'Inter, ui-sans-serif, system-ui' }}>

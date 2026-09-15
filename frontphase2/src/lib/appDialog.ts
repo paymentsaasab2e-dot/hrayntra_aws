@@ -5,7 +5,7 @@ export const APP_DIALOG_FLUSH_EVENT = 'app:dialog-flush';
 /** Branded title for in-app confirm / alert dialogs (replaces native browser prompts). */
 export const SYSTEM_ALERT_TITLE = 'HRYANTRA';
 
-export type AppDialogKind = 'alert' | 'confirm';
+export type AppDialogKind = 'alert' | 'confirm' | 'prompt';
 export type AppDialogTone = 'info' | 'success' | 'warning' | 'error';
 /** modal = centered overlay · corner = bottom-right toast queue (one by one) */
 export type AppDialogPlacement = 'modal' | 'corner';
@@ -20,6 +20,10 @@ export type AppDialogOptions = {
   autoCloseMs?: number;
   /** high = show immediately, even if corner toasts are already queued. */
   priority?: 'normal' | 'high';
+  /** Initial value for prompt dialogs. */
+  defaultValue?: string;
+  /** Placeholder for prompt input. */
+  inputPlaceholder?: string;
 };
 
 export type AppDialogRequestDetail = {
@@ -32,7 +36,11 @@ export type AppDialogRequestDetail = {
   placement: AppDialogPlacement;
   autoCloseMs?: number;
   priority?: 'normal' | 'high';
+  defaultValue?: string;
+  inputPlaceholder?: string;
   resolve: (result: boolean) => void;
+  /** Used by prompt dialogs — null when cancelled. */
+  resolvePrompt?: (value: string | null) => void;
 };
 
 function toMessage(input: unknown): string {
@@ -61,6 +69,8 @@ function requestDialog(kind: AppDialogKind, message: unknown, options: AppDialog
       placement: options.placement || 'modal',
       autoCloseMs: options.autoCloseMs,
       priority: options.priority || 'normal',
+      defaultValue: options.defaultValue,
+      inputPlaceholder: options.inputPlaceholder,
       resolve,
     };
 
@@ -80,6 +90,36 @@ export async function requestAlert(message: unknown, options: AppDialogOptions =
 
 export function requestConfirm(message: unknown, options: AppDialogOptions = {}): Promise<boolean> {
   return requestDialog('confirm', message, options);
+}
+
+/** In-app text prompt (replaces window.prompt). Returns null when cancelled. */
+export function requestPrompt(
+  message: unknown,
+  options: AppDialogOptions = {},
+): Promise<string | null> {
+  if (typeof window === 'undefined') {
+    return Promise.resolve(null);
+  }
+
+  return new Promise<string | null>((resolve) => {
+    const detail: AppDialogRequestDetail = {
+      kind: 'prompt',
+      message: toMessage(message ?? ''),
+      tone: options.tone || 'info',
+      title: options.title || SYSTEM_ALERT_TITLE,
+      confirmLabel: options.confirmLabel || 'OK',
+      cancelLabel: options.cancelLabel || 'Cancel',
+      placement: 'modal',
+      autoCloseMs: options.autoCloseMs,
+      priority: options.priority || 'normal',
+      defaultValue: options.defaultValue ?? '',
+      inputPlaceholder: options.inputPlaceholder,
+      resolve: () => {},
+      resolvePrompt: resolve,
+    };
+
+    window.dispatchEvent(new CustomEvent<AppDialogRequestDetail>(APP_DIALOG_EVENT, { detail }));
+  });
 }
 
 /** Corner toast alert — queues and shows one by one in the bottom-right. */

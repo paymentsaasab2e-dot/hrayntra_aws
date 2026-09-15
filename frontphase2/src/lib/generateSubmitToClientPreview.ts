@@ -254,15 +254,32 @@ export async function generateSubmitToClientPreview(
     throw new Error('Select at least one candidate to submit to the client.');
   }
 
+  // Same candidate checked twice in the picker must not create duplicate email lines.
+  const uniqueEntries: BulkSubmitCandidateEntry[] = [];
+  const seenEntryKeys = new Set<string>();
+  for (const entry of entries) {
+    const candidateId = String(entry.candidateId || '').trim();
+    const jobId = String(entry.jobId || '').trim();
+    const key = candidateId
+      ? `${candidateId}::${jobId}`
+      : `name::${String(entry.candidateName || '').trim().toLowerCase()}::${jobId}`;
+    if (seenEntryKeys.has(key)) continue;
+    seenEntryKeys.add(key);
+    uniqueEntries.push(entry);
+  }
+  if (!uniqueEntries.length) {
+    throw new Error('Select at least one candidate to submit to the client.');
+  }
+
   const [visibilityDefaults, mailContextEarly] = await Promise.all([
     loadSubmitToClientVisibilityDefaults(),
-    resolveClientMailContext(entries, String(entries[0]?.jobTitle || '').trim()),
+    resolveClientMailContext(uniqueEntries, String(uniqueEntries[0]?.jobTitle || '').trim()),
   ]);
   const { visibility } = visibilityDefaults;
   const hiddenCount = SUBMIT_TO_CLIENT_FIELDS.filter((id) => visibility[id] === false).length;
   const visibleCount = SUBMIT_TO_CLIENT_FIELDS.length - hiddenCount;
 
-  const prepared = await mapPool(entries, PREVIEW_CONCURRENCY, (entry) =>
+  const prepared = await mapPool(uniqueEntries, PREVIEW_CONCURRENCY, (entry) =>
     prepareEntryForPreview(entry, visibility),
   );
 

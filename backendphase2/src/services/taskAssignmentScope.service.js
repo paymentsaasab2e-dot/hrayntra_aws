@@ -10,6 +10,7 @@ import {
   assertUserHasAssignmentAccess,
   filterUsersByAssignmentAccess,
 } from './assigneeModuleAccess.service.js';
+import { applyAssignmentRules, assertAssignmentRuleAllows } from './assignmentRules.service.js';
 
 const idStr = (id) => String(id || '').trim();
 
@@ -110,12 +111,13 @@ export async function listTaskAssigneeCandidates(actorUserId, { req = null } = {
       select: memberSelect,
       orderBy: { firstName: 'asc' },
     });
-    return filterUsersByAssignmentAccess(
+    const eligible = filterUsersByAssignmentAccess(
       await labelUsersWithOrgUnit(
         excludeHqPlatformUsers(all).map(normalizeMember).filter(Boolean),
       ),
       { modules: ['Tasks'] },
     );
+    return applyAssignmentRules(actorUserId, 'Tasks', eligible, { req });
   }
 
   const actorDeptId = idStr(actor.departmentId);
@@ -123,10 +125,11 @@ export async function listTaskAssigneeCandidates(actorUserId, { req = null } = {
   byId.set(actor.id, normalizeMember(actor));
 
   if (!actorDeptId) {
-    return filterUsersByAssignmentAccess(
+    const eligible = filterUsersByAssignmentAccess(
       await labelUsersWithOrgUnit([normalizeMember(actor)].filter(Boolean)),
       { modules: ['Tasks'] },
     );
+    return applyAssignmentRules(actorUserId, 'Tasks', eligible, { req });
   }
 
   const deptWhere = {
@@ -165,7 +168,7 @@ export async function listTaskAssigneeCandidates(actorUserId, { req = null } = {
     }
   }
 
-  return filterUsersByAssignmentAccess(
+  const eligible = filterUsersByAssignmentAccess(
     await labelUsersWithOrgUnit(
       [...byId.values()]
         .filter(
@@ -180,21 +183,24 @@ export async function listTaskAssigneeCandidates(actorUserId, { req = null } = {
     ),
     { modules: ['Tasks'] },
   );
+  return applyAssignmentRules(actorUserId, 'Tasks', eligible, { req });
 }
 
-export async function canAssignTaskTo(actorUserId, assigneeUserId) {
+export async function canAssignTaskTo(actorUserId, assigneeUserId, { req = null } = {}) {
   if (!actorUserId || !assigneeUserId) return false;
-  if (idStr(actorUserId) === idStr(assigneeUserId)) return true;
-
   if (await isSuperAdminUserId(actorUserId)) return true;
 
-  const allowed = await listTaskAssigneeCandidates(actorUserId);
+  const allowed = await listTaskAssigneeCandidates(actorUserId, { req });
   return allowed.some((m) => idStr(m.id) === idStr(assigneeUserId));
 }
 
-export async function assertCanAssignTask(actorUserId, assigneeUserId) {
+export async function assertCanAssignTask(actorUserId, assigneeUserId, req = null) {
   await assertUserHasAssignmentAccess(assigneeUserId, { modules: ['Tasks'] });
-  const ok = await canAssignTaskTo(actorUserId, assigneeUserId);
+  if (await isSuperAdminUserId(actorUserId)) return;
+
+  await assertAssignmentRuleAllows(actorUserId, 'Tasks', assigneeUserId, { req });
+
+  const ok = await canAssignTaskTo(actorUserId, assigneeUserId, { req });
   if (!ok) {
     throw new Error(
       'You can only assign tasks to yourself or lower-ranked members in your department. Super Admin can assign to anyone.',

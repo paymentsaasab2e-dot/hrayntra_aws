@@ -8,6 +8,7 @@ const PUBLIC_ROUTES = [
   '/reset-password',
   '/api',
   '/client-review',
+  '/interview-rsvp',
   '/apply',
   '/lead-form',
   '/session-transfer',

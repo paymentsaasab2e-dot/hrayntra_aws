@@ -90,7 +90,7 @@ import { CreateTaskModal } from '../../components/CreateTaskModal';
 import { Toaster, toast } from 'sonner';
 import PaginationAll from '../../components/PaginationAll';
 import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../constants/tablePagination';
-import { requestConfirm, requestError } from '../../lib/appDialog';
+import { requestConfirm, requestError, requestPrompt } from '../../lib/appDialog';
 import { RECYCLE_BIN_SYNC_EVENT } from '../../constants/recycleBin';
 import { parseClientsListFromResponse, parseJobsListFromResponse } from '../../lib/parseApiList';
 import { dedupeCompanyNameLabels } from '../../lib/companyNameKey';
@@ -120,6 +120,7 @@ import {
   apiUpdateCandidate,
   apiUpdateCandidateInterview,
   apiUpdateCandidateNote,
+  apiRepairBadCandidateNames,
   type BackendCandidate,
   type BackendJob,
   getCachedPhase1CommonPoolEnabled,
@@ -372,6 +373,7 @@ function CandidatesPageContent() {
   const candidateAiGate = useAiCoinGate('ai.candidate_chat');
   const [failedResumesDrawerOpen, setFailedResumesDrawerOpen] = useState(false);
   const [tokensDrawerOpen, setTokensDrawerOpen] = useState(false);
+  const [repairingBadNames, setRepairingBadNames] = useState(false);
   const [bulkCvTokenResumeCount, setBulkCvTokenResumeCount] = useState(0);
   const [pendingBulkRetryFile, setPendingBulkRetryFile] = useState<File | null>(null);
   const [pendingBulkRetryFiles, setPendingBulkRetryFiles] = useState<File[] | null>(null);
@@ -960,6 +962,45 @@ function CandidatesPageContent() {
     }
   }, [filters, debouncedColumnFilters, currentPage, pageSize, listTab, smartSearchCandidateIds]);
 
+  const handleRepairBadNames = useCallback(async () => {
+    if (repairingBadNames) return;
+    const confirmed = await requestConfirm(
+      'Auto-fix candidate names that look like CV filenames, job titles, or locations?\n\nThis re-reads stored resumes and updates names in bulk. Real person names are left alone.',
+      {
+        tone: 'info',
+        confirmLabel: 'Fix names',
+        cancelLabel: 'Cancel',
+      }
+    );
+    if (!confirmed) return;
+
+    setRepairingBadNames(true);
+    const toastId = toast.loading('Fixing bad candidate names…');
+    try {
+      const result = await apiRepairBadCandidateNames({
+        execute: true,
+        limit: 2000,
+        scopeAllCompanies: true,
+      });
+      invalidateEmployerCandidatesCache();
+      await loadCandidates({ silent: true });
+      const fixed = result.updated || 0;
+      const found = result.badNames || 0;
+      if (fixed === 0 && found === 0) {
+        toast.success('No bad names found — all candidate names look OK.', { id: toastId });
+      } else {
+        toast.success(`Fixed ${fixed} of ${found} bad name${found === 1 ? '' : 's'}.`, {
+          id: toastId,
+        });
+      }
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to fix candidate names';
+      toast.error(message, { id: toastId });
+    } finally {
+      setRepairingBadNames(false);
+    }
+  }, [loadCandidates, repairingBadNames]);
+
   const switchListTab = useCallback(
     (tab: CandidateListTab) => {
       const nextTab = tab === 'all' && !shouldIncludePhase1CommonPool() ? 'mine' : tab;
@@ -1164,7 +1205,7 @@ function CandidatesPageContent() {
       try {
         const [allJobsRes, clientsRes, candidateMembers, interviewMembers] = await Promise.all([
           apiGetJobs({ page: 1, limit: 500 }),
-          apiGetClients({ page: 1, limit: 500 }),
+          apiGetClients({ page: 1, limit: 500, recruitmentEnabled: true }),
           getAllTeamMembersForAssign(getActiveOrgUnitId() || undefined, 'Candidates'),
           getAllTeamMembersForAssign(getActiveOrgUnitId() || undefined, 'Interviews'),
         ]);
@@ -2329,6 +2370,20 @@ function CandidatesPageContent() {
                       </span>
                     ) : null}
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleRepairBadNames()}
+                    disabled={repairingBadNames}
+                    className="flex items-center gap-1.5 rounded-lg border border-indigo-200/70 bg-white px-3 py-2 text-xs font-semibold text-indigo-900 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+                    title="Auto-fix names taken from CV filenames / titles"
+                  >
+                    <Sparkles
+                      size={16}
+                      className={`text-indigo-600 ${repairingBadNames ? 'animate-pulse' : ''}`}
+                      strokeWidth={2.25}
+                    />
+                    <span>{repairingBadNames ? 'Fixing names…' : 'Fix names'}</span>
+                  </button>
                 </>
               ) : null}
               <button
@@ -2377,7 +2432,7 @@ function CandidatesPageContent() {
                     aria-pressed={createCandidateMode === 'ai'}
                     onClick={() => {
                       if (candidateAiGate.locked) {
-                        candidateAiGate.confirmAndUnlock();
+                        void candidateAiGate.confirmAndUnlock();
                         return;
                       }
                       setCreateCandidateMode('ai');
@@ -2592,11 +2647,15 @@ function CandidatesPageContent() {
                     toast.info(`Send email to ${ids.length} candidate(s) - Feature coming soon`);
                   }}
                   onAddTag={canUpdateCandidate ? async (ids) => {
-                    const tag = prompt('Enter tag name:');
-                    if (tag) {
+                    const tag = await requestPrompt('Enter tag name:', {
+                      confirmLabel: 'Add tag',
+                      cancelLabel: 'Cancel',
+                      inputPlaceholder: 'Tag name',
+                    });
+                    if (tag?.trim()) {
                       try {
-                        await apiBulkActionCandidates('add_tag', ids, { tag });
-                        toast.success(`Added tag "${tag}" to ${ids.length} candidate(s)`);
+                        await apiBulkActionCandidates('add_tag', ids, { tag: tag.trim() });
+                        toast.success(`Added tag "${tag.trim()}" to ${ids.length} candidate(s)`);
                         setSelectedIds([]);
                         loadCandidates();
                       } catch (err: any) {
@@ -2656,7 +2715,13 @@ function CandidatesPageContent() {
                   onReject={canUpdateCandidate ? async (ids) => {
                         if (!(await requestConfirm(`Are you sure you want to reject ${ids.length} candidate(s)?`)))
                           return;
-                    const reason = prompt('Enter rejection reason (optional):') || 'Bulk rejection';
+                    const reasonInput = await requestPrompt('Enter rejection reason (optional):', {
+                      confirmLabel: 'Reject',
+                      cancelLabel: 'Cancel',
+                      inputPlaceholder: 'Reason',
+                    });
+                    if (reasonInput === null) return;
+                    const reason = reasonInput.trim() || 'Bulk rejection';
                     try {
                       await apiBulkActionCandidates('reject', ids, { reason });
                       toast.success(`Rejected ${ids.length} candidate(s)`);

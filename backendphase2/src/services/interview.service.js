@@ -226,7 +226,19 @@ const buildInterviewDateTime = (dateValue, timeValue) => {
 
 const normalizeMode = (value) => {
   if (!value) return null;
-  return String(value).toUpperCase();
+  const upper = String(value).toUpperCase();
+  // Frontend often sends video / in-person / phone — map to stored enum values.
+  if (upper === 'VIDEO' || upper === 'VIRTUAL' || upper === 'REMOTE') return 'ONLINE';
+  if (upper === 'IN-PERSON' || upper === 'IN_PERSON' || upper === 'ONSITE' || upper === 'ON-SITE') {
+    return 'OFFLINE';
+  }
+  if (upper === 'PHONE' || upper === 'CALL') return 'OFFLINE';
+  return upper;
+};
+
+const isOnlineInterviewMode = (value) => {
+  const mode = normalizeMode(value);
+  return mode === 'ONLINE';
 };
 
 const countKpis = async (baseWhere = {}) => {
@@ -1391,7 +1403,11 @@ function serializeInterviewForClientReview(
 
 const attachMeetingLink = async (interview, platformOverride) => {
   const platform = platformOverride || interview.platform;
-  if (interview.mode !== 'ONLINE' || !platform) {
+  if (!isOnlineInterviewMode(interview.mode) || !platform) {
+    return { interview, meetingLinkError: null };
+  }
+  // Keep an existing Meet/Zoom URL from the scheduler; only auto-generate when missing.
+  if (String(interview.meetingLink || '').trim()) {
     return { interview, meetingLinkError: null };
   }
 
@@ -1671,7 +1687,8 @@ export const interviewService = {
           mode: normalizeMode(payload.mode),
           platform: payload.meetingPlatform || null,
           timezone: payload.timezone || 'Asia/Kolkata',
-          location: payload.mode === 'OFFLINE' ? payload.location || null : null,
+          location: normalizeMode(payload.mode) === 'OFFLINE' ? payload.location || null : null,
+          meetingLink: String(payload.meetingLink || '').trim() || null,
           notes: payload.notes || null,
           status: 'SCHEDULED',
           panelIds: panelUserIds,
@@ -1708,7 +1725,7 @@ export const interviewService = {
     }
     let meetingLinkError = null;
 
-    if (payload.mode === 'ONLINE') {
+    if (isOnlineInterviewMode(payload.mode) || isOnlineInterviewMode(result.mode)) {
       const meetingResult = await attachMeetingLink(result, payload.meetingPlatform);
       result = meetingResult.interview;
       meetingLinkError = meetingResult.meetingLinkError;
@@ -1738,7 +1755,7 @@ export const interviewService = {
           interviewTitle: humanizePortalInterviewRoundLabel(payload.round) || payload.round || payload.type,
           type: payload.type,
           mode: payload.mode,
-          locationLine: payload.mode === 'OFFLINE' ? payload.location || null : null,
+          locationLine: normalizeMode(payload.mode) === 'OFFLINE' ? payload.location || null : null,
           meetingLink: result.meetingLink || null,
           interviewerNames,
           recruiterName: [user.firstName, user.lastName].filter(Boolean).join(' ').trim() || null,
@@ -1857,6 +1874,9 @@ export const interviewService = {
     if (payload.duration !== undefined) updateData.duration = payload.duration;
     if (payload.timezone !== undefined) updateData.timezone = payload.timezone;
     if (payload.meetingPlatform !== undefined) updateData.platform = payload.meetingPlatform;
+    if (payload.meetingLink !== undefined) {
+      updateData.meetingLink = String(payload.meetingLink || '').trim() || null;
+    }
     if (payload.location !== undefined) updateData.location = payload.location;
     if (payload.notes !== undefined) updateData.notes = payload.notes;
     if (payload.status !== undefined) updateData.status = payload.status;
@@ -2003,7 +2023,7 @@ export const interviewService = {
     });
 
     let meetingLinkError = null;
-    if (updated.mode === 'ONLINE' && updated.platform) {
+    if (isOnlineInterviewMode(updated.mode) && updated.platform) {
       const meetingResult = await attachMeetingLink(updated, updated.platform);
       updated = meetingResult.interview;
       meetingLinkError = meetingResult.meetingLinkError;

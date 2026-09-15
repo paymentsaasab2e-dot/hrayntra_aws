@@ -74,7 +74,15 @@ export function useSubmitToClientModal(options?: {
       setLoading(true);
       setError('');
       setReviewUrl('');
-      setCandidateNames(entries.map((entry) => entry.candidateName || 'Candidate').filter(Boolean));
+      setCandidateNames(
+        Array.from(
+          new Set(
+            entries
+              .map((entry) => String(entry.candidateName || '').trim())
+              .filter(Boolean),
+          ),
+        ),
+      );
       setVisibleCount(null);
       setHiddenCount(null);
       setJobTitle(entries.find((entry) => entry.jobTitle)?.jobTitle || '');
@@ -89,7 +97,15 @@ export function useSubmitToClientModal(options?: {
         const result = await generateSubmitToClientPreview(entries);
         if (generateRunIdRef.current !== runId) return;
         setReviewUrl(result.reviewUrl);
-        setCandidateNames(result.candidateNames);
+        setCandidateNames(
+          Array.from(
+            new Set(
+              (result.candidateNames || [])
+                .map((name) => String(name || '').trim())
+                .filter(Boolean),
+            ),
+          ),
+        );
         setVisibleCount(result.visibleCount);
         setHiddenCount(result.hiddenCount);
         setJobTitle(result.jobTitle);

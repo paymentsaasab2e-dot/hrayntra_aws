@@ -79,7 +79,7 @@ import {
 import { buildInterviewRoundNumberById } from '../../lib/interview-schedule-helpers';
 
 const INTERVIEW_DATE_OPTIONS = ['This Week', 'Today', 'This Month'] as const;
-const INTERVIEW_STATUS_OPTIONS = [ALL_STATUS_LABEL, 'Scheduled', 'Completed', 'Cancelled', 'Rescheduled', 'No Show'] as const;
+const INTERVIEW_STATUS_OPTIONS = [ALL_STATUS_LABEL, 'Scheduled', 'Accepted', 'Completed', 'Cancelled', 'Rescheduled', 'No Show'] as const;
 const INTERVIEW_ROUND_OPTIONS = ['All Rounds', 'Screening', 'Technical', 'HR', 'Managerial', 'Client', 'Final'] as const;
 const INTERVIEW_MODE_OPTIONS = ['All Modes', 'Online', 'Offline', 'Video', 'Phone', 'In-Person', 'Technical Test', 'Assessment'] as const;
 
@@ -162,7 +162,7 @@ export default function InterviewsPage() {
   const selectedJobIdRef = useRef<string | null>(null);
   selectedJobIdRef.current = selectedJobId;
   const interviewColumnVisibility = usePersistedColumnVisibility(
-    'interviews.visibleColumns',
+    'interviews.visibleColumns.v2',
     INTERVIEW_TABLE_COLUMNS,
   );
   const drawer = useInterviewDrawer();
@@ -1046,7 +1046,7 @@ export default function InterviewsPage() {
                             value={filters.clientJob}
                             onChange={(e) => patchFilter('clientJob', e.target.value)}
                           >
-                            <option value="All Clients">All clients / jobs</option>
+                            <option value="All Clients">All Recruitment Clients / Jobs</option>
                             {clientJobOptions.map((label) => (
                               <option key={label} value={label}>
                                 {label}

@@ -31,6 +31,13 @@ import {
   requestedAssignCompanyId,
   resolveWriteOrgUnitId,
 } from '../services/orgListScope.service.js';
+import {
+  assertValidReportsTo,
+  getAssignmentRulesForAssignor,
+  listSavedAssignmentRules,
+  replaceAssignmentRules,
+  ASSIGNMENT_RULE_MODULES,
+} from '../services/assignmentRules.service.js';
 
 /**
  * Best-effort: register the new credential's email/loginId in the HQ directory
@@ -525,6 +532,34 @@ export async function createTeamMember(req, res) {
       (req.body?.orgUnitId ? String(req.body.orgUnitId) : null) ||
       (await resolveWriteOrgUnitId(req));
 
+    if (resolvedManagerId) {
+      try {
+        const manager = await prisma.user.findUnique({
+          where: { id: String(resolvedManagerId) },
+          select: { id: true, orgUnitId: true },
+        });
+        if (!manager) {
+          return res.status(400).json({ success: false, message: 'Reports To manager not found' });
+        }
+        if (!canViewCrossCompanyMembers(req)) {
+          const memberOrg = String(orgUnitId || '').trim();
+          const managerOrg = String(manager.orgUnitId || '').trim();
+          if (memberOrg && managerOrg && memberOrg !== managerOrg) {
+            return res.status(400).json({
+              success: false,
+              message:
+                'Reports To must be in the same company unless you have cross-company authority',
+            });
+          }
+        }
+      } catch (hierarchyError) {
+        return res.status(400).json({
+          success: false,
+          message: hierarchyError?.message || 'Invalid Reports To',
+        });
+      }
+    }
+
     // Create user
     const user = await prisma.user.create({
       data: {
@@ -740,7 +775,6 @@ export async function updateTeamMember(req, res) {
       updateData.isActive = status !== 'INACTIVE';
     }
 
-    // Ensure we have at least one field to update
     if (Object.keys(updateData).length === 0) {
       return res.status(400).json({
         success: false,
@@ -757,6 +791,7 @@ export async function updateTeamMember(req, res) {
         firstName: true,
         lastName: true,
         name: true,
+        orgUnitId: true,
       },
     });
 
@@ -799,6 +834,19 @@ export async function updateTeamMember(req, res) {
         return res.status(400).json({
           success: false,
           message: validationError?.message || 'Invalid department role assignment',
+        });
+      }
+    }
+
+    if (updateData.managerId) {
+      try {
+        await assertValidReportsTo(id, updateData.managerId, {
+          allowCrossCompany: canViewCrossCompanyMembers(req),
+        });
+      } catch (hierarchyError) {
+        return res.status(400).json({
+          success: false,
+          message: hierarchyError?.message || 'Invalid Reports To',
         });
       }
     }
@@ -1810,6 +1858,94 @@ export async function impersonateTeamMember(req, res) {
     return res.status(error.statusCode || 400).json({
       success: false,
       message: error.message || 'Failed to open member account',
+    });
+  }
+}
+
+/**
+ * GET /api/team/assignment-rules?module=&assignorUserId=&orgUnitId=
+ * Or list all: GET /api/team/assignment-rules?list=1&orgUnitId=
+ */
+export async function getAssignmentRules(req, res) {
+  try {
+    const listMode =
+      String(req.query.list || '').trim() === '1' ||
+      String(req.query.list || '').toLowerCase() === 'true';
+    const orgUnitId = req.query.orgUnitId ? String(req.query.orgUnitId).trim() : null;
+
+    if (listMode) {
+      const data = await listSavedAssignmentRules({ orgUnitId });
+      return res.status(200).json({
+        success: true,
+        data,
+        modules: ASSIGNMENT_RULE_MODULES,
+      });
+    }
+
+    const module = String(req.query.module || '').trim();
+    const assignorUserId = String(req.query.assignorUserId || '').trim();
+    if (!module || !assignorUserId) {
+      return res.status(400).json({
+        success: false,
+        message: 'module and assignorUserId are required (or use list=1)',
+      });
+    }
+    const data = await getAssignmentRulesForAssignor({
+      module,
+      assignorUserId,
+      orgUnitId,
+    });
+    return res.status(200).json({
+      success: true,
+      data: {
+        ...data,
+        modules: ASSIGNMENT_RULE_MODULES,
+      },
+    });
+  } catch (error) {
+    logger.error({ route: req.originalUrl || req.url, message: error?.message || 'Failed to load assignment rules' });
+    return res.status(400).json({
+      success: false,
+      message: error?.message || 'Failed to load assignment rules',
+    });
+  }
+}
+
+/**
+ * PUT /api/team/assignment-rules
+ * Body: { module, assignorUserId, assigneeUserIds[], orgUnitId? }
+ * Replaces configuration for module + assignor (+ org). Empty array = configured with nobody.
+ */
+export async function putAssignmentRules(req, res) {
+  try {
+    const module = String(req.body?.module || '').trim();
+    const assignorUserId = String(req.body?.assignorUserId || '').trim();
+    const orgUnitId = req.body?.orgUnitId ? String(req.body.orgUnitId).trim() : null;
+    const assigneeUserIds = Array.isArray(req.body?.assigneeUserIds) ? req.body.assigneeUserIds : [];
+    if (!module || !assignorUserId) {
+      return res.status(400).json({
+        success: false,
+        message: 'module and assignorUserId are required',
+      });
+    }
+    const data = await replaceAssignmentRules({
+      module,
+      assignorUserId,
+      assigneeUserIds,
+      orgUnitId,
+      createdById: req.user?.id || null,
+    });
+    await deleteCacheByPattern(getTeamListCachePattern());
+    return res.status(200).json({
+      success: true,
+      message: 'Assignment rules saved',
+      data,
+    });
+  } catch (error) {
+    logger.error({ route: req.originalUrl || req.url, message: error?.message || 'Failed to save assignment rules' });
+    return res.status(400).json({
+      success: false,
+      message: error?.message || 'Failed to save assignment rules',
     });
   }
 }

@@ -382,25 +382,36 @@ export function LeadImportDrawer({
     }
   };
 
-  if (!isOpen) return null;
-
   return (
     <AnimatePresence>
+      {isOpen ? (
       <motion.div
-        key="import-backdrop"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
+        key="lead-import-shell"
+        className="pointer-events-none fixed inset-0 z-50"
+        initial="hidden"
+        animate="visible"
+        exit="hidden"
+        variants={{
+          hidden: { transition: { when: 'afterChildren', duration: 0.01 } },
+          visible: { transition: { when: 'beforeChildren' } },
+        }}
+      >
+      <motion.div
+        variants={{
+          hidden: { opacity: 0, transition: { duration: 0.16 } },
+          visible: { opacity: 1, transition: { duration: 0.16 } },
+        }}
         onClick={handleClose}
-        className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-[2px] pointer-events-auto"
+        className="pointer-events-auto absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]"
+        data-drawer-skip-dirty="true"
       />
       <motion.div
-        key="import-panel"
-        initial={{ x: '100%' }}
-        animate={{ x: 0 }}
-        exit={{ x: '100%' }}
-        transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-        className="fixed right-0 top-0 h-full w-3/4 max-w-6xl bg-white shadow-2xl z-50 pointer-events-auto border-l border-slate-200 flex flex-col"
+        variants={{
+          hidden: { x: '100%', transition: { duration: 0.2, ease: [0.22, 1, 0.36, 1] } },
+          visible: { x: 0, transition: { duration: 0.22, ease: [0.22, 1, 0.36, 1] } },
+        }}
+        className="pointer-events-auto absolute right-0 top-0 flex h-full w-3/4 max-w-6xl flex-col border-l border-slate-200 bg-white shadow-2xl"
+        data-app-page-drawer="panel"
       >
         <div className="shrink-0 border-b border-slate-200 p-5 flex items-center justify-between">
           <h2 className="text-lg font-bold text-slate-900">Import Leads</h2>
@@ -850,6 +861,8 @@ export function LeadImportDrawer({
           ) : null}
         </AnimatePresence>
       </motion.div>
+      </motion.div>
+      ) : null}
     </AnimatePresence>
   );
 }

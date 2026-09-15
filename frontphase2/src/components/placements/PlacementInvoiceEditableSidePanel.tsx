@@ -190,64 +190,52 @@ export function PlacementInvoiceEditableSidePanel({
 
       <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
         <p className="text-xs font-semibold text-slate-800">Signatures</p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <p className="text-[10px] font-bold uppercase text-slate-500">Agency</p>
           <div>
-            <p className="text-[10px] font-bold uppercase text-slate-500 mb-2">Client</p>
-            <ReadOnlyRow label="Name" value={invoice.clientSignatory?.name || ''} />
-            <div className="mt-2">
-              <ReadOnlyRow
-                label="Designation"
-                value={invoice.clientSignatory?.designation || ''}
-              />
-            </div>
+            <label className={labelClass}>Authorized signatory</label>
+            <input
+              className={inputClass}
+              value={invoice.agencySignatory?.name || ''}
+              onChange={(e) => onUpdateAgencySignatory({ name: e.target.value })}
+            />
           </div>
-          <div className="space-y-2">
-            <p className="text-[10px] font-bold uppercase text-slate-500">Agency</p>
-            <div>
-              <label className={labelClass}>Authorized signatory</label>
-              <input
-                className={inputClass}
-                value={invoice.agencySignatory?.name || ''}
-                onChange={(e) => onUpdateAgencySignatory({ name: e.target.value })}
+          <div>
+            <label className={labelClass}>Designation</label>
+            <input
+              className={inputClass}
+              value={invoice.agencySignatory?.designation || ''}
+              onChange={(e) => onUpdateAgencySignatory({ designation: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className={labelClass}>Signature image</label>
+            {invoice.agencySignatory?.signatureImageUrl ? (
+              <img
+                src={invoice.agencySignatory.signatureImageUrl}
+                alt="Agency signature"
+                className="mb-2 max-h-16 object-contain border border-slate-200 rounded bg-white p-1"
               />
-            </div>
-            <div>
-              <label className={labelClass}>Designation</label>
-              <input
-                className={inputClass}
-                value={invoice.agencySignatory?.designation || ''}
-                onChange={(e) => onUpdateAgencySignatory({ designation: e.target.value })}
-              />
-            </div>
-            <div>
-              <label className={labelClass}>Signature image</label>
-              {invoice.agencySignatory?.signatureImageUrl ? (
-                <img
-                  src={invoice.agencySignatory.signatureImageUrl}
-                  alt="Agency signature"
-                  className="mb-2 max-h-16 object-contain border border-slate-200 rounded bg-white p-1"
-                />
-              ) : (
-                <p className="text-[10px] text-slate-400 mb-2 italic">
-                  Upload in Billing → Settings, or choose a file below.
-                </p>
-              )}
-              <input
-                type="file"
-                accept="image/*"
-                className="text-xs w-full"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (!file) return;
-                  const reader = new FileReader();
-                  reader.onload = () => {
-                    const url = typeof reader.result === 'string' ? reader.result : '';
-                    if (url) onUpdateAgencySignatory({ signatureImageUrl: url });
-                  };
-                  reader.readAsDataURL(file);
-                }}
-              />
-            </div>
+            ) : (
+              <p className="text-[10px] text-slate-400 mb-2 italic">
+                Upload in Billing → Settings, or choose a file below.
+              </p>
+            )}
+            <input
+              type="file"
+              accept="image/*"
+              className="text-xs w-full"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = () => {
+                  const url = typeof reader.result === 'string' ? reader.result : '';
+                  if (url) onUpdateAgencySignatory({ signatureImageUrl: url });
+                };
+                reader.readAsDataURL(file);
+              }}
+            />
           </div>
         </div>
       </div>

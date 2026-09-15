@@ -305,9 +305,9 @@ function BlockColumns({
   );
 }
 
-type Props = { overview: CrmOverview | null };
+type Props = { overview: CrmOverview | null; loading?: boolean };
 
-export function CrmTeamIntelligence({ overview }: Props) {
+export function CrmTeamIntelligence({ overview, loading }: Props) {
   const { openDrillDown } = useCrmDashboard();
   const metrics = useMemo(() => buildCrmTeamStatsWithInfo(overview), [overview]);
   const byKey = (key: string) => metrics.find((m) => m.key === key);
@@ -375,6 +375,14 @@ export function CrmTeamIntelligence({ overview }: Props) {
       prev: i > 0 ? Number(rows[i - 1]?.value || 0) : Number(d.value || 0),
     }));
   }, [overview?.leadSpark]);
+
+  if (loading && !overview) {
+    return (
+      <div className="rounded-2xl border border-slate-100 bg-white px-5 py-10 text-center text-sm text-slate-500">
+        Loading team stats…
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">

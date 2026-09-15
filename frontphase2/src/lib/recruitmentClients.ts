@@ -7,9 +7,8 @@ export function isRecruitmentClient(client: {
 }
 
 /**
- * Add Job / AI wizard picker: own-company is kept by callers separately.
- * After at least one client is sent to Recruitment, only those clients appear.
- * Until then, all CRM clients stay available so existing tenants are not blocked.
+ * Add Job / AI wizard / recruitment filters: only Recruitment Clients.
+ * Callers may still inject workspace/own-company or `includeIds` for the current selection.
  */
 export function filterClientsForAddJob<T extends { id: string; recruitmentEnabled?: boolean | null }>(
   clients: T[],
@@ -18,8 +17,7 @@ export function filterClientsForAddJob<T extends { id: string; recruitmentEnable
   const includeIds = new Set(
     (options?.includeIds || []).filter((id): id is string => Boolean(id && String(id).trim())),
   );
-  const forwarded = clients.filter(isRecruitmentClient);
-  const pool = forwarded.length > 0 ? forwarded : clients;
+  const pool = clients.filter(isRecruitmentClient);
   if (includeIds.size === 0) return pool;
 
   const byId = new Map(clients.map((client) => [client.id, client]));

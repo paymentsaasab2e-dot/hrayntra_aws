@@ -89,6 +89,7 @@ import {
   stripJobDescriptionHtml,
 } from '@/lib/jobDescriptionHtml';
 import { ClientDetailsDrawer } from '@/components/drawers/ClientDetailsDrawer';
+import { DetailsModalShell } from '@/components/drawers/DetailsModalShell';
 import { useLinkedIn } from '@/hooks/useLinkedIn';
 import { useDrawerUnsavedGuard } from '@/hooks/useDrawerUnsavedGuard';
 import type { JobPreScreenAssessmentLink } from '@/lib/preScreenAssessmentTypes';
@@ -108,6 +109,7 @@ import {
   useOrgWorkspace,
 } from '@/lib/org/useOrgWorkspace';
 import { parseJobSalaryMoneyNumber, resolveJobSalaryCurrencySymbolForSave } from '@/constants/jobSalary';
+import { normalizeExtractedJobTitle } from '@/lib/normalizeExtractedJobTitle';
 
 type WizardStep = 'client' | 'jd' | 'review';
 type PublishFlowStep = 'assessment' | 'distribution' | null;
@@ -434,7 +436,7 @@ function pipelineToDraft(
 ): WizardDraft {
   return {
     ...base,
-    jobTitle: data.jobTitle || base.jobTitle,
+    jobTitle: normalizeExtractedJobTitle(data.jobTitle || base.jobTitle) || base.jobTitle,
     nationality: data.nationality || base.nationality,
     priority: data.priority || base.priority,
     numberOfOpenings: data.numberOfOpenings || base.numberOfOpenings,
@@ -975,10 +977,6 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
               : [];
       };
       let list = unwrap(recRes);
-      if (list.length === 0) {
-        const crmRes = await apiGetClients({ page: 1, limit: 200 });
-        list = unwrap(crmRes);
-      }
       const workspace =
         (workspaceRes as { data?: { workspaceClient?: BackendClient | null } } | null)?.data
           ?.workspaceClient || null;
@@ -1949,21 +1947,17 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
     'rounded-[1.35rem] border border-white/80 bg-white/80 p-4 shadow-[0_8px_30px_-12px_rgba(15,23,42,0.12)] ring-1 ring-slate-900/[0.04] backdrop-blur-sm sm:p-5';
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center p-3 sm:p-6">
-      <button
-        type="button"
-        className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]"
-        aria-label="Close"
-        onClick={() => void requestWizardClose()}
-      />
-
-      <motion.div
-        ref={wizardPanelRef}
-        initial={{ opacity: 0, y: 28, scale: 0.94 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={{ type: 'spring', stiffness: 360, damping: 28 }}
-        className="relative flex max-h-[min(92vh,920px)] w-full max-w-6xl flex-col overflow-hidden rounded-[1.85rem] border border-white/70 bg-gradient-to-b from-white via-white to-slate-50 shadow-[0_40px_100px_-24px_rgba(2,6,23,0.55)]"
-      >
+    <>
+    <AnimatePresence>
+    <DetailsModalShell
+      key="job-ai-create-wizard"
+      variant="main"
+      panelRef={wizardPanelRef}
+      onBackdropClick={() => void requestWizardClose()}
+      dialogTitleId="job-ai-create-wizard-title"
+      panelClassName="bg-gradient-to-b from-white via-white to-slate-50"
+    >
+      <div className="relative flex h-full min-h-0 flex-col overflow-hidden">
         <div className="pointer-events-none absolute inset-x-0 top-0 h-44 bg-[radial-gradient(ellipse_at_top_right,_rgba(32,152,200,0.18),_transparent_55%),radial-gradient(ellipse_at_top_left,_rgba(32,152,200,0.12),_transparent_50%)]" />
         <div
           className="pointer-events-none absolute inset-0 opacity-[0.4]"
@@ -1976,7 +1970,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
           aria-hidden
         />
 
-        <div className="relative border-b border-[#2098C8]/20 px-5 py-2.5 sm:px-7">
+        <div className="relative shrink-0 border-b border-[#2098C8]/20 px-5 py-2.5 sm:px-7">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
@@ -1991,6 +1985,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                 </div>
                 <AnimatePresence mode="wait">
                   <motion.h2
+                    id="job-ai-create-wizard-title"
                     key={`${step}-${publishFlowStep || 'main'}-title`}
                     initial={{ opacity: 0, y: 4 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -2925,7 +2920,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
           </AnimatePresence>
         </div>
 
-        <div className="relative flex items-center justify-between gap-3 border-t border-[#2098C8]/25 bg-white/90 px-5 py-4 backdrop-blur-md sm:px-7">
+        <div className="relative flex shrink-0 items-center justify-between gap-3 border-t border-[#2098C8]/25 bg-white/90 px-5 py-4 backdrop-blur-md sm:px-7">
           <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[#2098C8]/50 to-transparent" />
           <button
             type="button"
@@ -3020,7 +3015,9 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
             </button>
           )}
         </div>
-      </motion.div>
+      </div>
+    </DetailsModalShell>
+    </AnimatePresence>
 
       {showCreateClient ? (
         <ClientDetailsDrawer
@@ -3098,6 +3095,6 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
           applyLinkedInTemplate(template);
         }}
       />
-    </div>
+    </>
   );
 }

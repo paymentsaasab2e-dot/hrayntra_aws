@@ -50,7 +50,7 @@ type DrawerFormShellProps = {
   headerIcon?: LucideIcon;
   children: React.ReactNode;
   footer?: React.ReactNode;
-  /** Extra classes merged onto the centered modal panel (prefer max-w-* only). */
+  /** Extra classes merged onto the workspace drawer panel. */
   panelClassName?: string;
   contentClassName?: string;
   backdropClassName?: string;
@@ -64,14 +64,16 @@ type DrawerFormShellProps = {
 
 function sanitizePanelClassName(panelClassName?: string): string {
   if (!panelClassName) return '';
-  // Drop legacy side-slide positioning so callers don't fight the centered layout.
+  // Drop legacy centered/side-slide positioning so callers don't fight the main drawer layout.
   return panelClassName
     .replace(/\bfixed\b/g, '')
     .replace(/\bright-0\b/g, '')
     .replace(/\btop-0\b/g, '')
     .replace(/\binset-y-0\b/g, '')
     .replace(/\bh-full\b/g, '')
+    .replace(/\bmax-w-\S+/g, '')
     .replace(/\bborder-l\b/g, '')
+    .replace(/\brounded-\S+/g, '')
     .replace(/\bz-\[\d+\]\b/g, '')
     .replace(/\bz-\d+\b/g, '')
     .replace(/\s+/g, ' ')
@@ -79,6 +81,13 @@ function sanitizePanelClassName(panelClassName?: string): string {
 }
 
 const EASE_OUT = [0.22, 1, 0.36, 1] as const;
+
+const MAIN_INSET = {
+  top: 'calc(var(--ph2-header-h, 3.5rem) + var(--ph2-impersonation-banner-h, 0px))',
+  left: 'var(--ph2-sidenav-w, 220px)',
+  right: 0,
+  bottom: 0,
+} as const;
 
 export function DrawerFormShell({
   isOpen,
@@ -90,7 +99,7 @@ export function DrawerFormShell({
   footer,
   panelClassName,
   contentClassName,
-  backdropClassName = 'absolute inset-0 bg-slate-900/45 backdrop-blur-[2px]',
+  backdropClassName = '',
   zBackdrop = 60,
   zPanel = 70,
   guardUnsaved = true,
@@ -108,7 +117,7 @@ export function DrawerFormShell({
     setMounted(true);
   }, []);
 
-  // Ignore the same click that opened the modal (mouseup/click landing on backdrop).
+  // Ignore the same click that opened the drawer (mouseup/click landing on backdrop).
   const allowBackdropCloseRef = useRef(false);
   useEffect(() => {
     if (!isOpen) {
@@ -135,64 +144,70 @@ export function DrawerFormShell({
       {isOpen ? (
         <motion.div
           key="drawer-form-overlay"
-          className="fixed inset-0"
+          className="pointer-events-none fixed inset-0"
           style={{ zIndex: overlayZ }}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.18, ease: EASE_OUT }}
+          data-app-page-drawer="shell"
         >
-          <div
-            className={`${backdropClassName} pointer-events-auto`}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.16, ease: EASE_OUT }}
+            className={`pointer-events-auto absolute bg-slate-900/25 md:bg-transparent ${backdropClassName}`.trim()}
+            style={MAIN_INSET}
             onClick={handleBackdropClose}
             data-drawer-skip-dirty="true"
             aria-hidden
           />
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-4 sm:p-6">
-            <motion.aside
-              ref={panelRef}
-              initial={{ opacity: 0, scale: 0.98, y: 10 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.98, y: 8 }}
-              transition={{ duration: 0.2, ease: EASE_OUT }}
-              className={`${DRAWER_FORM_PANEL_CLASS} ${cleanedPanelClass}`.trim()}
-              role="dialog"
-              aria-modal="true"
-              onClick={(e) => e.stopPropagation()}
-              onMouseDown={(e) => e.stopPropagation()}
-            >
-              <DrawerFormRequestCloseContext.Provider value={requestClose}>
-                <div className={DRAWER_FORM_HEADER_CLASS}>
-                  <div className="flex min-w-0 flex-1 items-center gap-3">
-                    {HeaderIcon ? (
-                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-lg shadow-blue-500/25">
-                        <HeaderIcon size={20} />
-                      </div>
-                    ) : null}
-                    <div className="min-w-0">
-                      <h2 className="text-lg font-bold tracking-tight text-slate-900">{title}</h2>
-                      {subtitle ? <p className="mt-0.5 text-xs text-slate-500">{subtitle}</p> : null}
+          <motion.aside
+            ref={panelRef}
+            initial={{ x: 22 }}
+            animate={{ x: 0 }}
+            exit={{ x: 22 }}
+            transition={{ duration: 0.2, ease: EASE_OUT }}
+            className={`${DRAWER_FORM_PANEL_CLASS} ${cleanedPanelClass}`.trim()}
+            style={MAIN_INSET}
+            role="dialog"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            data-app-page-drawer="panel"
+          >
+            <DrawerFormRequestCloseContext.Provider value={requestClose}>
+              <div className={DRAWER_FORM_HEADER_CLASS}>
+                <div className="flex min-w-0 flex-1 items-center gap-3">
+                  {HeaderIcon ? (
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-lg shadow-blue-500/25">
+                      <HeaderIcon size={20} />
                     </div>
+                  ) : null}
+                  <div className="min-w-0">
+                    <h2 className="text-lg font-bold tracking-tight text-slate-900">{title}</h2>
+                    {subtitle ? <p className="mt-0.5 text-xs text-slate-500">{subtitle}</p> : null}
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => void requestClose()}
-                    className="rounded-full p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
-                    aria-label="Close drawer"
-                    data-drawer-skip-dirty="true"
-                  >
-                    <X size={18} />
-                  </button>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => void requestClose()}
+                  className="rounded-full p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+                  aria-label="Close drawer"
+                  data-drawer-skip-dirty="true"
+                >
+                  <X size={18} />
+                </button>
+              </div>
 
-                <div className={contentClassName || DRAWER_FORM_CONTENT_CLASS}>
-                  <div className="space-y-5 px-6 py-5">{children}</div>
-                </div>
+              <div className={contentClassName || DRAWER_FORM_CONTENT_CLASS}>
+                <div className="space-y-5 px-6 py-5">{children}</div>
+              </div>
 
-                {footer ? <div className={DRAWER_FORM_FOOTER_CLASS}>{footer}</div> : null}
-              </DrawerFormRequestCloseContext.Provider>
-            </motion.aside>
-          </div>
+              {footer ? <div className={DRAWER_FORM_FOOTER_CLASS}>{footer}</div> : null}
+            </DrawerFormRequestCloseContext.Provider>
+          </motion.aside>
         </motion.div>
       ) : null}
     </AnimatePresence>

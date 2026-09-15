@@ -1288,6 +1288,11 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
     mounted &&
     isOrgModuleEnabled('matches') &&
     (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Matches));
+  const canViewBilling =
+    mounted &&
+    isOrgModuleEnabled('billing') &&
+    billingNavEnabled &&
+    (showAll || hasPermission('access_billing'));
   const canViewRecruitmentNav =
     canViewJobs ||
     canViewCandidates ||
@@ -1296,7 +1301,8 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
     canViewRecruitmentDashboard ||
     canViewPipeline ||
     canViewMatches ||
-    canViewRecruitmentClients;
+    canViewRecruitmentClients ||
+    canViewBilling;
   const isRecruitmentClientsRoute =
     pathname === '/client' && searchParams.get('scope') === 'recruitment';
   const isRecruitmentRouteActive =
@@ -1309,6 +1315,7 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
       '/recruitment',
       '/pipeline',
       '/matches',
+      '/billing',
     ].some((route) => pathname === route || (pathname || '').startsWith(`${route}/`)) ||
     isRecruitmentClientsRoute;
 
@@ -1743,7 +1750,7 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
                   ? [{ icon: Target, label: 'Leads', href: '/leads', accent: 'rose' as const }]
                   : []),
                 ...(canViewClients
-                  ? [{ icon: Users, label: 'Clients', href: '/client', accent: 'blue' as const }]
+                  ? [{ icon: Users, label: 'CRM Clients', href: '/client', accent: 'blue' as const }]
                   : []),
               ]}
             />
@@ -1764,7 +1771,7 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
                   ? [{ icon: LayoutDashboard, label: 'Dashboard', href: '/recruitment', accent: 'indigo' as const }]
                   : []),
                 ...(canViewRecruitmentClients
-                  ? [{ icon: Users, label: 'Clients', href: '/client?scope=recruitment', accent: 'blue' as const }]
+                  ? [{ icon: Users, label: 'Recruitment Clients', href: '/client?scope=recruitment', accent: 'blue' as const }]
                   : []),
                 ...(canViewJobs
                   ? [{ icon: Briefcase, label: 'Jobs', href: '/job', accent: 'amber' as const }]
@@ -1783,6 +1790,9 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
                   : []),
                 ...(canViewPlacements
                   ? [{ icon: Award, label: 'Placements', href: '/placement', accent: 'emerald' as const }]
+                  : []),
+                ...(canViewBilling
+                  ? [{ icon: CreditCard, label: 'Billing', href: '/billing', accent: 'amber' as const }]
                   : []),
               ]}
             />
@@ -1831,11 +1841,6 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
             <NavItem icon={BarChart3} label="Reports" href="/reports" collapsed={navCollapsed} onNavigate={handleNavigate} accent="pink" />
           )}
           
-          {/* Billing - show if Super Admin or has access_billing */}
-          {(mounted && isOrgModuleEnabled('billing') && billingNavEnabled && (showAll || hasPermission('access_billing'))) && (
-            <NavItem icon={CreditCard} label="Billing" href="/billing" collapsed={navCollapsed} onNavigate={handleNavigate} accent="amber" />
-          )}
-
           {/* Recycle Bin — soft-deleted leads / clients / candidates / jobs land here.
               Visible to anyone with delete permission on at least one of those modules so the
               menu surfaces alongside the relevant deletion actions. */}

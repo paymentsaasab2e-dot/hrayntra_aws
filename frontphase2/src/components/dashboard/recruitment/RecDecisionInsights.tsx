@@ -250,10 +250,10 @@ export function RecDecisionInsights({ overview, loading }: Props) {
             tone="indigo"
           />
           <PulseStat
-            label="New candidates"
-            value={formatNum(today?.newCandidates ?? recKpi(overview, 'newCandidates'))}
-            unit="new"
-            hint="Fresh talent this period"
+            label="New candidates today"
+            value={formatNum(today?.newCandidates ?? 0)}
+            unit="today"
+            hint="Created today in your scope"
             tone="sky"
             deltaPct={sparkDelta(spark)}
           />
@@ -261,7 +261,7 @@ export function RecDecisionInsights({ overview, loading }: Props) {
             label="Open jobs"
             value={formatNum(today?.openJobs ?? openJobs)}
             unit="open"
-            hint={`${formatNum(noCand)} with no candidates`}
+            hint={`${formatNum(noCand)} with no candidates · live pipeline`}
             tone="rose"
             invertDelta
           />
@@ -269,7 +269,7 @@ export function RecDecisionInsights({ overview, loading }: Props) {
             label="Placement revenue"
             value={formatInr(today?.placementRevenue ?? recKpi(overview, 'placementRevenue'))}
             unit="value"
-            hint={`${formatNum(today?.pendingOffers ?? recKpi(overview, 'offersSent'))} offers in play`}
+            hint={`${formatNum(today?.pendingOffers ?? recKpi(overview, 'offersSent'))} offers in play · live book`}
             tone="emerald"
           />
         </div>

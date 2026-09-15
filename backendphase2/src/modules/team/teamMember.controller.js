@@ -43,7 +43,7 @@ export const teamMemberController = {
 
   async update(req, res) {
     try {
-      const member = await teamMemberService.update(req.params.id, req.body);
+      const member = await teamMemberService.update(req.params.id, req.body, req);
       sendResponse(res, 200, 'Team member updated successfully', member);
     } catch (error) {
       sendError(res, 400, error.message, error);

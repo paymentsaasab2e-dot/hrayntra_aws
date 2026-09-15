@@ -35,9 +35,10 @@ export function TenantPausedHost() {
   useEffect(() => {
     if (!getAccessToken()) return undefined;
     void syncOrgRecruitmentSummaryFromApi().then(() => syncPauseState());
+    // Poll less often — FE/BE caches already cover short gaps; 30s + 8s HQ was saturating the API.
     const interval = window.setInterval(() => {
       void syncOrgRecruitmentSummaryFromApi().then(() => syncPauseState());
-    }, 30000);
+    }, 120_000);
     const onFocus = () => {
       void syncOrgRecruitmentSummaryFromApi().then(() => syncPauseState());
     };

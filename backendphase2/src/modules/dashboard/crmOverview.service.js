@@ -1,6 +1,13 @@
 import { prisma } from '../../config/prisma.js';
 import { appendEntityActivityVisibilityToWhere } from '../../services/activityVisibility.service.js';
-import { assigneeIdFilter } from './assigneeFilter.js';
+import { assigneeIdFilter, companyRecordScope } from './assigneeFilter.js';
+
+/** Merge company/assignee scope with optional search OR without clobbering either. */
+function withScopeAndSearch(scopePart, searchPart) {
+  const hasScope = Boolean(scopePart && Object.keys(scopePart).length);
+  if (hasScope && searchPart) return { AND: [scopePart, searchPart] };
+  return { ...(scopePart || {}), ...(searchPart || {}) };
+}
 
 function formatPersonName(person) {
   if (!person) return '';
@@ -148,7 +155,6 @@ function sparkFromDaily(rows, days = 7) {
  */
 export async function getCrmOverview(req) {
   const q = req?.query || {};
-  const assignedTo = assigneeIdFilter(q);
   const search = String(q.search || '').trim() || undefined;
   const range = resolveRangeBounds(q);
   const periodCreated =
@@ -165,42 +171,55 @@ export async function getCrmOverview(req) {
   const daysAgo30 = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
   const daysAgo60 = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
 
+  const leadScope = companyRecordScope(q, 'assignedToId');
+  const clientScope = companyRecordScope(q, 'assignedToId');
+  const taskScope = companyRecordScope(q, 'assignedToId');
+  const assignedTo = assigneeIdFilter(q);
+
+  const leadSearch = search
+    ? {
+        OR: [
+          { companyName: { contains: search, mode: 'insensitive' } },
+          { directorName: { contains: search, mode: 'insensitive' } },
+          { contactName: { contains: search, mode: 'insensitive' } },
+          { contactPerson: { contains: search, mode: 'insensitive' } },
+          { email: { contains: search, mode: 'insensitive' } },
+          { phone: { contains: search, mode: 'insensitive' } },
+          { industry: { contains: search, mode: 'insensitive' } },
+          { country: { contains: search, mode: 'insensitive' } },
+          { city: { contains: search, mode: 'insensitive' } },
+        ],
+      }
+    : null;
+
+  // Open book (live pipeline) — do NOT clamp by createdAt or timeline filters empty the funnel.
   const leadBase = {
     isDeleted: { not: true },
-    ...(assignedTo ? { assignedToId: assignedTo } : {}),
-    ...(search
-      ? {
-          OR: [
-            { companyName: { contains: search, mode: 'insensitive' } },
-            { directorName: { contains: search, mode: 'insensitive' } },
-            { contactName: { contains: search, mode: 'insensitive' } },
-            { contactPerson: { contains: search, mode: 'insensitive' } },
-            { email: { contains: search, mode: 'insensitive' } },
-            { phone: { contains: search, mode: 'insensitive' } },
-            { industry: { contains: search, mode: 'insensitive' } },
-            { country: { contains: search, mode: 'insensitive' } },
-            { city: { contains: search, mode: 'insensitive' } },
-          ],
-        }
-      : {}),
+    ...withScopeAndSearch(leadScope, leadSearch),
+  };
+  const leadOpen = {
+    ...leadBase,
+    status: { notIn: ['Converted', 'Lost'] },
   };
 
+  // Period intake / conversion — created within the selected timeline.
   const leadPeriod = { ...leadBase, ...periodCreated };
+
+  const clientSearch = search
+    ? {
+        OR: [
+          { companyName: { contains: search, mode: 'insensitive' } },
+          { industry: { contains: search, mode: 'insensitive' } },
+          { country: { contains: search, mode: 'insensitive' } },
+          { city: { contains: search, mode: 'insensitive' } },
+          { location: { contains: search, mode: 'insensitive' } },
+        ],
+      }
+    : null;
 
   const clientBase = {
     isDeleted: { not: true },
-    ...(assignedTo ? { assignedToId: assignedTo } : {}),
-    ...(search
-      ? {
-          OR: [
-            { companyName: { contains: search, mode: 'insensitive' } },
-            { industry: { contains: search, mode: 'insensitive' } },
-            { country: { contains: search, mode: 'insensitive' } },
-            { city: { contains: search, mode: 'insensitive' } },
-            { location: { contains: search, mode: 'insensitive' } },
-          ],
-        }
-      : {}),
+    ...withScopeAndSearch(clientScope, clientSearch),
   };
 
   const clientPeriod = { ...clientBase, ...periodCreated };
@@ -210,7 +229,7 @@ export async function getCrmOverview(req) {
       { linkedEntityType: { in: ['CLIENT', 'INTERNAL'] } },
       { taskType: { in: ['Call', 'Email', 'Follow-up', 'Meeting', 'WhatsApp', 'Note'] } },
     ],
-    ...(assignedTo ? { assignedToId: assignedTo } : {}),
+    ...taskScope,
   };
 
   // Recent Activities visibility:
@@ -233,11 +252,13 @@ export async function getCrmOverview(req) {
     leadSourceGroups,
     clientIndustryGroups,
     clientCountryGroups,
-    totalLeads,
-    newLeads,
+    openPipelineLeads,
+    newLeadsInPeriod,
+    statusNewOpen,
     qualifiedLeads,
     convertedLeads,
     lostLeads,
+    periodLeadCount,
     hotLeads,
     totalClients,
     activeClients,
@@ -252,6 +273,7 @@ export async function getCrmOverview(req) {
     callsToday,
     emailsToday,
     whatsappToday,
+    newLeadsToday,
     recentLeadCreates,
     recentClientCreates,
     recentActivities,
@@ -265,63 +287,42 @@ export async function getCrmOverview(req) {
     inactiveLeads,
     highValueLeads,
   ] = await Promise.all([
-    prisma.lead.groupBy({ by: ['status'], where: leadPeriod, _count: { _all: true } }).catch(() => []),
-    prisma.client.groupBy({ by: ['status'], where: clientPeriod, _count: { _all: true } }).catch(() => []),
+    prisma.lead.groupBy({ by: ['status'], where: leadBase, _count: { _all: true } }).catch(() => []),
+    prisma.client.groupBy({ by: ['status'], where: clientBase, _count: { _all: true } }).catch(() => []),
     prisma.lead.groupBy({ by: ['source'], where: leadPeriod, _count: { _all: true } }).catch(() => []),
     prisma.client.groupBy({ by: ['industry'], where: clientPeriod, _count: { _all: true } }).catch(() => []),
     prisma.client.groupBy({ by: ['country'], where: clientPeriod, _count: { _all: true } }).catch(() => []),
+    prisma.lead.count({ where: leadOpen }).catch(() => 0),
     prisma.lead.count({ where: leadPeriod }).catch(() => 0),
-    prisma.lead.count({ where: { ...leadPeriod, status: 'New' } }).catch(() => 0),
-    prisma.lead.count({ where: { ...leadPeriod, status: 'Qualified' } }).catch(() => 0),
+    prisma.lead.count({ where: { ...leadOpen, status: 'New' } }).catch(() => 0),
+    prisma.lead.count({ where: { ...leadOpen, status: 'Qualified' } }).catch(() => 0),
     prisma.lead.count({ where: { ...leadPeriod, status: 'Converted' } }).catch(() => 0),
     prisma.lead.count({ where: { ...leadPeriod, status: 'Lost' } }).catch(() => 0),
+    prisma.lead.count({ where: leadPeriod }).catch(() => 0),
     prisma.lead
       .count({
         where: {
-          ...leadPeriod,
+          ...leadOpen,
           OR: [{ priority: 'High' }, { status: { in: ['Qualified', 'Contacted'] } }],
         },
       })
       .catch(() => 0),
-    prisma.client.count({ where: clientPeriod }).catch(() => 0),
-    prisma.client.count({ where: { ...clientPeriod, status: 'ACTIVE' } }).catch(() => 0),
-    prisma.client.count({ where: { ...clientPeriod, status: 'INACTIVE' } }).catch(() => 0),
-    prisma.client.count({ where: { ...clientPeriod, status: 'ON_HOLD' } }).catch(() => 0),
-    prisma.client.count({ where: { ...clientPeriod, status: 'PROSPECT' } }).catch(() => 0),
+    prisma.client.count({ where: clientBase }).catch(() => 0),
+    prisma.client.count({ where: { ...clientBase, status: 'ACTIVE' } }).catch(() => 0),
+    prisma.client.count({ where: { ...clientBase, status: 'INACTIVE' } }).catch(() => 0),
+    prisma.client.count({ where: { ...clientBase, status: 'ON_HOLD' } }).catch(() => 0),
+    prisma.client.count({ where: { ...clientBase, status: 'PROSPECT' } }).catch(() => 0),
     prisma.lead
-      .count({
-        where: {
-          ...leadBase,
-          nextFollowUp: { gte: startOfToday, lte: endOfToday },
-          status: { notIn: ['Converted', 'Lost'] },
-        },
-      })
+      .count({ where: { ...leadOpen, nextFollowUp: { gte: startOfToday, lte: endOfToday } } })
       .catch(() => 0),
     prisma.lead
-      .count({
-        where: {
-          ...leadBase,
-          nextFollowUp: { gte: startTomorrow, lte: endTomorrow },
-          status: { notIn: ['Converted', 'Lost'] },
-        },
-      })
+      .count({ where: { ...leadOpen, nextFollowUp: { gte: startTomorrow, lte: endTomorrow } } })
       .catch(() => 0),
     prisma.lead
-      .count({
-        where: {
-          ...leadBase,
-          nextFollowUp: { lt: startOfToday },
-          status: { notIn: ['Converted', 'Lost'] },
-        },
-      })
+      .count({ where: { ...leadOpen, nextFollowUp: { lt: startOfToday } } })
       .catch(() => 0),
     prisma.lead
-      .count({
-        where: {
-          ...leadBase,
-          lastFollowUp: { gte: startOfToday, lte: endOfToday },
-        },
-      })
+      .count({ where: { ...leadBase, lastFollowUp: { gte: startOfToday, lte: endOfToday } } })
       .catch(() => 0),
     prisma.task
       .count({
@@ -360,15 +361,24 @@ export async function getCrmOverview(req) {
       })
       .catch(() => 0),
     prisma.lead
+      .count({ where: { ...leadBase, createdAt: { gte: startOfToday, lte: endOfToday } } })
+      .catch(() => 0),
+    prisma.lead
       .findMany({
-        where: { ...leadBase, createdAt: { gte: range.start || daysAgo30, ...(range.end ? { lte: range.end } : {}) } },
+        where: {
+          ...leadBase,
+          createdAt: { gte: range.start || daysAgo30, ...(range.end ? { lte: range.end } : {}) },
+        },
         select: { createdAt: true },
         take: 2000,
       })
       .catch(() => []),
     prisma.client
       .findMany({
-        where: { ...clientBase, createdAt: { gte: range.start || daysAgo60, ...(range.end ? { lte: range.end } : {}) } },
+        where: {
+          ...clientBase,
+          createdAt: { gte: range.start || daysAgo60, ...(range.end ? { lte: range.end } : {}) },
+        },
         select: { createdAt: true },
         take: 2000,
       })
@@ -393,11 +403,7 @@ export async function getCrmOverview(req) {
       .catch(() => []),
     prisma.lead
       .findMany({
-        where: {
-          ...leadBase,
-          nextFollowUp: { gte: startOfToday, lte: in7Days },
-          status: { notIn: ['Converted', 'Lost'] },
-        },
+        where: { ...leadOpen, nextFollowUp: { gte: startOfToday, lte: in7Days } },
         take: 12,
         orderBy: { nextFollowUp: 'asc' },
         select: {
@@ -438,17 +444,12 @@ export async function getCrmOverview(req) {
       .findMany({
         where: { isActive: true },
         take: 40,
-        select: {
-          id: true,
-          name: true,
-          email: true,
-          role: true,
-        },
+        select: { id: true, name: true, email: true, role: true },
       })
       .catch(() => []),
     prisma.lead
       .findMany({
-        where: leadBase,
+        where: leadOpen,
         select: { expectedBusinessValue: true, companyName: true, id: true, status: true },
         take: 500,
       })
@@ -461,43 +462,25 @@ export async function getCrmOverview(req) {
       })
       .catch(() => []),
     prisma.lead
-      .count({
-        where: {
-          ...leadBase,
-          OR: [{ email: null }, { email: '' }],
-          status: { notIn: ['Converted', 'Lost'] },
-        },
-      })
+      .count({ where: { ...leadOpen, OR: [{ email: null }, { email: '' }] } })
       .catch(() => 0),
     prisma.lead
-      .count({
-        where: {
-          ...leadBase,
-          OR: [{ phone: null }, { phone: '' }],
-          status: { notIn: ['Converted', 'Lost'] },
-        },
-      })
+      .count({ where: { ...leadOpen, OR: [{ phone: null }, { phone: '' }] } })
       .catch(() => 0),
     prisma.lead
-      .count({
-        where: {
-          ...leadBase,
-          updatedAt: { lt: daysAgo7 },
-          status: { notIn: ['Converted', 'Lost'] },
-        },
-      })
+      .count({ where: { ...leadOpen, updatedAt: { lt: daysAgo7 } } })
       .catch(() => 0),
     prisma.lead
       .findMany({
-        where: {
-          ...leadBase,
-          status: { notIn: ['Converted', 'Lost'] },
-        },
+        where: leadOpen,
         select: { id: true, companyName: true, expectedBusinessValue: true, priority: true },
         take: 200,
       })
       .catch(() => []),
   ]);
+
+  const totalLeads = openPipelineLeads;
+  const newLeads = newLeadsInPeriod;
 
   const contacted = countByStatus(leadStatusGroups, ['Contacted', 'In Progress']);
   const meetingStage = countByStatus(leadStatusGroups, ['Meeting', 'Meeting Scheduled']);
@@ -505,7 +488,7 @@ export async function getCrmOverview(req) {
   const negotiation = countByStatus(leadStatusGroups, ['Negotiation']);
 
   const pipeline = [
-    { stage: 'New', count: countByStatus(leadStatusGroups, ['New']) || newLeads, href: '/leads?status=New' },
+    { stage: 'New', count: countByStatus(leadStatusGroups, ['New']) || statusNewOpen, href: '/leads?status=New' },
     { stage: 'Contacted', count: contacted, href: '/leads?status=Contacted' },
     { stage: 'Qualified', count: countByStatus(leadStatusGroups, ['Qualified']) || qualifiedLeads, href: '/leads?status=Qualified' },
     { stage: 'Meeting', count: meetingStage, href: '/leads' },
@@ -556,13 +539,14 @@ export async function getCrmOverview(req) {
   const highestClient = [...clientValues].sort((a, b) => b.value - a.value)[0] || null;
 
   const conversionRate =
-    totalLeads > 0 ? Number(((convertedLeads / totalLeads) * 100).toFixed(1)) : 0;
+    periodLeadCount > 0 ? Number(((convertedLeads / periodLeadCount) * 100).toFixed(1)) : 0;
 
-  let health = 72;
-  health += Math.min(12, conversionRate);
-  health -= Math.min(20, overdueFollowups * 2);
-  health -= Math.min(10, inactiveLeads);
-  health += Math.min(8, Math.log10(Math.max(activeClients, 1) + 1) * 4);
+  let health = 100;
+  health -= Math.min(35, overdueFollowups * 3);
+  health -= Math.min(20, inactiveLeads);
+  health -= Math.min(15, missingEmailLeads > 0 ? Math.round((missingEmailLeads / Math.max(openPipelineLeads, 1)) * 15) : 0);
+  health += Math.min(15, conversionRate * 0.15);
+  health += Math.min(10, Math.log10(Math.max(activeClients, 1) + 1) * 5);
   health = Math.max(0, Math.min(100, Math.round(health)));
   const healthLabel = health >= 85 ? 'Excellent' : health >= 70 ? 'Good' : health >= 50 ? 'Fair' : 'Needs Attention';
 
@@ -921,7 +905,7 @@ export async function getCrmOverview(req) {
   const [leadRows, clientRows, teamMemberCount] = await Promise.all([
     prisma.lead
       .findMany({
-        where: leadPeriod,
+        where: leadOpen,
         take: 200,
         orderBy: { updatedAt: 'desc' },
         select: {
@@ -948,7 +932,7 @@ export async function getCrmOverview(req) {
       .catch(() => []),
     prisma.client
       .findMany({
-        where: clientPeriod,
+        where: clientBase,
         take: 200,
         orderBy: { updatedAt: 'desc' },
         select: {
@@ -1202,11 +1186,13 @@ export async function getCrmOverview(req) {
     .sort((a, b) => b.value - a.value);
 
   const leadStagePie = [
-    { name: 'New', value: newLeads },
+    { name: 'New', value: statusNewOpen },
     { name: 'Contacted', value: contacted },
     { name: 'Qualified', value: qualifiedLeads },
-    { name: 'Converted', value: convertedLeads },
-    { name: 'Lost', value: lostLeads },
+    { name: 'Proposal', value: proposal },
+    { name: 'Negotiation', value: negotiation },
+    { name: 'Converted', value: countByStatus(leadStatusGroups, ['Converted', 'Won']) },
+    { name: 'Lost', value: countByStatus(leadStatusGroups, ['Lost']) },
   ].filter((x) => x.value > 0);
 
   const kpis = {
@@ -1243,6 +1229,8 @@ export async function getCrmOverview(req) {
     averageLeadValue: Math.round(avgLeadValue),
     averageClientValue: Math.round(avgClientValue),
     activeFollowups: followupsToday + overdueFollowups,
+    periodLeadCount,
+    openPipelineLeads,
   };
 
   return {
@@ -1250,11 +1238,12 @@ export async function getCrmOverview(req) {
     kpis,
     health: { score: health, label: healthLabel },
     todaySummary: {
-      newLeads,
-      followupsPending: followupsToday + overdueFollowups,
+      newLeads: newLeadsToday,
+      followupsPending: followupsToday,
       meetingsScheduled: meetingsToday,
       hotClients: hotLeads,
       estimatedBusinessValue: Math.round(potentialBusinessValue),
+      overdueFollowups,
     },
     insights: insights.slice(0, 10),
     recommendations: recommendations.slice(0, 8),

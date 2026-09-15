@@ -146,11 +146,13 @@ const StatusCards = ({
   onTabChange,
   counts,
   fieldVisibility,
+  isRecruitmentScope = false,
 }: {
   activeTab: string;
   onTabChange: (tab: string) => void;
   counts: { all: number; active: number; 'on-hold': number; inactive: number; hot: number };
   fieldVisibility: ClientPageFieldVisibility;
+  isRecruitmentScope?: boolean;
 }) => {
   const cards: Array<{
     id: string;
@@ -159,7 +161,13 @@ const StatusCards = ({
     color: SummaryCardColor;
     icon: React.ReactNode;
   }> = [
-    { id: 'all', label: 'All Clients', count: counts.all, color: 'indigo', icon: <FolderOpen size={16} strokeWidth={2.35} /> },
+    {
+      id: 'all',
+      label: isRecruitmentScope ? 'All Recruitment Clients' : 'All CRM Clients',
+      count: counts.all,
+      color: 'indigo',
+      icon: <FolderOpen size={16} strokeWidth={2.35} />,
+    },
     ...(fieldVisibility.status
       ? [
           { id: 'active', label: 'Active', count: counts.active, color: 'blue' as SummaryCardColor, icon: <Users size={16} strokeWidth={2.35} /> },
@@ -202,17 +210,23 @@ const StatusCardsSkeleton = () => (
 const EmptyState = ({
   onImportClick,
   onCreateClick,
+  isRecruitmentScope = false,
 }: {
   onImportClick?: () => void;
   onCreateClick?: () => void;
+  isRecruitmentScope?: boolean;
 }) => (
   <div className="rounded-xl border border-dashed border-slate-200 bg-white p-16 sm:p-20 flex flex-col items-center justify-center text-center shadow-sm">
     <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-2xl bg-blue-500/20 text-blue-600">
       <Building2 className="h-10 w-10" strokeWidth={2} />
     </div>
-    <h3 className="text-xl font-bold text-slate-900 mb-2">No clients added yet</h3>
+    <h3 className="text-xl font-bold text-slate-900 mb-2">
+      {isRecruitmentScope ? 'No recruitment clients yet' : 'No CRM clients added yet'}
+    </h3>
     <p className="text-slate-500 max-w-sm mb-8 text-sm">
-      Start building your agency pipeline by adding your first client or importing them from a CSV file.
+      {isRecruitmentScope
+        ? 'Add a recruitment client or import from CSV. Jobs are created under these accounts.'
+        : 'Start building your agency pipeline by adding your first CRM client or importing them from a CSV file.'}
     </p>
     <div className="flex flex-wrap items-center justify-center gap-3">
       {onCreateClick ? (
@@ -221,7 +235,8 @@ const EmptyState = ({
         onClick={onCreateClick}
         className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700"
       >
-        <Plus className="h-4 w-4" strokeWidth={2.5} /> Create Client
+        <Plus className="h-4 w-4" strokeWidth={2.5} />{' '}
+        {isRecruitmentScope ? 'Create Recruitment Client' : 'Create CRM Client'}
       </button>
       ) : null}
       {onImportClick ? (
@@ -230,7 +245,8 @@ const EmptyState = ({
         onClick={onImportClick}
         className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
       >
-        <Upload className="h-4 w-4 text-slate-600" strokeWidth={2} /> Import Clients
+        <Upload className="h-4 w-4 text-slate-600" strokeWidth={2} />{' '}
+        {isRecruitmentScope ? 'Import Recruitment Clients' : 'Import CRM Clients'}
       </button>
       ) : null}
     </div>
@@ -1191,13 +1207,17 @@ export default function App() {
             </div>
             <div>
               <h1 className="text-xl sm:text-[1.35rem] font-bold tracking-tight text-slate-900 leading-none">
-                {isRecruitmentScope ? 'Recruitment Clients' : 'Clients'}
+                {isRecruitmentScope ? 'Recruitment Clients' : 'CRM Clients'}
               </h1>
               {isRecruitmentScope ? (
                 <p className="mt-1 text-xs font-medium text-slate-500">
-                  Clients sent from CRM. Jobs are created under these accounts.
+                  Recruitment accounts for jobs — separate from CRM Clients.
                 </p>
-              ) : null}
+              ) : (
+                <p className="mt-1 text-xs font-medium text-slate-500">
+                  CRM accounts. Send a client to Recruitment when you are ready to hire.
+                </p>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -1250,7 +1270,7 @@ export default function App() {
                 aria-pressed={createClientMode === 'ai'}
                 onClick={() => {
                   if (clientAiGate.locked) {
-                    clientAiGate.confirmAndUnlock();
+                    void clientAiGate.confirmAndUnlock();
                     return;
                   }
                   setCreateClientMode('ai');
@@ -1319,6 +1339,7 @@ export default function App() {
                 onTabChange={setActiveTab}
                 counts={tabCounts}
                 fieldVisibility={clientFieldVisibility}
+                isRecruitmentScope={isRecruitmentScope}
               />
             </div>
           )}
@@ -1339,6 +1360,7 @@ export default function App() {
           ) : clients.length === 0 ? (
             <div className="min-h-0 flex-1 overflow-auto">
               <EmptyState
+                isRecruitmentScope={isRecruitmentScope}
                 onImportClick={canCreateClient ? () => setShowImportDrawer(true) : undefined}
                 onCreateClick={
                   canCreateClient
@@ -1359,7 +1381,11 @@ export default function App() {
                   <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-indigo-400" size={16} strokeWidth={2.25} />
                   <input
                     type="text"
-                    placeholder="Search by client name..."
+                    placeholder={
+                      isRecruitmentScope
+                        ? 'Search recruitment clients…'
+                        : 'Search CRM clients…'
+                    }
                     value={searchQuery}
                     onChange={(e) => {
                       setCurrentPage(1);

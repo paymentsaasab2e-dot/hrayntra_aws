@@ -7,6 +7,7 @@ import { notifyTenantCoinsChanged } from '@/lib/api';
 import { useTenantCoins } from './TenantCoinsContext';
 import { openAiCoinPurchaseModal } from './AiCoinPurchaseModal';
 import { TokenCoinIcon } from './TokenCoinIcon';
+import { requestConfirm } from '@/lib/appDialog';
 
 export type AiCoinGateResult = {
   cost: number;
@@ -14,7 +15,7 @@ export type AiCoinGateResult = {
   locked: boolean;
   refresh: () => Promise<void>;
   /** Returns false if action should not run (insufficient coins or user cancelled). */
-  confirmAndUnlock: () => boolean;
+  confirmAndUnlock: () => Promise<boolean>;
   /** Async wrapper: runs fn only after unlock confirm when affordable. */
   runWithUnlock: <T>(fn: () => T | Promise<T>) => Promise<T | undefined>;
   openPurchase: () => void;
@@ -41,7 +42,7 @@ export function useAiCoinGate(featureId: string): AiCoinGateResult {
     });
   }, [isHq, openPurchase, featureId, cost, coins]);
 
-  const confirmAndUnlock = useCallback(() => {
+  const confirmAndUnlock = useCallback(async () => {
     if (isHq || cost <= 0) return true;
     if (locked || coins < cost) {
       openAiCoinPurchaseModal({
@@ -52,8 +53,9 @@ export function useAiCoinGate(featureId: string): AiCoinGateResult {
       void refresh();
       return false;
     }
-    const ok = window.confirm(
-      `Unlock this AI feature for ${cost} coin${cost === 1 ? '' : 's'}?\n\nYour balance: ${coins} → ${coins - cost} after use.`
+    const ok = await requestConfirm(
+      `Unlock this AI feature for ${cost} coin${cost === 1 ? '' : 's'}?\n\nYour balance: ${coins} → ${coins - cost} after use.`,
+      { tone: 'info', confirmLabel: 'Unlock', cancelLabel: 'Cancel' }
     );
     if (ok && cost > 0) {
       // Instant sidenav update — reconciled by API response / refresh after the call.
@@ -65,7 +67,7 @@ export function useAiCoinGate(featureId: string): AiCoinGateResult {
   const runWithUnlock = useCallback(
     async <T,>(fn: () => T | Promise<T>): Promise<T | undefined> => {
       if (isHq) return fn();
-      if (!confirmAndUnlock()) return undefined;
+      if (!(await confirmAndUnlock())) return undefined;
       try {
         return await fn();
       } finally {
@@ -116,7 +118,7 @@ export function AiCoinGateButton({
 
   const handleClick = async (e: React.MouseEvent<HTMLButtonElement>) => {
     if (disabled) return;
-    if (!confirmAndUnlock()) {
+    if (!(await confirmAndUnlock())) {
       e.preventDefault();
       e.stopPropagation();
       return;

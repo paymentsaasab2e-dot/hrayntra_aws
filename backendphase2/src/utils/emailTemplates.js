@@ -121,10 +121,10 @@ export const interviewScheduledTemplate = ({
   modeLabel,
 }) => {
   const company = String(companyName || '').trim();
-  const joinVisible =
-    showJoinCta !== false &&
-    Boolean(String(meetingLink || '').trim()) &&
-    /^https?:\/\//i.test(String(meetingLink || '').trim());
+  const link = String(meetingLink || '').trim();
+  const hasMeetingLink = Boolean(link) && /^https?:\/\//i.test(link);
+  // Always surface a real Meet/Zoom URL in the body; CTA still respects showJoinCta.
+  const joinVisible = showJoinCta !== false && hasMeetingLink;
 
   const sections = [
     { label: 'Role', value: jobTitle },
@@ -134,10 +134,10 @@ export const interviewScheduledTemplate = ({
     { label: 'Interviewers', value: (panelNames || []).join(', ') || 'HRYANTRA Hiring Team' },
   ];
 
-  if (joinVisible) {
+  if (hasMeetingLink) {
     sections.push({
       label: 'Meeting Link',
-      value: `<a href="${escapeAttr(meetingLink)}" style="color:#2563eb; word-break:break-all;">${escapeAttr(meetingLink)}</a>`,
+      value: `<a href="${escapeAttr(link)}" style="color:#2563eb; word-break:break-all;">${escapeAttr(link)}</a>`,
     });
   } else if (location) {
     sections.push({ label: 'Location', value: location });
@@ -148,11 +148,11 @@ export const interviewScheduledTemplate = ({
   return layout({
     title: company ? `Interview Scheduled: ${jobTitle} at ${company}` : `Interview Scheduled: ${jobTitle}`,
     intro: `Hello ${candidateName}, your interview has been scheduled. Please review the details below${
-      joinVisible ? ' and join on time' : ''
+      hasMeetingLink ? ' and join on time' : ''
     }.`,
     sections,
     ctaLabel: 'Join Interview',
-    ctaLink: joinVisible ? meetingLink : null,
+    ctaLink: joinVisible ? link : null,
     rsvpLinks,
   });
 };
@@ -170,10 +170,9 @@ export const interviewRescheduledTemplate = ({
   rsvpLinks,
 }) => {
   const company = String(companyName || '').trim();
-  const joinVisible =
-    showJoinCta !== false &&
-    Boolean(String(meetingLink || '').trim()) &&
-    /^https?:\/\//i.test(String(meetingLink || '').trim());
+  const link = String(meetingLink || '').trim();
+  const hasMeetingLink = Boolean(link) && /^https?:\/\//i.test(link);
+  const joinVisible = showJoinCta !== false && hasMeetingLink;
   return layout({
     title: company ? `Interview Rescheduled: ${jobTitle} at ${company}` : `Interview Rescheduled: ${jobTitle}`,
     intro: `Hello ${candidateName}, your interview schedule has been updated.`,
@@ -182,17 +181,17 @@ export const interviewRescheduledTemplate = ({
       { label: 'Old Schedule', value: formatDateTime(oldDate, timezone) },
       { label: 'New Schedule', value: formatDateTime(newDate, timezone) },
       { label: 'Reason', value: reason || 'Updated by recruiting team' },
-      ...(joinVisible
+      ...(hasMeetingLink
         ? [
             {
               label: 'Meeting Link',
-              value: `<a href="${escapeAttr(meetingLink)}" style="color:#2563eb; word-break:break-all;">${escapeAttr(meetingLink)}</a>`,
+              value: `<a href="${escapeAttr(link)}" style="color:#2563eb; word-break:break-all;">${escapeAttr(link)}</a>`,
             },
           ]
         : []),
     ],
     ctaLabel: 'View Updated Meeting',
-    ctaLink: joinVisible ? meetingLink : null,
+    ctaLink: joinVisible ? link : null,
     rsvpLinks,
   });
 };

@@ -1,4 +1,10 @@
-export type InterviewStatus = 'Scheduled' | 'Completed' | 'Cancelled' | 'Rescheduled' | 'No Show';
+export type InterviewStatus =
+  | 'Scheduled'
+  | 'Accepted'
+  | 'Completed'
+  | 'Cancelled'
+  | 'Rescheduled'
+  | 'No Show';
 export type FeedbackStatus = 'Pending' | 'Submitted' | 'N/A';
 export type InterviewRound =
   | 'Screening'

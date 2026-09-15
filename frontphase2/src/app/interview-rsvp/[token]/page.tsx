@@ -14,30 +14,98 @@ function apiRoot() {
   return raw.replace(/\/$/, '');
 }
 
-function formatWhen(iso, timezone) {
+function formatWhen(iso?: string | Date | null, timezone?: string | null) {
   if (!iso) return '—';
-  try {
-    return new Intl.DateTimeFormat('en-US', {
-      dateStyle: 'medium',
-      timeStyle: 'short',
-      timeZone: timezone || 'Asia/Kolkata',
-      timeZoneName: 'short',
-    }).format(new Date(iso));
-  } catch {
-    return String(iso);
+  const date = iso instanceof Date ? iso : new Date(iso);
+  if (Number.isNaN(date.getTime())) return String(iso);
+  const zones = [String(timezone || '').trim(), 'Asia/Kolkata', 'UTC'].filter(Boolean);
+  for (const timeZone of zones) {
+    try {
+      return new Intl.DateTimeFormat('en-US', {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+        timeZone,
+        timeZoneName: 'short',
+      }).format(date);
+    } catch {
+      // try next zone
+    }
   }
+  return date.toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+function MeetingLinkBlock({ url }: { url: string }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Meeting link</p>
+      <a
+        href={url}
+        target="_blank"
+        rel="noreferrer"
+        className="mt-1 block break-all text-sm font-medium text-blue-600 hover:underline"
+      >
+        {url}
+      </a>
+      <a
+        href={url}
+        target="_blank"
+        rel="noreferrer"
+        className="mt-3 inline-flex rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white"
+      >
+        Join Interview
+      </a>
+    </div>
+  );
+}
+
+type DoneState = { kind: string; message: string; title: string };
+
+function responseFromInterview(data: any): DoneState | null {
+  const response = String(data?.candidateResponse || '').toLowerCase();
+  const status = String(data?.status || '').toUpperCase();
+  if (response === 'accepted' || status === 'CONFIRMED') {
+    return {
+      kind: 'accepted',
+      title: 'Interview confirmed',
+      message: 'You have already confirmed this interview. No need to accept again.',
+    };
+  }
+  if (response === 'declined' || status === 'CANCELLED') {
+    return {
+      kind: 'declined',
+      title: 'Interview declined',
+      message: 'You have already declined this interview.',
+    };
+  }
+  if (response === 'reschedule_requested') {
+    return {
+      kind: 'reschedule',
+      title: 'Reschedule requested',
+      message: 'Your reschedule request was already sent. The recruiter will follow up.',
+    };
+  }
+  return null;
 }
 
 export default function InterviewRsvpPage() {
   const params = useParams();
   const searchParams = useSearchParams();
-  const token = decodeURIComponent(String(params?.token || '').trim());
+  // JWTs contain dots — prefer pathname so we never lose segments if params truncate.
+  const tokenFromPath =
+    typeof window !== 'undefined'
+      ? decodeURIComponent(
+          window.location.pathname.split('/').filter(Boolean).slice(-1)[0] || '',
+        )
+      : '';
+  const token = decodeURIComponent(
+    String(params?.token || searchParams.get('token') || tokenFromPath || '').trim(),
+  );
   const action = String(searchParams.get('action') || 'view').toLowerCase();
 
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
-  const [done, setDone] = useState<{ kind: string; message: string } | null>(null);
+  const [done, setDone] = useState<DoneState | null>(null);
   const [interview, setInterview] = useState<any>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [proposedAt, setProposedAt] = useState('');
@@ -59,7 +127,12 @@ export default function InterviewRsvpPage() {
         if (!res.ok || !payload?.success) {
           throw new Error(payload?.message || 'Unable to load interview');
         }
-        if (!cancelled) setInterview(payload.data);
+        if (!cancelled) {
+          const data = payload.data;
+          setInterview(data);
+          const existing = responseFromInterview(data);
+          if (existing) setDone(existing);
+        }
       } catch (err: unknown) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Unable to load interview');
       } finally {
@@ -100,18 +173,25 @@ export default function InterviewRsvpPage() {
       if (!res.ok || !payload?.success) {
         throw new Error(payload?.message || 'Request failed');
       }
-      setInterview(payload.data);
-      setDone({
-        kind,
-        message:
-          kind === 'accept'
-            ? 'Thanks — your acceptance was sent to the recruiter.'
-            : kind === 'reject'
-              ? 'Your decline was sent to the recruiter.'
-              : `Reschedule request sent${
-                  payload.data?.proposedAtLabel ? ` for ${payload.data.proposedAtLabel}` : ''
-                }. The recruiter will follow up.`,
-      });
+      const data = payload.data;
+      setInterview(data);
+      const existing = responseFromInterview(data);
+      if (existing) {
+        setDone(existing);
+      } else {
+        setDone({
+          kind,
+          title: 'Response recorded',
+          message:
+            kind === 'accept'
+              ? 'Thanks — your acceptance was sent to the recruiter.'
+              : kind === 'reject'
+                ? 'Your decline was sent to the recruiter.'
+                : `Reschedule request sent${
+                    data?.proposedAtLabel ? ` for ${data.proposedAtLabel}` : ''
+                  }. The recruiter will follow up.`,
+        });
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Request failed');
     } finally {
@@ -140,21 +220,40 @@ export default function InterviewRsvpPage() {
   }
 
   if (done) {
+    const isDeclined = done.kind === 'declined';
+    const isReschedule = done.kind === 'reschedule';
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
-        <div className="max-w-md rounded-2xl border border-emerald-200 bg-white p-6 text-center shadow-sm">
-          <CheckCircle2 className="mx-auto h-10 w-10 text-emerald-500" />
-          <h1 className="mt-3 text-lg font-semibold text-slate-900">Response recorded</h1>
+        <div
+          className={`max-w-md rounded-2xl border bg-white p-6 text-center shadow-sm ${
+            isDeclined
+              ? 'border-rose-200'
+              : isReschedule
+                ? 'border-indigo-200'
+                : 'border-emerald-200'
+          }`}
+        >
+          {isDeclined ? (
+            <XCircle className="mx-auto h-10 w-10 text-rose-500" />
+          ) : isReschedule ? (
+            <CalendarClock className="mx-auto h-10 w-10 text-indigo-500" />
+          ) : (
+            <CheckCircle2 className="mx-auto h-10 w-10 text-emerald-500" />
+          )}
+          <h1 className="mt-3 text-lg font-semibold text-slate-900">{done.title}</h1>
           <p className="mt-2 text-sm text-slate-600">{done.message}</p>
-          {interview?.showJoinCta && interview?.meetingLink ? (
-            <a
-              href={interview.meetingLink}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-5 inline-flex rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white"
-            >
-              Join Interview
-            </a>
+          {interview?.jobTitle ? (
+            <p className="mt-3 text-sm font-medium text-slate-800">{interview.jobTitle}</p>
+          ) : null}
+          {interview?.scheduledAt ? (
+            <p className="mt-1 text-sm text-slate-500">
+              {formatWhen(interview.scheduledAt, interview.timezone)}
+            </p>
+          ) : null}
+          {!isDeclined && interview?.showJoinCta && interview?.meetingLink ? (
+            <div className="mt-5 text-left">
+              <MeetingLinkBlock url={interview.meetingLink} />
+            </div>
           ) : null}
         </div>
       </div>
@@ -186,14 +285,7 @@ export default function InterviewRsvpPage() {
             </div>
           ) : null}
           {interview?.showJoinCta && interview?.meetingLink ? (
-            <a
-              href={interview.meetingLink}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white"
-            >
-              Join Interview
-            </a>
+            <MeetingLinkBlock url={interview.meetingLink} />
           ) : null}
 
           {error ? <p className="text-sm font-medium text-rose-600">{error}</p> : null}

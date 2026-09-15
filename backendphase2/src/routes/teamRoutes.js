@@ -19,8 +19,11 @@ import {
   getMemberTargets,
   saveMemberTargets,
   impersonateTeamMember,
+  getAssignmentRules,
+  putAssignmentRules,
 } from '../controllers/teamController.js';
 import { teamController } from '../modules/team/team.controller.js';
+import { teamMemberController } from '../modules/team/teamMember.controller.js';
 
 const router = express.Router();
 
@@ -88,6 +91,18 @@ router.delete(
 );
 router.delete('/groups/:id', requireAnyPermission(['edit_team_member', 'add_team_member']), teamController.delete);
 
+// Assignment Rules (before /:id)
+router.get(
+  '/assignment-rules',
+  requireAnyPermission(['manage_assignment_rules', 'edit_team_member', 'add_team_member', 'assign_roles']),
+  getAssignmentRules,
+);
+router.put(
+  '/assignment-rules',
+  requireAnyPermission(['manage_assignment_rules', 'edit_team_member']),
+  putAssignmentRules,
+);
+
 // Tenant member list for assignment pickers — Super Admin / HQ can assign across companies.
 router.get('/assignable', (req, res) => {
   req.teamListMode = 'assignable';
@@ -112,5 +127,15 @@ router.get('/:id/login-history', requirePermission('add_team_member'), getMember
 router.get('/:id/activity', requireAnyPermission(['add_team_member', 'edit_team_member', 'assign_roles']), getMemberActivity);
 router.get('/:id/targets', requirePermission('manage_targets'), getMemberTargets);
 router.post('/:id/targets', requirePermission('manage_targets'), saveMemberTargets);
+router.get(
+  '/:id/permissions',
+  requireAnyPermission(['edit_team_member', 'add_team_member', 'view_team']),
+  teamMemberController.getPermissions,
+);
+router.put(
+  '/:id/permissions',
+  requireAnyPermission(['edit_team_member', 'add_team_member']),
+  teamMemberController.savePermissions,
+);
 
 export default router;

@@ -6,7 +6,7 @@ import { dashFontVars, dashNumFont, dashTextFont } from '@/lib/dashTypeFonts';
 /** Inter — digits / numeric figures only (unchanged from current setup). */
 export const crmNumFont = dashNumFont;
 
-/** Plus Jakarta Sans — letters + signs/symbols ($ % + · etc.), matched to reference UI. */
+/** Dashboard text stack — letters + signs/symbols ($ % + · etc.). */
 export const crmTextFont = dashTextFont;
 
 export { dashFontVars };

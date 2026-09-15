@@ -9,6 +9,7 @@ import { apiFetch, notifyTenantCoinsChanged } from '@/lib/api';
 import { useTenantCoins, isInsufficientCoinsError } from '@/components/coins/TenantCoinsContext';
 import { openAiCoinPurchaseModal } from '@/components/coins/AiCoinPurchaseModal';
 import { TokenCoinIcon } from '@/components/coins/TokenCoinIcon';
+import { requestConfirm } from '@/lib/appDialog';
 import { RecFillBar, RecSemiGauge } from '@/components/dashboard/recruitment/recViz';
 import {
   fetchTenantBehaviorEngine,
@@ -522,8 +523,9 @@ export function PeoplePerfPanel({ product }: { product: PeoplePerfProduct }) {
       openAiCoinPurchaseModal({ featureId, required: catalogCost, balance: coins });
       return;
     }
-    const ok = window.confirm(
+    const ok = await requestConfirm(
       `Unlock ${product === 'crm' ? 'CRM' : 'Recruitment'} hours & scores for 30 days?\n\n${catalogCost} coins (once this month).\nBalance ${coins} → ${coins - catalogCost}.`,
+      { tone: 'info', confirmLabel: 'Unlock', cancelLabel: 'Cancel' }
     );
     if (!ok) return;
     setPaying(true);
@@ -561,6 +563,7 @@ export function PeoplePerfPanel({ product }: { product: PeoplePerfProduct }) {
   return (
     <div className="relative space-y-4">
       <DashScopeBanner
+        product={product === 'crm' ? 'crm' : 'recruitment'}
         access={{
           dashboardLevel: dashAccess.dashboardLevel,
           statsScope: dashAccess.canFullStats ? 'full' : 'self',

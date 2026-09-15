@@ -27,7 +27,6 @@ import { RecTeamIntelligence } from './RecTeamIntelligence';
 import { PeoplePerfPanel } from '@/components/dashboard/people-perf/PeoplePerfPanel';
 import { useDashboardAccess } from '@/lib/dashboard/useDashboardAccess';
 import {
-  isRecOverviewCacheFresh,
   readRecOverviewCache,
   writeRecOverviewCache,
 } from '@/lib/employerPageCache';
@@ -209,12 +208,16 @@ function RecruitmentDashboardInner() {
     const id = window.setInterval(() => {
       const query =
         category === 'mine' ? { ...filters, scope: 'self' as const, assignedTo: undefined } : filters;
-      const cacheFilters = { ...query, category } as Record<string, string | undefined | null>;
-      if (isRecOverviewCacheFresh(readRecOverviewCache(cacheFilters))) return;
+      // Always refresh live — do not skip when session cache is still "fresh".
       void apiRecruitmentDashboardOverview(query)
         .then((data) => {
           setOverview(data);
-          if (data) writeRecOverviewCache(data as Record<string, unknown>, cacheFilters);
+          if (data) {
+            writeRecOverviewCache(data as Record<string, unknown>, {
+              ...query,
+              category,
+            } as Record<string, string | undefined | null>);
+          }
         })
         .catch(() => undefined);
     }, POLL_MS);
@@ -238,6 +241,7 @@ function RecruitmentDashboardInner() {
 
       {category !== 'mine' ? (
         <DashScopeBanner
+          product="recruitment"
           access={{
             dashboardLevel: access.dashboardLevel,
             statsScope: access.canFullStats ? 'full' : 'self',

@@ -16,6 +16,8 @@ export type SubmitToClientMailTemplate = {
 export type SubmitToClientMailTemplateVars = {
   candidateName?: string;
   candidateNames?: string;
+  /** Numbered list of candidates (empty when only one). */
+  candidateList?: string;
   jobTitle?: string;
   reviewUrl?: string;
   clientEmail?: string;
@@ -26,6 +28,7 @@ export type SubmitToClientMailTemplateVars = {
 export const SUBMIT_TO_CLIENT_MAIL_TEMPLATE_PLACEHOLDERS = [
   { key: 'candidateName', label: 'First candidate name', sample: 'Priya Sharma' },
   { key: 'candidateNames', label: 'All candidate names', sample: 'Priya Sharma and 2 more candidates' },
+  { key: 'candidateList', label: 'Numbered candidate list', sample: '1. Priya Sharma\n2. Alex Chen' },
   { key: 'jobTitle', label: 'Job title', sample: 'Frontend Developer' },
   { key: 'reviewUrl', label: 'Preview link', sample: 'https://…/client-review/…' },
   { key: 'clientEmail', label: 'Client email', sample: 'director@acme.com' },
@@ -101,6 +104,7 @@ export function applySubmitToClientMailTemplate(
   const map: Record<string, string> = {
     candidateName: String(vars.candidateName || '').trim(),
     candidateNames: String(vars.candidateNames || vars.candidateName || '').trim(),
+    candidateList: String(vars.candidateList || '').trim(),
     jobTitle: String(vars.jobTitle || '').trim(),
     reviewUrl: String(vars.reviewUrl || '').trim(),
     clientEmail: String(vars.clientEmail || '').trim(),

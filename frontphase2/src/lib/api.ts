@@ -45,6 +45,7 @@ const LONG_RUNNING_API_PATH_PREFIXES = [
   '/candidates/bulk-cv/',
   '/candidates/parse-resume',
   '/candidates/bulk-import',
+  '/candidates/repair-bad-names',
   '/jobs/process-jd-file',
   '/hq/portal/jobs/push-to-feeds',
   '/hq/portal/jobs/sync-to-phase1',
@@ -984,34 +985,58 @@ export function applyOrgRecruitmentSummaryPayload(
 }
 
 /** Refreshes org recruitment mode + billing flags + plan after login or when settings change. */
-export async function syncOrgRecruitmentSummaryFromApi(): Promise<void> {
+let orgSummaryInflight: Promise<void> | null = null;
+let orgSummaryLastAt = 0;
+const ORG_SUMMARY_CLIENT_TTL_MS = 45_000;
+
+export async function syncOrgRecruitmentSummaryFromApi(options?: {
+  force?: boolean;
+}): Promise<void> {
   if (typeof window === 'undefined') return;
   if (!getAccessToken()) return;
-  try {
-    const res = await apiFetch<{
-      recruitmentMode?: string;
-      billingEnabled?: boolean;
-      subscriptionPlan?: HqTenantSubscriptionPlan | null;
-      planUsage?: OrgPlanUsageCache | null;
-      tenantPaused?: boolean;
-      tenantPausedAt?: string | null;
-      defaultCurrency?: string | null;
-      productLine?: string | null;
-      enabledModules?: string[] | null;
-      modulesRestricted?: boolean;
-      phase1CommonPoolEnabled?: boolean;
-      organizationName?: string | null;
-      companyName?: string | null;
-      clientPageFieldVisibility?: {
-        interestLevel?: boolean;
-        status?: boolean;
-        assignedTo?: boolean;
-      };
-    }>('/settings/org/recruitment-summary', { auth: true });
-    applyOrgRecruitmentSummaryPayload(res.data as Parameters<typeof applyOrgRecruitmentSummaryPayload>[0]);
-  } catch {
-    applyOrgRecruitmentSummaryPayload({ recruitmentMode: 'agency', billingEnabled: true, subscriptionPlan: null });
+
+  const force = Boolean(options?.force);
+  const now = Date.now();
+  if (!force && orgSummaryLastAt && now - orgSummaryLastAt < ORG_SUMMARY_CLIENT_TTL_MS) {
+    return;
   }
+  if (orgSummaryInflight) {
+    await orgSummaryInflight;
+    return;
+  }
+
+  orgSummaryInflight = (async () => {
+    try {
+      const res = await apiFetch<{
+        recruitmentMode?: string;
+        billingEnabled?: boolean;
+        subscriptionPlan?: HqTenantSubscriptionPlan | null;
+        planUsage?: OrgPlanUsageCache | null;
+        tenantPaused?: boolean;
+        tenantPausedAt?: string | null;
+        defaultCurrency?: string | null;
+        productLine?: string | null;
+        enabledModules?: string[] | null;
+        modulesRestricted?: boolean;
+        phase1CommonPoolEnabled?: boolean;
+        organizationName?: string | null;
+        companyName?: string | null;
+        clientPageFieldVisibility?: {
+          interestLevel?: boolean;
+          status?: boolean;
+          assignedTo?: boolean;
+        };
+      }>('/settings/org/recruitment-summary', { auth: true });
+      applyOrgRecruitmentSummaryPayload(res.data as Parameters<typeof applyOrgRecruitmentSummaryPayload>[0]);
+      orgSummaryLastAt = Date.now();
+    } catch {
+      applyOrgRecruitmentSummaryPayload({ recruitmentMode: 'agency', billingEnabled: true, subscriptionPlan: null });
+    } finally {
+      orgSummaryInflight = null;
+    }
+  })();
+
+  await orgSummaryInflight;
 }
 
 /** Tenant own-company record used when creating jobs for this organization. */
@@ -4924,6 +4949,58 @@ export async function apiBulkCvResolveFailedResumes(ids: string[]) {
   });
 }
 
+export type RepairBadNamesResult = {
+  scanned: number;
+  badNames: number;
+  updated: number;
+  wouldUpdate: number;
+  skippedNoResume: number;
+  skippedUnparseable: number;
+  unchanged: number;
+  dryRun: boolean;
+  samples: Array<{
+    id: string;
+    status: string;
+    from: string;
+    to: string | null;
+    source?: string | null;
+  }>;
+};
+
+/** Re-read stored CVs and auto-fix garbage candidate names (filenames / titles / locations). */
+export async function apiRepairBadCandidateNames(options: {
+  execute?: boolean;
+  dryRun?: boolean;
+  limit?: number;
+  scopeAllCompanies?: boolean;
+  signal?: AbortSignal;
+} = {}) {
+  const res = await apiFetch<RepairBadNamesResult>('/candidates/repair-bad-names', {
+    method: 'POST',
+    auth: true,
+    body: {
+      execute: options.execute === true,
+      dryRun: options.dryRun === true,
+      limit: options.limit,
+      scopeAllCompanies: options.scopeAllCompanies === true,
+    },
+    signal: options.signal,
+  });
+  return (
+    res.data || {
+      scanned: 0,
+      badNames: 0,
+      updated: 0,
+      wouldUpdate: 0,
+      skippedNoResume: 0,
+      skippedUnparseable: 0,
+      unchanged: 0,
+      dryRun: true,
+      samples: [],
+    }
+  );
+}
+
 // ────────────────────────────────────────────────────────────
 // Auth
 // ────────────────────────────────────────────────────────────
@@ -5088,7 +5165,7 @@ export async function apiLogin(
       localStorage.setItem('requirePasswordReset', 'true');
     }
 
-    await syncOrgRecruitmentSummaryFromApi();
+    await syncOrgRecruitmentSummaryFromApi({ force: true });
   }
 
   return res;
@@ -5176,7 +5253,7 @@ export async function apiRegister(name: string, email: string, password: string,
         localStorage.setItem('userPermissions', JSON.stringify(res.data.permissions));
       }
 
-      await syncOrgRecruitmentSummaryFromApi();
+      await syncOrgRecruitmentSummaryFromApi({ force: true });
     }
   }
 
@@ -12075,27 +12152,58 @@ export type AiCoinPack = {
   popular?: boolean;
 };
 
+let tenantCoinsInflight: Promise<{
+  coins: number;
+  planName: string | null;
+  features: HqAiFeature[];
+  packs: AiCoinPack[];
+}> | null = null;
+let tenantCoinsCache: {
+  at: number;
+  data: {
+    coins: number;
+    planName: string | null;
+    features: HqAiFeature[];
+    packs: AiCoinPack[];
+  };
+} | null = null;
+const TENANT_COINS_CLIENT_TTL_MS = 45_000;
+
 export async function apiGetTenantCoins(): Promise<{
   coins: number;
   planName: string | null;
   features: HqAiFeature[];
   packs: AiCoinPack[];
 }> {
-  const res = await apiFetch<{
-    coins: number;
-    planName: string | null;
-    features?: HqAiFeature[];
-    packs?: AiCoinPack[];
-  }>('/settings/org/coins', {
-    method: 'GET',
-    auth: true,
+  const now = Date.now();
+  if (tenantCoinsCache && now - tenantCoinsCache.at < TENANT_COINS_CLIENT_TTL_MS) {
+    return tenantCoinsCache.data;
+  }
+  if (tenantCoinsInflight) return tenantCoinsInflight;
+
+  tenantCoinsInflight = (async () => {
+    const res = await apiFetch<{
+      coins: number;
+      planName: string | null;
+      features?: HqAiFeature[];
+      packs?: AiCoinPack[];
+    }>('/settings/org/coins', {
+      method: 'GET',
+      auth: true,
+    });
+    const data = {
+      coins: Number(res.data?.coins ?? 0),
+      planName: res.data?.planName ?? null,
+      features: Array.isArray(res.data?.features) ? res.data.features : [],
+      packs: Array.isArray(res.data?.packs) ? res.data.packs : [],
+    };
+    tenantCoinsCache = { at: Date.now(), data };
+    return data;
+  })().finally(() => {
+    tenantCoinsInflight = null;
   });
-  return {
-    coins: Number(res.data?.coins ?? 0),
-    planName: res.data?.planName ?? null,
-    features: Array.isArray(res.data?.features) ? res.data.features : [],
-    packs: Array.isArray(res.data?.packs) ? res.data.packs : [],
-  };
+
+  return tenantCoinsInflight;
 }
 
 export async function apiGetAiCoinPacks() {

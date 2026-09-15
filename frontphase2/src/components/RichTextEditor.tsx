@@ -15,6 +15,7 @@ import {
   Underline,
 } from 'lucide-react';
 import { plainTextToJobDescriptionHtml, readJdPlainFromClipboard } from '../lib/jobDescriptionHtml';
+import { requestPrompt } from '../lib/appDialog';
 
 type RichTextEditorProps = {
   value: string;
@@ -106,8 +107,13 @@ export function RichTextEditor({
     [emitChange],
   );
 
-  const insertLink = useCallback(() => {
-    const url = window.prompt('Enter URL', 'https://');
+  const insertLink = useCallback(async () => {
+    const url = await requestPrompt('Enter URL', {
+      defaultValue: 'https://',
+      confirmLabel: 'Insert',
+      cancelLabel: 'Cancel',
+      inputPlaceholder: 'https://',
+    });
     if (!url?.trim()) return;
     apply('createLink', url.trim());
   }, [apply]);

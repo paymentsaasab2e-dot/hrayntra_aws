@@ -196,6 +196,11 @@ export const DEFAULT_PERMISSIONS = [
   { permissionName: 'assign_roles', module: 'Team', description: 'Team → Roles' },
   { permissionName: 'manage_roles', module: 'Team', description: 'Team → Roles — create and edit roles' },
   { permissionName: 'manage_departments', module: 'Team', description: 'Team → Departments' },
+  {
+    permissionName: 'manage_assignment_rules',
+    module: 'Team',
+    description: 'Team → Assignment Rules — configure who can assign each module to which members',
+  },
   { permissionName: 'generate_credentials', module: 'Team', description: 'Team → Credentials' },
   { permissionName: 'manage_commission', module: 'Team', description: 'Settings → Commission slabs' },
   { permissionName: 'manage_targets', module: 'Team', description: 'Team → Targets & KPI' },

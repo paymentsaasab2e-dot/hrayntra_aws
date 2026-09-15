@@ -1,8 +1,9 @@
 import type { Interview } from '../types/interview.types';
 
-const ACTIVE_STATUSES = new Set<Interview['status']>(['Scheduled', 'Rescheduled']);
+const ACTIVE_STATUSES = new Set<Interview['status']>(['Scheduled', 'Accepted', 'Rescheduled']);
 const VISIBLE_STATUSES = new Set<Interview['status']>([
   'Scheduled',
+  'Accepted',
   'Rescheduled',
   'Completed',
   'No Show',

@@ -301,10 +301,14 @@ export function CrmDecisionInsights({ overview, loading }: Props) {
             deltaPct={sparkDelta(overview?.leadSpark)}
           />
           <PulseStat
-            label="Follow-ups due"
+            label="Follow-ups due today"
             value={formatNum(today?.followupsPending)}
             unit="due"
-            hint="Today’s working queue"
+            hint={
+              Number(overview?.kpis?.overdueFollowups || 0) > 0
+                ? `${formatNum(overview?.kpis?.overdueFollowups)} overdue separately`
+                : 'Due today only'
+            }
             tone="rose"
             invertDelta
           />

@@ -53,28 +53,36 @@ export function buildSubmitToClientMailCopy(opts: {
   /** When set, use this template; otherwise the Settings default template. */
   template?: { subject: string; body: string } | null;
 }): { subject: string; body: string } {
-  const names = opts.candidateNames.filter(Boolean);
+  // One person selected twice (or same name twice) must not become "Name and 1 more".
+  const names = uniqueCandidateNames(opts.candidateNames);
   const who =
     names.length === 0
       ? 'a candidate'
       : names.length === 1
         ? names[0]!
         : `${names[0]} and ${names.length - 1} more candidate${names.length - 1 === 1 ? '' : 's'}`;
+  const candidateList =
+    names.length > 1 ? names.map((name, index) => `${index + 1}. ${name}`).join('\n') : '';
 
   const template =
     opts.template ||
     (typeof window !== 'undefined' ? getDefaultSubmitToClientMailTemplate() : null);
 
   if (template) {
-    return applySubmitToClientMailTemplate(template, {
+    const applied = applySubmitToClientMailTemplate(template, {
       candidateName: names[0] || who,
       candidateNames: who,
+      candidateList,
       jobTitle: opts.jobTitle,
       reviewUrl: opts.reviewUrl,
       clientEmail: opts.clientEmail,
       clientName: opts.clientName,
       companyName: opts.clientName,
     });
+    return {
+      subject: applied.subject,
+      body: scrubSingleCandidateDuplicateList(applied.body, names),
+    };
   }
 
   const jobTitle = String(opts.jobTitle || '').trim();
@@ -84,6 +92,7 @@ export function buildSubmitToClientMailCopy(opts: {
     body: [
       `Please review ${who}${role}.`,
       '',
+      ...(candidateList ? [candidateList, ''] : []),
       'Open this secure preview link to see the profile:',
       // Keep the full URL on its own line so Gmail/Outlook auto-linkify it.
       String(opts.reviewUrl || '').trim(),
@@ -91,6 +100,39 @@ export function buildSubmitToClientMailCopy(opts: {
       'This preview includes only the fields marked Visible in Submit to Client settings.',
     ].join('\n'),
   };
+}
+
+/** Prefer unique display names (case-insensitive) while keeping first-seen order. */
+export function uniqueCandidateNames(raw: string[] | null | undefined): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of Array.isArray(raw) ? raw : []) {
+    const name = String(item || '').trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(name);
+  }
+  return out;
+}
+
+/**
+ * Old/custom templates sometimes hardcode "1. {{candidateName}}" and "2. {{candidateName}}".
+ * When only one unique candidate is submitted, drop that duplicate numbered block.
+ */
+function scrubSingleCandidateDuplicateList(body: string, uniqueNames: string[]): string {
+  if (uniqueNames.length !== 1) return String(body || '');
+  const name = uniqueNames[0]!;
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const blockRe = new RegExp(
+    `(?:^|\\n)(?:\\s*\\d+\\.\\s*${escaped}\\s*(?:\\n|$)){2,}`,
+    'gi',
+  );
+  return String(body || '')
+    .replace(blockRe, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 /** HTML body for Graph / rich send (clickable preview links). */

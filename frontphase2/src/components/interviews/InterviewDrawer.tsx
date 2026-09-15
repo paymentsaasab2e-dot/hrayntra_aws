@@ -15,6 +15,7 @@ import {
   Trash2,
   UserRoundX,
   Users,
+  Video,
   X,
   XCircle,
 } from 'lucide-react';
@@ -106,30 +107,45 @@ export function InterviewDrawer({
                     <div className="mt-1 text-sm text-[#6B7280]">
                       {interview.job.title} • {interview.job.client}
                     </div>
-                    <span
-                      className={`mt-3 inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
-                        interview.status === 'Scheduled'
-                          ? 'bg-blue-50 text-[#2563EB]'
-                          : interview.status === 'Completed'
-                          ? 'bg-green-50 text-[#16A34A]'
-                          : interview.status === 'Cancelled'
-                          ? 'bg-red-50 text-[#DC2626]'
-                          : interview.status === 'Rescheduled'
-                          ? 'bg-orange-50 text-[#F59E0B]'
-                          : 'bg-slate-100 text-[#6B7280]'
-                      }`}
-                    >
-                      {interview.status}
-                    </span>
-                    {interview.candidate.stage ? (
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
                       <span
-                        className={`mt-2 inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${getCandidateStageBadgeClasses(
-                          interview.candidate.stage
-                        )}`}
+                        className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
+                          interview.status === 'Scheduled'
+                            ? 'bg-blue-50 text-[#2563EB]'
+                            : interview.status === 'Accepted'
+                            ? 'bg-emerald-50 text-emerald-700'
+                            : interview.status === 'Completed'
+                            ? 'bg-green-50 text-[#16A34A]'
+                            : interview.status === 'Cancelled'
+                            ? 'bg-red-50 text-[#DC2626]'
+                            : interview.status === 'Rescheduled'
+                            ? 'bg-orange-50 text-[#F59E0B]'
+                            : 'bg-slate-100 text-[#6B7280]'
+                        }`}
                       >
-                        {getCandidateStageLabel(interview.candidate.stage)}
+                        {interview.status === 'Accepted' ? 'Candidate accepted' : interview.status}
                       </span>
-                    ) : null}
+                      {/^https?:\/\//i.test(String(interview.meetingLink || '').trim()) ? (
+                        <a
+                          href={String(interview.meetingLink).trim()}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1.5 rounded-full bg-blue-600 px-3 py-1 text-xs font-semibold text-white hover:bg-blue-700"
+                        >
+                          <Video className="size-3.5" />
+                          Join
+                        </a>
+                      ) : null}
+                      {interview.candidate.stage ? (
+                        <span
+                          className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${getCandidateStageBadgeClasses(
+                            interview.candidate.stage
+                          )}`}
+                        >
+                          {getCandidateStageLabel(interview.candidate.stage)}
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
                 <button type="button" onClick={onClose} className="rounded-lg p-2 text-[#6B7280] hover:bg-[#F3F4F6]">

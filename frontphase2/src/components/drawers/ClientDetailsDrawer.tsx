@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
+import { useDrawerBodyScrollLock } from '../../hooks/useDrawerBodyScrollLock';
 import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
 import { useClientPageFieldVisibility } from '../../hooks/useClientPageFieldVisibility';
 import { buildFileHref } from '../../utils/cloudinaryUrls';
@@ -1084,6 +1085,7 @@ export function ClientDetailsDrawer({
   const clientAiGate = useAiCoinGate('ai.client_chat');
   const isHqOverrideMode = Boolean(createClientOverride || updateClientOverride);
   usePageDrawerLifecycle(drawerIsOpen);
+  const { release: releaseClientBodyScrollLock } = useDrawerBodyScrollLock(drawerIsOpen);
   const [clientPanelPortalReady, setClientPanelPortalReady] = useState(false);
   useEffect(() => {
     setClientPanelPortalReady(true);
@@ -4195,10 +4197,8 @@ export function ClientDetailsDrawer({
   );
   const phaseOneJobs = clientJobs.filter((job) => job.status !== 'Paused');
 
-  // Don't render if no client and not in add mode
-  if (!client && !isAddMode) {
-    return null;
-  }
+  // Keep the drawer component mounted while closed so AnimatePresence can exit cleanly.
+  // Content is gated by drawerIsOpen inside drawerTree.
 
   const headerLogoSrc = getClientLogoSrc(
     logoRemoved
@@ -4210,10 +4210,10 @@ export function ClientDetailsDrawer({
   );
 
   const drawerTree = (
-    <AnimatePresence>
-      {(client || isAddMode) && (
-        <>
+    <AnimatePresence onExitComplete={releaseClientBodyScrollLock}>
+      {drawerIsOpen ? (
           <DetailsModalShell
+            key={isAddMode ? 'add-client-drawer' : `client-drawer-${client?.id || 'detail'}`}
             panelRef={clientDrawerPanelRef}
             variant="main"
             onBackdropClick={() => void requestClientDrawerClose()}
@@ -4298,7 +4298,7 @@ export function ClientDetailsDrawer({
                           type="button"
                           onClick={() => {
                             if (clientAiGate.locked) {
-                              clientAiGate.confirmAndUnlock();
+                              void clientAiGate.confirmAndUnlock();
                               return;
                             }
                             setClientAiChatOpen(true);
@@ -4998,7 +4998,13 @@ export function ClientDetailsDrawer({
                                       members={recruiters}
                                       value={overviewEditForm.assignedToIds ?? (overviewEditForm.assignedToId ? [overviewEditForm.assignedToId] : [])}
                                       loading={loadingRecruiters}
-                                      assignmentModule={isHqOverrideMode ? undefined : 'Clients'}
+                                      assignmentModule={
+                                        isHqOverrideMode
+                                          ? undefined
+                                          : defaultRecruitmentEnabled
+                                            ? 'Recruitment Clients'
+                                            : 'Clients'
+                                      }
                                       onChange={(ids) => {
                                         setOverviewEditForm((p) => ({
                                           ...p,
@@ -6179,7 +6185,13 @@ export function ClientDetailsDrawer({
                                     members={recruiters}
                                     value={overviewEditForm.assignedToIds ?? (overviewEditForm.assignedToId ? [overviewEditForm.assignedToId] : [])}
                                     loading={loadingRecruiters}
-                                    assignmentModule={isHqOverrideMode ? undefined : 'Clients'}
+                                    assignmentModule={
+                                      isHqOverrideMode
+                                        ? undefined
+                                        : defaultRecruitmentEnabled
+                                          ? 'Recruitment Clients'
+                                          : 'Clients'
+                                    }
                                     onChange={(ids) => {
                                       setOverviewEditForm((p) => ({
                                         ...p,
@@ -6691,7 +6703,13 @@ export function ClientDetailsDrawer({
                                     (overviewEditForm.assignedToId ? [overviewEditForm.assignedToId] : [])
                                   }
                                   loading={loadingRecruiters}
-                                  assignmentModule={isHqOverrideMode ? undefined : 'Clients'}
+                                  assignmentModule={
+                                    isHqOverrideMode
+                                      ? undefined
+                                      : defaultRecruitmentEnabled
+                                        ? 'Recruitment Clients'
+                                        : 'Clients'
+                                  }
                                   onChange={(ids) => {
                                     setOverviewEditForm((p) => ({
                                       ...p,
@@ -8144,16 +8162,15 @@ export function ClientDetailsDrawer({
               </>
             )}
             </DetailsModalShell>
-        </>
-      )}
+      ) : null}
     </AnimatePresence>
   );
 
   return (
     <>
-      {drawerIsOpen && clientPanelPortalReady && typeof document !== 'undefined'
+      {clientPanelPortalReady && typeof document !== 'undefined'
         ? createPortal(drawerTree, document.body)
-        : drawerTree}
+        : null}
     <CreateJobDrawer
       isOpen={createJobDrawerOpen}
       onClose={() => {

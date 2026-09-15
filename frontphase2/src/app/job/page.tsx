@@ -1802,7 +1802,7 @@ export default function JobsPage() {
         }
 
         const [clientsRes, members] = await Promise.all([
-          apiGetClients({ page: 1, limit: 500 }),
+          apiGetClients({ page: 1, limit: 500, recruitmentEnabled: true }),
           (async () => {
             try {
               const assigned = await getAllTeamMembersForAssign(getActiveOrgUnitId() || undefined, 'Jobs');
@@ -2776,7 +2776,7 @@ export default function JobsPage() {
                   aria-pressed={createJobMode === 'ai'}
                   onClick={() => {
                     if (jobAiGate.locked) {
-                      jobAiGate.confirmAndUnlock();
+                      void jobAiGate.confirmAndUnlock();
                       return;
                     }
                     setCreateJobMode('ai');
@@ -2918,8 +2918,8 @@ export default function JobsPage() {
                         label: client.name,
                         searchText: client.id,
                       }))}
-                      placeholder="All clients"
-                      allLabel="All clients"
+                      placeholder="All Recruitment Clients"
+                      allLabel="All Recruitment Clients"
                       dedupeNormalizedLabels
                       className="w-[10rem] max-w-[12rem]"
                       ariaLabel="Filter by client"

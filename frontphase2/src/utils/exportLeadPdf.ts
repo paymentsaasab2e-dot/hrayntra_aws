@@ -10,6 +10,7 @@
 import type { Lead, Activity as LeadActivity } from '../app/leads/types';
 import { formatDirectorDisplay } from '../constants/salutations';
 import { formatDateTimeDMY } from './dateDisplay';
+import { requestAlert } from '../lib/appDialog';
 
 function escapeHtml(value: unknown): string {
   if (value === null || value === undefined) return '';
@@ -96,8 +97,9 @@ export function exportLeadAsPdf(lead: Lead): void {
   if (!printWindow) {
     // Popup blocker active — fall back to current window navigation? Not great
     // for UX; surface a helpful message instead and bail.
-    alert(
-      'Could not open the export window — please allow pop-ups for this site and try again.'
+    void requestAlert(
+      'Could not open the export window — please allow pop-ups for this site and try again.',
+      { tone: 'warning' }
     );
     return;
   }

@@ -83,8 +83,10 @@ export function CrmHeader({ overview, onRefresh }: Props) {
         <div className="min-w-0">
           <h1 className="text-[20px] font-bold tracking-tight text-slate-900">CRM Dashboard</h1>
           <p className="mt-0.5 text-[12px] text-slate-500">
-            Stats for {dateLabel.toLowerCase()}
+            Live CRM book
             {teamLabel ? ` · ${teamLabel}` : ''}
+            {' · '}
+            intake trends: {dateLabel.toLowerCase()}
           </p>
         </div>
 
