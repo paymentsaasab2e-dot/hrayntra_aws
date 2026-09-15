@@ -5,7 +5,7 @@ import { ArrowRight, Save, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   ASSIGNMENT_RULE_MODULE_OPTIONS,
-  getAllTeamMembersForAssign,
+  getAllTeamMembersForDirectory,
   getAssignmentRules,
   saveAssignmentRules,
   type TeamMember,
@@ -87,9 +87,11 @@ export const AssignmentRulesTab: React.FC = () => {
   const loadMembersAndCompanies = useCallback(async () => {
     setLoading(true);
     try {
+      // Full directory — not /team/assignable — so "Can assign to" lists everyone,
+      // not only who the current admin can already assign to.
       const companyFilter = orgUnitId || getActiveOrgUnitId() || undefined;
       const [teamMembers, tree] = await Promise.all([
-        getAllTeamMembersForAssign(companyFilter || undefined),
+        getAllTeamMembersForDirectory(companyFilter || undefined),
         apiOrgTree().catch(() => ({ units: [] as Array<{ id: string; name?: string; parentId?: string | null }> })),
       ]);
       setMembers(teamMembers || []);

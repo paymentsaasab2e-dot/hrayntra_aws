@@ -308,13 +308,34 @@ async function sendEmail({ senderUserId, toEmail, subject, html, attachments = [
     console.error('Connected Gmail send failed, falling back to Resend:', error);
   }
 
-  await resend.emails.send({
+  if (!process.env.RESEND_API_KEY) {
+    console.error('[email] RESEND_API_KEY not configured');
+    return { success: false, error: 'Email service not configured' };
+  }
+
+  // Resend SDK returns { data, error } and does not throw on API failures.
+  const result = await resend.emails.send({
     from: fromEmail,
     to: recipient,
     subject: safeSubject,
     html,
     attachments: resendAttachments.length ? resendAttachments : undefined,
   });
+
+  const deliveryId = result?.data?.id || result?.id || null;
+  const resendError = result?.error;
+  const errorMessage =
+    resendError?.message ||
+    (typeof resendError === 'string' ? resendError : '');
+  if (!deliveryId && (errorMessage || resendError)) {
+    console.error(
+      `[email] Resend rejected send to ${recipient}: ${errorMessage || 'unknown error'}`,
+    );
+    return {
+      success: false,
+      error: errorMessage || 'Resend rejected the email',
+    };
+  }
 
   logEmailSent({
     provider: 'resend',
@@ -328,6 +349,7 @@ async function sendEmail({ senderUserId, toEmail, subject, html, attachments = [
     success: true,
     provider: 'resend',
     fromEmail,
+    messageId: deliveryId,
   };
 }
 
@@ -340,10 +362,27 @@ export async function sendInviteEmail(payload) {
       userId: payload?.senderUserId || null,
       aliases: ['team invite', 'invite email'],
     });
-    if (!triggerEnabled) return { success: true, skipped: true };
+    // Invite must not silently succeed when Alerts Management has email off.
+    if (!triggerEnabled) {
+      return {
+        success: false,
+        skipped: true,
+        error:
+          'Team invite emails are disabled in Settings → Alerts. Enable "Team Invite" and try again.',
+      };
+    }
 
     warnIfInviteLinksPointToLocalhostInProduction();
     const { toEmail, toName, loginId, tempPassword, roleName, inviteToken, senderUserId, tenantDbName } = payload;
+    const recipient = String(toEmail || '').trim();
+    if (!isDeliverableEmail(recipient)) {
+      return {
+        success: false,
+        skipped: true,
+        error: `Invalid invite recipient email: ${recipient || '(empty)'}`,
+      };
+    }
+
     const tenantQ =
       tenantDbName && String(tenantDbName).trim()
         ? `&tenantDbName=${encodeURIComponent(String(tenantDbName).trim())}`
@@ -365,15 +404,23 @@ export async function sendInviteEmail(payload) {
       },
     );
 
-    await sendEmail({
+    const result = await sendEmail({
       senderUserId,
-      toEmail,
+      toEmail: recipient,
       subject,
       html,
       triggerId: 'team.invite_email',
     });
 
-    return { success: true };
+    if (!result?.success) {
+      return {
+        success: false,
+        skipped: Boolean(result?.skipped),
+        error: result?.error || 'Failed to send invite email',
+      };
+    }
+
+    return { success: true, provider: result.provider, messageId: result.messageId || null };
   } catch (error) {
     console.error('Error sending invite email:', error);
     return { success: false, error: error.message || 'Failed to send email' };

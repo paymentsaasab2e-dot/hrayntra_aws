@@ -9,6 +9,7 @@ import {
   getInviteExpiry,
 } from '../utils/credentialGenerator.js';
 import { sendInviteEmail, sendPasswordResetEmail } from '../services/emailService.js';
+import { isDeliverableEmail } from '../utils/emailDeliverability.js';
 import { isSuperAdminUser } from '../utils/superAdminScope.js';
 import { headquartersAuthService } from '../modules/auth/headquarters-auth.service.js';
 import activityService from '../services/activityService.js';
@@ -618,7 +619,7 @@ export async function createTeamMember(req, res) {
         });
 
         try {
-          await sendInviteEmail({
+          const inviteResult = await sendInviteEmail({
             toEmail: email,
             toName: `${firstName} ${lastName}`,
             loginId,
@@ -628,6 +629,12 @@ export async function createTeamMember(req, res) {
             senderUserId: req.user?.id || null,
             tenantDbName: getActiveTenantDbName() || undefined,
           });
+          if (!inviteResult?.success) {
+            logger.error({
+              route: req.originalUrl || req.url,
+              message: `Team member created but invite email failed: ${inviteResult?.error || 'unknown'}`,
+            });
+          }
         } catch (emailError) {
           logger.error({
             route: req.originalUrl || req.url,
@@ -1408,14 +1415,33 @@ export async function generateMemberCredentials(req, res) {
 
     // Send invite email if requested
     if (sendInvite) {
-      await sendInviteEmail({
+      const inviteResult = await sendInviteEmail({
         toEmail: member.email,
         toName: `${member.firstName || ''} ${member.lastName || ''}`.trim() || member.name,
         loginId,
         tempPassword,
         roleName: member.systemRole?.roleName || 'Team Member',
         inviteToken,
+        senderUserId: req.user?.id || null,
+        tenantDbName: getActiveTenantDbName() || undefined,
       });
+      if (!inviteResult?.success) {
+        logger.error({
+          route: req.originalUrl || req.url,
+          message: `Credentials generated but invite email failed: ${inviteResult?.error || 'unknown'}`,
+        });
+        return res.status(200).json({
+          success: true,
+          data: {
+            loginId,
+            tempPassword,
+            inviteExpiresAt,
+            inviteEmailSent: false,
+            inviteEmailError: inviteResult?.error || 'Failed to send invite email',
+          },
+          message: `Credentials generated, but invite email failed: ${inviteResult?.error || 'unknown'}`,
+        });
+      }
     }
 
     return res.status(200).json({
@@ -1424,6 +1450,7 @@ export async function generateMemberCredentials(req, res) {
         loginId,
         tempPassword, // Only returned once - this is the only time
         inviteExpiresAt,
+        inviteEmailSent: Boolean(sendInvite),
       },
       message: 'Credentials generated',
     });
@@ -1560,20 +1587,40 @@ export async function resendMemberInvite(req, res) {
       loginId: member.credential.loginId,
     });
 
-    // Send invite email
-    await sendInviteEmail({
-      toEmail: member.email,
+    const toEmail = String(member.email || member.credential.loginId || '').trim();
+    if (!isDeliverableEmail(toEmail)) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot resend invite: no valid email on this member (${toEmail || 'empty'})`,
+      });
+    }
+
+    // Send invite email — fail the request if delivery did not succeed
+    const emailResult = await sendInviteEmail({
+      toEmail,
       toName: `${member.firstName || ''} ${member.lastName || ''}`.trim() || member.name,
       loginId: member.credential.loginId,
       tempPassword,
       roleName: member.systemRole?.roleName || 'Team Member',
       inviteToken,
+      senderUserId: req.user?.id || null,
       tenantDbName: getActiveTenantDbName() || undefined,
     });
 
+    if (!emailResult?.success) {
+      logger.error({
+        route: req.originalUrl || req.url,
+        message: `Resend invite email failed for ${toEmail}: ${emailResult?.error || 'unknown'}`,
+      });
+      return res.status(502).json({
+        success: false,
+        message: emailResult?.error || 'Invite email could not be delivered',
+      });
+    }
+
     return res.status(200).json({
       success: true,
-      message: 'Invite resent.',
+      message: `Invite resent to ${toEmail}.`,
     });
   } catch (error) {
     logger.error({ route: req.originalUrl || req.url, message: error?.message || 'Failed to resend invite' });

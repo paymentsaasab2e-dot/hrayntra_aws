@@ -246,12 +246,13 @@ export async function getAllTeamMembersForAssign(companyId?: string, module?: st
   return getAllTeamMembersPaginated(true, undefined, module);
 }
 
-/** Full tenant team directory (activity log, reports). Falls back to assignable list if needed. */
-export async function getAllTeamMembersForDirectory(): Promise<TeamMember[]> {
+/** Full tenant team directory (activity log, reports, Assignment Rules config). Falls back to assignable list if needed. */
+export async function getAllTeamMembersForDirectory(companyId?: string): Promise<TeamMember[]> {
+  const orgUnitId = String(companyId || '').trim() || undefined;
   try {
-    return await getAllTeamMembersPaginated(false);
+    return await getAllTeamMembersPaginated(false, orgUnitId);
   } catch {
-    return getAllTeamMembersPaginated(true);
+    return getAllTeamMembersPaginated(true, orgUnitId);
   }
 }
 
@@ -887,24 +888,16 @@ export async function impersonateTeamMember(id: string) {
  */
 export async function resendInvite(id: string) {
   const path = buildPath(`/team/${id}/resend-invite`);
-  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
-  }
-  
   const res = await fetch(`${API_BASE_NEW}${path}`, {
     method: 'POST',
-    headers,
+    headers: getTeamAuthHeaders(),
   });
-  
+
   const json = await res.json();
   if (!res.ok || json?.success === false) {
     throw new Error(json?.message || `Request failed with status ${res.status}`);
   }
-  
+
   return { data: json, success: json.success };
 }
 
