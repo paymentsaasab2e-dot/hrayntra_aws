@@ -109,6 +109,7 @@ import {
   useOrgWorkspace,
 } from '@/lib/org/useOrgWorkspace';
 import { parseJobSalaryMoneyNumber, resolveJobSalaryCurrencySymbolForSave } from '@/constants/jobSalary';
+import { normalizeExtractedJobTitle } from '@/lib/normalizeExtractedJobTitle';
 
 type WizardStep = 'client' | 'jd' | 'review';
 type PublishFlowStep = 'assessment' | 'distribution' | null;
@@ -435,7 +436,7 @@ function pipelineToDraft(
 ): WizardDraft {
   return {
     ...base,
-    jobTitle: data.jobTitle || base.jobTitle,
+    jobTitle: normalizeExtractedJobTitle(data.jobTitle || base.jobTitle) || base.jobTitle,
     nationality: data.nationality || base.nationality,
     priority: data.priority || base.priority,
     numberOfOpenings: data.numberOfOpenings || base.numberOfOpenings,

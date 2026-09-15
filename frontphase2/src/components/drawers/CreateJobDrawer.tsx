@@ -99,6 +99,7 @@ import { getCachedOrgDefaultCurrency } from '../../lib/api';
 import { loadJobVisibilityUserDefaults, visibilityDefaultsForNewJob, jobVisibilityDefaultsEqual } from '../../lib/jobVisibilityUserDefaults';
 import { filterClientsForAddJob } from '../../lib/recruitmentClients';
 import { dedupeByCompanyName, normalizeCompanyNameKey } from '../../lib/companyNameKey';
+import { normalizeExtractedJobTitle } from '../../lib/normalizeExtractedJobTitle';
 import {
   getStoredTenantCompanyName,
   resolveAddJobWorkspaceLabel,
@@ -371,8 +372,8 @@ function hydrateJobListFieldsFromPipelineResult(data: JobCreationPipelineResult)
 }
 
 function inferJobTitleFromPrompt(prompt: string): string {
-  const labeled = extractLabeledPromptValue(prompt, ['role', 'job title', 'position']);
-  if (labeled) return labeled;
+  const labeled = extractLabeledPromptValue(prompt, ['job title', 'role title', 'role', 'position', 'designation']);
+  if (labeled) return normalizeExtractedJobTitle(labeled);
 
   const cleanPrompt = prompt.trim().replace(/\s+/g, ' ');
   if (!cleanPrompt) return '';
@@ -388,7 +389,7 @@ function inferJobTitleFromPrompt(prompt: string): string {
   for (const pattern of patterns) {
     const match = cleanPrompt.match(pattern);
     if (match?.[1]) {
-      return match[1].trim().replace(/[.!,]$/, '');
+      return normalizeExtractedJobTitle(match[1].trim().replace(/[.!,]$/, ''));
     }
   }
 
@@ -2578,7 +2579,7 @@ export function CreateJobDrawer({
       return {
         ...prev,
         nationality: hints.nationality || prev.nationality,
-        jobTitle: options.jobTitle || hints.jobTitle || prev.jobTitle,
+        jobTitle: normalizeExtractedJobTitle(options.jobTitle || hints.jobTitle || prev.jobTitle) || prev.jobTitle,
         numberOfOpenings: draftOverrides?.openings || hints.openings || prev.numberOfOpenings,
         companyId: draftOverrides?.companyId || hints.companyId || prev.companyId,
         country: hints.country || prev.country,
@@ -2884,7 +2885,7 @@ export function CreateJobDrawer({
       return {
         ...prev,
         nationality: data.nationality?.trim() ? data.nationality : prev.nationality,
-        jobTitle: data.jobTitle || prev.jobTitle,
+        jobTitle: normalizeExtractedJobTitle(data.jobTitle || prev.jobTitle) || prev.jobTitle,
         priority: data.priority || prev.priority,
         companyId: data.companyId || prev.companyId,
         numberOfOpenings: data.numberOfOpenings || prev.numberOfOpenings,

@@ -8,25 +8,37 @@ html {
   --ph2-sidenav-w: 220px;
 }
 
-/* Tenant + HQ dashboards: Jakarta letters/signs, Inter digits */
+/* Offline-safe CRM/HQ dashboard fonts (replaces next/font/google Inter + Jakarta). */
+.dash-crm-font-vars {
+  --font-crm-num: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-crm-text: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+.dash-crm-num-font {
+  font-family: var(--font-crm-num), ui-sans-serif, system-ui, sans-serif;
+}
+.dash-crm-text-font {
+  font-family: var(--font-crm-text), ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Tenant + HQ dashboards: system stacks for letters/signs and digits */
 .dash-ui {
-  font-family: var(--font-crm-text), "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-crm-text), ui-sans-serif, system-ui, sans-serif;
   letter-spacing: -0.011em;
 }
 .dash-ui h1,
 .dash-ui h2,
 .dash-ui h3 {
-  font-family: var(--font-crm-text), "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-crm-text), ui-sans-serif, system-ui, sans-serif;
 }
 .dash-ui .tabular-nums {
-  font-family: var(--font-crm-num), Inter, ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-crm-num), ui-sans-serif, system-ui, sans-serif;
 }
 
-/* ─── Phase 2 theme tokens & shared surfaces ───────────────────────────────
+/* â”€â”€â”€ Phase 2 theme tokens & shared surfaces â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
    Most UI uses Tailwind `rem` utilities — they follow --ph2-root-font-pct on html.
    Headings below use :where() so any `text-*` class on the same tag still wins.
    Optional: add class `ph2-subtitle` under page titles; tune via --ph2-subtitle-*.
-────────────────────────────────────────────────────────────────────────── */
+â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 @layer base {
   :root {
     --ph2-accent-primary: 37 99 235;
@@ -124,7 +136,7 @@ html {
 
 @layer components {
   /**
-   * HQ console theme — Plus Jakarta Sans (CRM/Rec dashboard text) + charcoal / orange.
+   * HQ console theme — system UI stack (CRM/Rec dashboard text) + charcoal / orange.
    */
   .hq-theme {
     --ph2-header-h: 0px;
@@ -145,7 +157,7 @@ html {
     --hq-radius: 1rem;
     --hq-radius-sm: 0.75rem;
 
-    font-family: var(--font-crm-text), "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+    font-family: var(--font-crm-text), ui-sans-serif, system-ui, sans-serif;
     color: var(--hq-ink);
     letter-spacing: -0.011em;
   }
@@ -166,18 +178,18 @@ html {
 
   .hq-theme .hq-display,
   .hq-theme h1 {
-    font-family: var(--font-crm-text), "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+    font-family: var(--font-crm-text), ui-sans-serif, system-ui, sans-serif;
     letter-spacing: -0.02em;
   }
 
   .hq-theme h2,
   .hq-theme h3 {
-    font-family: var(--font-crm-text), "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+    font-family: var(--font-crm-text), ui-sans-serif, system-ui, sans-serif;
     letter-spacing: -0.015em;
   }
 
   .hq-theme .tabular-nums {
-    font-family: var(--font-crm-num), Inter, ui-sans-serif, system-ui, sans-serif;
+    font-family: var(--font-crm-num), ui-sans-serif, system-ui, sans-serif;
   }
 
   /** Modern HQ data tables — applies to every table under HQ */
@@ -306,7 +318,7 @@ html {
   }
 
   /**
-   * Dashboard-style HQ pages (`locked={false}` → `.ph2-page-shell--scroll`):
+   * Dashboard-style HQ pages (`locked={false}` â†’ `.ph2-page-shell--scroll`):
    * keep the surface viewport-locked, but the shell fills height so its
    * inner column can overflow-y scroll (list pages stay table-only scroll).
    */
@@ -344,7 +356,7 @@ html {
       radial-gradient(ellipse 90% 55% at 8% -8%, rgba(99, 102, 241, 0.1), transparent 55%),
       radial-gradient(ellipse 70% 45% at 96% 0%, rgba(20, 184, 166, 0.07), transparent 50%),
       radial-gradient(ellipse 50% 35% at 50% 100%, rgba(59, 130, 246, 0.05), transparent 60%);
-    font-family: var(--font-crm-text), "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+    font-family: var(--font-crm-text), ui-sans-serif, system-ui, sans-serif;
     letter-spacing: -0.011em;
   }
 
@@ -364,7 +376,7 @@ html {
   .hq-theme .hq-dash-page label,
   .hq-theme .hq-dash-page td,
   .hq-theme .hq-dash-page th {
-    font-family: var(--font-crm-text), "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+    font-family: var(--font-crm-text), ui-sans-serif, system-ui, sans-serif;
   }
 
   .hq-theme .hq-dash-page h1,
@@ -373,13 +385,13 @@ html {
   .hq-theme .dash-ui h1,
   .hq-theme .dash-ui h2,
   .hq-theme .dash-ui h3 {
-    font-family: var(--font-crm-text), "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+    font-family: var(--font-crm-text), ui-sans-serif, system-ui, sans-serif;
     letter-spacing: -0.02em;
   }
 
   .hq-theme .hq-dash-page .tabular-nums,
   .hq-theme .dash-ui .tabular-nums {
-    font-family: var(--font-crm-num), Inter, ui-sans-serif, system-ui, sans-serif;
+    font-family: var(--font-crm-num), ui-sans-serif, system-ui, sans-serif;
   }
 
   .hq-theme .hq-dash-card {
