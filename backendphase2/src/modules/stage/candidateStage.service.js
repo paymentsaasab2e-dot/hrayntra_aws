@@ -136,6 +136,36 @@ export async function ensureJobPipelineStageForRole(jobId, canonicalStage) {
   });
 }
 
+/**
+ * Find or create a job pipeline column by exact display name (supports custom client stages).
+ * systemRole keeps the canonical bucket for portal/workflow mapping.
+ */
+export async function ensureJobPipelineStageByName(jobId, stageName, systemRole = null) {
+  const name = String(stageName || '').trim();
+  if (!jobId || !name) return null;
+
+  const existing = await prisma.pipelineStage.findMany({
+    where: { jobId },
+    orderBy: { order: 'asc' },
+  });
+  const matched = existing.find(
+    (row) => String(row.name || '').trim().toLowerCase() === name.toLowerCase(),
+  );
+  if (matched) return matched;
+
+  const role = String(systemRole || mapStageNameToPipelineBucket(name) || '').toUpperCase() || null;
+  const maxOrder = existing.reduce((max, row) => Math.max(max, Number(row.order) || 0), 0);
+
+  return prisma.pipelineStage.create({
+    data: {
+      jobId,
+      name,
+      order: maxOrder + 1,
+      ...(role ? { systemRole: role } : {}),
+    },
+  });
+}
+
 async function upsertTenantPipelineEntry(candidateId, jobId, stageId, movedById) {
   if (!candidateId || !jobId || !stageId) return;
   const existing = await prisma.pipelineEntry.findFirst({
@@ -1000,9 +1030,53 @@ export async function updateCandidateStage({
     }
 
     try {
-      const resolvedStage = await ensureJobPipelineStageForRole(jobId, upper);
+      // Prefer a column that matches the display label (custom client / recruiter names),
+      // then fall back to the canonical bucket stage.
+      const resolvedStage =
+        (await ensureJobPipelineStageByName(jobId, label, upper)) ||
+        (await ensureJobPipelineStageForRole(jobId, upper));
       if (resolvedStage?.id) {
         await upsertTenantPipelineEntry(candidateId, jobId, resolvedStage.id, performedById || null);
+      }
+
+      // Keep Match.status aligned so job-applied lists refresh correctly.
+      try {
+        const matchStatus = (() => {
+          const n = String(label || '').toLowerCase();
+          if (n.includes('reject')) return 'REJECTED';
+          if (
+            n.includes('hire') ||
+            n.includes('place') ||
+            n.includes('join') ||
+            n.includes('onboard')
+          ) {
+            return 'SELECTED';
+          }
+          if (
+            (n.includes('submit') && n.includes('client')) ||
+            n.includes('shortlist') ||
+            n.includes('interview') ||
+            n.includes('offer')
+          ) {
+            return 'SHORTLISTED';
+          }
+          return 'REVIEWED';
+        })();
+        const existingMatch = await prisma.match.findFirst({
+          where: { candidateId, jobId },
+          select: { id: true },
+        });
+        if (existingMatch) {
+          await prisma.match.update({
+            where: { id: existingMatch.id },
+            data: { status: matchStatus },
+          });
+        }
+      } catch (matchErr) {
+        console.warn(
+          '[updateCandidateStage] match status sync failed:',
+          matchErr?.message || matchErr,
+        );
       }
     } catch (pipeErr) {
       console.warn('[updateCandidateStage] tenant pipeline entry move failed:', pipeErr?.message || pipeErr);

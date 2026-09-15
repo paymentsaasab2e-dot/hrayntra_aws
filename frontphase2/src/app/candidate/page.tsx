@@ -23,6 +23,7 @@ import type {
 } from '../../types/interview.types';
 import AddCandidateDrawer from '../../components/candidates/AddCandidateDrawer';
 import FailedBulkResumesDrawer from '../../components/candidates/FailedBulkResumesDrawer';
+import RepairBadNamesDrawer from '../../components/candidates/RepairBadNamesDrawer';
 import BulkCvTokensDrawer from '../../components/candidates/BulkCvTokensDrawer';
 import { BULK_CV_TOKENS_CHANGED, getBulkCvTokenSession } from '../../lib/bulkCvTokensStore';
 import ModuleRecycleBinDrawer from '../../components/ModuleRecycleBinDrawer';
@@ -120,7 +121,6 @@ import {
   apiUpdateCandidate,
   apiUpdateCandidateInterview,
   apiUpdateCandidateNote,
-  apiRepairBadCandidateNames,
   type BackendCandidate,
   type BackendJob,
   getCachedPhase1CommonPoolEnabled,
@@ -373,7 +373,7 @@ function CandidatesPageContent() {
   const candidateAiGate = useAiCoinGate('ai.candidate_chat');
   const [failedResumesDrawerOpen, setFailedResumesDrawerOpen] = useState(false);
   const [tokensDrawerOpen, setTokensDrawerOpen] = useState(false);
-  const [repairingBadNames, setRepairingBadNames] = useState(false);
+  const [repairNamesDrawerOpen, setRepairNamesDrawerOpen] = useState(false);
   const [bulkCvTokenResumeCount, setBulkCvTokenResumeCount] = useState(0);
   const [pendingBulkRetryFile, setPendingBulkRetryFile] = useState<File | null>(null);
   const [pendingBulkRetryFiles, setPendingBulkRetryFiles] = useState<File[] | null>(null);
@@ -962,44 +962,9 @@ function CandidatesPageContent() {
     }
   }, [filters, debouncedColumnFilters, currentPage, pageSize, listTab, smartSearchCandidateIds]);
 
-  const handleRepairBadNames = useCallback(async () => {
-    if (repairingBadNames) return;
-    const confirmed = await requestConfirm(
-      'Auto-fix candidate names that look like CV filenames, job titles, or locations?\n\nThis re-reads stored resumes and updates names in bulk. Real person names are left alone.',
-      {
-        tone: 'info',
-        confirmLabel: 'Fix names',
-        cancelLabel: 'Cancel',
-      }
-    );
-    if (!confirmed) return;
-
-    setRepairingBadNames(true);
-    const toastId = toast.loading('Fixing bad candidate names…');
-    try {
-      const result = await apiRepairBadCandidateNames({
-        execute: true,
-        limit: 2000,
-        scopeAllCompanies: true,
-      });
-      invalidateEmployerCandidatesCache();
-      await loadCandidates({ silent: true });
-      const fixed = result.updated || 0;
-      const found = result.badNames || 0;
-      if (fixed === 0 && found === 0) {
-        toast.success('No bad names found — all candidate names look OK.', { id: toastId });
-      } else {
-        toast.success(`Fixed ${fixed} of ${found} bad name${found === 1 ? '' : 's'}.`, {
-          id: toastId,
-        });
-      }
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Failed to fix candidate names';
-      toast.error(message, { id: toastId });
-    } finally {
-      setRepairingBadNames(false);
-    }
-  }, [loadCandidates, repairingBadNames]);
+  const handleRepairBadNames = useCallback(() => {
+    setRepairNamesDrawerOpen(true);
+  }, []);
 
   const switchListTab = useCallback(
     (tab: CandidateListTab) => {
@@ -1449,7 +1414,12 @@ function CandidatesPageContent() {
     async (candidate: Candidate) => {
       const jobId = candidate.pipelineJobId;
       if (!jobId) return;
-      if (inlineStageOptionsByJobId[jobId]?.length) return;
+      const existing = inlineStageOptionsByJobId[jobId];
+      const hasRealIds =
+        Array.isArray(existing) &&
+        existing.length > 0 &&
+        existing.every((stage) => isValidObjectId(String(stage.id || '')));
+      if (hasRealIds) return;
 
       try {
         setInlineStageOptionsLoadingJobId(jobId);
@@ -1466,7 +1436,7 @@ function CandidatesPageContent() {
             id: String(stage.id || ''),
             name: String(stage.name || '').trim(),
           }))
-          .filter((stage: { id: string; name: string }) => stage.id && stage.name);
+          .filter((stage: { id: string; name: string }) => stage.id && stage.name && isValidObjectId(stage.id));
 
         setInlineStageOptionsByJobId((prev) => ({ ...prev, [jobId]: mappedStages }));
       } catch (stageError: any) {
@@ -1620,8 +1590,52 @@ function CandidatesPageContent() {
         return;
       }
 
-      const nextStageName =
-        inlineStageOptionsByJobId[jobId]?.find((stage) => stage.id === stageId)?.name || '';
+      let resolvedStageId = String(stageId || '').trim();
+      let nextStageName =
+        inlineStageOptionsByJobId[jobId]?.find((stage) => stage.id === resolvedStageId)?.name || '';
+
+      if (!isValidObjectId(resolvedStageId)) {
+        try {
+          const response = await apiGetPipelineStages(jobId);
+          const payload = response.data;
+          const stages = Array.isArray(payload)
+            ? payload
+            : Array.isArray((payload as any)?.data)
+              ? (payload as any).data
+              : [];
+          const mappedStages = stages
+            .map((stage: any) => ({
+              id: String(stage.id || ''),
+              name: String(stage.name || '').trim(),
+            }))
+            .filter((stage: { id: string; name: string }) => stage.id && stage.name && isValidObjectId(stage.id));
+          if (mappedStages.length) {
+            setInlineStageOptionsByJobId((prev) => ({ ...prev, [jobId]: mappedStages }));
+          }
+          const wanted = String(nextStageName || candidate.stage || '')
+            .toLowerCase()
+            .replace(/[_-]+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+          const match = mappedStages.find(
+            (stage: { id: string; name: string }) =>
+              String(stage.name || '')
+                .toLowerCase()
+                .replace(/[_-]+/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim() === wanted,
+          );
+          if (!match) {
+            toast.error('Pipeline stage not found. Save the job pipeline, then try again.');
+            return;
+          }
+          resolvedStageId = match.id;
+          nextStageName = match.name;
+        } catch (stageError: any) {
+          toast.error(stageError?.message || 'Failed to load pipeline stages');
+          return;
+        }
+      }
 
       // Interviewing: open Schedule Interview popup only — stage updates after schedule succeeds.
       if (isInterviewPipelineStage(nextStageName)) {
@@ -1630,7 +1644,7 @@ function CandidatesPageContent() {
           return;
         }
         await openScheduleInterviewForCandidate(candidate, jobId, {
-          stageId,
+          stageId: resolvedStageId,
           stageName: nextStageName,
         });
         return;
@@ -1639,7 +1653,7 @@ function CandidatesPageContent() {
       // Offer: open placement popup only — stage updates after placement is created.
       if (isOfferPipelineStage(nextStageName)) {
         openPlacementForCandidate(candidate, jobId, {
-          stageId,
+          stageId: resolvedStageId,
           stageName: nextStageName,
         });
         return;
@@ -1649,12 +1663,10 @@ function CandidatesPageContent() {
         setInlineStageUpdatingCandidateId(candidate.id);
         await apiMoveCandidateStage(jobId, {
           candidateId: candidate.id,
-          stageId,
+          stageId: resolvedStageId,
         });
 
-        const resolvedName =
-          inlineStageOptionsByJobId[jobId]?.find((stage) => stage.id === stageId)?.name ||
-          candidate.stage;
+        const resolvedName = nextStageName || candidate.stage;
 
         setCandidates((prev) =>
           prev.map((item) =>
@@ -2372,17 +2384,12 @@ function CandidatesPageContent() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => void handleRepairBadNames()}
-                    disabled={repairingBadNames}
-                    className="flex items-center gap-1.5 rounded-lg border border-indigo-200/70 bg-white px-3 py-2 text-xs font-semibold text-indigo-900 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+                    onClick={handleRepairBadNames}
+                    className="flex items-center gap-1.5 rounded-lg border border-indigo-200/70 bg-white px-3 py-2 text-xs font-semibold text-indigo-900 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98]"
                     title="Auto-fix names taken from CV filenames / titles"
                   >
-                    <Sparkles
-                      size={16}
-                      className={`text-indigo-600 ${repairingBadNames ? 'animate-pulse' : ''}`}
-                      strokeWidth={2.25}
-                    />
-                    <span>{repairingBadNames ? 'Fixing names…' : 'Fix names'}</span>
+                    <Sparkles size={16} className="text-indigo-600" strokeWidth={2.25} />
+                    <span>Fix names</span>
                   </button>
                 </>
               ) : null}
@@ -2841,6 +2848,16 @@ function CandidatesPageContent() {
           onClose={() => setFailedResumesDrawerOpen(false)}
           onReupload={handleFailedResumeReupload}
           onRetryFiles={handleFailedResumeRetryFiles}
+        />
+      ) : null}
+
+      {canCreateCandidate ? (
+        <RepairBadNamesDrawer
+          isOpen={repairNamesDrawerOpen}
+          onClose={() => setRepairNamesDrawerOpen(false)}
+          onApplied={async () => {
+            await loadCandidates({ silent: true });
+          }}
         />
       ) : null}
 

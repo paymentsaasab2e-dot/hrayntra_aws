@@ -52,7 +52,7 @@ export const CLIENT_TRACKER_OPTION_FIELDS: Array<{
 }> = [
   { id: 'viewProfile', label: 'View profile' },
   { id: 'showInterviewFeedback', label: 'Show interview feedback' },
-  { id: 'addComments', label: 'Add comments', action: true },
+  { id: 'addComments', label: 'Feedback for client on the link shared', action: true },
   { id: 'downloadResume', label: 'Download resume', action: true },
   { id: 'showLinkedIn', label: 'LinkedIn' },
   { id: 'showNotes', label: 'Show recruiter notes' },

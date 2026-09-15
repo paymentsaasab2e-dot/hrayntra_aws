@@ -67,11 +67,6 @@ function pickLaterJobDrawerStage(...stages: Array<string | null | undefined>): s
   return best;
 }
 
-function stageLooksTerminalHire(stage?: string | null): boolean {
-  const s = String(stage || '').trim().toLowerCase();
-  return /\b(hired|placed|joined|onboarded)\b/.test(s);
-}
-
 /** Stage label for job drawer / candidates tab — linked rows default to Applied. */
 export function resolveJobCandidateDisplayStage(currentStage?: string | null): string {
   const normalized = String(currentStage || '').trim();
@@ -114,19 +109,10 @@ export function resolveJobCandidateStageFromMatchRow(
 ): string {
   const displayStatus = String(match.status || '').trim();
   const crmStage = String(match.candidateStage || match.candidate?.stage || '').trim();
+  // Prefer the later of CRM / existing pipeline stage. Do not downgrade client-marked
+  // stages like "Joined" back to Applied just because Match.status is REVIEWED.
   const later = pickLaterJobDrawerStage(existingStage, crmStage);
-  if (later) {
-    const matchIsAppliedWorkflow =
-      isMatchWorkflowStatus(displayStatus) &&
-      ['REVIEWED', 'SUBMITTED'].includes(displayStatus.toUpperCase());
-    if (stageLooksTerminalHire(later) && matchIsAppliedWorkflow) {
-      return 'Applied';
-    }
-    if (stageLooksTerminalHire(later) && mapApplicationStatusToCrmStage(displayStatus)) {
-      return 'Applied';
-    }
-    return later;
-  }
+  if (later) return later;
 
   const fromMatchEnum = mapApplicationStatusToCrmStage(displayStatus);
   if (fromMatchEnum && !isMatchWorkflowStatus(displayStatus)) {

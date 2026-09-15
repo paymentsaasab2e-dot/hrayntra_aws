@@ -53,11 +53,12 @@ export function buildInterviewRsvpPublicUrls(interviewId, tenantDbName) {
     interviewId,
     tenantDbName: tenantDbName || getActiveTenantDbName(),
   });
+  // Put JWT in the query string — path JWTs break in mobile Gmail (truncated at `.`).
   const encoded = encodeURIComponent(token);
   return {
     token,
-    acceptUrl: `${base}/interview-rsvp/${encoded}?action=accept`,
-    rejectUrl: `${base}/interview-rsvp/${encoded}?action=reject`,
-    rescheduleUrl: `${base}/interview-rsvp/${encoded}?action=reschedule`,
+    acceptUrl: `${base}/interview-rsvp?token=${encoded}&action=accept`,
+    rejectUrl: `${base}/interview-rsvp?token=${encoded}&action=reject`,
+    rescheduleUrl: `${base}/interview-rsvp?token=${encoded}&action=reschedule`,
   };
 }

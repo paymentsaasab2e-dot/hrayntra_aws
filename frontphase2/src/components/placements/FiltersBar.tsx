@@ -57,8 +57,8 @@ function Select({
         onChange={(event) => onChange(event.target.value)}
         className={
           embedded
-            ? `${PH2_TOOLBAR_SELECT_CLASS} h-9 w-full pr-8 text-xs`
-            : 'h-11 w-full appearance-none rounded-xl border border-[#D1D5DB] bg-white px-3 pr-9 text-sm text-[#111827] outline-none focus:border-[#2563EB]'
+            ? `${PH2_TOOLBAR_SELECT_CLASS} h-9 w-full appearance-none bg-none pr-8 text-xs`
+            : 'h-11 w-full appearance-none rounded-xl border border-[#D1D5DB] bg-white bg-none px-3 pr-9 text-sm text-[#111827] outline-none focus:border-[#2563EB]'
         }
       >
         {options.map((option) => (
@@ -71,6 +71,7 @@ function Select({
         className={`pointer-events-none absolute top-1/2 -translate-y-1/2 ${
           embedded ? 'right-2.5 h-3.5 w-3.5 text-indigo-400' : 'right-3 h-4 w-4 text-[#6B7280]'
         }`}
+        strokeWidth={2}
       />
     </div>
   );
@@ -114,8 +115,8 @@ export function FiltersBar({
     : 'h-11 w-full rounded-xl border border-[#D1D5DB] bg-white pl-10 pr-4 text-sm outline-none focus:border-[#2563EB]';
 
   const nativeSelectClass = embedded
-    ? `${PH2_TOOLBAR_SELECT_CLASS} h-9 w-full appearance-none pr-8 text-xs`
-    : 'h-11 w-full appearance-none rounded-xl border border-[#D1D5DB] bg-white px-3 pr-9 text-sm outline-none focus:border-[#2563EB]';
+    ? `${PH2_TOOLBAR_SELECT_CLASS} h-9 w-full appearance-none bg-none pr-8 text-xs`
+    : 'h-11 w-full appearance-none rounded-xl border border-[#D1D5DB] bg-white bg-none px-3 pr-9 text-sm outline-none focus:border-[#2563EB]';
 
   const dateInputClass = embedded
     ? 'h-9 rounded-lg border border-indigo-100/90 bg-white/95 px-2.5 text-xs text-slate-800 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/20'
@@ -274,7 +275,7 @@ export function FiltersBar({
                       <select
                         value={filters.recruiterId || ''}
                         onChange={(event) => onFilterChange({ recruiterId: event.target.value })}
-                        className="h-11 w-full appearance-none rounded-xl border border-[#D1D5DB] bg-white px-3 pr-9 text-sm outline-none focus:border-[#2563EB]"
+                      className="h-11 w-full appearance-none rounded-xl border border-[#D1D5DB] bg-white bg-none px-3 pr-9 text-sm outline-none focus:border-[#2563EB]"
                       >
                         <option value="">All team members</option>
                         {recruiterOptions.map((recruiter) => (

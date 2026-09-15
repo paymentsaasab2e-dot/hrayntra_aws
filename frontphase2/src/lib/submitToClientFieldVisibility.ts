@@ -497,8 +497,11 @@ export function isSubmitToClientReviewFieldVisible(
   label: string,
   visibility?: Partial<SubmitToClientFieldVisibility> | null,
 ): boolean {
+  if (!visibility) return true;
   const ids = reviewFieldIdsForLabel(label);
-  if (!ids || !visibility) return true;
+  // When Settings → Submit to Client defaults exist, only known allowlisted labels may show.
+  // Unmapped leftovers must not leak permanently hidden data.
+  if (!ids) return false;
   const parsed = parseSubmitToClientFieldVisibility(visibility);
   return ids.some((id) => parsed[id] !== false);
 }

@@ -22,6 +22,7 @@ import { isClientReviewFileHref } from '../../lib/clientReviewAssets';
 import { CLIENT_PRESENTATION_SECTION_LABELS, type ClientReviewSection } from '@/lib/clientPresentationSections';
 import { PHASE1_CLIENT_SECTION_LABELS } from '@/lib/phase1ClientPresentationSections';
 import {
+  isSubmitToClientReviewFieldVisible,
   phase1SectionVisibilityFromSubmitFields,
   sectionVisibilityFromSubmitFields,
   SUBMIT_TO_CLIENT_FIELD_GROUPS,
@@ -216,24 +217,36 @@ function expandSectionForVisibleFields(
         value: findExistingFieldValue(section.fields || [], field.id, field.label),
       }));
 
-    // Keep useful extra rows (e.g. Full name) that already have values and aren't duplicates.
+    // Keep useful extra rows only when Settings → Submit to Client still allows that label.
+    // Never re-introduce permanently hidden fields (e.g. "Name" after First/Last Name hidden).
     const covered = new Set(nextFields.map((row) => row.label.trim().toLowerCase()));
     for (const row of section.fields || []) {
       const key = String(row.label || '')
         .trim()
-        .toLowerCase();
+        .toLowerCase()
+        .replace(/\s+/g, ' ');
       if (!key || covered.has(key)) continue;
       if (key === 'entries' || row.value === 'No entries provided') continue;
       if (!display(row.value)) continue;
       if (shouldHideClientReviewField(row.label, row.value)) continue;
+      if (visibleFields && !isSubmitToClientReviewFieldVisible(row.label, visibleFields)) continue;
       nextFields.push({ label: row.label, value: display(row.value) });
       covered.add(key);
     }
 
+    const entryFields =
+      section.id === 'work'
+        ? (['cvWorkExperienceEntries'] as SubmitToClientFieldId[])
+        : section.id === 'education'
+          ? (['cvEducationEntries'] as SubmitToClientFieldId[])
+          : null;
+    const entriesAllowed =
+      !entryFields || !visibleFields || entryFields.some((id) => isFieldIdVisible(id, visibleFields));
+
     return {
       ...section,
       fields: nextFields,
-      entries: section.entries,
+      entries: entriesAllowed ? section.entries : undefined,
     };
   }
 
@@ -248,11 +261,19 @@ function expandSectionForVisibleFields(
     .filter((row) => {
       if (shouldHideClientReviewField(row.label, row.value)) return false;
       if (row.value === 'No entries provided') return false;
+      if (visibleFields && !isSubmitToClientReviewFieldVisible(row.label, visibleFields)) return false;
       return true;
     })
     .map((row) => ({ label: row.label, value: display(row.value) }));
 
   if (!cleanedFields.length && !hasEntries) {
+    // Settings-hidden sections stay empty — do not invent a placeholder row that re-shows them.
+    if (visibleFields && phase1FieldId && !isFieldIdVisible(phase1FieldId, visibleFields)) {
+      return { ...section, fields: [], entries: undefined };
+    }
+    if (visibleFields) {
+      return { ...section, fields: [], entries: undefined };
+    }
     return {
       ...section,
       fields: [{ label: resolveSectionTitle(section.id, section.title), value: '' }],
@@ -969,10 +990,17 @@ export function ClientReviewSectionsPanel({
       if (!sectionHasVisibleContent(section, hideOpts) && sectionLooksPlaceholderOnly(section)) {
         continue;
       }
+      const expanded = expandSectionForVisibleFields(section, visibleFields);
+      if (
+        !expanded.fields.length &&
+        !(Array.isArray(expanded.entries) && expanded.entries.length)
+      ) {
+        continue;
+      }
       leftovers.push({
-        id: section.id,
-        label: resolveSectionTitle(section.id, section.title),
-        sections: [section],
+        id: expanded.id,
+        label: resolveSectionTitle(expanded.id, expanded.title),
+        sections: [expanded],
       });
     }
 
@@ -1120,18 +1148,25 @@ export function ClientReviewSectionsPanel({
 
       <div className="overflow-hidden rounded-3xl bg-white shadow-[0_8px_30px_rgba(15,23,42,0.04)] ring-1 ring-slate-200/70">
       {mergedSections.map((section) => {
-        const meta = SECTION_META[section.id] || { title: section.title, icon: FileText };
-        const workEntries = resolveWorkEntries(section);
+        const expanded = expandSectionForVisibleFields(section, visibleFields);
+        if (
+          !expanded.fields.length &&
+          !(Array.isArray(expanded.entries) && expanded.entries.length)
+        ) {
+          return null;
+        }
+        const meta = SECTION_META[expanded.id] || { title: expanded.title, icon: FileText };
+        const workEntries = resolveWorkEntries(expanded);
         const entryList =
-          workEntries.length > 0 ? workEntries : section.entries?.length ? section.entries : [];
+          workEntries.length > 0 ? workEntries : expanded.entries?.length ? expanded.entries : [];
         const entryCount = entryList.length;
         const filled =
           entryCount > 0
             ? entryList.filter((entry) => entryHasData(entry)).length
-            : section.fields.filter((row) => display(row.value)).length;
-        const total = entryCount > 0 ? entryCount : section.fields.length || 1;
+            : expanded.fields.filter((row) => display(row.value)).length;
+        const total = entryCount > 0 ? entryCount : expanded.fields.length || 1;
         const subtitle =
-          entryCount > 0 && section.id === 'work'
+          entryCount > 0 && expanded.id === 'work'
             ? `${filled}/${total} fields captured · ${entryCount} ${entryCount === 1 ? 'entry' : 'entries'}`
             : entryCount > 0
               ? `${entryCount} ${entryCount === 1 ? 'entry' : 'entries'}`
@@ -1139,17 +1174,17 @@ export function ClientReviewSectionsPanel({
 
         return (
           <SectionBlock
-            key={section.id}
-            id={section.id}
-            title={meta.title || section.title}
+            key={expanded.id}
+            id={expanded.id}
+            title={meta.title || expanded.title}
             icon={meta.icon}
-            open={isOpen(section.id)}
+            open={isOpen(expanded.id)}
             onToggle={toggle}
             filled={filled}
             total={total}
             extraHint={subtitle}
           >
-            {renderSectionBody(section, hideOpts)}
+            {renderSectionBody(expanded, hideOpts)}
           </SectionBlock>
         );
       })}

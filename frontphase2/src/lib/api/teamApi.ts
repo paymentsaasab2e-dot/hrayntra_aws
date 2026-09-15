@@ -507,6 +507,8 @@ export type AssignmentRulesPayload = {
   configured: boolean;
   assigneeUserIds: string[];
   suggestedAssigneeIds: string[];
+  /** People who have access to this module (shown in “Can assign to”). */
+  eligibleAssigneeUserIds?: string[];
   usingHierarchyDefault?: boolean;
   modules?: string[];
 };

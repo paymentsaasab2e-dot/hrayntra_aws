@@ -159,6 +159,7 @@ import { useFiles } from '../../hooks/useFiles';
 import { DocumentUploadButton } from '../import/documentUploadUi';
 import { formatDateDMY, formatDateTimeDMY, formatTime12hEnGb } from '../../utils/dateDisplay';
 import {
+  buildInterviewRoundNumberById,
   formatInterviewDateInTimezone,
   formatInterviewTimeInTimezone,
 } from '../../lib/interview-schedule-helpers';
@@ -173,6 +174,7 @@ import { EntityWorkspaceAlertsPanel } from '../ai/EntityWorkspaceAlertsPanel';
 import { JobAssessmentsTabContent } from '../jobs/JobAssessmentsTabContent';
 import { JobClientRemarksTab } from '../jobs/JobClientRemarksTab';
 import { InterviewDetailHost } from '../interviews/InterviewDetailHost';
+import { InterviewRoundTabs } from '../interviews/InterviewRoundTabs';
 import { TableColumnsMenu } from '../table/TableColumnsMenu';
 import { usePersistedColumnVisibility } from '../../hooks/usePersistedColumnVisibility';
 import {
@@ -1243,6 +1245,9 @@ export function JobDetailsDrawer({
   const [deletingCandidateId, setDeletingCandidateId] = useState<string | null>(null);
   const [removingFromJobCandidateId, setRemovingFromJobCandidateId] = useState<string | null>(null);
   const [submitCandidatePickerOpen, setSubmitCandidatePickerOpen] = useState(false);
+  const [scheduleCandidatePickerOpen, setScheduleCandidatePickerOpen] = useState(false);
+  const [schedulePickerSelectedIds, setSchedulePickerSelectedIds] = useState<string[]>([]);
+  const [schedulePickerSearch, setSchedulePickerSearch] = useState('');
   const [pickerSelectedIds, setPickerSelectedIds] = useState<string[]>([]);
   const [pickerSearch, setPickerSearch] = useState('');
   /** When set, picker only lists these candidates (table selection). Null = show all job candidates. */
@@ -1659,18 +1664,29 @@ export function JobDetailsDrawer({
     onScheduleInterview(ids[0]!, jobId, undefined, ids.length > 1 ? ids : undefined);
   }, [job?.id, onScheduleInterview, selectedCandidateIds]);
 
+  const schedulePickerCandidates = useMemo(() => {
+    const query = schedulePickerSearch.trim().toLowerCase();
+    const list = Array.isArray(displayJobCandidates) ? displayJobCandidates.filter((row) => row?.id) : [];
+    if (!query) return list;
+    return list.filter((row) => {
+      const haystack = `${row.candidateName || ''} ${row.email || ''} ${row.currentStage || ''}`.toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [displayJobCandidates, schedulePickerSearch]);
+
   /** When rows are checked, only the selection-bar Submit shows — avoids two CTAs. */
   const showHeaderSubmitToClient =
     Boolean(job?.id) && selectedCandidateIds.length === 0;
 
   const stageOptionsFromJobPipeline = useMemo(() => {
     if (!job?.id) return {} as Record<string, Array<{ id: string; name: string }>>;
+    // Only keep real DB stage ids — fake defaults (`default-*-stage` / `s-*`) break POST /pipeline/.../move.
     const mapped = (Array.isArray(pipelineStages) ? pipelineStages : [])
       .map((stage) => ({
         id: String(stage?.id || '').trim(),
         name: String(stage?.name || '').trim(),
       }))
-      .filter((stage) => stage.id && stage.name);
+      .filter((stage) => stage.id && stage.name && isValidObjectId(stage.id));
     return mapped.length ? { [job.id]: mapped } : {};
   }, [job?.id, pipelineStages]);
 
@@ -1686,9 +1702,12 @@ export function JobDetailsDrawer({
     async (candidate: JobDrawerTableCandidate) => {
       const jobId = candidate.pipelineJobId || job?.id;
       if (!jobId) return;
-      // Prefer API stages (real DB ids). Refetch if we only have local defaults.
       const existing = inlineStageOptionsByJobId[jobId];
-      if (existing?.length) return;
+      const hasRealIds =
+        Array.isArray(existing) &&
+        existing.length > 0 &&
+        existing.every((stage) => isValidObjectId(String(stage.id || '')));
+      if (hasRealIds) return;
 
       try {
         setInlineStageOptionsLoadingJobId(jobId);
@@ -1705,7 +1724,7 @@ export function JobDetailsDrawer({
             id: String(stage.id || ''),
             name: String(stage.name || '').trim(),
           }))
-          .filter((stage) => stage.id && stage.name);
+          .filter((stage) => stage.id && stage.name && isValidObjectId(stage.id));
 
         if (mappedStages.length) {
           setInlineStageOptionsByJobId((prev) => ({ ...prev, [jobId]: mappedStages }));
@@ -1765,6 +1784,45 @@ export function JobDetailsDrawer({
     },
     [job?.id, job?.applications, jobCandidates, onJobCandidatesChange, recruiterFallbackForJob],
   );
+
+  const openScheduleInterviewCandidatePicker = useCallback(async () => {
+    const jobId = String(job?.id || '').trim();
+    if (!jobId) {
+      toast.error('No job selected.');
+      return;
+    }
+    if (!onScheduleInterview) {
+      toast.error('Schedule Interview is not available');
+      return;
+    }
+
+    let list = Array.isArray(displayJobCandidates) ? displayJobCandidates.filter((row) => row?.id) : [];
+    if (!list.length) {
+      const merged = await refreshAppliedJobCandidates({ runPipeline: false, refresh: true });
+      list = Array.isArray(merged) ? merged.filter((row) => row?.id) : [];
+    }
+    if (!list.length) {
+      setActiveTab('candidates');
+      void requestError('Add or assign a candidate to this job before scheduling an interview.');
+      return;
+    }
+
+    setSchedulePickerSearch('');
+    setSchedulePickerSelectedIds(list.length === 1 ? [list[0]!.id] : []);
+    setScheduleCandidatePickerOpen(true);
+  }, [displayJobCandidates, job?.id, onScheduleInterview, refreshAppliedJobCandidates]);
+
+  const confirmScheduleInterviewCandidatePicker = useCallback(() => {
+    const jobId = String(job?.id || '').trim();
+    if (!jobId || !onScheduleInterview) return;
+    const ids = schedulePickerSelectedIds.filter(Boolean);
+    if (!ids.length) {
+      toast.error('Select at least one candidate to schedule an interview.');
+      return;
+    }
+    setScheduleCandidatePickerOpen(false);
+    onScheduleInterview(ids[0]!, jobId, undefined, ids.length > 1 ? ids : undefined);
+  }, [job?.id, onScheduleInterview, schedulePickerSelectedIds]);
 
   const handleJobCvFileSelected = useCallback(
     async (fileList: FileList | File[] | null | undefined) => {
@@ -1947,15 +2005,53 @@ export function JobDetailsDrawer({
         return;
       }
 
-      const nextStageName =
-        inlineStageOptionsMerged[jobId]?.find((stage) => stage.id === stageId)?.name ||
+      let resolvedStageId = String(stageId || '').trim();
+      let nextStageName =
+        inlineStageOptionsMerged[jobId]?.find((stage) => stage.id === resolvedStageId)?.name ||
         candidate.stage;
+
+      // Resolve fake / local ids (`default-*-stage`, `s-*`) to real DB pipeline stage ids.
+      if (!isValidObjectId(resolvedStageId)) {
+        try {
+          const response = await apiGetPipelineStages(jobId);
+          const payload = response.data;
+          const stages = Array.isArray(payload)
+            ? payload
+            : Array.isArray((payload as { data?: unknown })?.data)
+              ? (payload as { data: unknown[] }).data
+              : [];
+          const mappedStages = stages
+            .map((stage: { id?: string; name?: string }) => ({
+              id: String(stage.id || ''),
+              name: String(stage.name || '').trim(),
+            }))
+            .filter((stage) => stage.id && stage.name && isValidObjectId(stage.id));
+          if (mappedStages.length) {
+            setInlineStageOptionsByJobId((prev) => ({ ...prev, [jobId]: mappedStages }));
+          }
+          const wanted = normalizeStageLabel(nextStageName);
+          const match =
+            mappedStages.find((stage) => normalizeStageLabel(stage.name) === wanted) ||
+            mappedStages.find((stage) => canonicalStageLabel(stage.name) === canonicalStageLabel(nextStageName));
+          if (!match) {
+            toast.error('Pipeline stage not found. Save the job pipeline, then try again.');
+            return;
+          }
+          resolvedStageId = match.id;
+          nextStageName = match.name;
+        } catch (stageError: unknown) {
+          const message =
+            stageError instanceof Error ? stageError.message : 'Failed to load pipeline stages';
+          toast.error(message);
+          return;
+        }
+      }
 
       // Interviewing: open Schedule Interview popup only — stage updates after schedule succeeds.
       if (isInterviewPipelineStage(nextStageName)) {
         if (onScheduleInterview) {
           onScheduleInterview(candidate.id, jobId, {
-            stageId,
+            stageId: resolvedStageId,
             stageName: nextStageName,
           });
         } else {
@@ -1968,7 +2064,7 @@ export function JobDetailsDrawer({
       if (isOfferPipelineStage(nextStageName)) {
         if (onCreatePlacement) {
           onCreatePlacement(candidate.id, jobId, {
-            stageId,
+            stageId: resolvedStageId,
             stageName: nextStageName,
           });
         } else {
@@ -1981,7 +2077,7 @@ export function JobDetailsDrawer({
         setInlineStageUpdatingCandidateId(candidate.id);
         await apiMoveCandidateStage(jobId, {
           candidateId: candidate.id,
-          stageId,
+          stageId: resolvedStageId,
         });
 
         setDisplayJobCandidates((prev) =>
@@ -2309,6 +2405,7 @@ export function JobDetailsDrawer({
   const [jobInterviews, setJobInterviews] = useState<BackendInterviewListItem[]>([]);
   const [selectedJobInterview, setSelectedJobInterview] = useState<BackendInterviewListItem | null>(null);
   const [jobInterviewDetailOpen, setJobInterviewDetailOpen] = useState(false);
+  const [selectedInterviewRound, setSelectedInterviewRound] = useState<number | 'all'>(1);
   const [jobPlacements, setJobPlacements] = useState<Placement[]>([]);
   const [loadingJobInterviews, setLoadingJobInterviews] = useState(false);
   const [loadingJobPlacements, setLoadingJobPlacements] = useState(false);
@@ -2623,6 +2720,10 @@ export function JobDetailsDrawer({
     setSupportingRecruiterNames('—');
     setSelectedJobInterview(null);
     setJobInterviewDetailOpen(false);
+    setSelectedInterviewRound(1);
+    setScheduleCandidatePickerOpen(false);
+    setSchedulePickerSelectedIds([]);
+    setSchedulePickerSearch('');
   }, [job?.id]);
 
   useEffect(() => {
@@ -2680,6 +2781,11 @@ export function JobDetailsDrawer({
         load.finish();
       });
 
+    // Prefetch assigned candidates so Schedule Interview picker is ready.
+    if (!displayJobCandidates.length) {
+      void refreshAppliedJobCandidates({ runPipeline: false, refresh: false });
+    }
+
     return () => {
       load.abort();
     };
@@ -2695,6 +2801,80 @@ export function JobDetailsDrawer({
         /* keep current rows */
       });
   }, [job?.id]);
+
+  const jobInterviewRoundById = useMemo(() => {
+    const jobId = String(job?.id || '').trim();
+    if (!jobId) return {} as Record<string, number>;
+    const rows = jobInterviews
+      .map((item) => {
+        const candidateId = String(item.candidate?.id || '').trim();
+        const interviewJobId = String(item.job?.id || jobId).trim();
+        if (!candidateId || !interviewJobId) return null;
+        return {
+          id: item.id,
+          candidate: { id: candidateId },
+          job: { id: interviewJobId },
+          scheduledAt: item.scheduledAt,
+          status: item.status,
+        };
+      })
+      .filter((row): row is NonNullable<typeof row> => Boolean(row));
+    return buildInterviewRoundNumberById(rows);
+  }, [job?.id, jobInterviews]);
+
+  const visibleJobInterviews = useMemo(
+    () =>
+      jobInterviews.filter((item) => formatInterviewListStatus(item.status) !== 'Cancelled'),
+    [jobInterviews],
+  );
+
+  const jobInterviewRoundNumbers = useMemo(() => {
+    const rounds = new Set<number>();
+    for (const item of visibleJobInterviews) {
+      rounds.add(jobInterviewRoundById[item.id] || 1);
+    }
+    return [...rounds].sort((a, b) => a - b);
+  }, [jobInterviewRoundById, visibleJobInterviews]);
+
+  const jobInterviewCountsByRound = useMemo(() => {
+    const byRound = new Map<number, Set<string>>();
+    for (const item of visibleJobInterviews) {
+      const round = jobInterviewRoundById[item.id] || 1;
+      const set = byRound.get(round) || new Set<string>();
+      const candidateId = String(item.candidate?.id || '').trim();
+      if (candidateId) set.add(candidateId);
+      byRound.set(round, set);
+    }
+    const out: Record<number, number> = {};
+    for (const [round, candidates] of byRound) {
+      out[round] = candidates.size;
+    }
+    return out;
+  }, [jobInterviewRoundById, visibleJobInterviews]);
+
+  const jobInterviewAllCandidateCount = useMemo(() => {
+    const ids = new Set<string>();
+    for (const item of visibleJobInterviews) {
+      const candidateId = String(item.candidate?.id || '').trim();
+      if (candidateId) ids.add(candidateId);
+    }
+    return ids.size;
+  }, [visibleJobInterviews]);
+
+  const filteredJobInterviews = useMemo(() => {
+    if (selectedInterviewRound === 'all') return visibleJobInterviews;
+    return visibleJobInterviews.filter(
+      (item) => (jobInterviewRoundById[item.id] || 1) === selectedInterviewRound,
+    );
+  }, [jobInterviewRoundById, selectedInterviewRound, visibleJobInterviews]);
+
+  useEffect(() => {
+    if (selectedInterviewRound === 'all') return;
+    if (jobInterviewRoundNumbers.length === 0) return;
+    if (!jobInterviewRoundNumbers.includes(selectedInterviewRound)) {
+      setSelectedInterviewRound(jobInterviewRoundNumbers[0] ?? 1);
+    }
+  }, [jobInterviewRoundNumbers, selectedInterviewRound]);
 
   useEffect(() => {
     if (!isOpen || !job?.id || activeTab !== 'placements') {
@@ -3837,8 +4017,31 @@ export function JobDetailsDrawer({
                   subtitle="Scheduled and completed interviews for this job"
                   icon={Calendar}
                   accent="amber"
+                  headerRight={
+                    onScheduleInterview ? (
+                      <button
+                        type="button"
+                        onClick={() => void openScheduleInterviewCandidatePicker()}
+                        className="inline-flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-violet-700"
+                        title="Schedule interview for candidates assigned to this job"
+                      >
+                        <Calendar size={14} strokeWidth={2.25} />
+                        Schedule Interview
+                      </button>
+                    ) : null
+                  }
                 >
-                  <div className={DRAWER_TABLE_SHELL}>
+                  <div className="space-y-3">
+                    {!loadingJobInterviews && jobInterviews.length > 0 ? (
+                      <InterviewRoundTabs
+                        rounds={jobInterviewRoundNumbers}
+                        active={selectedInterviewRound}
+                        onChange={setSelectedInterviewRound}
+                        countsByRound={jobInterviewCountsByRound}
+                        allCount={jobInterviewAllCandidateCount}
+                      />
+                    ) : null}
+                    <div className={DRAWER_TABLE_SHELL}>
                     <div className={DRAWER_TABLE_SCROLL}>
                       <table className="w-full min-w-[780px] border-collapse text-left">
                         <thead>
@@ -3870,16 +4073,40 @@ export function JobDetailsDrawer({
                                 colSpan={6}
                                 className={`${DRAWER_TABLE_TD} py-12 text-center text-sm text-slate-500`}
                               >
-                                No interviews scheduled for this job yet.
+                                <p>No interviews scheduled for this job yet.</p>
+                                {onScheduleInterview ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => void openScheduleInterviewCandidatePicker()}
+                                    className="mt-4 inline-flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-700"
+                                  >
+                                    <Calendar size={16} />
+                                    Schedule Interview
+                                  </button>
+                                ) : null}
+                              </td>
+                            </tr>
+                          ) : filteredJobInterviews.length === 0 ? (
+                            <tr>
+                              <td
+                                colSpan={6}
+                                className={`${DRAWER_TABLE_TD} py-12 text-center text-sm text-slate-500`}
+                              >
+                                <p className="font-medium text-slate-700">No candidates in this round</p>
+                                <p className="mt-1 text-xs text-slate-500">
+                                  Schedule an interview for this job, or switch to another round tab.
+                                </p>
                               </td>
                             </tr>
                           ) : (
-                            jobInterviews.map((item) => {
+                            filteredJobInterviews.map((item) => {
                               const statusLabel = formatInterviewListStatus(item.status);
                               const candidateEmail = String(item.candidate?.email || '').trim();
                               const timezoneLabel = item.timezone
                                 ? formatTimezoneDisplay(resolveIanaFromTimezoneValue(item.timezone))
                                 : '';
+                              const roundNumber = jobInterviewRoundById[item.id] || 1;
+                              const roundType = String(item.round || '').trim() || 'Screening';
                               return (
                                 <tr
                                   key={item.id}
@@ -3920,8 +4147,10 @@ export function JobDetailsDrawer({
                                     </p>
                                   </td>
                                   <td className={DRAWER_TABLE_TD}>
-                                    <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
-                                      {item.round || 'Screening'}
+                                    <span className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">
+                                      R{roundNumber}
+                                      <span className="font-medium text-indigo-500/80">·</span>
+                                      <span className="font-medium text-slate-700">{roundType}</span>
                                     </span>
                                   </td>
                                   <td className={`${DRAWER_TABLE_TD} text-sm text-slate-700`}>
@@ -3946,6 +4175,7 @@ export function JobDetailsDrawer({
                         </tbody>
                       </table>
                     </div>
+                  </div>
                   </div>
                 </DrawerSectionCard>
               )}
@@ -4461,6 +4691,136 @@ export function JobDetailsDrawer({
           : undefined
       }
     />
+
+    {scheduleCandidatePickerOpen ? (
+      <DetailsModalShell
+        size="md"
+        zIndexClass="z-[120]"
+        panelClassName="!h-auto max-h-[min(85vh,720px)]"
+        onBackdropClick={() => setScheduleCandidatePickerOpen(false)}
+        dialogTitleId="schedule-interview-candidate-picker-title"
+      >
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div className="flex items-start justify-between gap-3 border-b border-violet-100 px-5 py-4">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-violet-600">
+                Schedule Interview
+              </p>
+              <h2
+                id="schedule-interview-candidate-picker-title"
+                className="mt-1 text-lg font-bold text-slate-900"
+              >
+                Choose candidate
+              </h2>
+              <p className="mt-1 text-xs text-slate-500">
+                Select who is assigned to {job?.title || 'this job'}, then continue to schedule.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setScheduleCandidatePickerOpen(false)}
+              className="rounded-xl p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+              aria-label="Close"
+            >
+              <X size={18} />
+            </button>
+          </div>
+          <div className="border-b border-slate-100 px-5 py-3">
+            <div className="relative">
+              <Search
+                size={15}
+                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+              />
+              <input
+                type="text"
+                value={schedulePickerSearch}
+                onChange={(event) => setSchedulePickerSearch(event.target.value)}
+                placeholder="Search candidate name…"
+                className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-3 text-sm text-slate-800 placeholder:text-slate-400 outline-none focus:border-violet-300 focus:bg-white focus:ring-2 focus:ring-violet-500/20"
+              />
+            </div>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
+            {schedulePickerCandidates.length === 0 ? (
+              <p className="px-2 py-8 text-center text-sm text-slate-500">
+                No candidates assigned to this job match this search.
+              </p>
+            ) : (
+              <ul className="space-y-1">
+                {schedulePickerCandidates.map((row) => {
+                  const checked = schedulePickerSelectedIds.includes(row.id);
+                  return (
+                    <li key={row.id}>
+                      <label
+                        className={`flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 transition ${
+                          checked ? 'bg-violet-50 ring-1 ring-violet-200' : 'hover:bg-slate-50'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() =>
+                            setSchedulePickerSelectedIds((prev) =>
+                              prev.includes(row.id)
+                                ? prev.filter((id) => id !== row.id)
+                                : [...prev, row.id],
+                            )
+                          }
+                          className="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+                        />
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-violet-100 text-xs font-bold text-violet-700">
+                          {(row.candidateName || 'C')
+                            .split(/\s+/)
+                            .map((part) => part[0])
+                            .filter(Boolean)
+                            .slice(0, 2)
+                            .join('')
+                            .toUpperCase()}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-semibold text-slate-900">
+                            {row.candidateName || 'Unnamed candidate'}
+                          </span>
+                          <span className="mt-0.5 block truncate text-xs text-slate-500">
+                            {[row.currentStage, row.email].filter(Boolean).join(' · ') ||
+                              'Job candidate'}
+                          </span>
+                        </span>
+                      </label>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+          <div className="flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/80 px-5 py-3">
+            <p className="text-xs text-slate-500">
+              {schedulePickerSelectedIds.length
+                ? `${schedulePickerSelectedIds.length} selected`
+                : 'Select one or more candidates'}
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setScheduleCandidatePickerOpen(false)}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmScheduleInterviewCandidatePicker}
+                disabled={!schedulePickerSelectedIds.length}
+                className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Calendar size={16} />
+                Continue
+              </button>
+            </div>
+          </div>
+        </div>
+      </DetailsModalShell>
+    ) : null}
 
     {submitCandidatePickerOpen ? (
       <DetailsModalShell

@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import { TokenCoinIcon } from './TokenCoinIcon';
 import { apiGetTenantCoins, type AiCoinPack, type HqAiFeature, TENANT_COINS_REFRESH_EVENT, AI_FEATURE_COSTS_UPDATED_EVENT, AI_FEATURE_COSTS_UPDATED_STORAGE_KEY } from '@/lib/api';
 import { ApiRequestError } from '@/lib/apiNetworkErrors';
+import { isEmployerPublicAuthPath } from '@/lib/sessionAuth';
 import {
   AiCoinPurchaseModal,
   openAiCoinPurchaseModal,
@@ -36,6 +37,7 @@ export function isInsufficientCoinsError(error: unknown): boolean {
 }
 
 export function TenantCoinsProvider({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
   const [coins, setCoins] = useState(0);
   const [planName, setPlanName] = useState<string | null>(null);
   const [features, setFeatures] = useState<HqAiFeature[]>([]);
@@ -43,7 +45,18 @@ export function TenantCoinsProvider({ children }: { children: React.ReactNode })
   const [loading, setLoading] = useState(true);
   const refreshTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const isPublicSurface = isEmployerPublicAuthPath(pathname);
+
   const refresh = useCallback(async () => {
+    if (typeof window === 'undefined') return;
+    if (isEmployerPublicAuthPath(window.location.pathname)) {
+      setLoading(false);
+      return;
+    }
+    if (!window.localStorage.getItem('accessToken')) {
+      setLoading(false);
+      return;
+    }
     try {
       const res = await apiGetTenantCoins();
       setCoins(res.coins);
@@ -84,6 +97,10 @@ export function TenantCoinsProvider({ children }: { children: React.ReactNode })
   }, [coins]);
 
   useEffect(() => {
+    if (isPublicSurface) {
+      setLoading(false);
+      return;
+    }
     void refresh();
     const onFocus = () => void refresh();
     const onVisibility = () => {
@@ -129,7 +146,7 @@ export function TenantCoinsProvider({ children }: { children: React.ReactNode })
       window.clearInterval(poll);
       if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
     };
-  }, [refresh, scheduleRefresh, applyCoins]);
+  }, [refresh, scheduleRefresh, applyCoins, isPublicSurface]);
 
   const value = useMemo<TenantCoinsContextValue>(
     () => ({

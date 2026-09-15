@@ -19,6 +19,7 @@ import type { Placement, PlacementStatus } from '../../types/placement';
 import {
   formatPlacementDate,
   formatCurrency,
+  formatPlacementPersonName,
   getEmploymentTypeBadgeStyle,
   getPlacementStatusLabel,
   getStatusBadgeStyle,
@@ -440,9 +441,9 @@ export function PlacementsTable({
                         <ImageWithFallback
                           src={placement.candidate.avatar || ''}
                           fallbackInitials={initialsFromDisplayName(
-                            `${placement.candidate.firstName || ''} ${placement.candidate.lastName || ''}`.trim(),
+                            formatPlacementPersonName(placement.candidate),
                           )}
-                          alt={`${placement.candidate.firstName} ${placement.candidate.lastName}`}
+                          alt={formatPlacementPersonName(placement.candidate)}
                           className="h-10 w-10 rounded-full object-cover ring-2 ring-white shadow-sm shadow-indigo-500/10"
                         />
                         <div className="min-w-0">
@@ -451,7 +452,7 @@ export function PlacementsTable({
                             onClick={() => onView(placement)}
                             className="text-left text-sm font-semibold text-slate-900 transition-colors hover:text-indigo-700"
                           >
-                            {`${placement.candidate.firstName} ${placement.candidate.lastName}`.trim()}
+                            {formatPlacementPersonName(placement.candidate)}
                           </button>
                           {placement.paymentStatus === 'PAID' || placement.paymentStatus === 'OVERDUE' ? (
                             <div className="mt-1">

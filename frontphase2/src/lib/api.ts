@@ -350,6 +350,9 @@ function isPublicUnauthenticatedPath(pathname?: string) {
     path.startsWith('/lead-form/') ||
     path.startsWith('/apply/') ||
     path.startsWith('/client-review/') ||
+    path === '/interview-rsvp' ||
+    path.startsWith('/interview-rsvp/') ||
+    path.startsWith('/session-transfer') ||
     path === '/hq/login' ||
     path.startsWith('/hq/login/')
   );
@@ -4949,6 +4952,14 @@ export async function apiBulkCvResolveFailedResumes(ids: string[]) {
   });
 }
 
+export type RepairBadNamesChange = {
+  id: string;
+  status: string;
+  from: string;
+  to: string | null;
+  source?: string | null;
+};
+
 export type RepairBadNamesResult = {
   scanned: number;
   badNames: number;
@@ -4958,13 +4969,9 @@ export type RepairBadNamesResult = {
   skippedUnparseable: number;
   unchanged: number;
   dryRun: boolean;
-  samples: Array<{
-    id: string;
-    status: string;
-    from: string;
-    to: string | null;
-    source?: string | null;
-  }>;
+  /** Full preview / applied rename list. */
+  changes?: RepairBadNamesChange[];
+  samples: RepairBadNamesChange[];
 };
 
 /** Re-read stored CVs and auto-fix garbage candidate names (filenames / titles / locations). */
@@ -4986,19 +4993,22 @@ export async function apiRepairBadCandidateNames(options: {
     },
     signal: options.signal,
   });
-  return (
-    res.data || {
-      scanned: 0,
-      badNames: 0,
-      updated: 0,
-      wouldUpdate: 0,
-      skippedNoResume: 0,
-      skippedUnparseable: 0,
-      unchanged: 0,
-      dryRun: true,
-      samples: [],
-    }
-  );
+  const data = res.data || {
+    scanned: 0,
+    badNames: 0,
+    updated: 0,
+    wouldUpdate: 0,
+    skippedNoResume: 0,
+    skippedUnparseable: 0,
+    unchanged: 0,
+    dryRun: true,
+    changes: [],
+    samples: [],
+  };
+  if (!Array.isArray(data.changes) || !data.changes.length) {
+    data.changes = Array.isArray(data.samples) ? data.samples : [];
+  }
+  return data;
 }
 
 // ────────────────────────────────────────────────────────────

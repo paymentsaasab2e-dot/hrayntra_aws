@@ -2949,15 +2949,33 @@ export const interviewService = {
         console.warn('[interview.submitPublicClientTag] review alert failed:', alertErr?.message || alertErr);
       }
 
-      // Client-chosen stage (resolvedStage / displayTag) is stored only as the
-      // Client tab tag via persistCandidateClientReviewActivity above.
-      // Recruiters own pipeline stage changes on Candidates / Pipeline tables.
-
-      // For final-offer submissions we also push the candidate to the OFFER
-      // pipeline bucket so the CRM + portal stay in sync without a second
-      // manual click. We swallow errors so a flaky portal call never blocks
-      // the client-side response.
-      if (submissionType === 'OFFER_CONFIRMATION' && file && !resolvedStage) {
+      // Sync client-chosen stage (including custom labels) into CRM pipeline +
+      // Candidate.stage so Job Details → Candidates shows the same stage.
+      if (resolvedStage) {
+        try {
+          await updateCandidateStage({
+            candidateId,
+            jobId,
+            stage: resolvedStage.stage,
+            stageLabel: resolvedStage.label,
+            performedById: uploaderId,
+            skipStageActivity: true,
+            metadata: {
+              source: 'client-review',
+              tag: displayTag || null,
+              offerLetterUrl,
+              matchId: match?.id || null,
+              interviewId: interview?.id || null,
+            },
+          });
+        } catch (stageError) {
+          console.warn(
+            '[interview.submitPublicClientTag] candidate stage sync failed:',
+            stageError?.message || stageError
+          );
+        }
+      } else if (submissionType === 'OFFER_CONFIRMATION' && file) {
+        // Offer letter without an explicit stage still advances to OFFER.
         try {
           await updateCandidateStage({
             candidateId,
@@ -2979,11 +2997,11 @@ export const interviewService = {
             stageError?.message || stageError
           );
         }
-        // Mirror the offer letter onto the candidate's portal Application so
-        // they get a "View / Download offer letter" button on the
-        // job-portal `/applications/[id]` page right after the client
-        // submits the signed PDF — even before the recruiter creates the
-        // Placement record on the CRM side.
+      }
+
+      // For final-offer submissions, mirror the offer letter onto the candidate's
+      // portal Application so they get a "View / Download offer letter" button.
+      if (submissionType === 'OFFER_CONFIRMATION' && file && offerLetterUrl) {
         try {
           await syncApplicationOfferLetter(candidateId, jobId, {
             fileUrl: offerLetterUrl,

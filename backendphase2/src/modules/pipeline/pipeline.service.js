@@ -98,10 +98,39 @@ export const pipelineService = {
       throw new Error('Job not found');
     }
 
-    const stage = await prisma.pipelineStage.findFirst({
+    let stage = await prisma.pipelineStage.findFirst({
       where: { id: stageId, jobId },
       select: { id: true, name: true, order: true, color: true },
     });
+
+    // Frontend sometimes still sends local/default ids — resolve by name when possible.
+    if (!stage) {
+      const raw = String(stageId || '').trim();
+      const aliasName =
+        raw === 'default-apply-stage'
+          ? 'Apply'
+          : raw === 'default-interview-stage'
+            ? 'Interview'
+            : raw === 'default-reject-stage'
+              ? 'Reject'
+              : raw === 'default-placed-stage'
+                ? 'Placed'
+                : '';
+      const candidates = await prisma.pipelineStage.findMany({
+        where: { jobId },
+        select: { id: true, name: true, order: true, color: true, systemRole: true },
+        orderBy: { order: 'asc' },
+      });
+      const wanted = String(aliasName || raw).trim().toLowerCase();
+      stage =
+        candidates.find((row) => String(row.name || '').trim().toLowerCase() === wanted) ||
+        candidates.find(
+          (row) =>
+            aliasName &&
+            mapStageNameToPipelineBucket(row.name) === mapStageNameToPipelineBucket(aliasName),
+        ) ||
+        null;
+    }
 
     if (!stage) {
       throw new Error('Pipeline stage not found');

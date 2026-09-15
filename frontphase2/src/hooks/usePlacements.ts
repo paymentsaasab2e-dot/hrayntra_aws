@@ -127,7 +127,11 @@ export function usePlacements(filters: PlacementFilters) {
       setCandidateOptions(
         candidates.map((candidate: any) => ({
           id: candidate.id,
-          name: `${candidate.firstName} ${candidate.lastName}`.trim(),
+          name: [candidate.firstName, candidate.lastName]
+            .map((part: unknown) => String(part ?? '').trim())
+            .filter((part: string) => part && part.toLowerCase() !== 'null' && part.toLowerCase() !== 'undefined')
+            .join(' ')
+            .trim() || candidate.email || 'Candidate',
           email: candidate.email,
         }))
       );

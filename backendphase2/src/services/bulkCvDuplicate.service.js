@@ -4,8 +4,14 @@ import { escapePrismaRegex } from '../utils/escapePrismaRegex.js';
 /** Active candidates only — matches Candidates list (`isDeleted: { not: true }`). */
 export const activeCandidateClause = { isDeleted: { not: true } };
 
-/** @deprecated Use activeCandidateClause */
-export const notDeletedClause = activeCandidateClause;
+/**
+ * Soft-delete filter. Callable (`notDeletedClause()`) or spreadable (`...notDeletedClause`).
+ * @deprecated Prefer `activeCandidateClause`.
+ */
+export function notDeletedClause() {
+  return activeCandidateClause;
+}
+Object.assign(notDeletedClause, activeCandidateClause);
 
 function isPhase1CandidateSource(source) {
   return String(source || '').trim().toLowerCase() === 'phase1';

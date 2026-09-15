@@ -1,18 +1,23 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Eye, FileText, Loader2 } from 'lucide-react';
+import { Eye, FileText, Loader2, MessageSquareText } from 'lucide-react';
 import {
   CLIENT_PIPELINE_STAGE_CHOICES,
   type ClientReviewBatchRow,
 } from '../../lib/clientReviewTypes';
 import { isClientReviewFileHref } from '../../lib/clientReviewAssets';
-import { normalizeClientTrackerOptions } from '../../lib/clientTrackerOptions';
+import {
+  clientTrackerAllowsResponse,
+  normalizeClientTrackerOptions,
+} from '../../lib/clientTrackerOptions';
 import { isSubmitToClientReviewFieldVisible } from '../../lib/submitToClientFieldVisibility';
 
 type Props = {
   rows: ClientReviewBatchRow[];
   onView: (row: ClientReviewBatchRow) => void;
+  /** Opens feedback/comment dialog for this candidate (shared-link feedback). */
+  onFeedback?: (row: ClientReviewBatchRow) => void;
   /** matchId → stage label the client marked (overrides row.clientMarkedStage). */
   stageByMatchId?: Record<string, string>;
   token?: string;
@@ -180,6 +185,7 @@ function stageOptionsFor(row: ClientReviewBatchRow): Array<{ id: string; name: s
 export function ClientReviewBatchTable({
   rows,
   onView,
+  onFeedback,
   stageByMatchId,
   token,
   apiBase,
@@ -255,12 +261,17 @@ export function ClientReviewBatchTable({
       <div className="border-b border-slate-100 px-4 py-4 sm:px-6 lg:px-8">
         <h2 className="text-base font-semibold tracking-tight text-slate-900">Submitted candidates</h2>
         <p className="mt-1 text-sm text-slate-500">
-          Select a candidate to review the profile
+          Open the CV, view the profile
+          {rows.some((row) =>
+            clientTrackerAllowsResponse(normalizeClientTrackerOptions(row.detail?.trackerOptions)),
+          )
+            ? ', or leave feedback'
+            : ''}
           {rows.some((row) => row.detail?.trackerOptions?.addRemarks !== false)
             ? ' and submit your decision'
             : ''}
           {showStage ? ', pick a stage' : ''}
-          , or open the CV directly.
+          .
         </p>
       </div>
       <div className="min-h-0 flex-1 overflow-auto">
@@ -447,6 +458,19 @@ export function ClientReviewBatchTable({
                         <Eye size={14} />
                         {viewEnabled ? 'View' : 'Open'}
                       </button>
+                      {clientTrackerAllowsResponse(tracker) && onFeedback ? (
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onFeedback(row);
+                          }}
+                          className="inline-flex items-center gap-1.5 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100"
+                        >
+                          <MessageSquareText size={14} />
+                          Feedback
+                        </button>
+                      ) : null}
                     </div>
                   </td>
                 </tr>

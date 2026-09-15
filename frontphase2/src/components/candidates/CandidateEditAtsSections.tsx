@@ -693,6 +693,7 @@ function EditSection({
   showClientVisibilityToggle = false,
   clientVisible = true,
   onToggleClientVisibility,
+  hideWhenEmpty = false,
 }: {
   sectionId?: ClientPresentationSectionId;
   title: string;
@@ -701,7 +702,12 @@ function EditSection({
   showClientVisibilityToggle?: boolean;
   clientVisible?: boolean;
   onToggleClientVisibility?: (sectionId: ClientPresentationSectionId) => void;
+  /** Submit to Client: omit section entirely when Settings hid every field. */
+  hideWhenEmpty?: boolean;
 }) {
+  const childList = React.Children.toArray(children).filter(Boolean);
+  if (hideWhenEmpty && childList.length === 0) return null;
+
   const hidden = showClientVisibilityToggle && !clientVisible;
   return (
     <section
@@ -738,7 +744,7 @@ function EditSection({
         ) : null}
       </div>
       {clientVisible ? (
-        <div className="grid grid-cols-1 gap-4 p-4 md:grid-cols-2">{children}</div>
+        <div className="grid grid-cols-1 gap-4 p-4 md:grid-cols-2">{childList}</div>
       ) : (
         <p className="px-4 py-3 text-xs text-slate-500">
           This section will not appear on the client review link. Click Visible to include it.
@@ -811,6 +817,7 @@ export function CandidateEditAtsSections({
         showClientVisibilityToggle={showClientSectionVisibility}
         clientVisible={sectionVisible('personal')}
         onToggleClientVisibility={onToggleClientSectionVisibility}
+        hideWhenEmpty={isClientSubmit}
       >
         {showField('firstName') ? (
           <EditField label="First Name" value={form.firstName} onChange={(v) => onChange('firstName', v)} />
@@ -891,6 +898,7 @@ export function CandidateEditAtsSections({
         showClientVisibilityToggle={showClientSectionVisibility}
         clientVisible={sectionVisible('education')}
         onToggleClientVisibility={onToggleClientSectionVisibility}
+        hideWhenEmpty={isClientSubmit}
       >
         {showField('cvEducationEntries') ? (
           <div className="md:col-span-2">
@@ -936,6 +944,7 @@ export function CandidateEditAtsSections({
         showClientVisibilityToggle={showClientSectionVisibility}
         clientVisible={sectionVisible('professional')}
         onToggleClientVisibility={onToggleClientSectionVisibility}
+        hideWhenEmpty={isClientSubmit}
       >
         {showField('remarks') ? (
           <div className="md:col-span-2">
@@ -1044,6 +1053,7 @@ export function CandidateEditAtsSections({
         showClientVisibilityToggle={showClientSectionVisibility}
         clientVisible={sectionVisible('work')}
         onToggleClientVisibility={onToggleClientSectionVisibility}
+        hideWhenEmpty={isClientSubmit}
       >
         {showField('cvWorkExperienceEntries') ? (
           <div className="md:col-span-2">
@@ -1065,6 +1075,7 @@ export function CandidateEditAtsSections({
         showClientVisibilityToggle={showClientSectionVisibility}
         clientVisible={sectionVisible('social')}
         onToggleClientVisibility={onToggleClientSectionVisibility}
+        hideWhenEmpty={isClientSubmit}
       >
         {showField('linkedIn') ? (
           <EditField label="LinkedIn" value={form.linkedIn} onChange={(v) => onChange('linkedIn', v)} />
@@ -1108,6 +1119,7 @@ export function CandidateEditAtsSections({
         showClientVisibilityToggle={showClientSectionVisibility}
         clientVisible={sectionVisible('summary')}
         onToggleClientVisibility={onToggleClientSectionVisibility}
+        hideWhenEmpty={isClientSubmit}
       >
         {showField('cvSummary') ? (
           <div className="md:col-span-2">
