@@ -250,6 +250,7 @@ export const SUBMIT_TO_CLIENT_REVIEW_LABEL_FIELDS: Record<string, SubmitToClient
   'last name': ['lastName'],
   'middle name': ['middleName'],
   'full name': ['firstName', 'middleName', 'lastName'],
+  'name of candidate': ['firstName', 'middleName', 'lastName'],
   'e-mail': ['email'],
   email: ['email'],
   'mobile no': ['phone'],
@@ -320,6 +321,7 @@ export const SUBMIT_TO_CLIENT_REVIEW_LABEL_FIELDS: Record<string, SubmitToClient
   'projects (extra)': ['projects'],
   projects: ['projects'],
   'hackathons (extra)': ['hackathons'],
+  hackathons: ['hackathons'],
   'internal notes': ['notes'],
   'file name': ['p1Resume'],
   'ats readiness': ['p1Resume'],
@@ -370,21 +372,35 @@ const PHASE1_SECTION_FIELDS: Record<Phase1ClientSectionId, SubmitToClientFieldId
   vaccination: ['p1Vaccination'],
 };
 
+function readSubmitToClientVisibilitySource(raw: unknown): Record<string, unknown> | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const nested = (raw as { fieldVisibility?: unknown }).fieldVisibility;
+  if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+    return nested as Record<string, unknown>;
+  }
+  return raw as Record<string, unknown>;
+}
+
 export function parseSubmitToClientFieldVisibility(raw: unknown): SubmitToClientFieldVisibility {
   const merged: SubmitToClientFieldVisibility = { ...DEFAULT_SUBMIT_TO_CLIENT_FIELD_VISIBILITY };
-  const source =
-    raw && typeof raw === 'object' && !Array.isArray(raw)
-      ? ((raw as { fieldVisibility?: unknown }).fieldVisibility &&
-        typeof (raw as { fieldVisibility?: unknown }).fieldVisibility === 'object'
-          ? ((raw as { fieldVisibility: Record<string, unknown> }).fieldVisibility)
-          : (raw as Record<string, unknown>))
-      : null;
+  const source = readSubmitToClientVisibilitySource(raw);
   if (!source) return merged;
   for (const key of SUBMIT_TO_CLIENT_FIELDS) {
     if (source[key] === false) merged[key] = false;
     else if (source[key] === true) merged[key] = true;
   }
   return merged;
+}
+
+/** Parsed map when the payload actually has visibility flags; otherwise null. */
+export function coerceSubmitToClientFieldVisibility(
+  raw: unknown,
+): SubmitToClientFieldVisibility | null {
+  const source = readSubmitToClientVisibilitySource(raw);
+  if (!source) return null;
+  const hasFlag = SUBMIT_TO_CLIENT_FIELDS.some((key) => typeof source[key] === 'boolean');
+  if (!hasFlag) return null;
+  return parseSubmitToClientFieldVisibility(raw);
 }
 
 export function isSubmitToClientFieldVisible(

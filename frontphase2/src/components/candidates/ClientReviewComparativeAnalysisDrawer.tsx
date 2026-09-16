@@ -7,9 +7,11 @@ import { Columns2, FileSpreadsheet, FileText, Loader2, Printer, X } from 'lucide
 import type { ClientReviewBatchRow, ClientReviewData } from '../../lib/clientReviewTypes';
 import type { ClientReviewSection } from '../../lib/clientPresentationSections';
 import {
+  coerceSubmitToClientFieldVisibility,
   isSubmitToClientReviewFieldVisible,
   SUBMIT_TO_CLIENT_FIELD_GROUPS,
   type SubmitToClientFieldId,
+  type SubmitToClientFieldVisibility,
 } from '../../lib/submitToClientFieldVisibility';
 import { normalizeClientTrackerOptions } from '../../lib/clientTrackerOptions';
 
@@ -37,6 +39,8 @@ type Props = {
   rows: ClientReviewBatchRow[];
   jobTitle?: string;
   clientName?: string;
+  /** Page-level Submit-to-Client visibility (same flags as the client review link). */
+  visibleFields?: Record<string, boolean> | null;
   onClose: () => void;
 };
 
@@ -113,14 +117,13 @@ function isEmptyCompareValue(value: unknown): boolean {
   return !text;
 }
 
-/** Permanently hide sensitive / non-compare rows (not empty-value filtering). */
+/** Permanently hide file/storage rows — never compare raw resume URLs. */
 function isPermanentlyHiddenCompareLabel(label: string, value = ''): boolean {
   const key = String(label || '')
     .trim()
     .toLowerCase();
   if (!key) return true;
   if (key === 'resume url' || key === 'file url') return true;
-  if (key === 'candidate image' || key === 'avatar') return true;
   if (key.includes('url') && /amazonaws\.com|\/uploads\//i.test(value)) return true;
   return false;
 }
@@ -136,19 +139,20 @@ function visibleFieldsOf(row: ClientReviewBatchRow): Record<string, boolean> | n
 
 function resolveBatchVisibility(
   selectedRows: ClientReviewBatchRow[],
-): Record<string, boolean> | null {
+  fallback?: Record<string, boolean> | null,
+): SubmitToClientFieldVisibility | null {
   for (const row of selectedRows) {
-    const fields = visibleFieldsOf(row);
-    if (fields) return fields;
+    const parsed = coerceSubmitToClientFieldVisibility(visibleFieldsOf(row));
+    if (parsed) return parsed;
   }
-  return null;
+  return coerceSubmitToClientFieldVisibility(fallback);
 }
 
 function isFieldIdVisibleForClient(
   fieldId: SubmitToClientFieldId,
-  visibility: Record<string, boolean> | null,
+  visibility: SubmitToClientFieldVisibility | null,
 ): boolean {
-  if (!visibility) return true;
+  if (!visibility) return false;
   return visibility[fieldId] !== false;
 }
 
@@ -488,27 +492,37 @@ function aliasCompareLabelKey(label: string): string {
   return key;
 }
 
-function buildCompareParams(selectedRows: ClientReviewBatchRow[]): CompareParam[] {
+function buildCompareParams(
+  selectedRows: ClientReviewBatchRow[],
+  fallbackVisibleFields?: Record<string, boolean> | null,
+): CompareParam[] {
   const params: CompareParam[] = [];
   const seenFieldIds = new Set<string>();
-  const visibility = resolveBatchVisibility(selectedRows);
+  const visibility = resolveBatchVisibility(selectedRows, fallbackVisibleFields);
   const showStage = selectedRows.some((row) =>
     Boolean(normalizeClientTrackerOptions(row.detail?.trackerOptions, true).changeStage),
   );
 
-  const nameValues: Record<string, string> = {};
-  for (const row of selectedRows) {
-    nameValues[row.matchId] = cell(row.candidateName || row.detail?.candidate?.name);
-  }
+  const nameVisible =
+    isFieldIdVisibleForClient('firstName', visibility) ||
+    isFieldIdVisibleForClient('middleName', visibility) ||
+    isFieldIdVisibleForClient('lastName', visibility);
+
   params.push({ kind: 'section', id: 'candidate-details', label: 'Candidate Details' });
-  params.push({
-    kind: 'field',
-    id: 'name',
-    label: 'Name of Candidate',
-    emphasize: true,
-    valuesByMatchId: nameValues,
-  });
-  seenFieldIds.add('name');
+  if (nameVisible) {
+    const nameValues: Record<string, string> = {};
+    for (const row of selectedRows) {
+      nameValues[row.matchId] = cell(row.candidateName || row.detail?.candidate?.name);
+    }
+    params.push({
+      kind: 'field',
+      id: 'name',
+      label: 'Name of Candidate',
+      emphasize: true,
+      valuesByMatchId: nameValues,
+    });
+    seenFieldIds.add('name');
+  }
 
   if (showStage) {
     const stageValues: Record<string, string> = {};
@@ -524,7 +538,39 @@ function buildCompareParams(selectedRows: ClientReviewBatchRow[]): CompareParam[
     seenFieldIds.add('stage');
   }
 
-  // Mirror Settings → Submit to Client visibility: show every allowed field even when empty.
+  // No visibility map: only labels already present on the stripped presentation.
+  if (!visibility) {
+    const inferred = new Map<string, { label: string; sectionTitle: string }>();
+    for (const row of selectedRows) {
+      for (const section of sectionsOf(row)) {
+        const sectionTitle = String(section.title || section.id || '').trim();
+        for (const field of section.fields || []) {
+          const label = String(field.label || '').trim();
+          if (!label || isPermanentlyHiddenCompareLabel(label)) continue;
+          const key = aliasCompareLabelKey(label) || label.toLowerCase();
+          if (!inferred.has(key)) inferred.set(key, { label, sectionTitle });
+        }
+      }
+    }
+    let lastSection = 'candidate-details';
+    for (const [key, item] of inferred) {
+      if (seenFieldIds.has(key)) continue;
+      const sectionId = `section-${aliasCompareLabelKey(item.sectionTitle) || item.sectionTitle}`;
+      if (sectionId !== lastSection && item.sectionTitle) {
+        params.push({ kind: 'section', id: sectionId, label: item.sectionTitle });
+        lastSection = sectionId;
+      }
+      const valuesByMatchId: Record<string, string> = {};
+      for (const row of selectedRows) {
+        valuesByMatchId[row.matchId] = cell(resolveFieldValueRaw(row, item.label));
+      }
+      params.push({ kind: 'field', id: key, label: item.label, valuesByMatchId });
+      seenFieldIds.add(key);
+    }
+    return params;
+  }
+
+  // Mirror Settings → Submit to Client: every Visible-to-client field, even when empty.
   for (const group of SUBMIT_TO_CLIENT_FIELD_GROUPS) {
     const visibleFields = group.fields.filter(
       (field) =>
@@ -1002,6 +1048,7 @@ export function ClientReviewComparativeAnalysisDrawer({
   rows,
   jobTitle,
   clientName,
+  visibleFields = null,
   onClose,
 }: Props) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -1034,7 +1081,10 @@ export function ClientReviewComparativeAnalysisDrawer({
     [rows, selectedIds],
   );
 
-  const compareParams = useMemo(() => buildCompareParams(selectedRows), [selectedRows]);
+  const compareParams = useMemo(
+    () => buildCompareParams(selectedRows, visibleFields),
+    [selectedRows, visibleFields],
+  );
 
   const exportModel = useMemo(
     () => buildCompareExportModel(selectedRows, compareParams, { jobTitle, clientName }),

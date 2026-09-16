@@ -297,7 +297,12 @@ export function ClientReviewBatchTable({
               const skills = skillsLabel(row);
               const education = educationLabel(row);
               const company = companyLabel(row);
-              const email = String(candidateOf(row).email || '').trim();
+              const email = isSubmitToClientReviewFieldVisible(
+                'E-mail',
+                row.detail?.visibleFields,
+              )
+                ? String(candidateOf(row).email || '').trim()
+                : '';
               const experience = row.experience ?? row.detail?.candidate?.experience;
               const cvUrl = resumeUrlOf(row);
               const cvAvailable = canOpenCv(row);

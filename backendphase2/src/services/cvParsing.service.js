@@ -64,11 +64,11 @@ function resolveUploadMime(file) {
 const CV_PASS_DIVIDER = '--- CV_PASS_DIVIDER ---';
 
 const SECTION_HEADER_KEYWORDS =
-  /\b(education|experience|skills|summary|contact|profile|objective|employment|formation|parcours|projets|extracurricular|curricular|activities|volunteers?|certifications?|courses?|projects?|references?|languages?|awards?|honou?rs|hobbies|interests|achievements?|qualifications?|academic|strengths|competencies|expérience|experience|compétences|competences|langues|coordonnées|coordonnees|données\s+personnelles|donnees\s+personnelles|profil|études|etudes|diplômes|diplomes|educación|educacion|formación|formacion|experiencia|habilidades|competencias|datos\s+personales|información\s+personal|informacion\s+personal|perfil|resumen|idiomas|certificaciones|referencias|logros|ausbildung|berufserfahrung|werdegang|kenntnisse|fähigkeiten|fahigkeiten|sprachen|lebenslauf|persönliche\s+daten|personliche\s+daten|istruzione|esperienza|lavoro|competenze|lingue|formação|formacao|habilidades|conhecimentos|referências|referencias)\b/iu;
+  /\b(education|experiences?|expériences?|skills|summary|contact|profile|objective|employment|formation|parcours|projets|extracurricular|curricular|activities|volunteers?|certifications?|courses?|projects?|references?|languages?|awards?|honou?rs|hobbies|interests|achievements?|qualifications?|academic|strengths|competencies|expérience|experience|professionnelles?|professionnels?|compétences?|competences?|connexes?|langues|coordonnées|coordonnees|données\s+personnelles|donnees\s+personnelles|profil|études|etudes|diplômes|diplomes|educación|educacion|formación|formacion|experiencia|habilidades|competencias|datos\s+personales|información\s+personal|informacion\s+personal|perfil|resumen|r[eé]sum[eé]|idiomas|certificaciones|referencias|logros|ausbildung|berufserfahrung|werdegang|kenntnisse|fähigkeiten|fahigkeiten|sprachen|lebenslauf|persönliche\s+daten|personliche\s+daten|istruzione|esperienza|lavoro|competenze|lingue|formação|formacao|habilidades|conhecimentos|referências|referencias|curriculum|vitae|personal\s+details|time\s+management)\b/iu;
 
 /** Full-line section titles (PDF often emits these as pseudo "names"). */
 const RESUME_SECTION_LINE =
-  /^(?:summary|objective|profile|contact|skills|technical\s+skills|core\s+competencies|work\s+experience|employment|experience|education|academic|projects?|certifications?|courses?|languages?|references?|hobbies|interests|volunteers?|volunteering|achievements?|awards?|honou?rs(?:\s*(?:&|and)\s*awards)?|extra\s+curricular(?:\s+activities)?|extracurricular(?:\s+activities)?|professional\s+summary|personal\s+details|career\s+objective|formation|expérience|experience|compétences|competences|langues|coordonnées|coordonnees|profil|études|etudes|educación|educacion|formación|formacion|experiencia(?:\s+(?:laboral|profesional))?|habilidades|competencias|datos\s+personales|información\s+personal|informacion\s+personal|perfil(?:\s+profesional)?|resumen(?:\s+profesional)?|idiomas|certificaciones|ausbildung|berufserfahrung|kenntnisse|fähigkeiten|fahigkeiten|sprachen|istruzione|esperienza(?:\s+(?:lavorativa|professionale))?|competenze|lingue|formação|formacao|conhecimentos)\b/iu;
+  /^(?:summary|objective|profile|contact|skills|technical\s+skills|core\s+competencies|work\s+experience|employment|experiences?|expériences?(?:\s+professionnelles?)?|education|academic|projects?|certifications?|courses?|languages?|references?|hobbies|interests|volunteers?|volunteering|achievements?|awards?|honou?rs(?:\s*(?:&|and)\s*awards)?|extra\s+curricular(?:\s+activities)?|extracurricular(?:\s+activities)?|professional\s+summary|personal\s+details|career\s+objective|formation|expérience|experience|compétences?|competences?|competence\s+connexe|langues|coordonnées|coordonnees|profil|études|etudes|educación|educacion|formación|formacion|experiencia(?:\s+(?:laboral|profesional))?|habilidades|competencias|datos\s+personales|información\s+personal|informacion\s+personal|perfil(?:\s+profesional)?|resumen(?:\s+profesional)?|r[eé]sum[eé](?:\s+professionnel)?|curriculum\s+vitae|idiomas|certificaciones|ausbildung|berufserfahrung|kenntnisse|fähigkeiten|fahigkeiten|sprachen|istruzione|esperienza(?:\s+(?:lavorativa|professionale))?|competenze|lingue|formação|formacao|conhecimentos|total\s+years?\s+of)\b/iu;
 
 const NAME_JOB_TITLE_SUFFIX =
   /\s*(?:Computer|Software|Full[\s-]?Stack|Frontend|Front[\s-]?end|Backend|Back[\s-]?end|Web|Data|Mechanical|Electrical|Civil|UI|UX|DevOps|Cloud|Machine\s+Learning|ML|AI)\s+Engineer\b/i;
@@ -168,12 +168,34 @@ const NON_NAME_WORD_PARTS = new Set([
   'curriculum',
   'vitae',
   'resume',
+  'résumé',
   'cv',
   'attachment',
   'file',
   'pdf',
   'docx',
   'doc',
+  'professionnel',
+  'professionnelle',
+  'professionnelles',
+  'professionnels',
+  'competence',
+  'compétence',
+  'connexe',
+  'connexes',
+  'portfolio',
+  'evolution',
+  'évolution',
+  'domaines',
+  'domaine',
+  'expertise',
+  'bancaire',
+  'consulting',
+  'details',
+  'excellent',
+  'management',
+  'unknown',
+  'candidate',
 ]);
 
 /** Common place / geo tokens that look like 2-word "names" (e.g. Lusaka Zambia). */
@@ -194,6 +216,17 @@ const LOCATION_NAME_STOPWORDS = new Set([
   'ghana',
   'senegal',
   'cameroon',
+  'cameroun',
+  'douala',
+  'yaounde',
+  'yaoundé',
+  'ahmedabad',
+  'gujarat',
+  'lagos',
+  'harcourt',
+  'rivers',
+  'kampala',
+  'port',
   'ethiopia',
   'somalia',
   'sudan',
@@ -763,17 +796,6 @@ function extractNameFromContactHeader(text = '') {
 
     const split = splitNameCandidate(line);
     if (split.firstName) return split;
-
-    const caps = line.replace(/[^A-Za-zÀ-ÿ\s.'-]/g, '').trim();
-    if (/^[A-Z][A-Z\s.'-]{3,}$/.test(caps)) {
-      const w = caps.split(/\s+/).filter(Boolean);
-      if (w.length >= 2 && w.length <= 5) {
-        return {
-          firstName: titleCaseWord(w[0]),
-          lastName: w.slice(1).map(titleCaseWord).join(' '),
-        };
-      }
-    }
   }
 
   return { firstName: '', lastName: '' };
@@ -824,7 +846,95 @@ const RESUME_TITLE_STOPWORDS = new Set([
   'hr',
   'human',
   'resources',
+  'professionnel',
+  'professionnelle',
+  'opsmanager',
+  'consulting',
 ]);
+
+const NAME_PARTICLES = new Set([
+  'de',
+  'du',
+  'des',
+  'la',
+  'le',
+  'van',
+  'von',
+  'der',
+  'den',
+  'da',
+  'das',
+  'dos',
+  'do',
+  'di',
+  'del',
+  'el',
+  'al',
+  'bin',
+  'bint',
+  'ibn',
+  'ben',
+  'mc',
+  'mac',
+  'st',
+  'saint',
+]);
+
+const GARBAGE_NAME_CONNECTORS = new Set([
+  'my',
+  'the',
+  'and',
+  'of',
+  'for',
+  'with',
+  'from',
+  'into',
+  'total',
+  'years',
+  'year',
+  'time',
+]);
+
+function normNameToken(part = '') {
+  return String(part || '')
+    .toLowerCase()
+    .replace(/[^a-zà-ÿ']/gi, '');
+}
+
+function collapseRepeatedNameTokens(parts = []) {
+  let tokens = (Array.isArray(parts) ? parts : []).map((part) => String(part || '').trim()).filter(Boolean);
+  while (tokens.length >= 4) {
+    let collapsed = false;
+    for (let size = Math.floor(tokens.length / 2); size >= 2; size -= 1) {
+      const tail = tokens.slice(-size).map(normNameToken).join(' ');
+      const prev = tokens.slice(-size * 2, -size).map(normNameToken).join(' ');
+      if (tail && tail === prev) {
+        tokens = tokens.slice(0, -size);
+        collapsed = true;
+        break;
+      }
+    }
+    if (!collapsed) break;
+  }
+  const out = [];
+  for (const token of tokens) {
+    const current = normNameToken(token);
+    const previous = out.length ? normNameToken(out[out.length - 1]) : '';
+    if (current && current === previous) continue;
+    out.push(token);
+  }
+  return out;
+}
+
+function titleCaseNameParts(parts = []) {
+  return collapseRepeatedNameTokens(parts).map((part) => {
+    const token = String(part || '').trim();
+    const lower = token.toLowerCase();
+    if (NAME_PARTICLES.has(lower)) return lower;
+    if (/^[A-Z]\.$/.test(token)) return token.toUpperCase();
+    return titleCaseWord(token);
+  });
+}
 
 export function looksLikePersonName(value = '') {
   const cleaned = String(value || '')
@@ -834,26 +944,42 @@ export function looksLikePersonName(value = '') {
 
   if (!cleaned || /[@\d]/.test(cleaned)) return false;
   if (isResumeSectionHeaderLine(cleaned)) return false;
-  if (/\b(?:copy\s*\d*|certificate|certificates|obtained|curriculum|vitae)\b/i.test(cleaned)) {
+  if (
+    /\b(?:copy\s*\d*|certificate|certificates|obtained|curriculum|vitae|resume|r[eé]sum[eé]|cv)\b/i.test(
+      cleaned,
+    )
+  ) {
     return false;
   }
 
-  const parts = cleaned.split(' ').filter(Boolean);
-  if (parts.length < 2 || parts.length > 4) return false;
+  const parts = collapseRepeatedNameTokens(cleaned.split(' ').filter(Boolean));
+  if (parts.length < 2 || parts.length > 6) return false;
 
-  const lowerParts = parts.map((part) => part.toLowerCase().replace(/[^a-zà-ÿ']/gi, ''));
+  const lowerParts = parts.map((part) => normNameToken(part)).filter(Boolean);
+  if (lowerParts.length < 2) return false;
   if (lowerParts.some((part) => NON_NAME_WORD_PARTS.has(part))) return false;
   if (lowerParts.some((part) => RESUME_TITLE_STOPWORDS.has(part))) return false;
   if (lowerParts.some((part) => LOCATION_NAME_STOPWORDS.has(part))) return false;
-  // Reject when every token is a known place/document word mix (both location-like).
-  if (lowerParts.length >= 2 && lowerParts.every((part) => LOCATION_NAME_STOPWORDS.has(part))) {
-    return false;
-  }
+  if (lowerParts.some((part) => GARBAGE_NAME_CONNECTORS.has(part))) return false;
   if (lowerParts.some((part) => /(?:engineer|developer|designer|manager|analyst|consultant|architect|student|intern)/.test(part))) {
     return false;
   }
 
-  return parts.every((part) => /^[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ.'-]*$/.test(part));
+  const contentParts = lowerParts.filter((part) => !NAME_PARTICLES.has(part));
+  if (contentParts.length < 2) return false;
+
+  const capitalized = parts.filter((part) => {
+    const lower = part.toLowerCase();
+    if (NAME_PARTICLES.has(lower)) return true;
+    return /^[A-ZÀ-Ÿ]/.test(part) || /^[A-ZÀ-Ÿ]{2,}$/.test(part);
+  });
+  if (capitalized.length < Math.ceil(parts.length * 0.6)) return false;
+
+  return parts.every((part) => {
+    const lower = part.toLowerCase();
+    if (NAME_PARTICLES.has(lower)) return true;
+    return /^[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ.'-]*$/.test(part);
+  });
 }
 
 /** True when stored first/last name looks like a filename, title, location, or section header. */
@@ -890,27 +1016,39 @@ function splitNameCandidate(value = '') {
     .replace(/[_-]+/g, ' ')
     .replace(/\.[a-z0-9]+$/i, '')
     .replace(/[\u2013\u2014|,]/g, ' ')
+    .replace(/\(\s*\d+\s*\)/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 
-  if (!looksLikePersonName(cleaned)) {
+  const titled = titleCaseNameParts(cleaned.split(' ').filter(Boolean)).join(' ');
+  if (!looksLikePersonName(titled)) {
     return { firstName: '', lastName: '' };
   }
 
-  const nameParts = cleaned.split(' ').filter(Boolean);
+  const nameParts = titled.split(' ').filter(Boolean);
   return {
     firstName: nameParts[0] || '',
     lastName: nameParts.slice(1).join(' '),
   };
 }
 
+function extractLabeledResumeName(text = '') {
+  const primary = extractPrimaryResumeBlock(text);
+  const labeled = primary.match(
+    /(?:full\s*name|candidate\s*name|nom\s+complet|nom\s+et\s+pr[eé]nom|pr[eé]noms?(?:\s+et\s+nom)?|name|nom)\s*[:\-]\s*([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ.'\-\s]{2,80})/i,
+  );
+  if (!labeled?.[1]) return { firstName: '', lastName: '' };
+  return splitNameCandidate(labeled[1]);
+}
+
 function nameFromFileName(fileName = '') {
   const base = path
     .parse(String(fileName || ''))
     .name.replace(/^[0-9_,\-\s.]+/i, '')
+    .replace(/\(\s*\d+\s*\)/g, ' ')
     .replace(/\bcopy\s*\d*\b/gi, ' ')
     .replace(
-      /\b(cv|resume|curriculum|vitae|certificate|certificates|obtained|scanned|scan|document|untitled|final|draft|version|updated|revised)\b/gi,
+      /\b(cv|resume|curriculum|vitae|certificate|certificates|obtained|scanned|scan|document|untitled|final|draft|version|updated|revised|sales|opsmanager)\b/gi,
       ' ',
     )
     .replace(/[_.-]+/g, ' ')
@@ -922,6 +1060,11 @@ function nameFromFileName(fileName = '') {
 export function extractResumeName(fullText = '', fileName = '') {
   const cleanedText = preprocessResumeTextForParsing(fullText);
   const primary = extractPrimaryResumeBlock(cleanedText);
+
+  const labeledName = extractLabeledResumeName(cleanedText);
+  if (labeledName.firstName || labeledName.lastName) {
+    return labeledName;
+  }
 
   const headerName = extractNameFromContactHeader(cleanedText);
   if (headerName.firstName || headerName.lastName) {
@@ -939,10 +1082,10 @@ export function extractResumeName(fullText = '', fileName = '') {
   const allCapsLines = primary.split('\n').map((l) => l.trim());
   for (const line of allCapsLines.slice(0, 30)) {
     if (
-      /^[A-Z][A-Z\s.'-]{4,60}$/.test(line) &&
+      /^[A-Z][A-Z\s.'-]{4,80}$/.test(line) &&
       line.split(/\s+/).length >= 2 &&
-      line.split(/\s+/).length <= 5 &&
-      !/EXPERIENCE|EDUCATION|SKILLS|SUMMARY|PROFILE|CONTACT|TEXTE|COMPÉTENCE|LANGUES|PROJETS|ACTIVIT|CURRICULAR|VOLUNTEER|CERTIFICATION|CERTIFICATE|OBTAINED|PROJECT/i.test(
+      line.split(/\s+/).length <= 6 &&
+      !/EXPERIENCE|EDUCATION|SKILLS|SUMMARY|PROFILE|CONTACT|TEXTE|COMPÉTENCE|LANGUES|PROJETS|ACTIVIT|CURRICULAR|VOLUNTEER|CERTIFICATION|CERTIFICATE|OBTAINED|PROJECT|CURRICULUM|VITAE|PROFESSIONNEL/i.test(
         line
       ) &&
       !isResumeSectionHeaderLine(line)
@@ -961,30 +1104,26 @@ export function extractResumeName(fullText = '', fileName = '') {
   }
 
   const lines = primary.split('\n').map((l) => l.trim()).filter(Boolean);
-  for (const line of lines.slice(0, 25)) {
+  for (const line of lines.slice(0, 40)) {
     if (isResumeSectionHeaderLine(line)) continue;
     const words = line.split(/\s+/);
     if (
       words.length >= 2 &&
-      words.length <= 4 &&
-      !line.includes('.') &&
-      !line.includes(',') &&
+      words.length <= 6 &&
       !line.includes('@') &&
       !line.includes('http') &&
       !line.includes('+') &&
       !/\d/.test(line) &&
-      !/experience|engineer|developer|manager|analyst|intern|worked|designed|developed|summary|education|skills|profile|contact|formation|compétences|langues|computer|software|mechanical|electrical|frontend|backend|fullstack|at |pvt|ltd|inc|interface|dynamic|responsive|curricular|activities|volunteer|certification|certificate|obtained|project|school|university|college|lusaka|zambia|location|address/i.test(
+      !/experience|engineer|developer|manager|analyst|intern|worked|designed|developed|summary|education|skills|profile|contact|formation|compétences|langues|computer|software|mechanical|electrical|frontend|backend|fullstack|at |pvt|ltd|inc|interface|dynamic|responsive|curricular|activities|volunteer|certification|certificate|obtained|project|school|university|college|lusaka|zambia|location|address|curriculum|vitae|professionnel/i.test(
         line
       ) &&
-      /^[A-Za-zÀ-ÿ\s\-']+$/.test(line) &&
-      words.every((w) => /^[A-ZÀ-Ÿa-zà-ÿ\-']{1,}$/.test(w))
+      /^[A-Za-zÀ-ÿ\s\-'.]+$/.test(line)
     ) {
       const fromLine = splitNameCandidate(line.trim());
       if (fromLine.firstName) return fromLine;
     }
   }
 
-  // Filename only when it already looks like a real person name (never document titles).
   const fileCandidate = nameFromFileName(fileName);
   if (fileCandidate.firstName || fileCandidate.lastName) return fileCandidate;
 
