@@ -37,6 +37,7 @@ import {
   getAssignmentRulesForAssignor,
   listSavedAssignmentRules,
   replaceAssignmentRules,
+  syncAssignmentDefaultsAfterReportsToChange,
   ASSIGNMENT_RULE_MODULES,
 } from '../services/assignmentRules.service.js';
 
@@ -672,6 +673,14 @@ export async function createTeamMember(req, res) {
     });
 
     await deleteCacheByPattern(getTeamListCachePattern());
+    if (createdMember?.managerId) {
+      await syncAssignmentDefaultsAfterReportsToChange({
+        memberUserId: createdMember.id,
+        nextManagerId: createdMember.managerId,
+        orgUnitId: createdMember.orgUnitId || null,
+        createdById: req.user?.id || null,
+      });
+    }
 
     if (req.user?.id && createdMember) {
       const memberName =
@@ -914,6 +923,17 @@ export async function updateTeamMember(req, res) {
     await deleteCacheByPattern(getTeamListCachePattern());
     if (updateData.roleId !== undefined) {
       await deleteCacheByPattern(getPermissionCachePattern());
+    }
+    const previousManagerId = String(memberBefore?.managerId || '').trim();
+    const nextManagerId = String(updatedMember.managerId || '').trim();
+    if (nextManagerId && nextManagerId !== previousManagerId) {
+      await syncAssignmentDefaultsAfterReportsToChange({
+        memberUserId: updatedMember.id,
+        previousManagerId,
+        nextManagerId,
+        orgUnitId: updatedMember.orgUnitId || memberBefore?.orgUnitId || null,
+        createdById: req.user?.id || null,
+      });
     }
 
     if (req.user?.id) {

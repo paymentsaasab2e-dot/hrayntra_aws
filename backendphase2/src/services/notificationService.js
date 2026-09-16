@@ -126,6 +126,14 @@ export const sendInterviewRescheduled = async (
   const panelCompany = interview.client?.companyName || '';
 
   const tasks = [];
+  let rsvpLinks = null;
+  if (options.includeRsvp !== false && interview?.id) {
+    try {
+      rsvpLinks = buildInterviewRsvpPublicUrls(interview.id, getActiveTenantDbName());
+    } catch {
+      rsvpLinks = null;
+    }
+  }
   if (options.notifyCandidate && candidate.email) {
     tasks.push(
       sendMail({
@@ -140,6 +148,12 @@ export const sendInterviewRescheduled = async (
           timezone: interview.timezone,
           reason: interview.notes,
           meetingLink: interview.meetingLink,
+          showJoinCta: shouldShowJoinInterviewCta({
+            meetingLink: interview.meetingLink,
+            mode: interview.mode,
+            type: interview.type,
+          }),
+          rsvpLinks,
         }),
       }),
     );
@@ -166,6 +180,44 @@ export const sendInterviewRescheduled = async (
   }
 
   return Promise.all(tasks);
+};
+
+export const sendInterviewProposalRejected = async (candidate, interview, { proposedAt, reason } = {}) => {
+  if (!candidate?.email) return null;
+  const jobTitle = interview.job?.title || 'Interview';
+  let rsvpLinks = null;
+  try {
+    rsvpLinks = buildInterviewRsvpPublicUrls(interview.id, getActiveTenantDbName());
+  } catch {
+    rsvpLinks = null;
+  }
+  const html = interviewScheduledTemplate({
+    candidateName: `${candidate.firstName} ${candidate.lastName}`.trim(),
+    jobTitle,
+    companyName: '',
+    date: interview.scheduledAt,
+    timezone: interview.timezone,
+    meetingLink: interview.meetingLink,
+    panelNames: (interview.panel || []).map((member) => member.user?.name).filter(Boolean),
+    showJoinCta: shouldShowJoinInterviewCta({
+      meetingLink: interview.meetingLink,
+      mode: interview.mode,
+      type: interview.type,
+    }),
+    rsvpLinks,
+    location: interview.location,
+    modeLabel: interview.mode,
+  });
+  return sendMail({
+    to: candidate.email,
+    subject: `Interview time update: ${jobTitle}`,
+    html: html.replace(
+      'your interview has been scheduled',
+      `the recruiter could not accept the proposed time${
+        reason ? ` (${String(reason).replace(/</g, '')})` : ''
+      }. The original interview time still stands`,
+    ),
+  });
 };
 
 export const sendInterviewCancelled = async (candidate, interview) => {

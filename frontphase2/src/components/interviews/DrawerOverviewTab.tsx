@@ -6,6 +6,9 @@ import { DrawerLinkActions } from '../drawers/DrawerLinkActions';
 
 interface DrawerOverviewTabProps {
   interview: Interview;
+  onAcceptProposal?: (interview: Interview) => void;
+  onRejectProposal?: (interview: Interview) => void;
+  onReproposeInterview?: (interview: Interview) => void;
 }
 
 function parseCandidateRsvp(notes: string, status: Interview['status']) {
@@ -37,9 +40,15 @@ function parseCandidateRsvp(notes: string, status: Interview['status']) {
   return null;
 }
 
-export function DrawerOverviewTab({ interview }: DrawerOverviewTabProps) {
+export function DrawerOverviewTab({
+  interview,
+  onAcceptProposal,
+  onRejectProposal,
+  onReproposeInterview,
+}: DrawerOverviewTabProps) {
   const timezoneLabel = formatTimezoneDisplay(resolveIanaFromTimezoneValue(interview.timezone));
   const candidateRsvp = parseCandidateRsvp(interview.notes, interview.status);
+  const proposal = interview.candidateProposal;
   const items = [
     ['Interview Round', interview.round],
     ['Interview Type', interview.type],
@@ -53,7 +62,56 @@ export function DrawerOverviewTab({ interview }: DrawerOverviewTabProps) {
 
   return (
     <div className="space-y-5">
-      {candidateRsvp ? (
+      {proposal ? (
+        <div className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3">
+          <div className="flex items-start gap-3">
+            <CalendarClock className="mt-0.5 size-5 shrink-0 text-orange-600" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-orange-950">Candidate proposed a new time</p>
+              <p className="mt-1 text-sm font-semibold text-orange-900">
+                {proposal.label} ({proposal.timezone})
+              </p>
+              {proposal.note ? (
+                <p className="mt-1 text-sm text-orange-800">{proposal.note}</p>
+              ) : null}
+              <p className="mt-1 text-xs text-orange-700">
+                Original schedule: {interview.date} at {interview.time}
+              </p>
+              {onAcceptProposal || onRejectProposal || onReproposeInterview ? (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {onAcceptProposal ? (
+                    <button
+                      type="button"
+                      onClick={() => onAcceptProposal(interview)}
+                      className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
+                    >
+                      Accept
+                    </button>
+                  ) : null}
+                  {onRejectProposal ? (
+                    <button
+                      type="button"
+                      onClick={() => onRejectProposal(interview)}
+                      className="rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50"
+                    >
+                      Reject
+                    </button>
+                  ) : null}
+                  {onReproposeInterview ? (
+                    <button
+                      type="button"
+                      onClick={() => onReproposeInterview(interview)}
+                      className="rounded-lg border border-indigo-200 bg-white px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-50"
+                    >
+                      Repropose
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : candidateRsvp ? (
         <div
           className={`rounded-xl border px-4 py-3 ${
             candidateRsvp.kind === 'accepted'

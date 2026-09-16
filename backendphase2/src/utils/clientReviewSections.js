@@ -26,14 +26,36 @@ const DEFAULT_VISIBILITY = {
 
 function str(value) {
   if (value === undefined || value === null) return '';
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => {
+        if (item && typeof item === 'object') {
+          const title = item.title || item.jobTitle || item.degree || item.degreeProgram || item.name || '';
+          const extra = item.company || item.companyName || item.institution || item.institutionName || '';
+          const joined = [title, extra].map((part) => String(part || '').trim()).filter(Boolean).join(' @ ');
+          if (joined) return joined;
+          return Object.values(item)
+            .map((part) => (typeof part === 'object' ? '' : String(part || '').trim()))
+            .filter(Boolean)
+            .join(' | ');
+        }
+        return String(item || '').trim();
+      })
+      .filter(Boolean)
+      .join(', ');
+  }
   if (typeof value === 'object') {
     try {
-      return JSON.stringify(value);
+      const json = JSON.stringify(value);
+      if (!json || json === '{}' || json === '[]' || json === 'null') return '';
+      return json;
     } catch {
       return '';
     }
   }
-  return String(value).trim();
+  const text = String(value).trim();
+  if (text === '[]' || text === '{}' || text === 'null') return '';
+  return text;
 }
 
 function reviewField(label, value) {
@@ -160,15 +182,29 @@ function looksLikeWorkExperienceEditorText(value) {
 }
 
 function normalizeWorkEntryRecord(entry) {
-  const responsibilities = entry.responsibilities;
+  const aliased = {
+    ...entry,
+    title: entry.title || entry.jobTitle || entry.role || entry.position,
+    company: entry.company || entry.companyName || entry.employer,
+    location: entry.location || entry.workLocation,
+    startDate: entry.startDate || entry.from,
+    endDate:
+      entry.endDate ||
+      (entry.currentlyWorkHere === true || entry.isCurrentJob === true ? 'Present' : entry.to),
+    responsibilities:
+      entry.responsibilities ||
+      entry.keyResponsibilities ||
+      (entry.description ? [entry.description] : undefined),
+  };
+  const responsibilities = aliased.responsibilities;
   if (Array.isArray(responsibilities) && responsibilities.length === 1) {
     const single = String(responsibilities[0] || '').trim();
     if (single && looksLikeWorkExperienceDisplayText(single)) {
-      return parseWorkExperienceDisplayText(single)[0] || entry;
+      return parseWorkExperienceDisplayText(single)[0] || aliased;
     }
     if (single.includes('\n') && !single.includes(';')) {
       return {
-        ...entry,
+        ...aliased,
         responsibilities: single
           .split(/\r?\n/)
           .map((line) => line.trim())
@@ -176,11 +212,11 @@ function normalizeWorkEntryRecord(entry) {
       };
     }
   }
-  const description = String(entry.description || '').trim();
+  const description = String(aliased.description || '').trim();
   if (description && looksLikeWorkExperienceDisplayText(description)) {
-    return parseWorkExperienceDisplayText(description)[0] || entry;
+    return parseWorkExperienceDisplayText(description)[0] || aliased;
   }
-  return entry;
+  return aliased;
 }
 
 function normalizeWorkEntryRecords(entries) {
@@ -201,6 +237,49 @@ function normalizeWorkEntryRecords(entries) {
     }
   }
   return entries.map((entry) => normalizeWorkEntryRecord(entry));
+}
+
+function parseEducationEntriesFromUnknown(value) {
+  if (Array.isArray(value)) {
+    return value
+      .filter((item) => item && typeof item === 'object')
+      .map((entry) => ({
+        degree: str(entry.degree || entry.degreeProgram || entry.qualification),
+        institution: str(entry.institution || entry.institutionName || entry.instituteName),
+        startYear: entry.startYear || entry.from || '',
+        endYear: entry.endYear || entry.to || '',
+        grade: entry.grade || '',
+      }))
+      .filter((entry) => entry.degree || entry.institution);
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    if (trimmed.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) return parseEducationEntriesFromUnknown(parsed);
+      } catch {
+        /* not JSON */
+      }
+    }
+    return trimmed
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const parts = line.split('|').map((part) => part.trim());
+        return {
+          degree: parts[0] || '',
+          institution: parts[1] || '',
+          startYear: parts[2] || '',
+          endYear: parts[3] || '',
+          grade: parts[4] || '',
+        };
+      })
+      .filter((entry) => entry.degree || entry.institution);
+  }
+  return [];
 }
 
 function parseWorkEntriesFromUnknown(value) {
@@ -269,7 +348,7 @@ function buildSectionsFromEditForm(editForm, visibility) {
   }
 
   if (isVisible('education', visible)) {
-    const eduEntries = parseWorkEntriesFromUnknown(editForm.cvEducationEntries);
+    const eduEntries = parseEducationEntriesFromUnknown(editForm.cvEducationEntries);
     pushVisibleSection(
       sections,
       'education',
@@ -286,8 +365,8 @@ function buildSectionsFromEditForm(editForm, visibility) {
       eduEntries.length
         ? {
             entries: eduEntries.map((entry) => ({
-              degreeProgram: entry.degree ?? entry.qualification,
-              institutionName: entry.institution ?? entry.instituteName,
+              degreeProgram: entry.degree ?? entry.qualification ?? entry.degreeProgram,
+              institutionName: entry.institution ?? entry.instituteName ?? entry.institutionName,
               startYear: entry.startYear,
               endYear: entry.endYear,
               grade: entry.grade,

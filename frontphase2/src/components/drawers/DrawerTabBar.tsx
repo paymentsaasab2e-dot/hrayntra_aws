@@ -21,6 +21,8 @@ type DrawerTabBarProps<T extends string> = {
   variant?: 'bar' | 'embedded';
   /** Allow tabs to wrap onto multiple rows so every label stays visible. */
   wrap?: boolean;
+  /** Tighter padding so table tabs keep more vertical room. */
+  compact?: boolean;
   className?: string;
   trackClassName?: string;
 };
@@ -64,6 +66,7 @@ export function DrawerTabBar<T extends string>({
   ariaLabel = 'Drawer sections',
   variant = 'bar',
   wrap = false,
+  compact = false,
   className = '',
   trackClassName = '',
 }: DrawerTabBarProps<T>) {
@@ -71,7 +74,9 @@ export function DrawerTabBar<T extends string>({
     <div
       role="tablist"
       aria-label={ariaLabel}
-      className={`flex gap-1 rounded-2xl border border-indigo-100/60 bg-gradient-to-r from-slate-50 via-indigo-50/40 to-violet-50/30 p-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] ${
+      className={`flex gap-1 rounded-2xl border border-indigo-100/60 bg-gradient-to-r from-slate-50 via-indigo-50/40 to-violet-50/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] ${
+        compact ? 'p-1' : 'p-1.5'
+      } ${
         wrap
           ? 'flex-wrap'
           : 'overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden'
@@ -87,7 +92,9 @@ export function DrawerTabBar<T extends string>({
             role="tab"
             aria-selected={active}
             onClick={() => onChange(tab.id)}
-            className={`inline-flex min-w-max items-center justify-center gap-2 whitespace-nowrap rounded-xl px-3 py-2.5 text-sm font-semibold transition-all duration-200 ${
+            className={`inline-flex min-w-max items-center justify-center gap-1.5 whitespace-nowrap rounded-xl font-semibold transition-all duration-200 ${
+              compact ? 'px-2.5 py-1.5 text-xs' : 'gap-2 px-3 py-2.5 text-sm'
+            } ${
               wrap ? 'flex-none' : 'flex-1'
             } ${
               active
@@ -119,7 +126,9 @@ export function DrawerTabBar<T extends string>({
 
   return (
     <div
-      className={`shrink-0 border-b border-indigo-100/50 bg-white/90 px-4 py-3 backdrop-blur-sm sm:px-6 ${className}`}
+      className={`shrink-0 border-b border-indigo-100/50 bg-white/90 backdrop-blur-sm ${
+        compact ? 'px-3 py-1.5 sm:px-4' : 'px-4 py-3 sm:px-6'
+      } ${className}`}
     >
       {track}
     </div>

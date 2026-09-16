@@ -2089,7 +2089,7 @@ export const addCandidateController = {
 
   /**
    * Auto-fix candidate names that look like CV filenames / titles / locations.
-   * Re-reads stored resume text (no AI) and updates firstName/lastName in bulk.
+   * Re-reads stored CVs and extracts the person name with OpenAI first.
    * Body: { execute?: boolean, dryRun?: boolean, limit?: number, orgUnitId?: string }
    */
   async repairBadNames(req, res) {

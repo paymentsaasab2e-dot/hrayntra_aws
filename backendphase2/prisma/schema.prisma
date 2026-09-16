@@ -1360,6 +1360,8 @@ model Interview {
   location      String?
   meetingLink   String?
   notes         String?
+  /// Candidate email RSVP / reschedule handshake: proposedAt, candidateStatus, recruiterDecision.
+  rsvp          Json?
   round         String? // Screening, Technical Round, HR Round, Final Round, Client Round
   timezone      String? // IST GMT+5:30, EST GMT-5:00, etc.
   instructions  String? // Candidate instructions

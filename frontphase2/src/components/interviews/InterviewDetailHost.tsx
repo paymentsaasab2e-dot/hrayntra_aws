@@ -182,7 +182,8 @@ export function InterviewDetailHost({
     void apiGetUsers({
       assignable: true,
       isActive: true,
-      limit: 100,
+      limit: 200,
+      module: 'Interviews',
       companyId: getActiveOrgUnitId() || undefined,
     })
       .then((response) => {

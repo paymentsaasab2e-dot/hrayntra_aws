@@ -8,6 +8,15 @@ import { prisma, runWithTenantContext } from '../../config/prisma.js';
 import { env } from '../../config/env.js';
 import { createUserNotification } from '../notification/notification.service.js';
 import { sendLifecycleAlertEmail } from '../../services/emailService.js';
+import {
+  appendInterviewNote,
+  buildPendingRsvp,
+  buildProposalMarker,
+  formatProposedAtLabel,
+  parseInterviewRescheduleProposal,
+  proposalToPublicView,
+  updateInterviewWithRsvp,
+} from '../../utils/interviewRescheduleProposal.util.js';
 
 export { buildInterviewRsvpPublicUrls, shouldShowJoinInterviewCta };
 
@@ -143,13 +152,15 @@ function publicInterviewView(interview) {
   });
   const notes = String(interview.notes || '');
   const status = String(interview.status || '').toUpperCase();
+  const proposal = parseInterviewRescheduleProposal(interview);
+  const proposalPublic = proposalToPublicView(interview);
   let candidateResponse = null;
-  if (status === 'CONFIRMED' || /Candidate accepted on /i.test(notes)) {
+  if (proposal) {
+    candidateResponse = 'reschedule_requested';
+  } else if (status === 'CONFIRMED' || /Candidate accepted on /i.test(notes)) {
     candidateResponse = 'accepted';
   } else if (status === 'CANCELLED' || /Candidate declined on /i.test(notes)) {
     candidateResponse = 'declined';
-  } else if (/Candidate reschedule request on /i.test(notes)) {
-    candidateResponse = 'reschedule_requested';
   }
 
   return {
@@ -166,6 +177,7 @@ function publicInterviewView(interview) {
     meetingLink: showJoin ? interview.meetingLink || null : null,
     showJoinCta: showJoin,
     duration: interview.duration,
+    ...(proposalPublic || {}),
   };
 }
 
@@ -305,24 +317,21 @@ export async function requestPublicInterviewReschedule(token, { proposedAt, time
       throw Object.assign(new Error('Invalid proposed date and time'), { statusCode: 400 });
     }
 
-    const proposedAtLabel = new Intl.DateTimeFormat('en-US', {
-      dateStyle: 'medium',
-      timeStyle: 'short',
-      timeZone: tz,
-    }).format(proposedDate);
-
+    const proposedAtLabel = formatProposedAtLabel(proposedDate.toISOString(), tz) || proposedDate.toISOString();
+    const iso = proposedDate.toISOString();
     const note = String(message || '').trim();
-    const updated = await prisma.interview.update({
-      where: { id: interview.id },
+    const humanLine = `Candidate reschedule request on ${new Date().toISOString()}: prefers ${proposedAtLabel} (${tz})${
+      note ? ` — ${note}` : ''
+    }`;
+    const nextNotes = [appendInterviewNote(interview.notes, humanLine), buildProposalMarker({ at: iso, timezone: tz, note })]
+      .filter(Boolean)
+      .join('\n');
+
+    const updated = await updateInterviewWithRsvp(prisma, {
+      id: interview.id,
       data: {
-        notes: [
-          interview.notes,
-          `Candidate reschedule request on ${new Date().toISOString()}: prefers ${proposedAtLabel} (${tz})${
-            note ? ` — ${note}` : ''
-          }`,
-        ]
-          .filter(Boolean)
-          .join('\n'),
+        notes: nextNotes,
+        rsvp: buildPendingRsvp({ at: iso, timezone: tz, note }),
       },
       include: {
         candidate: { select: { id: true, firstName: true, lastName: true, email: true } },

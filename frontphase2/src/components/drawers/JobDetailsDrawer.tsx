@@ -183,7 +183,11 @@ import {
 } from '../../lib/tableColumns/moduleTableColumns';
 import PaginationAll from '../PaginationAll';
 import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../constants/tablePagination';
-import { PH2_TABLE_CARD_FOOTER_CLASS } from '../layout/Ph2ModulePageLayout';
+import {
+  PH2_TABLE_BODY_SCROLL_CLASS,
+  PH2_TABLE_CARD_CLASS,
+  PH2_TABLE_CARD_FOOTER_CLASS,
+} from '../layout/Ph2ModulePageLayout';
 import { extractApiData } from '../../lib/mapCandidateProfile';
 import { BULK_CV_ACCEPT_INPUT, BULK_CV_FORMAT_LABEL } from '../../lib/bulkCvFileTypes';
 import { filterBulkCvFiles } from '../../lib/bulkCvCollect';
@@ -336,6 +340,7 @@ export interface JobForDrawer {
   openings: number;
   owner: string;
   createdDate: string;
+  orgUnitId?: string | null;
   jobCategory?: string;
   jobLocationType?: string;
   salaryType?: string;
@@ -933,11 +938,11 @@ function JobCandidateMatchModeToggle({
   onChange: (mode: JobCandidateMatchMode) => void;
 }) {
   return (
-    <div className="inline-flex rounded-2xl border border-[#E5E7EB] bg-white p-1">
+    <div className="inline-flex rounded-xl border border-[#E5E7EB] bg-white p-0.5">
       <button
         type="button"
         onClick={() => onChange('applied')}
-        className={`inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-semibold transition ${
+        className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition ${
           mode === 'applied'
             ? 'bg-[#2563EB] text-white shadow-sm'
             : 'text-slate-600 hover:bg-slate-50'
@@ -949,7 +954,7 @@ function JobCandidateMatchModeToggle({
       <button
         type="button"
         onClick={() => onChange('ai')}
-        className={`inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-semibold transition ${
+        className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition ${
           mode === 'ai'
             ? 'bg-[#2563EB] text-white shadow-sm'
             : 'text-slate-600 hover:bg-slate-50'
@@ -1006,7 +1011,7 @@ function JobDrawerAiMatchesTab({
   columnsMenu,
 }: JobDrawerAiMatchesTabProps) {
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<TablePageSize>(10);
+  const [pageSize, setPageSize] = useState<TablePageSize>(50);
   const totalPages = Math.max(1, Math.ceil(sortedAiMatchCandidates.length / pageSize));
   const safePage = Math.min(Math.max(page, 1), totalPages);
   const pagedCandidates = useMemo(() => {
@@ -1236,7 +1241,7 @@ export function JobDetailsDrawer({
     MATCH_TABLE_COLUMNS,
   );
   const [candidatesPage, setCandidatesPage] = useState(1);
-  const [candidatesPageSize, setCandidatesPageSize] = useState<TablePageSize>(10);
+  const [candidatesPageSize, setCandidatesPageSize] = useState<TablePageSize>(50);
   const [jobCandidatesSearch, setJobCandidatesSearch] = useState('');
   const prevCandidatesTabJobIdRef = useRef<string | null>(null);
   const wasOnCandidatesTabRef = useRef(false);
@@ -3027,7 +3032,7 @@ export function JobDetailsDrawer({
         variant={layout === 'main' ? 'main' : 'centered'}
       >
         {/* Header — overflow visible so apply-link menu can sit above the tab bar */}
-        <div className="relative z-20 shrink-0 border-b border-indigo-100/60 bg-gradient-to-br from-white via-indigo-50/45 to-violet-50/35 px-5 pb-4 pt-5 sm:px-6">
+        <div className="relative z-20 shrink-0 border-b border-indigo-100/60 bg-gradient-to-br from-white via-indigo-50/45 to-violet-50/35 px-4 pb-2.5 pt-3 sm:px-5">
           <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
             <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_rgba(99,102,241,0.12),_transparent_55%)]" />
           </div>
@@ -3037,7 +3042,7 @@ export function JobDetailsDrawer({
                 <>
                   <h2
                     id="job-detail-modal-title"
-                    className="truncate text-xl font-bold tracking-tight text-slate-900 sm:text-2xl"
+                    className="truncate text-lg font-bold tracking-tight text-slate-900 sm:text-xl"
                   >
                     {job.title}
                   </h2>
@@ -3301,29 +3306,13 @@ export function JobDetailsDrawer({
               )}
               activeId={activeTab}
               onChange={setActiveTab}
+              compact
             />
 
             {/* Tab content */}
-            <div className={`flex-1 overflow-y-auto ${DRAWER_FORM_SCROLL_BG}`}>
-              <div className="space-y-5 p-5 sm:p-6">
-              {activeTab === 'overview' && job && (
-                <div className="space-y-5">
-                  <EntityWorkspaceAlertsPanel
-                    entityType="JOB"
-                    entityId={job.id}
-                    entityLabel={job.title || 'Job'}
-                  />
-                  <JobOverviewTabContent job={job} />
-                </div>
-              )}
-
-              {activeTab === 'assessments' && job && (
-                <JobAssessmentsTabContent job={job} />
-              )}
-
-              {activeTab === 'candidates' && (
-                <div className="space-y-4">
-                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            {activeTab === 'candidates' ? (
+            <div className={`flex min-h-0 flex-1 flex-col overflow-hidden ${DRAWER_FORM_SCROLL_BG}`}>
+                  <div className="flex shrink-0 flex-col gap-2 px-3 pt-3 pb-2 lg:flex-row lg:items-center lg:justify-between">
                     <JobCandidateMatchModeToggle
                       mode={candidateMatchMode}
                       onChange={setCandidateMatchMode}
@@ -3339,7 +3328,7 @@ export function JobDetailsDrawer({
                           value={jobCandidatesSearch}
                           onChange={(event) => setJobCandidatesSearch(event.target.value)}
                           placeholder="Search candidates…"
-                          className="h-10 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-9 text-sm text-slate-800 placeholder:text-slate-400 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/20"
+                          className="h-8 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-9 text-sm text-slate-800 placeholder:text-slate-400 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/20"
                           aria-label="Search candidates on this job"
                         />
                         {jobCandidatesSearch.trim() ? (
@@ -3369,7 +3358,7 @@ export function JobDetailsDrawer({
                             type="button"
                             onClick={() => fileInputRef.current?.click()}
                             disabled={uploadingJobCv}
-                            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-white px-4 py-2 text-sm font-semibold text-indigo-700 shadow-sm transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60"
+                            className="inline-flex h-8 shrink-0 items-center justify-center gap-2 rounded-lg border border-indigo-200 bg-white px-3 text-sm font-semibold text-indigo-700 shadow-sm transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60"
                             title={`Upload one or more CVs (${BULK_CV_FORMAT_LABEL}) to create candidates for this job`}
                           >
                             {uploadingJobCv ? (
@@ -3389,11 +3378,17 @@ export function JobDetailsDrawer({
                   </div>
 
                   {candidateMatchMode === 'applied' ? (
-                <DrawerSectionCard
-                  title="Candidates"
-                  icon={Users}
-                  accent="indigo"
-                  headerRight={
+                <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 pb-3">
+                <div className={PH2_TABLE_CARD_CLASS}>
+                  <div className="flex shrink-0 items-center justify-between gap-3 border-b border-indigo-100/50 px-3 py-2">
+                    <p className="text-sm font-semibold text-slate-800">
+                      Candidates
+                      {filteredJobTableCandidates.length ? (
+                        <span className="ml-1.5 text-xs font-medium text-slate-400">
+                          {filteredJobTableCandidates.length}
+                        </span>
+                      ) : null}
+                    </p>
                     <TableColumnsMenu
                       columns={CANDIDATE_TABLE_COLUMNS}
                       isVisible={candidateColumnVisibility.isVisible}
@@ -3401,8 +3396,7 @@ export function JobDetailsDrawer({
                       onReset={candidateColumnVisibility.resetToDefault}
                       unlockedVisibleCount={candidateColumnVisibility.unlockedVisibleCount}
                     />
-                  }
-                >
+                  </div>
                   {selectedCandidateIds.length > 0 && job?.id ? (
                     <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-indigo-200 bg-indigo-50/80 px-3 py-2.5">
                       <p className="text-sm font-semibold text-indigo-900">
@@ -3445,14 +3439,14 @@ export function JobDetailsDrawer({
                     </div>
                   ) : null}
                   {appliedCandidatesLoading || appliedPipelineRunning ? (
-                    <div className="flex items-center justify-center gap-2 p-10 text-sm text-slate-500">
+                    <div className="flex min-h-0 flex-1 items-center justify-center gap-2 p-10 text-sm text-slate-500">
                       <Loader2 size={18} className="animate-spin text-emerald-600" />
                       {appliedPipelineRunning
                         ? 'Running AI applied matching…'
                         : 'Loading job-linked candidates…'}
                     </div>
                   ) : jobTableCandidates.length === 0 ? (
-                    <div className="p-8 text-center">
+                    <div className="flex min-h-0 flex-1 flex-col items-center justify-center p-8 text-center">
                       <Users size={32} className="mx-auto mb-3 text-slate-300" />
                       <p className="text-sm text-slate-500">
                         No candidates applied, assigned, or in the pipeline for this job yet.
@@ -3478,7 +3472,7 @@ export function JobDetailsDrawer({
                       ) : null}
                     </div>
                   ) : filteredJobTableCandidates.length === 0 ? (
-                    <div className="p-8 text-center">
+                    <div className="flex min-h-0 flex-1 flex-col items-center justify-center p-8 text-center">
                       <Search size={28} className="mx-auto mb-3 text-slate-300" />
                       <p className="text-sm text-slate-500">
                         No candidates match “{jobCandidatesSearch.trim()}”.
@@ -3493,9 +3487,12 @@ export function JobDetailsDrawer({
                     </div>
                   ) : (
                     <>
+                    <div className={PH2_TABLE_BODY_SCROLL_CLASS}>
                     <CandidateTable
                         candidates={pagedJobTableCandidates}
                         showMatchScore={showMatchScores}
+                        compact
+                        fillScrollParent
                         selectedIds={selectedCandidateIds}
                         onToggleSelect={(id) =>
                           setSelectedCandidateIds((prev) =>
@@ -3533,6 +3530,7 @@ export function JobDetailsDrawer({
                         deletingCandidateId={deletingCandidateId}
                         isColumnVisible={candidateColumnVisibility.isVisible}
                       />
+                    </div>
                     <div className={PH2_TABLE_CARD_FOOTER_CLASS}>
                       <PaginationAll
                         initialPage={safeCandidatesPage}
@@ -3551,8 +3549,10 @@ export function JobDetailsDrawer({
                     </div>
                     </>
                   )}
-                </DrawerSectionCard>
+                </div>
+                </div>
                   ) : job ? (
+                <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
                 <JobDrawerAiMatchesTab
                   job={job}
                   aiMatchCandidates={aiMatchCandidates}
@@ -3637,9 +3637,27 @@ export function JobDetailsDrawer({
                     />
                   }
                 />
+                </div>
                   ) : null}
+            </div>
+            ) : (
+            <div className={`flex-1 overflow-y-auto ${DRAWER_FORM_SCROLL_BG}`}>
+              <div className="space-y-5 p-5 sm:p-6">
+              {activeTab === 'overview' && job && (
+                <div className="space-y-5">
+                  <EntityWorkspaceAlertsPanel
+                    entityType="JOB"
+                    entityId={job.id}
+                    entityLabel={job.title || 'Job'}
+                  />
+                  <JobOverviewTabContent job={job} />
                 </div>
               )}
+
+              {activeTab === 'assessments' && job && (
+                <JobAssessmentsTabContent job={job} />
+              )}
+
               {activeTab === 'client' && (
                 <DrawerSectionCard
                   title="Client"
@@ -4576,9 +4594,10 @@ export function JobDetailsDrawer({
               ) : null}
               </div>
             </div>
+            )}
 
             {/* Footer */}
-            <div className="flex shrink-0 flex-wrap items-center justify-end gap-3 border-t border-indigo-100/50 bg-gradient-to-r from-white via-slate-50/80 to-indigo-50/30 px-5 py-4 sm:px-6">
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-indigo-100/50 bg-gradient-to-r from-white via-slate-50/80 to-indigo-50/30 px-4 py-2.5 sm:px-5">
               {onEdit && (
                 <button
                   type="button"

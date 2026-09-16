@@ -574,6 +574,13 @@ export async function getAssignmentRules(params: {
   return json.data as AssignmentRulesPayload;
 }
 
+export const ASSIGNMENT_RULES_EVENT = 'hrayntra:assignment-rules-changed';
+
+export function notifyAssignmentRulesChanged() {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(ASSIGNMENT_RULES_EVENT));
+}
+
 export async function saveAssignmentRules(payload: {
   module: string;
   assignorUserId: string;
@@ -593,6 +600,7 @@ export async function saveAssignmentRules(payload: {
   if (!res.ok || json?.success === false) {
     throwTeamApiError(json, res);
   }
+  notifyAssignmentRulesChanged();
   return json.data as AssignmentRulesPayload;
 }
 

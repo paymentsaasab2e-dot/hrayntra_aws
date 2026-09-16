@@ -26,8 +26,16 @@ import {
   sendInterviewCancelled,
   sendInterviewRescheduled,
   sendInterviewScheduled,
+  sendInterviewProposalRejected,
 } from './notificationService.js';
 import { INTERVIEW_ACTIVITY_ACTIONS, logActivity } from '../utils/activityLogger.js';
+import {
+  appendInterviewNote,
+  buildClearedRsvp,
+  formatProposedAtLabel,
+  parseInterviewRescheduleProposal,
+  updateInterviewWithRsvp,
+} from '../utils/interviewRescheduleProposal.util.js';
 import { prepareListWithAuditMeta, attachAuditMetaToEntity } from '../utils/listAuditMeta.js';
 import { filterInterviewUserRowsForViewer } from './activityVisibility.service.js';
 import { ENTITY_TYPES } from './activityService.js';
@@ -50,8 +58,10 @@ import {
 import {
   candidateFromTenantDbForClientReview,
   buildDirectClientReviewPresentation,
+  buildTenantClientReviewPersistPatch,
   resolveClientReviewVisibleFields,
 } from '../utils/clientPresentationDraft.js';
+import { fetchCandidateCommonByCandidateId } from './candidateCommon/candidateCommonPool.service.js';
 import { assertNoInterviewerScheduleConflicts } from '../utils/interviewConflict.util.js';
 import {
   buildClientReviewSectionsFromPresentation,
@@ -101,23 +111,40 @@ const interviewInclude = {
       phone: true,
       location: true,
       currentCompany: true,
+      currentTitle: true,
       designation: true,
       resume: true,
+      resumeUrl: true,
       skills: true,
       experience: true,
       noticePeriod: true,
+      availability: true,
       linkedIn: true,
       avatar: true,
       cvSummary: true,
       cvEducationEntries: true,
       cvWorkExperienceEntries: true,
+      cvPortfolioLinks: true,
       extraData: true,
       education: true,
+      recruiterEducation: true,
       languages: true,
       certifications: true,
+      certificationsList: true,
       address: true,
+      addressLine: true,
       city: true,
       country: true,
+      preferredLocation: true,
+      expectedSalary: true,
+      currentSalary: true,
+      salary: true,
+      portfolio: true,
+      website: true,
+      notes: true,
+      recruiterNotes: true,
+      recruiterSkills: true,
+      recruiterLanguages: true,
     },
   },
   job: {
@@ -1289,6 +1316,168 @@ async function buildSyntheticInterviewFromMatch(match) {
   };
 }
 
+function isFilledClientReviewValue(value) {
+  if (value === undefined || value === null) return false;
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === 'string') return value.trim().length > 0;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (typeof value === 'boolean') return true;
+  if (typeof value === 'object') return Object.keys(value).length > 0;
+  return Boolean(value);
+}
+
+function pickFilledClientReviewValue(preferred, fallback) {
+  return isFilledClientReviewValue(preferred) ? preferred : fallback;
+}
+
+function mergeClientReviewPipeline(tenantPipe, commonPipe) {
+  const tenant =
+    tenantPipe && typeof tenantPipe === 'object' && !Array.isArray(tenantPipe) ? tenantPipe : {};
+  const common =
+    commonPipe && typeof commonPipe === 'object' && !Array.isArray(commonPipe) ? commonPipe : {};
+  if (!Object.keys(tenant).length) return Object.keys(common).length ? common : tenantPipe;
+  if (!Object.keys(common).length) return tenantPipe;
+  const merged = { ...common, ...tenant };
+  for (const key of Object.keys(common)) {
+    const tenantSection = tenant[key];
+    const commonSection = common[key];
+    if (
+      tenantSection &&
+      typeof tenantSection === 'object' &&
+      !Array.isArray(tenantSection) &&
+      commonSection &&
+      typeof commonSection === 'object' &&
+      !Array.isArray(commonSection)
+    ) {
+      const section = { ...commonSection, ...tenantSection };
+      for (const field of Object.keys(commonSection)) {
+        if (
+          !isFilledClientReviewValue(section[field]) &&
+          isFilledClientReviewValue(commonSection[field])
+        ) {
+          section[field] = commonSection[field];
+        }
+      }
+      merged[key] = section;
+    } else if (!isFilledClientReviewValue(tenantSection) && isFilledClientReviewValue(commonSection)) {
+      merged[key] = commonSection;
+    }
+  }
+  return merged;
+}
+
+async function hydrateCandidateForPublicClientReview(candidate) {
+  if (!candidate?.id) return candidate;
+  let next = { ...candidate };
+  const extra =
+    next.extraData && typeof next.extraData === 'object' && !Array.isArray(next.extraData)
+      ? { ...next.extraData }
+      : {};
+
+  try {
+    const common = await fetchCandidateCommonByCandidateId(next.id, { requireVerified: false });
+    if (common) {
+      const commonExtra =
+        common.extraData && typeof common.extraData === 'object' && !Array.isArray(common.extraData)
+          ? common.extraData
+          : {};
+      next = {
+        ...next,
+        firstName: pickFilledClientReviewValue(next.firstName, common.firstName),
+        lastName: pickFilledClientReviewValue(next.lastName, common.lastName),
+        email: pickFilledClientReviewValue(next.email, common.email),
+        phone: pickFilledClientReviewValue(next.phone, common.phone),
+        city: pickFilledClientReviewValue(next.city, common.city),
+        country: pickFilledClientReviewValue(next.country, common.country),
+        address: pickFilledClientReviewValue(next.address || next.addressLine, common.address),
+        location: pickFilledClientReviewValue(next.location, common.location),
+        currentCompany: pickFilledClientReviewValue(next.currentCompany, common.currentCompany),
+        currentTitle: pickFilledClientReviewValue(
+          next.currentTitle || next.designation,
+          common.currentTitle || common.designation,
+        ),
+        designation: pickFilledClientReviewValue(
+          next.designation || next.currentTitle,
+          common.designation || common.currentTitle,
+        ),
+        experience: pickFilledClientReviewValue(next.experience, common.experience),
+        cvSummary: pickFilledClientReviewValue(next.cvSummary, common.cvSummary),
+        skills: pickFilledClientReviewValue(next.skills, common.skills),
+        languages: pickFilledClientReviewValue(next.languages, common.languages || common.recruiterLanguages),
+        linkedIn: pickFilledClientReviewValue(next.linkedIn, common.linkedIn),
+        website: pickFilledClientReviewValue(next.website, common.website),
+        portfolio: pickFilledClientReviewValue(next.portfolio, common.portfolio),
+        noticePeriod: pickFilledClientReviewValue(next.noticePeriod, common.noticePeriod),
+        availability: pickFilledClientReviewValue(next.availability, common.availability),
+        cvEducationEntries: pickFilledClientReviewValue(next.cvEducationEntries, common.cvEducationEntries),
+        cvWorkExperienceEntries: pickFilledClientReviewValue(
+          next.cvWorkExperienceEntries,
+          common.cvWorkExperienceEntries,
+        ),
+        cvPortfolioLinks: pickFilledClientReviewValue(next.cvPortfolioLinks, common.cvPortfolioLinks),
+        certifications: pickFilledClientReviewValue(next.certifications, common.certifications),
+        resume: pickFilledClientReviewValue(next.resume || next.resumeUrl, common.resume || common.resumeUrl),
+        resumeUrl: pickFilledClientReviewValue(next.resumeUrl || next.resume, common.resumeUrl || common.resume),
+        careerPreferences: pickFilledClientReviewValue(next.careerPreferences, common.careerPreferences),
+        profileSnapshot: pickFilledClientReviewValue(next.profileSnapshot, common.profileSnapshot),
+        extraData: {
+          ...commonExtra,
+          ...extra,
+          pipeline: mergeClientReviewPipeline(extra.pipeline, commonExtra.pipeline),
+          careerPreferences: isFilledClientReviewValue(extra.careerPreferences)
+            ? extra.careerPreferences
+            : common.careerPreferences || commonExtra.careerPreferences || extra.careerPreferences,
+          phase1ProfileSnapshot:
+            extra.phase1ProfileSnapshot && Object.keys(extra.phase1ProfileSnapshot).length
+              ? extra.phase1ProfileSnapshot
+              : commonExtra.phase1ProfileSnapshot || common.profileSnapshot || extra.phase1ProfileSnapshot,
+        },
+      };
+    }
+  } catch (error) {
+    console.warn(
+      '[client-review] common-pool hydrate failed',
+      candidate.id,
+      error?.message || error,
+    );
+  }
+
+  if (!next.extraData?.phase1ProfileSnapshot && extra.phase1ProfileSnapshot) {
+    next.extraData = { ...extra, phase1ProfileSnapshot: extra.phase1ProfileSnapshot };
+  }
+
+  return next;
+}
+
+async function loadFullTenantCandidateForClientReview(partial) {
+  if (!partial?.id) return partial;
+  try {
+    const full = await prisma.candidate.findUnique({ where: { id: String(partial.id) } });
+    if (full && full.isDeleted !== true) return full;
+  } catch (error) {
+    console.warn('[client-review] full tenant load failed', partial.id, error?.message || error);
+  }
+  return partial;
+}
+
+async function persistMissingClientReviewProfileToTenant(original, hydrated) {
+  if (!original?.id || !hydrated) return;
+  const patch = buildTenantClientReviewPersistPatch(original, hydrated);
+  if (!patch) return;
+  try {
+    await prisma.candidate.update({
+      where: { id: String(original.id) },
+      data: patch,
+    });
+  } catch (error) {
+    console.warn(
+      '[client-review] persist tenant profile failed',
+      original.id,
+      error?.message || error,
+    );
+  }
+}
+
 async function serializeInterviewForClientReview(
   interview,
   {
@@ -1305,9 +1494,11 @@ async function serializeInterviewForClientReview(
     liveVisibleFields = undefined,
   } = {},
 ) {
-  const cRaw = interview.candidate;
-  // Public review always uses the tenant candidate record (not curated presentation overlay).
+  const tenantRow = await loadFullTenantCandidateForClientReview(interview.candidate);
+  const cRaw = await hydrateCandidateForPublicClientReview(tenantRow);
+  // Public review uses the live tenant + Phase 1 snapshot, not a sparse saved overlay.
   const c = candidateFromTenantDbForClientReview(cRaw);
+  await persistMissingClientReviewProfileToTenant(tenantRow, c);
   const submissionSnapshot = readCandidateCvSubmissionSnapshot(cRaw);
   const jobTitle = interview.job?.title || '';
 
@@ -2041,12 +2232,16 @@ export const interviewService = {
       excludeInterviewId: id,
     });
 
-    let updated = await prisma.interview.update({
-      where: { id },
+    let updated = await updateInterviewWithRsvp(prisma, {
+      id,
       data: {
         scheduledAt: nextDate,
         status: 'RESCHEDULED',
-        notes: payload.reason || current.notes,
+        notes: appendInterviewNote(
+          payload.reason || current.notes,
+          `Recruiter reproposed interview time on ${new Date().toISOString()}`,
+        ),
+        rsvp: buildClearedRsvp('REPROPOSED'),
       },
       include: interviewInclude,
     });
@@ -2137,6 +2332,141 @@ export const interviewService = {
       ...updated,
       meetingLinkError,
     };
+  },
+
+  async acceptCandidateProposal(id, user) {
+    const current = await getInterviewOrThrow(id);
+    const proposal = parseInterviewRescheduleProposal(current);
+    if (!proposal?.at) {
+      throw Object.assign(new Error('This candidate has not proposed a new time'), { statusCode: 400 });
+    }
+    const nextDate = new Date(proposal.at);
+    if (Number.isNaN(nextDate.getTime())) {
+      throw Object.assign(new Error('The proposed time is invalid'), { statusCode: 400 });
+    }
+
+    const panelIds =
+      current.panelIds?.length
+        ? current.panelIds
+        : (current.panel || []).map((member) => member.userId || member.user?.id).filter(Boolean);
+
+    await assertNoInterviewerScheduleConflicts(prisma, {
+      interviewerIds: panelIds.length ? panelIds : [current.interviewerId].filter(Boolean),
+      scheduledAt: nextDate,
+      durationMinutes: current.duration,
+      excludeInterviewId: id,
+    });
+
+    const label = formatProposedAtLabel(proposal.at, proposal.timezone || current.timezone);
+    let updated = await updateInterviewWithRsvp(prisma, {
+      id,
+      data: {
+        scheduledAt: nextDate,
+        timezone: proposal.timezone || current.timezone,
+        status: 'CONFIRMED',
+        notes: appendInterviewNote(
+          current.notes,
+          `Recruiter accepted candidate proposed time ${label || proposal.at} on ${new Date().toISOString()}`,
+        ),
+        rsvp: buildClearedRsvp('ACCEPTED'),
+      },
+      include: interviewInclude,
+    });
+
+    let meetingLinkError = null;
+    if (isOnlineInterviewMode(updated.mode) && updated.platform) {
+      const meetingResult = await attachMeetingLink(updated, updated.platform);
+      updated = meetingResult.interview;
+      meetingLinkError = meetingResult.meetingLinkError;
+    }
+
+    await logActivity(prisma, {
+      interviewId: id,
+      action: INTERVIEW_ACTIVITY_ACTIONS.PROPOSAL_ACCEPTED,
+      userId: user.id,
+      metadata: {
+        oldDate: current.scheduledAt,
+        newDate: nextDate,
+        proposedAt: proposal.at,
+      },
+    });
+
+    try {
+      await sendInterviewRescheduled(
+        updated.candidate,
+        {
+          ...updated,
+          notes: `Your proposed time was accepted. The interview is now scheduled for ${label || proposal.at}.`,
+        },
+        current.scheduledAt,
+        updated.panel,
+        {
+          notifyCandidate: true,
+          notifyInterviewer: true,
+          includeRsvp: false,
+        },
+      );
+    } catch (mailErr) {
+      console.warn('[interview.acceptCandidateProposal] mail failed:', mailErr?.message || mailErr);
+    }
+
+    try {
+      await updateCandidateStage({
+        candidateId: updated.candidateId,
+        jobId: updated.jobId,
+        stage: PIPELINE_STAGES.INTERVIEW,
+        performedById: user.id,
+        skipStageActivity: true,
+        metadata: {
+          source: 'interview-proposal-accepted',
+          scheduledAt: nextDate.toISOString(),
+        },
+      });
+    } catch (stageErr) {
+      console.warn('[interview.acceptCandidateProposal] stage sync failed:', stageErr?.message || stageErr);
+    }
+
+    return { ...updated, meetingLinkError };
+  },
+
+  async rejectCandidateProposal(id, payload, user) {
+    const current = await getInterviewOrThrow(id);
+    const proposal = parseInterviewRescheduleProposal(current);
+    if (!proposal?.at) {
+      throw Object.assign(new Error('This candidate has not proposed a new time'), { statusCode: 400 });
+    }
+    const reason = String(payload?.reason || '').trim();
+    const updated = await updateInterviewWithRsvp(prisma, {
+      id,
+      data: {
+        notes: appendInterviewNote(
+          current.notes,
+          `Recruiter rejected candidate proposed time on ${new Date().toISOString()}${
+            reason ? `: ${reason}` : ''
+          }`,
+        ),
+        rsvp: buildClearedRsvp('REJECTED'),
+      },
+      include: interviewInclude,
+    });
+
+    await logActivity(prisma, {
+      interviewId: id,
+      action: INTERVIEW_ACTIVITY_ACTIONS.PROPOSAL_REJECTED,
+      userId: user.id,
+      metadata: { proposedAt: proposal.at, reason },
+    });
+
+    try {
+      await sendInterviewProposalRejected(updated.candidate, updated, {
+        proposedAt: proposal.at,
+        reason,
+      });
+    } catch (mailErr) {
+      console.warn('[interview.rejectCandidateProposal] mail failed:', mailErr?.message || mailErr);
+    }
+
+    return updated;
   },
 
   async cancel(id, payload, user) {

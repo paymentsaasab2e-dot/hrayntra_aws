@@ -13,6 +13,8 @@ import {
   apiMarkInterviewNoShow,
   apiRemoveInterviewPanelMember,
   apiRescheduleInterview,
+  apiAcceptInterviewProposal,
+  apiRejectInterviewProposal,
   emitNotificationsUpdated,
   apiUpdateInterview,
   apiSubmitInterviewFeedback,
@@ -52,7 +54,7 @@ import { buildInterviewsListApiParams } from '../lib/smart-search/entitySmartSea
 import { extractAuditMeta } from '../utils/auditMeta';
 import type { AuditMeta } from '../types/audit';
 import { resolveCandidateDisplayName } from '../lib/mapCandidateProfile';
-import { enrichBackendCandidateFromPhase1Snapshot } from '../lib/phase1ProfileSnapshot';
+import { parseInterviewCandidateProposal } from '../lib/interviewRescheduleProposal';
 
 const defaultFilters: InterviewFiltersState = {
   date: 'This Week',
@@ -246,6 +248,7 @@ export const mapBackendInterviewToUi = (item: BackendInterviewListItem): Intervi
     feedbackStatus: feedbackStatusMap(item),
     createdBy: item?.createdBy?.name || 'Unknown User',
     notes: item?.notes || '',
+    candidateProposal: parseInterviewCandidateProposal(item),
     panel: panelRows
       .filter((member) => member && (member.user || member.id))
       .map((member) => {
@@ -491,7 +494,13 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
       const settled = await Promise.allSettled([
         apiGetCandidates({ limit: 100 }),
         apiGetJobs({ page: 1, ...MY_JOBS_LIST_PARAMS }),
-        apiGetUsers({ assignable: true, isActive: true, limit: 100, companyId: getActiveOrgUnitId() || undefined }),
+        apiGetUsers({
+          assignable: true,
+          isActive: true,
+          limit: 200,
+          module: 'Interviews',
+          companyId: getActiveOrgUnitId() || undefined,
+        }),
         apiGetInterviews({ limit: 500 }),
       ]);
 
@@ -743,6 +752,40 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
         await fetchInterviews();
       } catch (mutationError: any) {
         const message = mutationError.message || 'Unable to reschedule interview';
+        setError(message);
+        setToast(message);
+        throw mutationError;
+      }
+    },
+    [fetchInterviews]
+  );
+
+  const acceptInterviewProposal = useCallback(
+    async (interviewId: string) => {
+      try {
+        await apiAcceptInterviewProposal(interviewId);
+        setToast('Proposed time accepted — interview scheduled');
+        emitNotificationsUpdated();
+        await fetchInterviews();
+      } catch (mutationError: any) {
+        const message = mutationError.message || 'Unable to accept proposed time';
+        setError(message);
+        setToast(message);
+        throw mutationError;
+      }
+    },
+    [fetchInterviews]
+  );
+
+  const rejectInterviewProposal = useCallback(
+    async (interviewId: string, reason?: string) => {
+      try {
+        await apiRejectInterviewProposal(interviewId, { reason });
+        setToast('Proposed time rejected — original schedule kept');
+        emitNotificationsUpdated();
+        await fetchInterviews();
+      } catch (mutationError: any) {
+        const message = mutationError.message || 'Unable to reject proposed time';
         setError(message);
         setToast(message);
         throw mutationError;
@@ -1062,6 +1105,8 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
     interviewRoundById,
     scheduleInterview,
     rescheduleInterview,
+    acceptInterviewProposal,
+    rejectInterviewProposal,
     updateInterview,
     cancelInterview,
     deleteInterview,

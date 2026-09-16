@@ -196,6 +196,40 @@ const NON_NAME_WORD_PARTS = new Set([
   'management',
   'unknown',
   'candidate',
+  'telephone',
+  'number',
+  'title',
+  'email',
+  'tel',
+  'age',
+  'null',
+  'bio',
+  'road',
+  'airport',
+  'objectifs',
+  'projet',
+  'impactantes',
+  'stratégies',
+  'strategies',
+  'profitability',
+  'shipment',
+  'scheduling',
+  'willingness',
+  'profound',
+  'interdisciplinary',
+  'educational',
+  'background',
+  'upper',
+  'intermediate',
+  'ability',
+  'trans',
+  'sales',
+  'problem',
+  'solving',
+  'implementing',
+  'enhance',
+  'optimized',
+  'copy',
 ]);
 
 /** Common place / geo tokens that look like 2-word "names" (e.g. Lusaka Zambia). */
@@ -276,6 +310,14 @@ const LOCATION_NAME_STOPWORDS = new Set([
   'states',
   'emirates',
   'republic',
+  'tamil',
+  'nadu',
+  'ambala',
+  'gujarat',
+  'ahmedabad',
+  'nigeria',
+  'uganda',
+  'india',
 ]);
 
 const FALLBACK_SKILL_KEYWORDS = [
@@ -850,6 +892,36 @@ const RESUME_TITLE_STOPWORDS = new Set([
   'professionnelle',
   'opsmanager',
   'consulting',
+  'senior',
+  'junior',
+  'leader',
+  'assistant',
+  'superintendent',
+  'controller',
+  'customer',
+  'service',
+  'quality',
+  'environment',
+  'standards',
+  'training',
+  'fmcg',
+  'accounting',
+  'equipment',
+  'reliability',
+  'performance',
+  'leadership',
+  'expert',
+  'technique',
+  'ingénieur',
+  'ingenieur',
+  'electricité',
+  'electricite',
+  'audit',
+  'gestion',
+  'comptabilité',
+  'comptabilite',
+  'contrôle',
+  'controle',
 ]);
 
 const NAME_PARTICLES = new Set([
@@ -893,6 +965,18 @@ const GARBAGE_NAME_CONNECTORS = new Set([
   'years',
   'year',
   'time',
+  'et',
+  'en',
+  'to',
+  'in',
+  'les',
+  'aux',
+  'avec',
+  'pour',
+  'une',
+  'through',
+  'towards',
+  'toward',
 ]);
 
 function normNameToken(part = '') {
@@ -965,7 +1049,10 @@ export function looksLikePersonName(value = '') {
     return false;
   }
 
-  const contentParts = lowerParts.filter((part) => !NAME_PARTICLES.has(part));
+  const contentParts = lowerParts.filter((part, index) => {
+    if (!NAME_PARTICLES.has(part)) return true;
+    return index === lowerParts.length - 1;
+  });
   if (contentParts.length < 2) return false;
 
   const capitalized = parts.filter((part) => {
@@ -978,6 +1065,9 @@ export function looksLikePersonName(value = '') {
   return parts.every((part) => {
     const lower = part.toLowerCase();
     if (NAME_PARTICLES.has(lower)) return true;
+    if (/^[A-Za-zÀ-ÿ]\.$/.test(part)) return true;
+    if (/^[A-Za-zÀ-ÿ]$/.test(part)) return false;
+    if (part.length > 2 && /\.$/.test(part)) return false;
     return /^[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ.'-]*$/.test(part);
   });
 }
@@ -1011,6 +1101,30 @@ export function candidateNameNeedsRepair(firstName = '', lastName = '') {
   return true;
 }
 
+const NAME_TRAILING_JUNK =
+  /^(?:email|e-?mail|tel|t[eé]l[eé]phone|title|age|cv|vitae|ecv|pdf|docx?)$/i;
+
+/** Strip CV-header junk and keep only a plausible person name. */
+export function sanitizeExtractedPersonName(firstName = '', lastName = '') {
+  const stripped = `${String(firstName || '')} ${String(lastName || '')}`
+    .replace(/\b(?:email|e-?mail|tel|t[eé]l[eé]phone|title|age|cv|vitae|ecv|pdf|docx?)\b/gi, ' ')
+    .replace(/\bcopy\s*\d*\b/gi, ' ')
+    .replace(/[.]{2,}/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const parts = collapseRepeatedNameTokens(
+    stripped
+      .split(' ')
+      .map((part) => String(part || '').trim().replace(/^\(+|\)+$/g, ''))
+      .filter(Boolean)
+      .filter((part) => !NAME_TRAILING_JUNK.test(part.replace(/\.$/, ''))),
+  ).filter((part) => /^[A-Za-zÀ-ÿ]\.$/.test(part) || !(part.length > 2 && /\.$/.test(part)));
+  const titled = titleCaseNameParts(parts);
+  const full = titled.join(' ');
+  if (!looksLikePersonName(full)) return { firstName: '', lastName: '' };
+  return { firstName: titled[0], lastName: titled.slice(1).join(' ') };
+}
+
 function splitNameCandidate(value = '') {
   const cleaned = String(value || '')
     .replace(/[_-]+/g, ' ')
@@ -1035,7 +1149,7 @@ function splitNameCandidate(value = '') {
 function extractLabeledResumeName(text = '') {
   const primary = extractPrimaryResumeBlock(text);
   const labeled = primary.match(
-    /(?:full\s*name|candidate\s*name|nom\s+complet|nom\s+et\s+pr[eé]nom|pr[eé]noms?(?:\s+et\s+nom)?|name|nom)\s*[:\-]\s*([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ.'\-\s]{2,80})/i,
+    /(?:full\s*name|candidate\s*name|nom\s+complet|nom\s+et\s+pr[eé]nom|pr[eé]noms?(?:\s+et\s+nom)?|name|nom)\s*[:\-]\s*([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ.'\- ]{2,80})/i,
   );
   if (!labeled?.[1]) return { firstName: '', lastName: '' };
   return splitNameCandidate(labeled[1]);

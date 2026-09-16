@@ -115,6 +115,14 @@ export interface Interview {
   activityLog: InterviewActivity[];
   recording?: InterviewRecording | null;
   auditMeta?: AuditMeta;
+  candidateProposal?: {
+    at: string;
+    timezone: string;
+    note: string;
+    date: string;
+    time: string;
+    label: string;
+  } | null;
 }
 
 export interface InterviewFiltersState {

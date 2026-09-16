@@ -47,6 +47,9 @@ interface InterviewDrawerProps {
   onScheduleNextRound?: () => void;
   onAddNote?: (text: string) => Promise<void>;
   onAction?: (action: InterviewAction) => void;
+  onAcceptProposal?: (interview: Interview) => void;
+  onRejectProposal?: (interview: Interview) => void;
+  onReproposeInterview?: (interview: Interview) => void;
   zIndexClass?: string;
 }
 
@@ -73,6 +76,9 @@ export function InterviewDrawer({
   onScheduleNextRound,
   onAddNote,
   onAction,
+  onAcceptProposal,
+  onRejectProposal,
+  onReproposeInterview,
   zIndexClass = 'z-[100]',
 }: InterviewDrawerProps) {
   usePageDrawerLifecycle(isOpen);
@@ -263,7 +269,12 @@ export function InterviewDrawer({
                       />
                     </>
                   ) : null}
-                  <DrawerOverviewTab interview={interview} />
+                  <DrawerOverviewTab
+                    interview={interview}
+                    onAcceptProposal={onAcceptProposal}
+                    onRejectProposal={onRejectProposal}
+                    onReproposeInterview={onReproposeInterview}
+                  />
                 </div>
               ) : null}
               {activeTab === 'panel' && onOpenPanelAssignment ? (

@@ -297,7 +297,7 @@ export default function RepairBadNamesDrawer({ isOpen, onClose, onApplied }: Pro
                   Fix candidate names
                 </h2>
                 <p className="mt-0.5 text-sm text-slate-500">
-                  Recheck bad names from stored CVs. Insufficient names are re-parsed with OpenAI, then you can save.
+                  Recheck bad names from stored CVs. Each name is parsed with OpenAI from the CV, then you can save.
                 </p>
               </div>
             </div>
@@ -369,7 +369,7 @@ export default function RepairBadNamesDrawer({ isOpen, onClose, onApplied }: Pro
                 <p className="text-sm font-semibold text-slate-800">No name fixes yet</p>
                 <p className="mt-1 max-w-sm text-xs text-slate-500">
                   Click <span className="font-semibold text-slate-700">Recheck</span> to scan
-                  candidates and list which names will change. Use Clear to empty this list again.
+                  candidates. OpenAI reads each stored CV and lists the real person name to save.
                 </p>
               </div>
             ) : (

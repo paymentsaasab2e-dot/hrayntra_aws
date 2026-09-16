@@ -33,16 +33,23 @@ export function formatAssigneeOptionLabel(
   user: AssigneeNameSource | null | undefined,
   currentUserId: string | null | undefined = getStoredCurrentUserId(),
 ): string {
-  const name = formatAssigneeDisplayName(user) || String(user?.name || '').trim() || 'Member';
+  const name = formatAssigneeDisplayName(user) || stripAssigneeCompanySuffix(String(user?.name || '').trim()) || 'Member';
   return isCurrentAssignee(user?.id, currentUserId) ? `${name} (You)` : name;
+}
+
+/** Backend labels mixed-company lists as `Name · Org`. Interviewers should not show that suffix. */
+export function stripAssigneeCompanySuffix(label: string): string {
+  return String(label || '')
+    .replace(/\s+·\s+[^\n]+$/u, '')
+    .trim();
 }
 
 /** Team member label for Assign To — never a raw Mongo id. */
 export function formatAssigneeDisplayName(user: AssigneeNameSource | null | undefined): string {
   if (!user) return '';
   const id = String(user.id || '').trim();
-  const full = `${user.firstName || ''} ${user.lastName || ''}`.trim();
-  const named = String(user.name || '').trim();
+  const full = stripAssigneeCompanySuffix(`${user.firstName || ''} ${user.lastName || ''}`.trim());
+  const named = stripAssigneeCompanySuffix(String(user.name || '').trim());
   const email = String(user.email || '').trim();
   const pick = full || named || email;
   if (!pick) return '';

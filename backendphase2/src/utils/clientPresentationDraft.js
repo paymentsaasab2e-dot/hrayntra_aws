@@ -13,7 +13,11 @@ function parseExtra(extraData) {
 function isNonEmptyValue(value) {
   if (value === undefined || value === null) return false;
   if (Array.isArray(value)) return value.length > 0;
-  if (typeof value === 'string') return value.trim().length > 0;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed || trimmed === '[]' || trimmed === '{}' || trimmed === 'null') return false;
+    return true;
+  }
   if (typeof value === 'number') return Number.isFinite(value);
   if (typeof value === 'boolean') return true;
   if (typeof value === 'object') return Object.keys(value).length > 0;
@@ -36,6 +40,112 @@ function asStringArray(value) {
       .filter(Boolean);
   }
   return [];
+}
+
+function formatPrefValue(value) {
+  if (Array.isArray(value)) return asStringArray(value).join(', ');
+  if (value && typeof value === 'object') {
+    try {
+      const parts = Object.values(value)
+        .map((item) => String(item || '').trim())
+        .filter(Boolean);
+      if (parts.length) return parts.join(', ');
+    } catch {
+      /* ignore */
+    }
+  }
+  return isNonEmptyValue(value) ? String(value).trim() : '';
+}
+
+function snapshotFillScore(snapshot) {
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return 0;
+  let score = 0;
+  const personal = snapshot.personalInfo;
+  if (personal && typeof personal === 'object' && !Array.isArray(personal)) {
+    score += Object.values(personal).filter((item) => isNonEmptyValue(item)).length;
+  }
+  const listKeys = [
+    'workExperience',
+    'education',
+    'certifications',
+    'internships',
+    'gapExplanations',
+    'academicAchievements',
+    'competitiveExams',
+    'projects',
+    'accomplishments',
+    'skills',
+    'languages',
+    'portfolioLinks',
+  ];
+  for (const key of listKeys) {
+    if (Array.isArray(snapshot[key]) && snapshot[key].length) score += snapshot[key].length * 2;
+  }
+  if (isNonEmptyValue(snapshot.summaryText)) score += 2;
+  if (snapshot.careerPreferences && typeof snapshot.careerPreferences === 'object') {
+    score += Object.values(snapshot.careerPreferences).filter((item) => isNonEmptyValue(item)).length;
+  }
+  if (snapshot.visaWorkAuthorization && typeof snapshot.visaWorkAuthorization === 'object') score += 1;
+  if (snapshot.vaccination && typeof snapshot.vaccination === 'object') score += 1;
+  if (snapshot.resume && typeof snapshot.resume === 'object') score += 1;
+  return score;
+}
+
+function mergePhase1Snapshots(primary, secondary) {
+  const a = primary && typeof primary === 'object' && !Array.isArray(primary) ? primary : null;
+  const b = secondary && typeof secondary === 'object' && !Array.isArray(secondary) ? secondary : null;
+  if (!a) return b;
+  if (!b) return a;
+  const merged = { ...b, ...a };
+  const personalA = a.personalInfo && typeof a.personalInfo === 'object' ? a.personalInfo : {};
+  const personalB = b.personalInfo && typeof b.personalInfo === 'object' ? b.personalInfo : {};
+  merged.personalInfo = { ...personalB, ...personalA };
+  for (const key of Object.keys(personalB)) {
+    if (!isNonEmptyValue(merged.personalInfo[key]) && isNonEmptyValue(personalB[key])) {
+      merged.personalInfo[key] = personalB[key];
+    }
+  }
+  const listKeys = [
+    'workExperience',
+    'education',
+    'certifications',
+    'internships',
+    'gapExplanations',
+    'academicAchievements',
+    'competitiveExams',
+    'projects',
+    'accomplishments',
+    'skills',
+    'languages',
+    'portfolioLinks',
+  ];
+  for (const key of listKeys) {
+    const fromA = Array.isArray(a[key]) ? a[key] : [];
+    const fromB = Array.isArray(b[key]) ? b[key] : [];
+    merged[key] = fromA.length >= fromB.length ? fromA : fromB;
+  }
+  merged.summaryText = pickPreferred(a.summaryText, b.summaryText);
+  merged.careerPreferences = pickPreferred(a.careerPreferences, b.careerPreferences);
+  merged.visaWorkAuthorization = pickPreferred(a.visaWorkAuthorization, b.visaWorkAuthorization);
+  merged.vaccination = pickPreferred(a.vaccination, b.vaccination);
+  merged.resume = pickPreferred(a.resume, b.resume);
+  return merged;
+}
+
+/** Live Phase 1 profile wins over a sparse snapshot saved at submit time. */
+export function resolveLivePhase1Snapshot(candidate) {
+  const extra = parseExtra(candidate?.extraData);
+  const live = extra.phase1ProfileSnapshot;
+  const profileSnap =
+    candidate?.profileSnapshot && typeof candidate.profileSnapshot === 'object'
+      ? candidate.profileSnapshot
+      : null;
+  const saved = readClientPresentation(extra)?.phase1Snapshot;
+  const ranked = [live, profileSnap, saved]
+    .filter((item) => item && typeof item === 'object' && !Array.isArray(item))
+    .sort((left, right) => snapshotFillScore(right) - snapshotFillScore(left));
+  if (!ranked.length) return null;
+  return ranked.slice(1).reduce((acc, item) => mergePhase1Snapshots(acc, item), ranked[0]);
 }
 
 function mapPhase1EducationEntries(snapshot) {
@@ -197,18 +307,13 @@ export function mergeCandidateWithClientPresentation(candidate) {
  */
 export function hydrateCandidateForClientReview(candidate) {
   if (!candidate) return candidate;
-  let next = mergeCandidateWithClientPresentation(candidate);
+  let next = applyTenantStoredProfile(mergeCandidateWithClientPresentation(candidate));
   const saved = readClientPresentation(candidate.extraData);
   const editForm =
     saved?.editForm && typeof saved.editForm === 'object' && !Array.isArray(saved.editForm)
       ? saved.editForm
       : null;
-  const phase1 =
-    saved?.phase1Snapshot &&
-    typeof saved.phase1Snapshot === 'object' &&
-    !Array.isArray(saved.phase1Snapshot)
-      ? saved.phase1Snapshot
-      : null;
+  const phase1 = resolveLivePhase1Snapshot(candidate);
 
   if (editForm) {
     next = {
@@ -289,15 +394,10 @@ export function candidateFromTenantDbForClientReview(candidate) {
     saved?.editForm && typeof saved.editForm === 'object' && !Array.isArray(saved.editForm)
       ? saved.editForm
       : null;
-  const phase1 =
-    saved?.phase1Snapshot &&
-    typeof saved.phase1Snapshot === 'object' &&
-    !Array.isArray(saved.phase1Snapshot)
-      ? saved.phase1Snapshot
-      : null;
+  const phase1 = resolveLivePhase1Snapshot(candidate);
 
-  // Start from CRM / tenant candidate columns — not presentation.fields.
-  let next = { ...candidate };
+  // Start from CRM / tenant candidate columns + extraData.pipeline — not presentation.fields.
+  let next = applyTenantStoredProfile({ ...candidate });
 
   if (editForm) {
     next = {
@@ -388,6 +488,7 @@ export function buildDirectClientReviewPresentation(candidate) {
   const visibleSections = saved?.visibleSections || snapshot?.visibleSections || null;
   const phase1VisibleSections =
     saved?.phase1VisibleSections || snapshot?.phase1VisibleSections || null;
+  const phase1Snapshot = resolveLivePhase1Snapshot(candidate);
 
   const base = enrichClientPresentationForReview(
     null,
@@ -398,9 +499,7 @@ export function buildDirectClientReviewPresentation(candidate) {
     visibleFields,
     visibleSections,
     phase1VisibleSections,
-    // Keep phase1 snapshot only for section builders that need structure — data still
-    // comes from tenant candidate via editForm above.
-    phase1Snapshot: saved?.phase1Snapshot || null,
+    phase1Snapshot,
   };
 }
 
@@ -419,61 +518,292 @@ export function resolveClientReviewVisibleFields(candidate) {
   return null;
 }
 
+function readPlainObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function pipelineSection(extra, key) {
+  const pipeline = readPlainObject(extra?.pipeline);
+  return {
+    ...readPlainObject(extra?.[key]),
+    ...readPlainObject(pipeline[key]),
+  };
+}
+
+function formatListValue(value) {
+  if (!isNonEmptyValue(value)) return '';
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => {
+        if (item && typeof item === 'object') {
+          const lang = item.language || item.name || '';
+          const prof = item.proficiency || item.level || '';
+          const joined = [lang, prof]
+            .map((part) => String(part || '').trim())
+            .filter(Boolean)
+            .join(' | ');
+          if (joined) return joined;
+          return Object.values(item)
+            .map((part) => (typeof part === 'object' ? '' : String(part || '').trim()))
+            .filter(Boolean)
+            .join(' | ');
+        }
+        return String(item || '').trim();
+      })
+      .filter(Boolean)
+      .join('\n');
+  }
+  return String(value).trim();
+}
+
+function extraProfileBag(candidate) {
+  const extra = parseExtra(candidate?.extraData);
+  const phase1 = resolveLivePhase1Snapshot(candidate);
+  const personal = phase1?.personalInfo && typeof phase1.personalInfo === 'object' ? phase1.personalInfo : {};
+  const prefs =
+    (candidate?.careerPreferences && typeof candidate.careerPreferences === 'object'
+      ? candidate.careerPreferences
+      : null) ||
+    (extra.careerPreferences && typeof extra.careerPreferences === 'object' ? extra.careerPreferences : null) ||
+    (phase1?.careerPreferences && typeof phase1.careerPreferences === 'object' ? phase1.careerPreferences : {}) ||
+    {};
+  return {
+    extra,
+    personal,
+    personalPipe: pipelineSection(extra, 'personal'),
+    educationPipe: pipelineSection(extra, 'education'),
+    professionalPipe: pipelineSection(extra, 'professional'),
+    socialPipe: pipelineSection(extra, 'social'),
+    summaryPipe: pipelineSection(extra, 'summary'),
+    workPipe: pipelineSection(extra, 'work'),
+    prefs,
+    phase1,
+    salary: readPlainObject(candidate?.salary),
+  };
+}
+
+/** Flatten Phase 2 ATS extraData.pipeline / salary JSON onto tenant candidate columns. */
+function applyTenantStoredProfile(candidate) {
+  if (!candidate) return candidate;
+  const extra = parseExtra(candidate.extraData);
+  const personalPipe = pipelineSection(extra, 'personal');
+  const educationPipe = pipelineSection(extra, 'education');
+  const socialPipe = pipelineSection(extra, 'social');
+  const workPipe = pipelineSection(extra, 'work');
+  const salary = readPlainObject(candidate.salary);
+  const splitFromName = String(extra.fullName || extra.name || personalPipe.fullName || personalPipe.name || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  return {
+    ...candidate,
+    firstName: pickPreferred(
+      candidate.firstName,
+      personalPipe.firstName || extra.firstName || splitFromName[0],
+    ),
+    lastName: pickPreferred(
+      candidate.lastName,
+      personalPipe.lastName || extra.lastName || splitFromName.slice(1).join(' '),
+    ),
+    email: pickPreferred(candidate.email, personalPipe.email || extra.email),
+    skills: pickPreferred(candidate.skills, candidate.recruiterSkills),
+    languages: pickPreferred(candidate.languages, candidate.recruiterLanguages),
+    certifications: pickPreferred(candidate.certifications, candidate.certificationsList),
+    education: pickPreferred(
+      candidate.education,
+      candidate.recruiterEducation || educationPipe.summaryText,
+    ),
+    notes: pickPreferred(candidate.notes, candidate.recruiterNotes),
+    address: pickPreferred(candidate.address || candidate.addressLine, personalPipe.currentAddress),
+    city: pickPreferred(candidate.city, personalPipe.city),
+    country: pickPreferred(candidate.country, personalPipe.country),
+    linkedIn: pickPreferred(candidate.linkedIn, socialPipe.linkedIn || extra.linkedIn),
+    website: pickPreferred(candidate.website, socialPipe.website || extra.website),
+    portfolio: pickPreferred(candidate.portfolio, extra.portfolio || socialPipe.website),
+    cvEducationEntries: pickPreferred(candidate.cvEducationEntries, educationPipe.entries),
+    cvWorkExperienceEntries: pickPreferred(
+      candidate.cvWorkExperienceEntries,
+      workPipe.entries || workPipe.workExperienceEntries || extra.workExperienceEntries,
+    ),
+    expectedSalary: pickPreferred(
+      candidate.expectedSalary,
+      extra.expectedSalary || salary.expected || salary.max || salary.amount,
+    ),
+    currentSalary: pickPreferred(
+      candidate.currentSalary,
+      extra.currentSalary || salary.current || salary.min,
+    ),
+    careerPreferences: pickPreferred(candidate.careerPreferences, extra.careerPreferences),
+  };
+}
+
+function buildEditFormFromCandidate(hydrated) {
+  const {
+    extra,
+    personal,
+    personalPipe,
+    educationPipe,
+    professionalPipe,
+    socialPipe,
+    summaryPipe,
+    workPipe,
+    prefs,
+    phase1,
+    salary,
+  } = extraProfileBag(hydrated);
+  const languages = pickPreferred(
+    hydrated.languages,
+    Array.isArray(phase1?.languages)
+      ? phase1.languages.map((row) => row?.name || row).filter(Boolean)
+      : [],
+  );
+  const skills = pickPreferred(
+    hydrated.skills,
+    Array.isArray(phase1?.skills) ? phase1.skills.map((row) => row?.name || row).filter(Boolean) : [],
+  );
+  const languageProficiency = pickPreferred(
+    formatListValue(summaryPipe.languageProficiency || extra.languageProficiency),
+    Array.isArray(languages) ? languages.join(', ') : languages,
+  );
+  return {
+    firstName: pickPreferred(hydrated.firstName, personal.firstName || personalPipe.firstName),
+    middleName: pickPreferred(hydrated.middleName, personal.middleName || personalPipe.middleName),
+    lastName: pickPreferred(hydrated.lastName, personal.lastName || personalPipe.lastName),
+    email: pickPreferred(hydrated.email, personal.email || personalPipe.email),
+    phone: pickPreferred(
+      hydrated.phone,
+      [personal.phoneCode, personal.phone].map((v) => String(v || '').trim()).filter(Boolean).join(' '),
+    ),
+    phoneCode: pickPreferred(hydrated.phoneCode, personal.phoneCode),
+    city: pickPreferred(hydrated.city, personal.city || personalPipe.city),
+    state: pickPreferred(hydrated.state, personalPipe.state || extra.state),
+    country: pickPreferred(hydrated.country, personal.country || personalPipe.country),
+    location: hydrated.location,
+    address: pickPreferred(
+      hydrated.address || hydrated.addressLine,
+      personalPipe.currentAddress || personal.address,
+    ),
+    zip: pickPreferred(hydrated.zip, personalPipe.zip || extra.zip || extra.zipCode),
+    nationality: pickPreferred(
+      hydrated.nationality,
+      personalPipe.nationality || extra.nationality || personal.nationality,
+    ),
+    gender: pickPreferred(hydrated.gender, personalPipe.gender || extra.gender || personal.gender),
+    employment: pickPreferred(
+      hydrated.employment,
+      extra.employment || extra.employmentStatus || personal.employment,
+    ),
+    maritalStatus: pickPreferred(
+      hydrated.maritalStatus,
+      personalPipe.maritalStatus || extra.maritalStatus,
+    ),
+    birthDate: pickPreferred(
+      hydrated.birthDate || hydrated.dob,
+      personalPipe.birthDate || extra.dateOfBirth || extra.dob || personal.dob,
+    ),
+    passportNumber: pickPreferred(
+      hydrated.passportNumber,
+      personalPipe.passportNumber || extra.passportNumber || personal.passportNumber,
+    ),
+    preferredLocation: pickPreferred(
+      hydrated.preferredLocation,
+      formatPrefValue(prefs.preferredLocations),
+    ),
+    currentCompanyWebsite: pickPreferred(
+      hydrated.currentCompanyWebsite,
+      personalPipe.currentCompanyWebsite,
+    ),
+    currentCompany: hydrated.currentCompany,
+    currentTitle: hydrated.designation || hydrated.currentTitle || formatPrefValue(prefs.currentRole),
+    experience: hydrated.experience,
+    education: pickPreferred(hydrated.education, educationPipe.summaryText),
+    educationSummary: pickPreferred(
+      educationPipe.summaryText,
+      hydrated.education || summaryPipe.educationSummary,
+    ),
+    educationCourses: formatListValue(educationPipe.courses || extra.courses),
+    cvSummary: pickPreferred(hydrated.cvSummary, phase1?.summaryText || summaryPipe.educationSummary),
+    skills: formatListValue(skills),
+    languages: formatListValue(languages),
+    languageProficiency,
+    cvEducationEntries: pickPreferred(hydrated.cvEducationEntries, educationPipe.entries),
+    cvWorkExperienceEntries: pickPreferred(
+      hydrated.cvWorkExperienceEntries,
+      workPipe.entries || workPipe.workExperienceEntries || extra.workExperienceEntries,
+    ),
+    cvPortfolioLinks: pickPreferred(hydrated.cvPortfolioLinks, phase1?.portfolioLinks),
+    linkedIn: pickPreferred(
+      hydrated.linkedIn,
+      socialPipe.linkedIn || extra.linkedIn || personal.linkedinUrl,
+    ),
+    twitter: pickPreferred(hydrated.twitter, socialPipe.twitter || extra.twitter),
+    xing: pickPreferred(socialPipe.xing, extra.xing),
+    skypeId: pickPreferred(socialPipe.skypeId, extra.skypeId),
+    facebook: pickPreferred(socialPipe.facebook, extra.facebook),
+    stackOverflow: pickPreferred(socialPipe.stackOverflow, extra.stackOverflow),
+    website: pickPreferred(hydrated.website, socialPipe.website || extra.website),
+    portfolio: pickPreferred(hydrated.portfolio, extra.portfolio || socialPipe.website),
+    remarks: pickPreferred(hydrated.remarks, professionalPipe.remarks || extra.remarks),
+    currentSalary: pickPreferred(
+      hydrated.currentSalary,
+      extra.currentSalary || salary.current || salary.min,
+    ),
+    currentSalaryCurrency: pickPreferred(
+      professionalPipe.currentSalaryCurrency,
+      extra.currentSalaryCurrency || salary.currency,
+    ),
+    currentBenefits: pickPreferred(professionalPipe.currentBenefits, extra.currentBenefits),
+    expectedSalary: pickPreferred(
+      hydrated.expectedSalary,
+      extra.expectedSalary || salary.expected || salary.max || salary.amount || prefs.preferredSalary || prefs.salaryAmount,
+    ),
+    expectedSalaryCurrency: pickPreferred(
+      professionalPipe.expectedSalaryCurrency,
+      extra.expectedSalaryCurrency || salary.currency || prefs.preferredCurrency,
+    ),
+    expectedBenefits: pickPreferred(professionalPipe.expectedBenefits, extra.expectedBenefits),
+    noticePeriod: pickPreferred(hydrated.noticePeriod, prefs.noticePeriod),
+    workHistoryText: pickPreferred(
+      summaryPipe.workHistory,
+      extra.workHistoryText || extra.workHistory,
+    ),
+    extracurricular: formatListValue(
+      professionalPipe.extracurricularActivities || extra.extracurricularActivities || extra.extracurricular,
+    ),
+    volunteers: formatListValue(professionalPipe.volunteers || extra.volunteers),
+    p1CurrentRole: formatPrefValue(prefs.currentRole) || hydrated.currentTitle || hydrated.designation,
+    p1PreferredJobTitles: formatPrefValue(prefs.preferredJobTitles || prefs.preferredRoles),
+    p1PreferredIndustries: formatPrefValue(prefs.preferredIndustries || prefs.preferredIndustry),
+    p1FunctionalAreas: formatPrefValue(prefs.functionalAreas || prefs.functionalArea),
+    p1JobTypes: formatPrefValue(prefs.jobTypes),
+    p1WorkModes: formatPrefValue(prefs.workModes || prefs.preferredWorkMode),
+    p1PreferredLocations: formatPrefValue(prefs.preferredLocations),
+    p1Relocation: formatPrefValue(prefs.relocationPreference),
+    p1AvailabilityToStart: formatPrefValue(prefs.availabilityToStart || hydrated.availability),
+    certifications: formatListValue(hydrated.certifications),
+    honours: formatListValue(summaryPipe.honoursAndAwards || extra.honoursAndAwards || extra.honours),
+    projects: formatListValue(extra.projects),
+    hackathons: formatListValue(extra.hackathons),
+    notes: pickPreferred(hydrated.notes, hydrated.recruiterNotes),
+    avatar: hydrated.avatar,
+    candidateScore: pickPreferred(
+      hydrated.candidateScore ?? hydrated.score,
+      personalPipe.candidateScore,
+    ),
+    age: pickPreferred(hydrated.age, personalPipe.age),
+  };
+}
+
 /**
  * Build a presentation-shaped editForm from tenant candidate data for section rendering.
  * When presentation is null, sections are built purely from the candidate record.
  */
 export function enrichClientPresentationForReview(presentation, candidate) {
   const hydrated = candidateFromTenantDbForClientReview(candidate);
+  const fromCandidate = buildEditFormFromCandidate(hydrated);
   if (!presentation) {
     return {
-      editForm: {
-        firstName: hydrated.firstName,
-        middleName: hydrated.middleName,
-        lastName: hydrated.lastName,
-        email: hydrated.email,
-        phone: hydrated.phone,
-        phoneCode: hydrated.phoneCode,
-        city: hydrated.city,
-        state: hydrated.state,
-        country: hydrated.country,
-        location: hydrated.location,
-        address: hydrated.address,
-        zip: hydrated.zip,
-        nationality: hydrated.nationality,
-        gender: hydrated.gender,
-        employment: hydrated.employment,
-        maritalStatus: hydrated.maritalStatus,
-        birthDate: hydrated.birthDate || hydrated.dob,
-        passportNumber: hydrated.passportNumber,
-        preferredLocation: hydrated.preferredLocation,
-        currentCompanyWebsite: hydrated.currentCompanyWebsite,
-        currentCompany: hydrated.currentCompany,
-        currentTitle: hydrated.designation || hydrated.currentTitle,
-        experience: hydrated.experience,
-        education: hydrated.education,
-        educationSummary: hydrated.education,
-        cvSummary: hydrated.cvSummary,
-        skills: hydrated.skills,
-        languages: hydrated.languages,
-        languageProficiency: Array.isArray(hydrated.languages)
-          ? hydrated.languages.join(', ')
-          : hydrated.languages,
-        cvEducationEntries: hydrated.cvEducationEntries,
-        cvWorkExperienceEntries: hydrated.cvWorkExperienceEntries,
-        linkedIn: hydrated.linkedIn,
-        twitter: hydrated.twitter,
-        website: hydrated.website,
-        portfolio: hydrated.portfolio,
-        remarks: hydrated.remarks,
-        currentSalary: hydrated.currentSalary,
-        expectedSalary: hydrated.expectedSalary,
-        noticePeriod: hydrated.noticePeriod,
-        certifications: hydrated.certifications,
-        avatar: hydrated.avatar,
-        candidateScore: hydrated.candidateScore ?? hydrated.score,
-        age: hydrated.age,
-      },
+      editForm: fromCandidate,
       fields: {},
       visibleSections: null,
       visibleFields: null,
@@ -485,45 +815,251 @@ export function enrichClientPresentationForReview(presentation, candidate) {
       ? { ...presentation.editForm }
       : {};
 
-  // Tenant DB / hydrated candidate wins; fill only empty presentation editForm slots.
-  editForm.firstName = pickPreferred(hydrated.firstName, editForm.firstName);
-  editForm.lastName = pickPreferred(hydrated.lastName, editForm.lastName);
-  editForm.email = pickPreferred(hydrated.email, editForm.email);
-  editForm.phone = pickPreferred(hydrated.phone, editForm.phone);
-  editForm.city = pickPreferred(hydrated.city, editForm.city);
-  editForm.country = pickPreferred(hydrated.country, editForm.country);
-  editForm.location = pickPreferred(hydrated.location, editForm.location);
-  editForm.address = pickPreferred(hydrated.address, editForm.address);
-  editForm.currentCompany = pickPreferred(hydrated.currentCompany, editForm.currentCompany);
-  editForm.currentTitle = pickPreferred(
-    hydrated.designation || hydrated.currentTitle,
-    editForm.currentTitle,
-  );
-  editForm.experience = pickPreferred(hydrated.experience, editForm.experience);
-  editForm.education = pickPreferred(hydrated.education, editForm.education);
-  editForm.educationSummary = pickPreferred(
-    hydrated.education,
-    editForm.educationSummary || editForm.education,
-  );
-  editForm.cvSummary = pickPreferred(hydrated.cvSummary, editForm.cvSummary);
-  editForm.skills = pickPreferred(hydrated.skills, asStringArray(editForm.skills));
-  editForm.languages = pickPreferred(hydrated.languages, asStringArray(editForm.languages));
-  editForm.languageProficiency = pickPreferred(
-    Array.isArray(hydrated.languages) ? hydrated.languages.join(', ') : hydrated.languages,
-    editForm.languageProficiency,
-  );
-  editForm.cvEducationEntries = pickPreferred(
-    hydrated.cvEducationEntries,
-    editForm.cvEducationEntries,
-  );
-  editForm.cvWorkExperienceEntries = pickPreferred(
-    hydrated.cvWorkExperienceEntries,
-    editForm.cvWorkExperienceEntries,
-  );
-  editForm.linkedIn = pickPreferred(hydrated.linkedIn, editForm.linkedIn);
+  for (const [key, value] of Object.entries(fromCandidate)) {
+    editForm[key] = pickPreferred(value, editForm[key]);
+  }
 
   return {
     ...presentation,
     editForm,
   };
+}
+
+const TENANT_PERSIST_STRING_KEYS = [
+  'firstName',
+  'lastName',
+  'email',
+  'phone',
+  'linkedIn',
+  'resume',
+  'resumeUrl',
+  'currentTitle',
+  'currentCompany',
+  'location',
+  'address',
+  'addressLine',
+  'city',
+  'country',
+  'availability',
+  'noticePeriod',
+  'avatar',
+  'designation',
+  'education',
+  'portfolio',
+  'website',
+  'notes',
+  'cvSummary',
+  'preferredLocation',
+];
+
+const TENANT_PERSIST_INT_KEYS = ['experience', 'expectedSalary', 'currentSalary'];
+const TENANT_PERSIST_ARRAY_KEYS = ['skills', 'languages', 'certifications'];
+const TENANT_PERSIST_JSON_KEYS = [
+  'cvEducationEntries',
+  'cvWorkExperienceEntries',
+  'cvPortfolioLinks',
+];
+
+function toPersistInt(value) {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.round(value);
+  const numeric = Number(String(value).replace(/[^\d.-]/g, ''));
+  return Number.isFinite(numeric) ? Math.round(numeric) : undefined;
+}
+
+function cloneJsonValue(value) {
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch {
+    return value;
+  }
+}
+
+function synthesizePipelineForPersist(hydrated) {
+  const {
+    extra,
+    personal,
+    personalPipe,
+    educationPipe,
+    professionalPipe,
+    socialPipe,
+    summaryPipe,
+    workPipe,
+  } = extraProfileBag(hydrated);
+  return {
+    personal: {
+      ...personalPipe,
+      firstName: pickPreferred(personalPipe.firstName, hydrated.firstName || personal.firstName),
+      lastName: pickPreferred(personalPipe.lastName, hydrated.lastName || personal.lastName),
+      email: pickPreferred(personalPipe.email, hydrated.email || personal.email),
+      age: pickPreferred(personalPipe.age, hydrated.age),
+      state: pickPreferred(personalPipe.state, extra.state || hydrated.state),
+      currentAddress: pickPreferred(
+        personalPipe.currentAddress,
+        hydrated.address || personal.address,
+      ),
+      zip: pickPreferred(personalPipe.zip, extra.zip || hydrated.zip),
+      nationality: pickPreferred(
+        personalPipe.nationality,
+        extra.nationality || personal.nationality,
+      ),
+      currentCompanyWebsite: pickPreferred(
+        personalPipe.currentCompanyWebsite,
+        extra.currentCompanyWebsite,
+      ),
+      maritalStatus: pickPreferred(personalPipe.maritalStatus, extra.maritalStatus),
+      birthDate: pickPreferred(
+        personalPipe.birthDate,
+        extra.dateOfBirth || extra.dob || personal.dob || hydrated.birthDate,
+      ),
+      passportNumber: pickPreferred(
+        personalPipe.passportNumber,
+        extra.passportNumber || personal.passportNumber,
+      ),
+      gender: pickPreferred(personalPipe.gender, extra.gender || personal.gender),
+    },
+    education: {
+      ...educationPipe,
+      entries: pickPreferred(educationPipe.entries, hydrated.cvEducationEntries) || [],
+      courses: pickPreferred(educationPipe.courses, extra.courses) || [],
+      summaryText: pickPreferred(educationPipe.summaryText, hydrated.education),
+    },
+    professional: { ...professionalPipe },
+    social: {
+      ...socialPipe,
+      linkedIn: pickPreferred(socialPipe.linkedIn, hydrated.linkedIn),
+      twitter: pickPreferred(socialPipe.twitter, extra.twitter),
+      website: pickPreferred(socialPipe.website, hydrated.website),
+    },
+    summary: {
+      ...summaryPipe,
+      workHistory: pickPreferred(
+        summaryPipe.workHistory,
+        extra.workHistoryText || extra.workHistory,
+      ),
+      educationSummary: pickPreferred(summaryPipe.educationSummary, hydrated.education),
+      honoursAndAwards: pickPreferred(
+        summaryPipe.honoursAndAwards,
+        extra.honoursAndAwards || extra.honours,
+      ),
+      languageProficiency: pickPreferred(
+        summaryPipe.languageProficiency,
+        extra.languageProficiency,
+      ),
+    },
+    work: {
+      ...workPipe,
+      entries: pickPreferred(
+        workPipe.entries || workPipe.workExperienceEntries,
+        hydrated.cvWorkExperienceEntries,
+      ) || [],
+    },
+  };
+}
+
+/**
+ * Fill empty Phase 2 tenant columns / extraData from a hydrated review profile
+ * (portal / candidatecommon / Phase 1 snapshot) without overwriting recruiter edits.
+ */
+export function buildTenantClientReviewPersistPatch(original, hydrated) {
+  if (!original?.id || !hydrated) return null;
+  const patch = {};
+
+  for (const key of TENANT_PERSIST_STRING_KEYS) {
+    if (!isNonEmptyValue(original[key]) && isNonEmptyValue(hydrated[key])) {
+      patch[key] = String(hydrated[key]).trim();
+    }
+  }
+
+  for (const key of TENANT_PERSIST_INT_KEYS) {
+    if (!isNonEmptyValue(original[key])) {
+      const next = toPersistInt(hydrated[key]);
+      if (next !== undefined) patch[key] = next;
+    }
+  }
+
+  for (const key of TENANT_PERSIST_ARRAY_KEYS) {
+    if (!isNonEmptyValue(original[key]) && isNonEmptyValue(hydrated[key])) {
+      patch[key] = Array.isArray(hydrated[key])
+        ? hydrated[key]
+        : asStringArray(hydrated[key]);
+    }
+  }
+
+  for (const key of TENANT_PERSIST_JSON_KEYS) {
+    if (!isNonEmptyValue(original[key]) && isNonEmptyValue(hydrated[key])) {
+      patch[key] = cloneJsonValue(hydrated[key]);
+    }
+  }
+
+  const origExtra = parseExtra(original.extraData);
+  const hydExtra = parseExtra(hydrated.extraData);
+  const nextExtra = { ...origExtra };
+  let extraChanged = false;
+
+  const liveSnap = resolveLivePhase1Snapshot(hydrated) || hydExtra.phase1ProfileSnapshot;
+  if (!isNonEmptyValue(origExtra.phase1ProfileSnapshot) && isNonEmptyValue(liveSnap)) {
+    nextExtra.phase1ProfileSnapshot = cloneJsonValue(liveSnap);
+    extraChanged = true;
+  }
+
+  if (
+    !isNonEmptyValue(origExtra.careerPreferences) &&
+    isNonEmptyValue(hydrated.careerPreferences)
+  ) {
+    nextExtra.careerPreferences = cloneJsonValue(hydrated.careerPreferences);
+    extraChanged = true;
+  }
+
+  if (!isNonEmptyValue(origExtra.pipeline)) {
+    const pipeline = isNonEmptyValue(hydExtra.pipeline)
+      ? hydExtra.pipeline
+      : synthesizePipelineForPersist(hydrated);
+    if (isNonEmptyValue(pipeline)) {
+      nextExtra.pipeline = cloneJsonValue(pipeline);
+      extraChanged = true;
+    }
+  } else {
+    const hydratedPipeline = isNonEmptyValue(hydExtra.pipeline)
+      ? hydExtra.pipeline
+      : synthesizePipelineForPersist(hydrated);
+    const tenantPipe = readPlainObject(origExtra.pipeline);
+    const hydPipe = readPlainObject(hydratedPipeline);
+    const mergedPipe = { ...hydPipe, ...tenantPipe };
+    let pipeChanged = false;
+    for (const key of Object.keys(hydPipe)) {
+      const tenantSection = tenantPipe[key];
+      const hydSection = hydPipe[key];
+      if (
+        hydSection &&
+        typeof hydSection === 'object' &&
+        !Array.isArray(hydSection) &&
+        tenantSection &&
+        typeof tenantSection === 'object' &&
+        !Array.isArray(tenantSection)
+      ) {
+        const section = { ...hydSection, ...tenantSection };
+        for (const field of Object.keys(hydSection)) {
+          if (!isNonEmptyValue(section[field]) && isNonEmptyValue(hydSection[field])) {
+            section[field] = hydSection[field];
+            pipeChanged = true;
+          }
+        }
+        mergedPipe[key] = section;
+      } else if (!isNonEmptyValue(tenantSection) && isNonEmptyValue(hydSection)) {
+        mergedPipe[key] = hydSection;
+        pipeChanged = true;
+      }
+    }
+    if (pipeChanged) {
+      nextExtra.pipeline = cloneJsonValue(mergedPipe);
+      extraChanged = true;
+    }
+  }
+
+  if (extraChanged) {
+    patch.extraData = nextExtra;
+  }
+
+  return Object.keys(patch).length ? patch : null;
 }

@@ -148,7 +148,7 @@ import {
 } from '../../lib/jobAppliedMatches';
 import type { InterviewPanelMember } from '../../types/interview.types';
 import { getAllTeamMembersForAssign, getAllTeamMembersForDirectory, teamMembersToBackendUsers } from '../../lib/api/teamApi';
-import { formatAssigneeDisplayName } from '../../lib/assigneeDisplay';
+import { formatAssigneeDisplayName, stripAssigneeCompanySuffix } from '../../lib/assigneeDisplay';
 import { getActiveOrgUnitId } from '../../lib/org/orgWorkspaceStorage';
 import { formatJobSalaryDisplay } from '../../constants/jobSalary';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -343,6 +343,7 @@ function mapBackendJobToJobForDrawer(backendJob: Record<string, any>, fallbackJo
     joined: backendJob._count?.placements || job?.joined || 0,
     openings: backendJob.openings || job?.openings || 0,
     owner: formatAssigneeDisplayName(backendJob.assignedTo) || backendJob.assignedTo?.name || job?.owner || '',
+    orgUnitId: backendJob.orgUnitId || undefined,
     createdDate: backendJob.createdAt
       ? formatDateDMY(backendJob.createdAt) || String(backendJob.createdAt).slice?.(0, 10) || job?.createdDate || ''
       : job?.createdDate || '',
@@ -1403,16 +1404,19 @@ function sanitizeScheduleEmail(value?: string | null) {
 }
 
 function mapUsersToInterviewPanel(users: BackendUser[]): InterviewPanelMember[] {
-  return (Array.isArray(users) ? users : []).map((user) => ({
-    id: user.id,
-    userId: user.id,
-    name: safeDisplayText(user.name, 'Unknown User'),
-    role: 'Technical',
-    department: safeDisplayText(user.department, 'General'),
-    email: sanitizeScheduleEmail(user.email) || 'No email available',
-    phone: '-',
-    avatar: initialsFromScheduleName(user.name, 'NA'),
-  }));
+  return (Array.isArray(users) ? users : []).map((user) => {
+    const name = stripAssigneeCompanySuffix(safeDisplayText(user.name, 'Unknown User')) || 'Unknown User';
+    return {
+      id: user.id,
+      userId: user.id,
+      name,
+      role: 'Technical',
+      department: safeDisplayText(user.department, 'General'),
+      email: sanitizeScheduleEmail(user.email) || 'No email available',
+      phone: '-',
+      avatar: initialsFromScheduleName(name, 'NA'),
+    };
+  });
 }
 
 export default function JobsPage() {
@@ -2306,6 +2310,7 @@ export default function JobsPage() {
         title: j.title,
         clientId: j.clientId || null,
         clientName: j.client || null,
+        orgUnitId: String((j as { orgUnitId?: string | null }).orgUnitId || '').trim() || null,
       },
     ];
   }, [jobDetails, selectedJob]);
@@ -2333,7 +2338,13 @@ export default function JobsPage() {
     ) => {
       if (!canCreateInterview) return;
       try {
-        const response = await apiGetUsers({ assignable: true, isActive: true, limit: 100 });
+        const response = await apiGetUsers({
+          assignable: true,
+          isActive: true,
+          limit: 200,
+          module: 'Interviews',
+          companyId: getActiveOrgUnitId() || undefined,
+        });
         const raw = (response as any).data;
         const users = unwrapCollection<BackendUser>(raw);
         setScheduleInterviewers(mapUsersToInterviewPanel(users));

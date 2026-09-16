@@ -61,7 +61,7 @@ export const createInterviewSchema = z
     type: interviewTypeEnum,
     mode: interviewModeEnum,
     date: isoDate,
-    duration: z.number().int().min(15).max(480),
+    duration: z.number().int().min(30).max(480),
     timezone: z.string().min(1),
     meetingPlatform: meetingPlatformEnum.optional().nullable(),
     location: z.string().optional().nullable(),
@@ -124,7 +124,7 @@ export const updateInterviewSchema = z
     type: interviewTypeEnum.optional(),
     mode: interviewModeEnum.optional(),
     date: isoDate.optional(),
-    duration: z.number().int().min(15).max(480).optional(),
+    duration: z.number().int().min(30).max(480).optional(),
     timezone: z.string().min(1).optional(),
     meetingPlatform: meetingPlatformEnum.optional().nullable(),
     location: z.string().optional().nullable(),
@@ -143,6 +143,10 @@ export const rescheduleInterviewSchema = z.object({
   reason: z.string().min(1),
   notifyCandidate: z.boolean().default(true),
   notifyInterviewer: z.boolean().default(true),
+});
+
+export const rejectCandidateProposalSchema = z.object({
+  reason: z.string().optional().default(''),
 });
 
 export const cancelInterviewSchema = z.object({
