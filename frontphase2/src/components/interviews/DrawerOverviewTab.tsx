@@ -9,6 +9,7 @@ interface DrawerOverviewTabProps {
   onAcceptProposal?: (interview: Interview) => void;
   onRejectProposal?: (interview: Interview) => void;
   onReproposeInterview?: (interview: Interview) => void;
+  proposalBusyId?: string | null;
 }
 
 function parseCandidateRsvp(notes: string, status: Interview['status']) {
@@ -45,6 +46,7 @@ export function DrawerOverviewTab({
   onAcceptProposal,
   onRejectProposal,
   onReproposeInterview,
+  proposalBusyId = null,
 }: DrawerOverviewTabProps) {
   const timezoneLabel = formatTimezoneDisplay(resolveIanaFromTimezoneValue(interview.timezone));
   const candidateRsvp = parseCandidateRsvp(interview.notes, interview.status);
@@ -82,10 +84,11 @@ export function DrawerOverviewTab({
                   {onAcceptProposal ? (
                     <button
                       type="button"
+                      disabled={Boolean(proposalBusyId)}
                       onClick={() => onAcceptProposal(interview)}
-                      className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
+                      className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:cursor-wait disabled:opacity-60"
                     >
-                      Accept
+                      {proposalBusyId === interview.id ? 'Confirming…' : 'Accept'}
                     </button>
                   ) : null}
                   {onRejectProposal ? (

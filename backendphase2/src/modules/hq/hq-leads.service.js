@@ -256,6 +256,7 @@ async function getCollection() {
     try {
       await collection.createIndex({ createdAt: -1 });
       await collection.createIndex({ stage: 1 });
+      await collection.createIndex({ email: 1 });
       indexesEnsured = true;
     } catch {
       // Best-effort index creation.
@@ -704,6 +705,104 @@ function parseLeadInput(data) {
   };
 }
 
+function escapeRegex(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function digitsOnly(value) {
+  return String(value || '').replace(/\D/g, '');
+}
+
+function isPlaceholderVisitorCompany(name) {
+  return String(name || '')
+    .trim()
+    .toLowerCase()
+    .startsWith('website visitor');
+}
+
+function contactNameFromEmail(email) {
+  const local = String(email || '').split('@')[0] || '';
+  const named = local.replace(/[._+-]+/g, ' ').trim();
+  if (!named) return 'Website visitor';
+  return named.replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function uniqueStrings(values = []) {
+  const out = [];
+  const seen = new Set();
+  for (const value of values) {
+    const text = String(value || '').trim();
+    if (!text) continue;
+    const key = text.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(text);
+  }
+  return out;
+}
+
+function appendNoteOnce(existingNotes, line) {
+  const notes = String(existingNotes || '').trim();
+  const addition = String(line || '').trim();
+  if (!addition) return notes;
+  if (notes.includes(addition)) return notes;
+  return [notes, addition].filter(Boolean).join('\n');
+}
+
+function mergeLeadStage(existingStage, nextStage) {
+  const rank = { new: 0, demo: 1, trial: 2, contacted: 3, qualified: 4, converted: 5, lost: 5 };
+  const current = String(existingStage || 'new');
+  if (current === 'converted' || current === 'lost') return current;
+  const next = String(nextStage || 'new');
+  return (rank[next] ?? 0) >= (rank[current] ?? 0) ? next : current;
+}
+
+async function findLeadByEmailOrPhone(collection, email, phone) {
+  const emailLc = String(email || '').trim().toLowerCase();
+  if (emailLc) {
+    const byEmail = await collection.findOne({
+      $or: [
+        { email: emailLc },
+        { emails: emailLc },
+        { email: { $regex: `^${escapeRegex(emailLc)}$`, $options: 'i' } },
+      ],
+    });
+    if (byEmail) return byEmail;
+  }
+
+  const phoneDigits = digitsOnly(phone);
+  if (phoneDigits.length >= 8) {
+    const docs = await collection
+      .find({
+        $or: [
+          { phone: { $regex: escapeRegex(phoneDigits) } },
+          { phones: { $regex: escapeRegex(phoneDigits) } },
+        ],
+      })
+      .limit(8)
+      .toArray();
+    return (
+      docs.find((doc) => {
+        const primary = digitsOnly(doc?.phone);
+        if (primary && (primary === phoneDigits || primary.endsWith(phoneDigits))) return true;
+        return (Array.isArray(doc?.phones) ? doc.phones : []).some((item) => {
+          const digits = digitsOnly(item);
+          return digits === phoneDigits || digits.endsWith(phoneDigits);
+        });
+      }) || null
+    );
+  }
+
+  return null;
+}
+
+function tomorrowNineAm() {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  d.setHours(9, 0, 0, 0);
+  return d;
+}
+
 export const hqLeadsService = {
   getStorageInfo,
   toLeadRow,
@@ -782,6 +881,102 @@ export const hqLeadsService = {
     };
   },
 
+  async captureTryFreeInterest(payload = {}) {
+    const email = String(payload.email || '').trim().toLowerCase();
+    const dialCode = String(payload.dialCode || '').trim();
+    const phoneNumber = digitsOnly(payload.phoneNumber || payload.phone);
+    const phone = [dialCode, phoneNumber].filter(Boolean).join(' ');
+    const country = String(payload.countryCode || payload.country || '').trim();
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && !email.endsWith('@trial') && !email.endsWith('@saasa')) {
+      throw new Error('Please enter a valid email address');
+    }
+    if (phoneNumber.length < 6) {
+      throw new Error('Please enter a valid mobile number');
+    }
+
+    const collection = await getCollection();
+    const existing = await findLeadByEmailOrPhone(collection, email, phone);
+    const contactName = contactNameFromEmail(email);
+    const companyName = `Website visitor · ${email}`;
+    const noteLine =
+      'Try it free — email and mobile captured on first screen (visitor may not have requested a demo).';
+    const emails = uniqueStrings([email, ...(Array.isArray(existing?.emails) ? existing.emails : [])]);
+    const phones = uniqueStrings([phone, existing?.phone, ...(Array.isArray(existing?.phones) ? existing.phones : [])]);
+
+    if (existing) {
+      const keepCompany =
+        existing.companyName && !isPlaceholderVisitorCompany(existing.companyName);
+      const keepName =
+        existing.contactName &&
+        !/^website visitor$/i.test(String(existing.contactName).trim());
+      await collection.updateOne(
+        { _id: existing._id },
+        {
+          $set: {
+            email: existing.email || email,
+            phone: phone || existing.phone || '',
+            emails,
+            phones,
+            country: country || existing.country || '',
+            contactName: keepName ? existing.contactName : existing.contactName || contactName,
+            companyName: keepCompany ? existing.companyName : existing.companyName || companyName,
+            leadSource: existing.leadSource || EMPLOYER_DEMO_LEAD_SOURCE,
+            leadSourceDetail:
+              existing.leadSourceDetail || 'Entrepreneur try-free — contact captured',
+            initialNotes: appendNoteOnce(existing.initialNotes || existing.notes, noteLine),
+            notes: appendNoteOnce(existing.notes || existing.initialNotes, noteLine),
+            updatedAt: new Date(),
+          },
+        },
+      );
+      const updated = await collection.findOne({ _id: existing._id });
+      return {
+        lead: toLeadRow(updated),
+        created: false,
+        storage: getStorageInfo(),
+      };
+    }
+
+    const now = new Date();
+    const doc = {
+      contactName,
+      companyName,
+      email,
+      phone,
+      emails,
+      phones,
+      industry: 'Entrepreneur / HR Tech',
+      country,
+      expectedUsers: 0,
+      estimatedDealValue: 0,
+      leadSource: EMPLOYER_DEMO_LEAD_SOURCE,
+      leadSourceDetail: 'Entrepreneur try-free — contact captured',
+      interestedModules: ['Recruitment'],
+      hqProductLines: ['recruitment'],
+      initialNotes: noteLine,
+      notes: noteLine,
+      stage: 'new',
+      score: 'Cold',
+      nextFollowUpAt: tomorrowNineAm(),
+      employerDemoRequestId: null,
+      leadOwner: '',
+      followUps: [],
+      remarks: [],
+      createdAt: now,
+      updatedAt: now,
+      createdByEmail: null,
+    };
+
+    const result = await collection.insertOne(doc);
+    const inserted = await collection.findOne({ _id: result.insertedId });
+    return {
+      lead: toLeadRow(inserted),
+      created: true,
+      storage: getStorageInfo(),
+    };
+  },
+
   async createLeadFromEmployerDemoRequest(demo) {
     const fields = buildEmployerDemoLeadFields(demo);
     const { contactName, companyName, email, employerDemoRequestId: requestId } = fields;
@@ -791,35 +986,60 @@ export const hqLeadsService = {
     }
 
     const collection = await getCollection();
+    const existing =
+      (requestId ? await collection.findOne({ employerDemoRequestId: requestId }) : null) ||
+      (await findLeadByEmailOrPhone(collection, email, fields.phone));
 
-    if (requestId) {
-      const existing = await collection.findOne({ employerDemoRequestId: requestId });
-      if (existing) {
-        await collection.updateOne(
-          { _id: existing._id },
-          {
-            $set: {
-              ...fields,
-              leadOwner: existing.leadOwner || '',
-              followUps: existing.followUps || [],
-              remarks: existing.remarks || [],
-              createdAt: existing.createdAt || new Date(),
-              createdByEmail: existing.createdByEmail || null,
-              updatedAt: new Date(),
-            },
+    if (existing) {
+      const keepCompany =
+        existing.companyName &&
+        !isPlaceholderVisitorCompany(existing.companyName) &&
+        isPlaceholderVisitorCompany(companyName);
+      await collection.updateOne(
+        { _id: existing._id },
+        {
+          $set: {
+            ...fields,
+            companyName: keepCompany ? existing.companyName : companyName,
+            contactName: contactName || existing.contactName,
+            email: email || existing.email,
+            phone: fields.phone || existing.phone || '',
+            emails: uniqueStrings([
+              email,
+              existing.email,
+              ...(Array.isArray(existing.emails) ? existing.emails : []),
+            ]),
+            phones: uniqueStrings([
+              fields.phone,
+              existing.phone,
+              ...(Array.isArray(existing.phones) ? existing.phones : []),
+            ]),
+            stage: mergeLeadStage(existing.stage, fields.stage),
+            leadOwner: existing.leadOwner || '',
+            assignedToId: existing.assignedToId || null,
+            assignedToIds: Array.isArray(existing.assignedToIds) ? existing.assignedToIds : [],
+            assignedToUsers: Array.isArray(existing.assignedToUsers) ? existing.assignedToUsers : [],
+            followUps: existing.followUps || [],
+            remarks: existing.remarks || [],
+            initialNotes: appendNoteOnce(existing.initialNotes || existing.notes, fields.initialNotes),
+            createdAt: existing.createdAt || new Date(),
+            createdByEmail: existing.createdByEmail || null,
+            updatedAt: new Date(),
           },
-        );
-        const updated = await collection.findOne({ _id: existing._id });
-        return {
-          lead: toLeadRow(updated),
-          created: false,
-          storage: getStorageInfo(),
-        };
-      }
+        },
+      );
+      const updated = await collection.findOne({ _id: existing._id });
+      return {
+        lead: toLeadRow(updated),
+        created: false,
+        storage: getStorageInfo(),
+      };
     }
 
     const doc = {
       ...fields,
+      emails: uniqueStrings([email]),
+      phones: uniqueStrings([fields.phone]),
       leadOwner: '',
       followUps: [],
       remarks: [],

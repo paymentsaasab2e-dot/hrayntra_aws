@@ -7343,6 +7343,7 @@ export interface BackendInterviewListItem {
     } | null;
   }> | null;
   meetingLinkError?: string | null;
+  emailsSent?: boolean;
 }
 
 export interface BackendInterviewKpis {
@@ -7464,10 +7465,16 @@ export const apiRescheduleInterview = async (
   });
 };
 
-export const apiAcceptInterviewProposal = async (id: string) => {
+export const apiAcceptInterviewProposal = async (
+  id: string,
+  payload?: { proposedAt?: string; timezone?: string }
+) => {
   return apiFetch<BackendInterviewListItem>(`/interviews/${id}/proposal/accept`, {
     method: 'POST',
-    body: {},
+    body: {
+      proposedAt: payload?.proposedAt || undefined,
+      timezone: payload?.timezone || undefined,
+    },
     auth: true,
   });
 };

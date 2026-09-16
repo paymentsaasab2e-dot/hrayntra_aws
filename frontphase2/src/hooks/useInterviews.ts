@@ -685,7 +685,7 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
         };
       });
     } catch {
-      setJobScopedInterviews([]);
+      /* keep the last known job-scoped rows so Accept/refresh failures don't blank the table */
     }
   }, []);
 
@@ -760,13 +760,34 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
     [fetchInterviews]
   );
 
+  const upsertInterview = useCallback((mapped: Interview) => {
+    const merge = (list: Interview[]) => {
+      const index = list.findIndex((row) => row.id === mapped.id);
+      if (index < 0) return list;
+      const next = list.slice();
+      next[index] = { ...list[index], ...mapped, candidateProposal: mapped.candidateProposal ?? null };
+      return next;
+    };
+    setInterviews(merge);
+    setJobScopedInterviews(merge);
+    setOverviewInterviews(merge);
+  }, []);
+
   const acceptInterviewProposal = useCallback(
-    async (interviewId: string) => {
+    async (interviewId: string, proposal?: { proposedAt?: string; timezone?: string }) => {
       try {
-        await apiAcceptInterviewProposal(interviewId);
-        setToast('Proposed time accepted — interview scheduled');
+        const response = await apiAcceptInterviewProposal(interviewId, proposal);
+        const mapped = mapBackendInterviewToUi(response.data);
+        mapped.candidateProposal = null;
+        upsertInterview(mapped);
+        setToast(
+          response.data?.emailsSent === false
+            ? 'Interview confirmed'
+            : 'Interview confirmed — confirmation emails sent',
+        );
         emitNotificationsUpdated();
         await fetchInterviews();
+        return mapped;
       } catch (mutationError: any) {
         const message = mutationError.message || 'Unable to accept proposed time';
         setError(message);
@@ -774,7 +795,7 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
         throw mutationError;
       }
     },
-    [fetchInterviews]
+    [fetchInterviews, upsertInterview]
   );
 
   const rejectInterviewProposal = useCallback(

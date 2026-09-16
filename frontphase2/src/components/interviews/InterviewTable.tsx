@@ -132,6 +132,7 @@ interface InterviewTableProps {
   onAcceptProposal?: (interview: Interview) => void;
   onRejectProposal?: (interview: Interview) => void;
   onReproposeInterview?: (interview: Interview) => void;
+  proposalBusyId?: string | null;
 }
 
 const statusClasses = {
@@ -216,6 +217,7 @@ export function InterviewTable({
   onAcceptProposal,
   onRejectProposal,
   onReproposeInterview,
+  proposalBusyId = null,
 }: InterviewTableProps) {
   const show = isColumnVisible;
   const groups = useMemo(() => groupInterviewsForTable(interviews), [interviews]);
@@ -683,17 +685,19 @@ export function InterviewTable({
                                       {onAcceptProposal ? (
                                         <button
                                           type="button"
+                                          disabled={Boolean(proposalBusyId)}
                                           onClick={() => onAcceptProposal(interview)}
-                                          className="rounded-md bg-emerald-600 px-2 py-0.5 text-[10px] font-semibold text-white hover:bg-emerald-700"
+                                          className="rounded-md bg-emerald-600 px-2 py-0.5 text-[10px] font-semibold text-white hover:bg-emerald-700 disabled:cursor-wait disabled:opacity-60"
                                         >
-                                          Accept
+                                          {proposalBusyId === interview.id ? 'Confirming…' : 'Accept'}
                                         </button>
                                       ) : null}
                                       {onRejectProposal ? (
                                         <button
                                           type="button"
+                                          disabled={Boolean(proposalBusyId)}
                                           onClick={() => onRejectProposal(interview)}
-                                          className="rounded-md border border-rose-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-rose-700 hover:bg-rose-50"
+                                          className="rounded-md border border-rose-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-60"
                                         >
                                           Reject
                                         </button>
@@ -701,8 +705,9 @@ export function InterviewTable({
                                       {onReproposeInterview ? (
                                         <button
                                           type="button"
+                                          disabled={Boolean(proposalBusyId)}
                                           onClick={() => onReproposeInterview(interview)}
-                                          className="rounded-md border border-indigo-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-indigo-700 hover:bg-indigo-50"
+                                          className="rounded-md border border-indigo-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-indigo-700 hover:bg-indigo-50 disabled:opacity-60"
                                         >
                                           Repropose
                                         </button>

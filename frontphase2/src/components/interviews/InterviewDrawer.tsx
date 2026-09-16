@@ -50,6 +50,7 @@ interface InterviewDrawerProps {
   onAcceptProposal?: (interview: Interview) => void;
   onRejectProposal?: (interview: Interview) => void;
   onReproposeInterview?: (interview: Interview) => void;
+  proposalBusyId?: string | null;
   zIndexClass?: string;
 }
 
@@ -79,6 +80,7 @@ export function InterviewDrawer({
   onAcceptProposal,
   onRejectProposal,
   onReproposeInterview,
+  proposalBusyId = null,
   zIndexClass = 'z-[100]',
 }: InterviewDrawerProps) {
   usePageDrawerLifecycle(isOpen);
@@ -274,6 +276,7 @@ export function InterviewDrawer({
                     onAcceptProposal={onAcceptProposal}
                     onRejectProposal={onRejectProposal}
                     onReproposeInterview={onReproposeInterview}
+                    proposalBusyId={proposalBusyId}
                   />
                 </div>
               ) : null}

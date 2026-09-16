@@ -32,7 +32,7 @@ import { COMPLETED_INTERVIEW_LOCKED_ACTIONS, isInterviewCompleted } from '../../
 import type { InterviewAction } from '../../components/interviews/ActionsDropdown';
 import { usePermissions } from '../../hooks/usePermissions';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
-import { requestConfirm } from '../../lib/appDialog';
+import { requestConfirm, requestError, requestSuccess } from '../../lib/appDialog';
 import { mapCandidateScheduledToUpdatePayload, mapInterviewToCandidateScheduled } from '../../lib/interview-schedule-helpers';
 import { apiRejectCandidate, apiScheduleCandidateInterview } from '../../lib/api';
 import { TableSkeleton } from '../../components/ui/Skeleton';
@@ -159,6 +159,7 @@ export default function InterviewsPage() {
   const [overviewPage, setOverviewPage] = useState(1);
   const [jobCandidatesPage, setJobCandidatesPage] = useState(1);
   const [jobDetailLoading, setJobDetailLoading] = useState(false);
+  const [proposalBusyId, setProposalBusyId] = useState<string | null>(null);
   const selectedJobIdRef = useRef<string | null>(null);
   selectedJobIdRef.current = selectedJobId;
   const interviewColumnVisibility = usePersistedColumnVisibility(
@@ -675,20 +676,32 @@ export default function InterviewsPage() {
 
   const handleAcceptProposal = async (interview: Interview) => {
     if (!canUpdateInterview || !interview.candidateProposal) return;
+    if (proposalBusyId) return;
+    const label = interview.candidateProposal.label;
     const confirmed = await requestConfirm(
-      `Accept ${interview.candidate.name}'s proposed time (${interview.candidateProposal.label}) and schedule the interview then?`,
+      `Accept ${interview.candidate.name}'s proposed time (${label}) and schedule the interview then?`,
     );
     if (!confirmed) return;
+    setProposalBusyId(interview.id);
     try {
-      await acceptInterviewProposal(interview.id);
+      await acceptInterviewProposal(interview.id, {
+        proposedAt: interview.candidateProposal.at,
+        timezone: interview.candidateProposal.timezone,
+      });
       await refreshAll({ silent: true });
-    } catch {
-      /* toast is set in the hook */
+      await requestSuccess(
+        `Interview confirmed for ${interview.candidate.name} at ${label}. Confirmation emails with the interview details were sent to the candidate and interviewer(s).`,
+      );
+    } catch (error: any) {
+      await requestError(error?.message || 'Unable to confirm the proposed time');
+    } finally {
+      setProposalBusyId(null);
     }
   };
 
   const handleRejectProposal = async (interview: Interview) => {
     if (!canUpdateInterview || !interview.candidateProposal) return;
+    if (proposalBusyId) return;
     const confirmed = await requestConfirm(
       `Reject the proposed time (${interview.candidateProposal.label}) and keep the original interview at ${interview.date} ${interview.time}?`,
     );
@@ -1238,6 +1251,7 @@ export default function InterviewsPage() {
         onAcceptProposal={canUpdateInterview ? handleAcceptProposal : undefined}
         onRejectProposal={canUpdateInterview ? handleRejectProposal : undefined}
         onReproposeInterview={canUpdateInterview ? handleReproposeInterview : undefined}
+        proposalBusyId={proposalBusyId}
         onPageChange={(page) => setJobCandidatesPage(page)}
         emptyAction={
           canCreateInterview ? (
@@ -1278,6 +1292,7 @@ export default function InterviewsPage() {
         onAcceptProposal={canUpdateInterview ? handleAcceptProposal : undefined}
         onRejectProposal={canUpdateInterview ? handleRejectProposal : undefined}
         onReproposeInterview={canUpdateInterview ? handleReproposeInterview : undefined}
+        proposalBusyId={proposalBusyId}
         onAddNote={canUpdateInterview ? async (text) => {
           if (!selectedInterview) return;
           try {

@@ -65,7 +65,7 @@ export const interviewController = {
 
   async acceptCandidateProposal(req, res) {
     try {
-      const result = await interviewService.acceptCandidateProposal(req.params.id, req.user);
+      const result = await interviewService.acceptCandidateProposal(req.params.id, req.user, req.body);
       sendResponse(res, 200, 'Proposed time accepted', result);
     } catch (error) {
       sendError(res, httpStatusFromError(error), error.message, error);
