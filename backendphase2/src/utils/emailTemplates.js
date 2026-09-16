@@ -119,6 +119,10 @@ export const interviewScheduledTemplate = ({
   location,
   phoneNumber,
   modeLabel,
+  durationMinutes,
+  roundLabel,
+  title: titleOverride,
+  intro: introOverride,
 }) => {
   const company = String(companyName || '').trim();
   const link = String(meetingLink || '').trim();
@@ -130,8 +134,10 @@ export const interviewScheduledTemplate = ({
     { label: 'Role', value: jobTitle },
     ...(company ? [{ label: 'Company', value: company }] : []),
     { label: 'Date & Time', value: formatDateTime(date, timezone) },
+    ...(roundLabel ? [{ label: 'Round', value: roundLabel }] : []),
+    ...(Number(durationMinutes) > 0 ? [{ label: 'Duration', value: `${Number(durationMinutes)} minutes` }] : []),
     ...(modeLabel ? [{ label: 'Interview Mode', value: modeLabel }] : []),
-    { label: 'Interviewers', value: (panelNames || []).join(', ') || 'HRYANTRA Hiring Team' },
+    { label: 'Interviewers', value: (panelNames || []).filter(Boolean).join(', ') || 'HRYANTRA Hiring Team' },
   ];
 
   if (hasMeetingLink) {
@@ -146,10 +152,14 @@ export const interviewScheduledTemplate = ({
   }
 
   return layout({
-    title: company ? `Interview Scheduled: ${jobTitle} at ${company}` : `Interview Scheduled: ${jobTitle}`,
-    intro: `Hello ${candidateName}, your interview has been scheduled. Please review the details below${
-      hasMeetingLink ? ' and join on time' : ''
-    }.`,
+    title:
+      titleOverride ||
+      (company ? `Interview Scheduled: ${jobTitle} at ${company}` : `Interview Scheduled: ${jobTitle}`),
+    intro:
+      introOverride ||
+      `Hello ${candidateName}, your interview has been scheduled. Please review the details below${
+        hasMeetingLink ? ' and join on time' : ''
+      }.`,
     sections,
     ctaLabel: 'Join Interview',
     ctaLink: joinVisible ? link : null,

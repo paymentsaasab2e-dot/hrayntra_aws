@@ -19,8 +19,9 @@ import { env } from '../config/env.js';
 import { chatCompletionWithFallback, hasLlmProvider } from './llmChatFallback.service.js';
 
 const DEFAULT_LIMIT = 500;
-const CONCURRENCY = 3;
+const CONCURRENCY = 2;
 const AI_RESUME_CHARS = 14000;
+const AI_RETRY_DELAY_MS = 800;
 
 function safeJsonParse(raw) {
   try {
@@ -30,35 +31,64 @@ function safeJsonParse(raw) {
   }
 }
 
+function parseNameJson(raw) {
+  const text = String(raw || '').trim();
+  if (!text) return {};
+  const fenced = text.match(/\{[\s\S]*\}/);
+  return safeJsonParse(fenced ? fenced[0] : text) || {};
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function asPersonName(firstName = '', lastName = '') {
   return sanitizeExtractedPersonName(firstName, lastName);
 }
 
-async function extractCandidateNameWithOpenAi(resumeText = '', fileName = '') {
-  const text = String(resumeText || '').trim();
-  if (!text || !hasLlmProvider()) return { firstName: '', lastName: '' };
+/** Keep an OpenAI name even when the strict resume-heuristic checker is too tight. */
+function sanitizeLlmPersonName(firstName = '', lastName = '', fullName = '') {
+  const strict = asPersonName(firstName, lastName);
+  if (strict.firstName) return strict;
 
-  const capped = text.length > AI_RESUME_CHARS ? `${text.slice(0, AI_RESUME_CHARS)}\n…` : text;
-  try {
-    const completion = await chatCompletionWithFallback(
-      {
-        model: env.OPENAI_CHAT_MODEL,
-        temperature: 0,
-        response_format: { type: 'json_object' },
-        messages: [
-          {
-            role: 'system',
-            content:
-              'You extract only the candidate’s real person name from a CV. Return JSON only. Never invent a name. Never use a job title, city, country, address, section header, or file name as the name.',
-          },
-          {
-            role: 'user',
-            content: `Extract the candidate's given name and family name from this CV.
+  const combined = (`${firstName || ''} ${lastName || ''}`.trim() || String(fullName || '').trim())
+    .replace(/\bcopy\s*\d+\b/gi, ' ')
+    .replace(/\b(?:curriculum|vitae|ecv|resume|r[eé]sum[eé]|cv|pdf|docx?|email|e-?mail|tel|t[eé]l[eé]phone|title|age)\b/gi, ' ')
+    .replace(/[.]{2,}/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const parts = combined
+    .split(' ')
+    .map((part) => String(part || '').trim().replace(/^\(+|\)+$/g, ''))
+    .filter(Boolean)
+    .filter((part) => /^[A-Za-zÀ-ÿ]\.$/.test(part) || /^[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ.'-]{0,40}$/.test(part));
+
+  if (parts.length < 2 || parts.length > 8) return { firstName: '', lastName: '' };
+
+  const first = parts[0].charAt(0).toUpperCase() + parts[0].slice(1);
+  const last = parts
+    .slice(1)
+    .map((part) => {
+      if (/^[A-Za-zÀ-ÿ]\.$/.test(part)) return part.toUpperCase();
+      if (part.length <= 3 && part === part.toLowerCase()) return part;
+      return part.charAt(0).toUpperCase() + part.slice(1);
+    })
+    .join(' ');
+  return { firstName: first, lastName: last };
+}
+
+function buildNamePrompt({ capped, fileName, currentLabel, retry }) {
+  const retryNote = retry
+    ? `
+
+The previous attempt returned no usable person name. Look again more carefully near phone, email, and the top heading. Return the real human name if it is present.`
+    : '';
+  return `Extract the candidate's given name and family name from this CV.
 
 Return only JSON:
 {"firstName":"","lastName":"","fullName":""}
 
-The person name is usually the heading next to phone/email, not the document title.
+The person name is usually next to phone/email, not the document title, city, job, or file name.
 
 Use:
 - "Chetan R. Patel" even if the file or first line is "Ahmedabad Gujarat India"
@@ -69,38 +99,76 @@ Never return:
 - Curriculum Vitae, CV, Bio Data, Personal Details
 - Job titles (Engineer, Superintendent, Leader, Assistant, Accountant)
 - Locations (Lagos, Tamil Nadu, Kampala, Douala, Gujarat)
-- Addresses, slogans, skills, objectives, section headers
+- Skills, slogans, objectives, section headers
 - null, Unknown Candidate, or the file name
 
 If the name is unclear, return empty strings.
+${retryNote}
 
+Current stored label (often wrong — do not copy unless it is clearly the person name): ${currentLabel || '—'}
 File name (do not use as the person name): ${fileName || 'resume'}
 
 Resume text:
-${capped}`,
-          },
-        ],
-      },
-      'repair-names',
-      { quiet: true },
-    );
-    const content = completion?.choices?.[0]?.message?.content || '{}';
-    const parsed = safeJsonParse(content) || {};
-    let firstName = String(parsed.firstName || '').trim();
-    let lastName = String(parsed.lastName || '').trim();
-    const fullName = String(parsed.fullName || parsed.name || '').trim();
-    if (fullName && (!firstName || !lastName)) {
-      const bits = fullName.split(/\s+/).filter(Boolean);
-      if (bits.length >= 2) {
-        firstName = firstName || bits[0];
-        lastName = lastName || bits.slice(1).join(' ');
-      }
+${capped}`;
+}
+
+async function callOpenAiForName({ capped, fileName, currentLabel, retry = false }) {
+  const completion = await chatCompletionWithFallback(
+    {
+      model: env.OPENAI_CHAT_MODEL,
+      temperature: 0,
+      response_format: { type: 'json_object' },
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You extract only the candidate’s real person name from a CV. Return JSON only. Never invent a name. Never use a job title, city, country, address, section header, or file name as the name.',
+        },
+        {
+          role: 'user',
+          content: buildNamePrompt({ capped, fileName, currentLabel, retry }),
+        },
+      ],
+    },
+    'repair-names',
+    { preferredProvider: 'openai', quiet: false },
+  );
+  const content = completion?.choices?.[0]?.message?.content || '{}';
+  const parsed = parseNameJson(content);
+  let firstName = String(parsed.firstName || '').trim();
+  let lastName = String(parsed.lastName || '').trim();
+  const fullName = String(parsed.fullName || parsed.name || '').trim();
+  if (fullName && (!firstName || !lastName)) {
+    const bits = fullName.split(/\s+/).filter(Boolean);
+    if (bits.length >= 2) {
+      firstName = firstName || bits[0];
+      lastName = lastName || bits.slice(1).join(' ');
     }
-    return asPersonName(firstName, lastName);
+  }
+  return sanitizeLlmPersonName(firstName, lastName, fullName);
+}
+
+async function extractCandidateNameWithOpenAi(resumeText = '', fileName = '', currentLabel = '') {
+  const text = String(resumeText || '').trim();
+  if (!text || !hasLlmProvider()) return { firstName: '', lastName: '' };
+
+  const capped = text.length > AI_RESUME_CHARS ? `${text.slice(0, AI_RESUME_CHARS)}\n…` : text;
+  try {
+    const firstTry = await callOpenAiForName({ capped, fileName, currentLabel, retry: false });
+    if (firstTry.firstName) return firstTry;
   } catch (error) {
     console.warn('[repair-names] OpenAI name parse failed:', error?.message || error);
-    return { firstName: '', lastName: '' };
   }
+
+  await sleep(AI_RETRY_DELAY_MS);
+  try {
+    const secondTry = await callOpenAiForName({ capped, fileName, currentLabel, retry: true });
+    if (secondTry.firstName) return secondTry;
+  } catch (error) {
+    console.warn('[repair-names] OpenAI name parse retry failed:', error?.message || error);
+  }
+
+  return { firstName: '', lastName: '' };
 }
 
 function stripCopySuffix(value = '') {
@@ -254,8 +322,17 @@ async function mapPool(items, concurrency, mapper) {
 
 /**
  * Find candidates with garbage names and fix them from stored CVs.
- * OpenAI parses the person name first; resume-text heuristics are only a fallback.
- * Tenant-scoped via prisma ALS. Preserves bulk "Copy N" suffixes when present.
+ *
+ * Algorithm:
+ * 1. Find stored names that fail the person-name check.
+ * 2. Download the CV and extract text.
+ * 3. Ask OpenAI for the real person name (retry once if empty/error).
+ * 4. Do not use resume-text heuristics while an LLM is configured —
+ *    those pick job titles, cities, and section headers.
+ * 5. Last resort only: email local-part. Skip if still unparseable.
+ * 6. Keep bulk "copy N" suffixes.
+ *
+ * Tenant-scoped via prisma ALS.
  */
 export async function repairBadCandidateNames(options = {}) {
   const dryRun = options.dryRun !== false && options.execute !== true;
@@ -329,13 +406,19 @@ export async function repairBadCandidateNames(options = {}) {
       const buffer = await downloadResumeBuffer(source.url);
       if (buffer?.length) {
         const text = await extractTextFromResumeBuffer(buffer, source.fileName);
-        if (hasLlmProvider() && String(text || '').trim()) {
-          extracted = await extractCandidateNameWithOpenAi(text, source.fileName);
+        const resumeText = String(text || '').trim();
+        if (hasLlmProvider() && resumeText) {
+          extracted = await extractCandidateNameWithOpenAi(
+            resumeText,
+            source.fileName,
+            `${priorFirst} ${priorLast}`.trim(),
+          );
           if (extracted.firstName) {
             sourceUsed = 'openai';
+          } else {
+            skipReason = 'unparseable';
           }
-        }
-        if (!extracted.firstName) {
+        } else if (!hasLlmProvider() && resumeText) {
           const heuristic = extractResumeName(text, source.fileName);
           extracted = asPersonName(heuristic.firstName, heuristic.lastName);
           if (extracted.firstName && !candidateNameNeedsRepair(extracted.firstName, extracted.lastName)) {
@@ -344,6 +427,8 @@ export async function repairBadCandidateNames(options = {}) {
             extracted = { firstName: '', lastName: '' };
             skipReason = 'unparseable';
           }
+        } else {
+          skipReason = 'unparseable';
         }
       } else {
         skipReason = 'noResume';
@@ -364,8 +449,12 @@ export async function repairBadCandidateNames(options = {}) {
     let nextFirst = String(extracted.firstName || '').trim();
     let nextLast = String(extracted.lastName || '').trim();
     const extractedFull = `${nextFirst} ${nextLast}`.trim();
+    const fromLlm = sourceUsed === 'openai';
+    const nameOk = fromLlm
+      ? Boolean(nextFirst && (nextLast || looksLikePersonName(extractedFull)))
+      : looksLikePersonName(extractedFull);
 
-    if (!looksLikePersonName(extractedFull)) {
+    if (!nameOk) {
       return {
         id: row.id,
         status: skipReason === 'noResume' ? 'skippedNoResume' : 'skippedUnparseable',

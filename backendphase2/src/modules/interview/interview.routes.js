@@ -27,6 +27,7 @@ import {
   reviewTokenParamSchema,
   reviewFileParamSchema,
   rescheduleInterviewSchema,
+  acceptCandidateProposalSchema,
   rejectCandidateProposalSchema,
   submitToClientSchema,
   updateInterviewSchema,
@@ -37,45 +38,28 @@ const router = express.Router();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const clientReviewUploadsDir = path.join(__dirname, '..', '..', '..', 'uploads', 'interview-client-review');
 
-// Files arrive on the public review endpoint (no auth) — keep this storage
-// isolated so we can wipe / quota it without touching authenticated uploads.
-const clientReviewUploadsDir = path.join(
-  __dirname,
-  '..',
-  '..',
-  '..',
-  'uploads',
-  'interview-client-review'
-);
-if (!fs.existsSync(clientReviewUploadsDir)) {
-  fs.mkdirSync(clientReviewUploadsDir, { recursive: true });
+function ensureDir(dirPath) {
+  if (!fs.existsSync(dirPath)) {
+    fs.mkdirSync(dirPath, { recursive: true });
+  }
 }
 
-const clientReviewStorage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, clientReviewUploadsDir),
-  filename: (req, file, cb) => {
-    const timestamp = Date.now();
-    const sanitized = String(file.originalname || 'offer.pdf').replace(/[^a-zA-Z0-9.-]/g, '_');
-    cb(null, `${timestamp}_${sanitized}`);
-  },
-});
+ensureDir(clientReviewUploadsDir);
 
 const clientReviewUpload = multer({
-  storage: clientReviewStorage,
-  // 4 MB keeps uploads under the serverless proxy/platform request-body cap
-  // (~4.5 MB on Vercel) so the frontend never receives a plain-text
-  // "Request Entity Too Large" it can't JSON-parse.
-  limits: { fileSize: 4 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    // Tightening to PDF here matches the placement flow and stops accidental
-    // images / executables from a public upload surface.
-    if (!/^application\/pdf$/i.test(file.mimetype || '')) {
-      cb(new Error('Only PDF files are allowed'));
-      return;
-    }
-    cb(null, true);
-  },
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => {
+      ensureDir(clientReviewUploadsDir);
+      cb(null, clientReviewUploadsDir);
+    },
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname || '').slice(0, 12);
+      cb(null, `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`);
+    },
+  }),
+  limits: { fileSize: 15 * 1024 * 1024 },
 });
 
 router.get(
@@ -95,19 +79,31 @@ router.get(
 );
 router.post(
   '/public/review/:token/tag',
-  // Multer parses multipart first so `req.body` has plain text fields by the
-  // time validateRequest runs. The `offerLetter` field is optional; the body
-  // schema still requires `tag` (controller relaxes this when a file is
-  // present + submissionType is OFFER_CONFIRMATION).
   clientReviewUpload.single('offerLetter'),
   validateRequest({ params: reviewTokenParamSchema, body: publicClientTagSchema }),
   interviewController.submitPublicClientTag
 );
 
-router.get('/public/rsvp/:token', interviewController.getPublicInterviewRsvp);
-router.post('/public/rsvp/:token/accept', interviewController.acceptPublicInterviewRsvp);
-router.post('/public/rsvp/:token/reject', interviewController.rejectPublicInterviewRsvp);
-router.post('/public/rsvp/:token/reschedule', interviewController.reschedulePublicInterviewRsvp);
+router.get(
+  '/public/rsvp/:token',
+  validateRequest({ params: reviewTokenParamSchema }),
+  interviewController.getPublicInterviewRsvp
+);
+router.post(
+  '/public/rsvp/:token/accept',
+  validateRequest({ params: reviewTokenParamSchema }),
+  interviewController.acceptPublicInterviewRsvp
+);
+router.post(
+  '/public/rsvp/:token/reject',
+  validateRequest({ params: reviewTokenParamSchema }),
+  interviewController.rejectPublicInterviewRsvp
+);
+router.post(
+  '/public/rsvp/:token/reschedule',
+  validateRequest({ params: reviewTokenParamSchema }),
+  interviewController.reschedulePublicInterviewRsvp
+);
 
 router.use(authMiddleware);
 
@@ -129,7 +125,7 @@ router.post(
 router.post(
   '/:id/proposal/accept',
   requireAnyPermission(['interviews_update']),
-  validateRequest({ params: idParamSchema }),
+  validateRequest({ params: idParamSchema, body: acceptCandidateProposalSchema }),
   interviewController.acceptCandidateProposal
 );
 router.post(
@@ -168,24 +164,21 @@ router.get(
   validateRequest({ params: idParamSchema }),
   interviewController.getInterviewClientReviewContext
 );
-
 router.get('/:id/feedback', requireAnyPermission(['interviews_read']), validateRequest({ params: idParamSchema }), interviewFeedbackController.list);
 router.post(
   '/:id/feedback',
-  requireAnyPermission(['interviews_update']),
+  requireAnyPermission(['interviews_feedback', 'interviews_update']),
   validateRequest({ params: idParamSchema, body: feedbackSchema }),
   interviewFeedbackController.create
 );
 router.post(
   '/:id/feedback/ai-summary',
-  requireAnyPermission(['interviews_update']),
+  requireAnyPermission(['interviews_feedback', 'interviews_update']),
   validateRequest({ params: idParamSchema, body: aiSummarySchema }),
   interviewFeedbackController.generateAiSummary
 );
-
 router.post('/:id/panel', requireAnyPermission(['interviews_update']), validateRequest({ params: idParamSchema, body: addPanelSchema }), interviewPanelController.add);
 router.delete('/:id/panel/:panelId', requireAnyPermission(['interviews_update']), validateRequest({ params: panelParamSchema }), interviewPanelController.remove);
-
 router.get('/:id/notes', requireAnyPermission(['interviews_read']), validateRequest({ params: idParamSchema }), interviewNotesController.list);
 router.post('/:id/notes', requireAnyPermission(['interviews_update']), validateRequest({ params: idParamSchema, body: noteSchema }), interviewNotesController.create);
 router.delete('/:id/notes/:noteId', requireAnyPermission(['interviews_update']), validateRequest({ params: noteParamSchema }), interviewNotesController.remove);

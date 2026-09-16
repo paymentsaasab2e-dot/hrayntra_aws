@@ -48,6 +48,7 @@ type InterviewJobCandidatesModalProps = {
   onAcceptProposal?: (interview: Interview) => void;
   onRejectProposal?: (interview: Interview) => void;
   onReproposeInterview?: (interview: Interview) => void;
+  proposalBusyId?: string | null;
   onPageChange: (page: number) => void;
   emptyAction?: React.ReactNode;
 };
@@ -86,6 +87,7 @@ export function InterviewJobCandidatesModal({
   onAcceptProposal,
   onRejectProposal,
   onReproposeInterview,
+  proposalBusyId = null,
   onPageChange,
   emptyAction,
 }: InterviewJobCandidatesModalProps) {
@@ -184,6 +186,7 @@ export function InterviewJobCandidatesModal({
                   onAcceptProposal={onAcceptProposal}
                   onRejectProposal={onRejectProposal}
                   onReproposeInterview={onReproposeInterview}
+                  proposalBusyId={proposalBusyId}
                 />
               </div>
             )}

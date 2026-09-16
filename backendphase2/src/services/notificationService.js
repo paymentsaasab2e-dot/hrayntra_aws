@@ -115,6 +115,82 @@ export const sendInterviewScheduled = async (candidate, interview, panelMembers)
   return Promise.all([candidateMail, ...panelMails]);
 };
 
+export const sendInterviewConfirmed = async (candidate, interview, panelMembers = []) => {
+  const jobTitle = interview.job?.title || 'Interview';
+  const candidateName =
+    `${candidate?.firstName || ''} ${candidate?.lastName || ''}`.trim() ||
+    candidate?.name ||
+    'Candidate';
+  const panelCompany = interview.client?.companyName || '';
+  const showJoinCta = shouldShowJoinInterviewCta({
+    meetingLink: interview.meetingLink,
+    mode: interview.mode,
+    type: interview.type,
+  });
+  const panelNames = [
+    ...(Array.isArray(panelMembers) ? panelMembers.map((member) => member?.user?.name) : []),
+    interview.interviewer?.name,
+  ].filter(Boolean);
+  const uniquePanelNames = [...new Set(panelNames)];
+  const roundLabel = String(interview.round || '').replace(/_/g, ' ').trim();
+  const durationMinutes = Number(interview.duration) > 0 ? Number(interview.duration) : null;
+
+  const shared = {
+    candidateName,
+    jobTitle,
+    date: interview.scheduledAt,
+    timezone: interview.timezone,
+    meetingLink: interview.meetingLink,
+    panelNames: uniquePanelNames,
+    showJoinCta,
+    rsvpLinks: null,
+    location: interview.location,
+    modeLabel: interview.mode,
+    durationMinutes,
+    roundLabel,
+  };
+
+  const tasks = [];
+  if (candidate?.email) {
+    tasks.push(
+      sendMail({
+        to: candidate.email,
+        subject: `Interview Confirmed: ${jobTitle}`,
+        html: interviewScheduledTemplate({
+          ...shared,
+          companyName: '',
+          title: `Interview Confirmed: ${jobTitle}`,
+          intro: `Hello ${candidateName}, your proposed time was accepted. The interview is now confirmed. Please review the details below.`,
+        }),
+      }),
+    );
+  }
+
+  const panelSubject = panelCompany
+    ? `Interview Confirmed: ${jobTitle} at ${panelCompany}`
+    : `Interview Confirmed: ${jobTitle}`;
+  const panelHtml = interviewScheduledTemplate({
+    ...shared,
+    companyName: panelCompany,
+    title: panelSubject,
+    intro: `The interview with ${candidateName} is confirmed at the candidate's proposed time. Please review the details below.`,
+  });
+
+  const sent = new Set();
+  for (const member of Array.isArray(panelMembers) ? panelMembers : []) {
+    const email = String(member?.user?.email || '').trim();
+    if (!email || sent.has(email.toLowerCase())) continue;
+    sent.add(email.toLowerCase());
+    tasks.push(sendMail({ to: email, subject: panelSubject, html: panelHtml }));
+  }
+  const interviewerEmail = String(interview.interviewer?.email || '').trim();
+  if (interviewerEmail && !sent.has(interviewerEmail.toLowerCase())) {
+    tasks.push(sendMail({ to: interviewerEmail, subject: panelSubject, html: panelHtml }));
+  }
+
+  return Promise.all(tasks);
+};
+
 export const sendInterviewRescheduled = async (
   candidate,
   interview,

@@ -24,6 +24,7 @@ import { sendMatchSubmissionEmail } from '../emails/email.service.js';
 import { isDeliverableEmail } from '../utils/emailDeliverability.js';
 import {
   sendInterviewCancelled,
+  sendInterviewConfirmed,
   sendInterviewRescheduled,
   sendInterviewScheduled,
   sendInterviewProposalRejected,
@@ -33,7 +34,9 @@ import {
   appendInterviewNote,
   buildClearedRsvp,
   formatProposedAtLabel,
+  isProposalAlreadyAccepted,
   parseInterviewRescheduleProposal,
+  resolveCandidateProposal,
   updateInterviewWithRsvp,
 } from '../utils/interviewRescheduleProposal.util.js';
 import { prepareListWithAuditMeta, attachAuditMetaToEntity } from '../utils/listAuditMeta.js';
@@ -1631,7 +1634,9 @@ const attachMeetingLink = async (interview, platformOverride) => {
     return { interview, meetingLinkError: null };
   }
 
-  const panelEmails = interview.panel.map((member) => member.user.email).filter(Boolean);
+  const panelEmails = (interview.panel || [])
+    .map((member) => member?.user?.email)
+    .filter(Boolean);
   const candidateName = `${interview.candidate.firstName} ${interview.candidate.lastName}`.trim();
 
   const meetingResult = await generateMeetingLink(platform, {
@@ -2334,15 +2339,99 @@ export const interviewService = {
     };
   },
 
-  async acceptCandidateProposal(id, user) {
+  async acceptCandidateProposal(id, user, payload = {}) {
     const current = await getInterviewOrThrow(id);
-    const proposal = parseInterviewRescheduleProposal(current);
+    const proposal = resolveCandidateProposal(current, payload);
+
+    const finalizeAcceptedInterview = async (interview, { oldDate, proposedAt, alreadyAccepted }) => {
+      let updated = interview;
+      let meetingLinkError = null;
+      try {
+        if (isOnlineInterviewMode(updated.mode) && updated.platform) {
+          const meetingResult = await attachMeetingLink(updated, updated.platform);
+          updated = meetingResult.interview;
+          meetingLinkError = meetingResult.meetingLinkError;
+        }
+      } catch (meetErr) {
+        meetingLinkError = meetErr?.message || 'Meeting link update failed';
+        console.warn('[interview.acceptCandidateProposal] meeting link failed:', meetingLinkError);
+      }
+
+      if (!alreadyAccepted) {
+        try {
+          await logActivity(prisma, {
+            interviewId: id,
+            action: INTERVIEW_ACTIVITY_ACTIONS.PROPOSAL_ACCEPTED,
+            userId: user.id,
+            metadata: {
+              oldDate,
+              newDate: updated.scheduledAt,
+              proposedAt,
+            },
+          });
+        } catch (logErr) {
+          console.warn('[interview.acceptCandidateProposal] activity log failed:', logErr?.message || logErr);
+        }
+      }
+
+      let emailsSent = false;
+      try {
+        const mailResults = await sendInterviewConfirmed(updated.candidate, updated, updated.panel || []);
+        emailsSent = Array.isArray(mailResults)
+          ? mailResults.some((row) => row && row.skipped !== true)
+          : Boolean(mailResults);
+      } catch (mailErr) {
+        console.warn('[interview.acceptCandidateProposal] mail failed:', mailErr?.message || mailErr);
+      }
+
+      if (!alreadyAccepted) {
+        try {
+          await updateCandidateStage({
+            candidateId: updated.candidateId,
+            jobId: updated.jobId,
+            stage: PIPELINE_STAGES.INTERVIEW,
+            performedById: user.id,
+            skipStageActivity: true,
+            metadata: {
+              source: 'interview-proposal-accepted',
+              scheduledAt: updated.scheduledAt,
+            },
+          });
+        } catch (stageErr) {
+          console.warn('[interview.acceptCandidateProposal] stage sync failed:', stageErr?.message || stageErr);
+        }
+      }
+
+      return { ...updated, meetingLinkError, emailsSent };
+    };
+
     if (!proposal?.at) {
+      if (isProposalAlreadyAccepted(current)) {
+        return finalizeAcceptedInterview(current, {
+          oldDate: current.scheduledAt,
+          proposedAt: current.scheduledAt,
+          alreadyAccepted: true,
+        });
+      }
       throw Object.assign(new Error('This candidate has not proposed a new time'), { statusCode: 400 });
     }
+
     const nextDate = new Date(proposal.at);
     if (Number.isNaN(nextDate.getTime())) {
       throw Object.assign(new Error('The proposed time is invalid'), { statusCode: 400 });
+    }
+
+    const alreadyAtProposed =
+      String(current.status || '').toUpperCase() === 'CONFIRMED' &&
+      Math.abs(new Date(current.scheduledAt).getTime() - nextDate.getTime()) < 60 * 1000 &&
+      !parseInterviewRescheduleProposal(current);
+
+    if (alreadyAtProposed) {
+      return finalizeAcceptedInterview(current, {
+        oldDate: current.scheduledAt,
+        proposedAt: proposal.at,
+        alreadyAccepted: true,
+      });
     }
 
     const panelIds =
@@ -2358,7 +2447,7 @@ export const interviewService = {
     });
 
     const label = formatProposedAtLabel(proposal.at, proposal.timezone || current.timezone);
-    let updated = await updateInterviewWithRsvp(prisma, {
+    const updated = await updateInterviewWithRsvp(prisma, {
       id,
       data: {
         scheduledAt: nextDate,
@@ -2373,60 +2462,11 @@ export const interviewService = {
       include: interviewInclude,
     });
 
-    let meetingLinkError = null;
-    if (isOnlineInterviewMode(updated.mode) && updated.platform) {
-      const meetingResult = await attachMeetingLink(updated, updated.platform);
-      updated = meetingResult.interview;
-      meetingLinkError = meetingResult.meetingLinkError;
-    }
-
-    await logActivity(prisma, {
-      interviewId: id,
-      action: INTERVIEW_ACTIVITY_ACTIONS.PROPOSAL_ACCEPTED,
-      userId: user.id,
-      metadata: {
-        oldDate: current.scheduledAt,
-        newDate: nextDate,
-        proposedAt: proposal.at,
-      },
+    return finalizeAcceptedInterview(updated, {
+      oldDate: current.scheduledAt,
+      proposedAt: proposal.at,
+      alreadyAccepted: false,
     });
-
-    try {
-      await sendInterviewRescheduled(
-        updated.candidate,
-        {
-          ...updated,
-          notes: `Your proposed time was accepted. The interview is now scheduled for ${label || proposal.at}.`,
-        },
-        current.scheduledAt,
-        updated.panel,
-        {
-          notifyCandidate: true,
-          notifyInterviewer: true,
-          includeRsvp: false,
-        },
-      );
-    } catch (mailErr) {
-      console.warn('[interview.acceptCandidateProposal] mail failed:', mailErr?.message || mailErr);
-    }
-
-    try {
-      await updateCandidateStage({
-        candidateId: updated.candidateId,
-        jobId: updated.jobId,
-        stage: PIPELINE_STAGES.INTERVIEW,
-        performedById: user.id,
-        skipStageActivity: true,
-        metadata: {
-          source: 'interview-proposal-accepted',
-          scheduledAt: nextDate.toISOString(),
-        },
-      });
-    } catch (stageErr) {
-      console.warn('[interview.acceptCandidateProposal] stage sync failed:', stageErr?.message || stageErr);
-    }
-
-    return { ...updated, meetingLinkError };
   },
 
   async rejectCandidateProposal(id, payload, user) {

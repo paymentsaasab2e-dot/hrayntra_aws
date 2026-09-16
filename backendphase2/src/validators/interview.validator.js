@@ -145,6 +145,13 @@ export const rescheduleInterviewSchema = z.object({
   notifyInterviewer: z.boolean().default(true),
 });
 
+export const acceptCandidateProposalSchema = z
+  .object({
+    proposedAt: z.string().optional(),
+    timezone: z.string().optional(),
+  })
+  .default({});
+
 export const rejectCandidateProposalSchema = z.object({
   reason: z.string().optional().default(''),
 });
