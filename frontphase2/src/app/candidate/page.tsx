@@ -95,7 +95,7 @@ import { requestConfirm, requestError, requestPrompt } from '../../lib/appDialog
 import { RECYCLE_BIN_SYNC_EVENT } from '../../constants/recycleBin';
 import { parseClientsListFromResponse, parseJobsListFromResponse } from '../../lib/parseApiList';
 import { dedupeCompanyNameLabels } from '../../lib/companyNameKey';
-import { resolveCountryFilterLabel } from '../../lib/cscData';
+import { resolveCountryFilterLabel, getCscCountryOptions } from '../../lib/cscData';
 import {
   apiAddCandidateNote,
   apiAddCandidateTag,
@@ -181,11 +181,7 @@ export const dynamic = 'force-dynamic';
 
 type CandidateListTab = 'all' | 'mine';
 
-/** Full pool: tenant + job portal + Phase 1 common DB (location options bootstrap). */
-const ALL_CANDIDATES_LIST_PARAMS = { page: 1, limit: 100, includeCommonPool: true };
-
-/** Progressive list fetch size — first batch paints fast; more batches fill cache. */
-const CANDIDATE_FETCH_BATCH = 100;
+const CANDIDATE_LOCATION_COUNTRY_OPTIONS = getCscCountryOptions().map((row) => row.label);
 
 const CANDIDATE_TABLE_TAB_CLASS =
   'px-4 py-3 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap';
@@ -454,7 +450,9 @@ function CandidatesPageContent() {
   const [jobFilterOptions, setJobFilterOptions] = useState<CandidateJobFilterOption[]>([]);
   const [pipelineRecruiters, setPipelineRecruiters] = useState<CandidatePipelineRecruiterOption[]>([]);
   const [companyFilterOptions, setCompanyFilterOptions] = useState<string[]>([]);
-  const [locationFilterOptions, setLocationFilterOptions] = useState<string[]>([]);
+  const [locationFilterOptions, setLocationFilterOptions] = useState<string[]>(
+    () => CANDIDATE_LOCATION_COUNTRY_OPTIONS,
+  );
   const companyFilterOptionsRef = useRef<string[]>([]);
   const locationFilterOptionsRef = useRef<string[]>([]);
   const [submitClientRowId, setSubmitClientRowId] = useState<string | null>(null);
@@ -471,7 +469,6 @@ function CandidatesPageContent() {
     locationFilterOptionsRef.current = locationFilterOptions;
   }, [locationFilterOptions]);
 
-  // Drop stale non-country values left in the filter from older CV junk options
   useEffect(() => {
     const selected = columnFilters.location.trim();
     if (!selected) return;
@@ -480,41 +477,6 @@ function CandidatesPageContent() {
       setColumnFilters((prev) => ({ ...prev, location: resolved || '' }));
     }
   }, [locationFilterOptions, columnFilters.location]);
-
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        let page = 1;
-        let accumulated: BackendCandidate[] = [];
-        // Progressive batches so country filter options appear without a huge first wait.
-        while (page <= 10 && !cancelled) {
-          const res = await apiGetCandidates({
-            ...ALL_CANDIDATES_LIST_PARAMS,
-            page,
-            limit: CANDIDATE_FETCH_BATCH,
-          });
-          if (cancelled) return;
-          const rows = extractBackendCandidatesList(
-            res.data as BackendCandidate[] | { data?: BackendCandidate[]; items?: BackendCandidate[] } | undefined,
-          );
-          if (!rows.length) break;
-          accumulated = accumulated.concat(rows);
-          const mapped = accumulated.map(mapBackendCandidate);
-          setLocationFilterOptions(
-            buildLocationFilterOptions(mapped, accumulated, locationFilterOptionsRef.current),
-          );
-          if (rows.length < CANDIDATE_FETCH_BATCH) break;
-          page += 1;
-        }
-      } catch {
-        // Location options still accumulate from paginated list loads.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const [interviewPanelMembers, setInterviewPanelMembers] = useState<CandidateInterviewerOption[]>([]);
   const [bulkScheduleInterviewOpen, setBulkScheduleInterviewOpen] = useState(false);
@@ -811,7 +773,9 @@ function CandidatesPageContent() {
           : undefined,
         status: !debouncedColumnFilters.stage && filters.status ? filters.status : undefined,
         mine: activeListTab === 'mine',
-        ...(shouldIncludePhase1CommonPool() ? { includeCommonPool: true } : {}),
+        ...(activeListTab === 'all' && shouldIncludePhase1CommonPool()
+          ? { includeCommonPool: true }
+          : { includeCommonPool: false }),
         matchingCandidateIds: smartSearchCandidateIds,
       };
       const queryParams = buildCandidatesListApiParams({
@@ -869,79 +833,9 @@ function CandidatesPageContent() {
         totalEntries: total,
         candidates: mapped,
       });
-
-      // Background: keep pulling batches of 100 into the page cache so later
-      // pages feel instant. First paint already happened above.
-      // Skip on silent auto-refresh so we don't thrash the network.
-      const searchKey = filters.search || '';
-      const totalForPrefetch = Number(total) || 0;
-      if (!silent && totalForPrefetch > pageSize) {
-        const prefetchGen = ++candidatePrefetchGenRef.current;
-        void (async () => {
-          const batchLimit = CANDIDATE_FETCH_BATCH;
-          const maxBatches = Math.min(Math.ceil(totalForPrefetch / batchLimit), 40);
-          for (let batchPage = 1; batchPage <= maxBatches; batchPage++) {
-            if (prefetchGen !== candidatePrefetchGenRef.current) return;
-            if (requestId !== loadCandidatesRequestIdRef.current) return;
-
-            const batchStartIdx = (batchPage - 1) * batchLimit;
-            const uiPagesInBatch: number[] = [];
-            for (let i = 0; i < batchLimit; i += pageSize) {
-              const uiPage = Math.floor((batchStartIdx + i) / pageSize) + 1;
-              if (uiPage <= Math.ceil(totalForPrefetch / pageSize)) {
-                uiPagesInBatch.push(uiPage);
-              }
-            }
-            const allFresh = uiPagesInBatch.every((uiPage) => {
-              const cached = readCandidatesListCache(
-                activeListTab,
-                uiPage,
-                pageSize,
-                searchKey,
-              );
-              return (
-                isCandidatesListCacheFresh(cached) &&
-                Boolean(cached?.data?.candidates?.length)
-              );
-            });
-            if (allFresh) continue;
-
-            try {
-              const batchRes = await apiGetCandidates(
-                buildCandidatesListApiParams({
-                  page: batchPage,
-                  limit: batchLimit,
-                  ...listFilterBits,
-                }),
-              );
-              if (prefetchGen !== candidatePrefetchGenRef.current) return;
-              const batchPayload = batchRes.data as
-                | BackendCandidate[]
-                | { data?: BackendCandidate[]; items?: BackendCandidate[]; pagination?: any }
-                | undefined;
-              const batchRows = extractBackendCandidatesList(batchPayload);
-              if (!batchRows.length) break;
-              const batchMapped = batchRows.map(mapBackendCandidate);
-              for (let i = 0; i < batchMapped.length; i += pageSize) {
-                const chunk = batchMapped.slice(i, i + pageSize);
-                const uiPage = Math.floor((batchStartIdx + i) / pageSize) + 1;
-                writeCandidatesListCache({
-                  tab: activeListTab,
-                  page: uiPage,
-                  pageSize,
-                  search: searchKey,
-                  totalEntries: totalForPrefetch,
-                  candidates: chunk,
-                });
-              }
-            } catch {
-              // Prefetch is best-effort; user can still page-load on demand.
-              break;
-            }
-            await new Promise((r) => setTimeout(r, 0));
-          }
-        })();
-      }
+      setLocationFilterOptions((prev) =>
+        buildLocationFilterOptions(mapped, backendCandidates, prev),
+      );
     } catch (err: any) {
       if (requestId !== loadCandidatesRequestIdRef.current) return;
       const message = err?.message || 'Failed to load candidates.';
@@ -1031,7 +925,7 @@ function CandidatesPageContent() {
   );
   usePageAutoRefresh(candidatesAutoLoad, {
     events: ['jobportal:candidates-changed', 'jobportal:jobs-changed'],
-    intervalMs: listTab === 'all' ? 20_000 : 45_000,
+    intervalMs: 45_000,
     shouldSkip: () =>
       isCandidatesListCacheFresh(
         readCandidatesListCache(listTab, currentPage, pageSize, filters.search || ''),
@@ -1291,7 +1185,8 @@ function CandidatesPageContent() {
       } else if (filters.status) {
         queryParams.status = filters.status;
       }
-      queryParams.includeCommonPool = shouldIncludePhase1CommonPool() ? true : undefined;
+      queryParams.includeCommonPool =
+        listTab === 'all' && shouldIncludePhase1CommonPool() ? true : false;
       return queryParams;
     },
     [debouncedColumnFilters, filters.search, filters.status, listTab, phase1CommonPoolEnabled],

@@ -9,11 +9,13 @@
  * value = { assigneeUserIds: string[], createdById?: string }
  *
  * Semantics:
- * - No setting row → default to reporting hierarchy (descendants via managerId).
+ * - No setting row → default to reporting hierarchy (descendants via managerId)
+ *   plus the assignor themselves (so they can always take the work).
  *   If the assignor has no reports, keep the existing eligible pool (no extra filter).
- * - Setting exists with [] → assign to nobody.
+ * - Setting exists with [] → assign to nobody else; the assignor can still assign to self.
  * - Setting exists with ids → those people (active) appear in Assign To; prefer
  *   members already in the eligible pool, then backfill any missing checked ids.
+ *   The assignor is always included when they have this module.
  * - Lookup prefers company-specific key, then tenant-wide `_` (All / active company).
  */
 import { prisma } from '../config/prisma.js';
@@ -224,6 +226,33 @@ export async function listEligibleAssigneeUserIdsForModule(module, orgUnitId = n
   return eligible.map((user) => idStr(user.id)).filter(Boolean);
 }
 
+/**
+ * The person assigning can always assign to themselves when they have this module.
+ * Injects them at the front of the picker list if rules/hierarchy dropped them.
+ */
+async function ensureAssignorIncluded(actorUserId, module, originalPool, filtered) {
+  const actorId = idStr(actorUserId);
+  const out = Array.isArray(filtered) ? [...filtered] : [];
+  if (!actorId) return out;
+  if (out.some((member) => idStr(member?.id || member) === actorId)) return out;
+
+  const fromPool = (Array.isArray(originalPool) ? originalPool : []).find(
+    (member) => idStr(member?.id || member) === actorId,
+  );
+  if (fromPool && typeof fromPool === 'object') return [fromPool, ...out];
+
+  try {
+    const eligible = await listEligibleAssigneeUserIdsForModule(module);
+    if (!eligible.includes(actorId)) return out;
+  } catch {
+    return out;
+  }
+
+  const extras = await loadActiveAssigneesByIds([actorId]);
+  if (!extras.length) return out;
+  return [...extras, ...out];
+}
+
 export async function applyAssignmentRules(actorUserId, module, candidates, { req = null, orgUnitId = null } = {}) {
   const list = Array.isArray(candidates) ? candidates : [];
 
@@ -236,12 +265,16 @@ export async function applyAssignmentRules(actorUserId, module, candidates, { re
   // Custom saved rules apply to everyone (including Super Admin).
   if (state.configured) {
     const allowed = state.allowedIds || new Set();
-    if (!allowed.size) return [];
+    if (!allowed.size) {
+      return ensureAssignorIncluded(actorUserId, module, list, []);
+    }
 
     const fromPool = list.filter((member) => allowed.has(idStr(member?.id || member)));
     const found = new Set(fromPool.map((member) => idStr(member?.id || member)));
     const missing = [...allowed].filter((id) => !found.has(id));
-    if (!missing.length) return fromPool;
+    if (!missing.length) {
+      return ensureAssignorIncluded(actorUserId, module, list, fromPool);
+    }
 
     // Checked “Can assign to” people must appear even if outside the pre-filtered pool
     // (e.g. other department). Keep module-access gate so Assign To stays actionable.
@@ -253,7 +286,9 @@ export async function applyAssignmentRules(actorUserId, module, candidates, { re
     } catch {
       extras = extrasRaw;
     }
-    if (!extras.length) return fromPool;
+    if (!extras.length) {
+      return ensureAssignorIncluded(actorUserId, module, list, fromPool);
+    }
 
     const merged = [...fromPool];
     const seen = new Set(found);
@@ -263,20 +298,30 @@ export async function applyAssignmentRules(actorUserId, module, candidates, { re
       seen.add(id);
       merged.push(member);
     }
-    return merged;
+    return ensureAssignorIncluded(actorUserId, module, list, merged);
   }
 
-  if (!list.length) return list;
+  if (!list.length) {
+    return ensureAssignorIncluded(actorUserId, module, list, list);
+  }
 
-  // Unsaved default: Super Admin keeps full access.
-  if (req && isSuperAdminUser(req)) return list;
-  if (!req && (await isSuperAdminUserId(actorUserId))) return list;
+  // Unsaved default: Super Admin keeps full access (includes self).
+  if (req && isSuperAdminUser(req)) {
+    return ensureAssignorIncluded(actorUserId, module, list, list);
+  }
+  if (!req && (await isSuperAdminUserId(actorUserId))) {
+    return ensureAssignorIncluded(actorUserId, module, list, list);
+  }
 
-  // Unsaved default: reporting hierarchy (who reports to this assignor).
+  // Unsaved default: reporting hierarchy + the assignor themselves.
   const hierarchyIds = await listDescendantUserIds(actorUserId);
-  if (!hierarchyIds.length) return list;
+  if (!hierarchyIds.length) {
+    return ensureAssignorIncluded(actorUserId, module, list, list);
+  }
   const allowed = new Set(hierarchyIds.map(idStr));
-  return list.filter((member) => allowed.has(idStr(member?.id || member)));
+  allowed.add(idStr(actorUserId));
+  const filtered = list.filter((member) => allowed.has(idStr(member?.id || member)));
+  return ensureAssignorIncluded(actorUserId, module, list, filtered);
 }
 
 export async function assertAssignmentRuleAllows(
@@ -286,6 +331,9 @@ export async function assertAssignmentRuleAllows(
   { req = null, orgUnitId = null } = {},
 ) {
   if (!actorUserId || !assigneeUserId) return;
+
+  // Anyone with this module can assign a record to themselves.
+  if (idStr(actorUserId) === idStr(assigneeUserId)) return;
 
   const companyId =
     normalizeOrgUnitId(orgUnitId) ||
@@ -465,19 +513,28 @@ export async function getAssignmentRulesForAssignor({
   const eligibleSet = new Set(eligibleAssigneeUserIds);
 
   const hierarchyIds = await listDescendantUserIds(assignorId);
-  const suggestedAssigneeIds = hierarchyIds.filter((id) => eligibleSet.has(id));
+  const suggestedAssigneeIds = [];
+  if (eligibleSet.has(assignorId)) suggestedAssigneeIds.push(assignorId);
+  for (const id of hierarchyIds) {
+    if (eligibleSet.has(id) && !suggestedAssigneeIds.includes(id)) {
+      suggestedAssigneeIds.push(id);
+    }
+  }
   const configured = Boolean(row);
   const savedIds = row
     ? parseAssigneeIds(row.value).filter((id) => eligibleSet.has(id))
     : [];
+  const defaultAssigneeIds = hierarchyIds.length
+    ? suggestedAssigneeIds
+    : eligibleAssigneeUserIds;
 
   return {
     module: moduleName,
     assignorUserId: assignorId,
     orgUnitId: companyId,
     configured,
-    // When not saved, UI shows hierarchy as the effective "already selected" set.
-    assigneeUserIds: configured ? savedIds : suggestedAssigneeIds,
+    // When not saved: self + reports, or everyone with module access if they have no reports.
+    assigneeUserIds: configured ? savedIds : defaultAssigneeIds,
     suggestedAssigneeIds,
     eligibleAssigneeUserIds,
     usingHierarchyDefault: !configured,

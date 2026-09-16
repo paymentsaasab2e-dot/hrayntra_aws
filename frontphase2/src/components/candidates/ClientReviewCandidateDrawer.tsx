@@ -18,6 +18,7 @@ import {
   normalizeClientTrackerOptions,
 } from '../../lib/clientTrackerOptions';
 import { isClientReviewFileHref } from '../../lib/clientReviewAssets';
+import { isSubmitToClientCandidateNameVisible } from '../../lib/submitToClientFieldVisibility';
 
 const EASE_OUT = [0.22, 1, 0.36, 1] as const;
 
@@ -56,6 +57,9 @@ export function ClientReviewCandidateDrawer({
   onSubmitted,
 }: Props) {
   const reviewData = row?.detail ?? null;
+  const displayName = isSubmitToClientCandidateNameVisible(reviewData?.visibleFields)
+    ? row?.candidateName || reviewData?.candidate?.name || 'Candidate'
+    : 'Candidate';
   const submissionType = String(reviewData?.submissionType || 'GENERAL').toUpperCase();
   const isOfferFlow = submissionType === 'OFFER_CONFIRMATION';
   const tagOptions = TAG_OPTIONS_BY_TYPE[submissionType] || TAG_OPTIONS_BY_TYPE.GENERAL;
@@ -239,7 +243,7 @@ export function ClientReviewCandidateDrawer({
             <div className="min-h-0 flex-1 overflow-hidden rounded-2xl border border-indigo-100/80 bg-white shadow-[0_10px_30px_-18px_rgba(79,70,229,0.28)] ring-1 ring-indigo-500/5">
               <ResumeInlinePreview
                 resumeUrl={sharedResumeUrl}
-                candidateName={row?.candidateName || reviewData?.candidate?.name || 'Candidate'}
+                candidateName={displayName}
                 enabled
                 minHeightClass="min-h-[70vh]"
                 className="rounded-2xl"
@@ -254,7 +258,7 @@ export function ClientReviewCandidateDrawer({
               </p>
               <ResumeInlinePreview
                 resumeUrl={sharedResumeUrl}
-                candidateName={row?.candidateName || reviewData?.candidate?.name || 'Candidate'}
+                candidateName={displayName}
                 enabled
                 minHeightClass="min-h-[52vh]"
               />
@@ -430,7 +434,7 @@ export function ClientReviewCandidateDrawer({
                       id="client-candidate-review-title"
                       className="truncate text-lg font-bold text-slate-900 sm:text-xl"
                     >
-                      {row.candidateName}
+                      {displayName}
                     </h2>
                     <p className="mt-0.5 truncate text-sm text-slate-500">
                       {[roleLabel, jobTitle, clientName].filter(Boolean).join(' · ') ||
@@ -498,7 +502,7 @@ export function ClientReviewCandidateDrawer({
                   </h3>
                   <p className="mt-2 text-sm leading-6 text-slate-600">
                     Your review for{' '}
-                    <span className="font-semibold text-slate-900">{row.candidateName}</span>
+                    <span className="font-semibold text-slate-900">{displayName}</span>
                     {tracker.changeStage && selectedStage ? (
                       <>
                         {' '}

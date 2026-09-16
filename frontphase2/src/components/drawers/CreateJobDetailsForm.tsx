@@ -11,7 +11,12 @@ import { EditDateField } from '../candidates/EditDateField';
 import { isOwnCompanyWorkspaceClient, type BackendClient, type BackendUser } from '../../lib/api';
 import { useAssignableMembers } from '../../hooks/useAssignableMembers';
 import { AssignCompanySelect } from '../assign/AssignCompanySelect';
-import { formatAssigneeDisplayName } from '../../lib/assigneeDisplay';
+import {
+  formatAssigneeDisplayName,
+  formatAssigneeOptionLabel,
+  getStoredCurrentUserId,
+} from '../../lib/assigneeDisplay';
+import { getCurrentUserRequestIdentity } from '../../lib/api/teamApi';
 import {
   formatJobSalaryCurrencyLabel,
   formatJobSalaryCurrencyOptionLabel,
@@ -164,6 +169,26 @@ function ListTextareaField({
   );
 }
 
+function currentUserAsBackendUser(): BackendUser | null {
+  const me = getCurrentUserRequestIdentity();
+  if (!me.id) return null;
+  return {
+    id: me.id,
+    name: me.name || 'You',
+    email: me.email || '',
+    role: '',
+    isActive: true,
+    createdAt: '',
+  };
+}
+
+function withCurrentUserFirst(users: BackendUser[], currentUserId: string): BackendUser[] {
+  if (!currentUserId) return users;
+  const self = users.find((user) => user.id === currentUserId);
+  if (!self) return users;
+  return [self, ...users.filter((user) => user.id !== currentUserId)];
+}
+
 const PRIORITY_OPTIONS = ['Low', 'Medium', 'High', 'Urgent'];
 const EMPLOYMENT_TYPES = ['Full Time', 'Part Time', 'Contract', 'Internship', 'Freelance'];
 
@@ -312,7 +337,9 @@ export function CreateJobDetailsForm({
     menuPosition: recruiterMenuPosition,
   } = useDrawerPortalDropdownPosition(recruiterMenuOpen, true, closeRecruiterMenu);
 
-  /** Managers of the selected organization: people who have reports, or manager-role users. */
+  const currentUserId = getStoredCurrentUserId();
+
+  /** Managers of the selected organization: people who have reports, or manager-role users. Always include the creator. */
   const managerUsers = useMemo(() => {
     const byId = new Map<string, BackendUser>();
     const reportCount = new Map<string, number>();
@@ -371,37 +398,53 @@ export function CreateJobDetailsForm({
       }
     }
 
-    return Array.from(byId.values()).sort((a, b) =>
+    const me =
+      recruiterUsers.find((user) => user.id === currentUserId) ||
+      lineManagerOptions.find((user) => user.id === currentUserId) ||
+      currentUserAsBackendUser();
+    if (me) byId.set(me.id, me);
+
+    const sorted = Array.from(byId.values()).sort((a, b) =>
       String(a.name || '').localeCompare(String(b.name || '')),
     );
-  }, [assignable.members, lineManagerOptions, recruiterUsers, useLineManagerPicker]);
+    return withCurrentUserFirst(sorted, currentUserId);
+  }, [assignable.members, currentUserId, lineManagerOptions, recruiterUsers, useLineManagerPicker]);
 
   const loadingManagerOptions = loadingLineManagers || loadingRecruiters;
   const needsOrganizationFirst = assignable.canSelectCompany && !assignable.companyId;
   const needsManagerFirst = !formData.managerId;
 
-  /** Team under the selected manager only (org → manager → team). Always include the selected manager. */
+  /** Team under the selected manager, plus the person creating the job so they can assign themselves. */
   const filteredRecruiterUsers = useMemo(() => {
     if (!formData.managerId) return [];
     const managerId = String(formData.managerId).trim();
     const team = recruiterUsers.filter((user) => {
       if (user.id === managerId) return true;
+      if (currentUserId && user.id === currentUserId) return true;
       const member = assignable.members.find((row) => row.id === user.id);
       const reportsTo = member?.manager?.id || member?.managerId || user.managerId || '';
       return reportsTo === managerId;
     });
-    const managerAlreadyListed = team.some((user) => user.id === managerId);
-    if (managerAlreadyListed) return team;
+    const byId = new Map(team.map((user) => [user.id, user]));
 
     const managerUser =
       managerUsers.find((user) => user.id === managerId) ||
       lineManagerOptions.find((user) => user.id === managerId) ||
       recruiterUsers.find((user) => user.id === managerId) ||
       users.find((user) => user.id === managerId);
-    if (!managerUser) return team;
-    return [managerUser, ...team];
+    if (managerUser && !byId.has(managerUser.id)) byId.set(managerUser.id, managerUser);
+
+    const me =
+      recruiterUsers.find((user) => user.id === currentUserId) ||
+      managerUsers.find((user) => user.id === currentUserId) ||
+      users.find((user) => user.id === currentUserId) ||
+      currentUserAsBackendUser();
+    if (me && !byId.has(me.id)) byId.set(me.id, me);
+
+    return withCurrentUserFirst(Array.from(byId.values()), currentUserId);
   }, [
     assignable.members,
+    currentUserId,
     formData.managerId,
     lineManagerOptions,
     managerUsers,
@@ -452,7 +495,7 @@ export function CreateJobDetailsForm({
       ? lineManagerOptions.find((u) => u.id === formData.managerId)
       : undefined);
   const selectedManagerLabel = selectedManager
-    ? formatAssigneeDisplayName(selectedManager) || selectedManager.name
+    ? formatAssigneeOptionLabel(selectedManager, currentUserId)
     : '';
 
   const applyAssigneeIds = useCallback(
@@ -499,6 +542,7 @@ export function CreateJobDetailsForm({
     if (selectedAssigneeIds.length) {
       const kept = selectedAssigneeIds.filter((id) => {
         if (userId && id === userId) return true; // keep manager if already selected as assignee
+        if (currentUserId && id === currentUserId) return true; // keep self-assignment
         const member = assignable.members.find((row) => row.id === id);
         const reportsTo = member?.manager?.id || member?.managerId || '';
         return !userId || reportsTo === userId;
@@ -1491,7 +1535,7 @@ export function CreateJobDetailsForm({
                     formData.managerId === user.id ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-700'
                   }`}
                 >
-                  <span className="block font-medium">{formatAssigneeDisplayName(user) || user.name}</span>
+                  <span className="block font-medium">{formatAssigneeOptionLabel(user, currentUserId)}</span>
                   {user.email ? (
                     <span className="block text-xs text-slate-500 truncate">{user.email}</span>
                   ) : null}
@@ -1501,6 +1545,9 @@ export function CreateJobDetailsForm({
           </>
         )}
       </DropdownField>
+      <p className="-mt-2 mb-4 text-xs text-slate-500">
+        You can assign yourself as manager. People with this module also appear here.
+      </p>
 
       <div>
         <FieldLabelRow label="Recruiters / Team members" />
@@ -1511,8 +1558,8 @@ export function CreateJobDetailsForm({
                 key={user.id}
                 className="inline-flex items-center gap-1 rounded-full border border-blue-100 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-800"
               >
-                <span className="max-w-[140px] truncate">
-                  {formatAssigneeDisplayName(user) || user.name}
+                <span className="max-w-[180px] truncate">
+                  {formatAssigneeOptionLabel(user, currentUserId)}
                 </span>
                 {index === 0 ? (
                   <span className="rounded bg-blue-100 px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-blue-600">
@@ -1521,7 +1568,7 @@ export function CreateJobDetailsForm({
                 ) : null}
                 <button
                   type="button"
-                  aria-label={`Remove ${formatAssigneeDisplayName(user) || user.name}`}
+                  aria-label={`Remove ${formatAssigneeOptionLabel(user, currentUserId)}`}
                   onClick={() => applyAssigneeIds(selectedAssigneeIds.filter((id) => id !== user.id))}
                   className="rounded-full p-0.5 text-blue-500 hover:bg-blue-100 hover:text-blue-700"
                 >
@@ -1549,7 +1596,7 @@ export function CreateJobDetailsForm({
                       ? 'No team members under this manager'
                       : selectedAssignees.length
                         ? `${selectedAssignees.length} selected — add more`
-                        : 'Select team members under this manager'}
+                        : 'Select team members (including yourself)'}
             </span>
             <ChevronDown size={16} className="text-slate-400 shrink-0" />
           </button>
@@ -1614,7 +1661,7 @@ export function CreateJobDetailsForm({
                                   </span>
                                   <span className="min-w-0 flex-1">
                                     <span className="block font-medium">
-                                      {formatAssigneeDisplayName(user) || user.name}
+                                      {formatAssigneeOptionLabel(user, currentUserId)}
                                       {isPrimary ? (
                                         <span className="ml-1 text-[10px] font-bold uppercase text-blue-500">
                                           Primary
@@ -1637,9 +1684,9 @@ export function CreateJobDetailsForm({
             : null}
         </div>
         <p className="mt-1 text-xs text-slate-500">
-          Choose organization → manager → team. The selected manager appears in this list too.
-          The first selected member is the primary recruiter; others are supporting assignees and can
-          also see this job.
+          Choose organization → manager → team. You can assign yourself as manager and as a team
+          member. The first selected member is the primary recruiter; others are supporting assignees
+          and can also see this job.
         </p>
       </div>
     </div>

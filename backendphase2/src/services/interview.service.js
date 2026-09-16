@@ -68,6 +68,27 @@ import {
 import { detectResumeContentType, fetchS3ResumeDocumentBuffer } from '../utils/s3PdfFetch.js';
 import { isOurS3PdfUrl } from '../utils/s3.js';
 
+const SUBMIT_TO_CLIENT_VISIBILITY_DEFAULTS_KEY = 'submitToClientFieldVisibility';
+
+async function loadLiveSubmitToClientFieldVisibility() {
+  try {
+    const row = await prisma.setting.findFirst({
+      where: { key: SUBMIT_TO_CLIENT_VISIBILITY_DEFAULTS_KEY },
+      orderBy: { updatedAt: 'desc' },
+    });
+    const raw = row?.value;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    const nested =
+      raw.fieldVisibility && typeof raw.fieldVisibility === 'object' && !Array.isArray(raw.fieldVisibility)
+        ? raw.fieldVisibility
+        : raw;
+    const hasFlag = Object.values(nested).some((value) => typeof value === 'boolean');
+    return hasFlag ? nested : null;
+  } catch {
+    return null;
+  }
+}
+
 const interviewInclude = {
   candidate: {
     select: {
@@ -1268,7 +1289,7 @@ async function buildSyntheticInterviewFromMatch(match) {
   };
 }
 
-function serializeInterviewForClientReview(
+async function serializeInterviewForClientReview(
   interview,
   {
     submissionType,
@@ -1281,6 +1302,7 @@ function serializeInterviewForClientReview(
     recruiterNotes = '',
     pipelineStages = null,
     clientMarkedStage = null,
+    liveVisibleFields = undefined,
   } = {},
 ) {
   const cRaw = interview.candidate;
@@ -1310,11 +1332,18 @@ function serializeInterviewForClientReview(
     resume: c.resume || c.resumeUrl || '',
   };
 
-  // Build display sections from tenant DB candidate — respect tenant field visibility.
-  const visibleFields = resolveClientReviewVisibleFields(cRaw);
-  const presentationSections = buildClientReviewSectionsFromPresentation(
-    buildDirectClientReviewPresentation(cRaw),
-  );
+  // Live Settings → Submit to Client wins so hiding a field updates existing preview links.
+  const snapshotFields = resolveClientReviewVisibleFields(cRaw);
+  const liveFields =
+    liveVisibleFields !== undefined
+      ? liveVisibleFields
+      : await loadLiveSubmitToClientFieldVisibility();
+  const visibleFields = liveFields || snapshotFields || null;
+  const presentation = buildDirectClientReviewPresentation(cRaw);
+  if (visibleFields && presentation && typeof presentation === 'object') {
+    presentation.visibleFields = visibleFields;
+  }
+  const presentationSections = buildClientReviewSectionsFromPresentation(presentation);
 
   const candidateExtra =
     cRaw?.extraData && typeof cRaw.extraData === 'object' && !Array.isArray(cRaw.extraData)
@@ -2518,6 +2547,7 @@ export const interviewService = {
 
     if (isBatchReview) {
       const payloads = await runWithTenantContext(tenantDbName, async () => {
+        const liveVisibleFields = await loadLiveSubmitToClientFieldVisibility();
         const matches = await prisma.match.findMany({
           where: { id: { in: batchMatchIds } },
           include: matchClientReviewInclude,
@@ -2555,6 +2585,7 @@ export const interviewService = {
                 matchId: match.id,
                 jobId: match.jobId,
               }),
+              liveVisibleFields,
             });
           }),
         );
@@ -2581,9 +2612,8 @@ export const interviewService = {
       return maskStorage ? maskClientReviewStorageUrls(result, publicToken) : result;
     }
 
-    const { interview, offerLetterFile, matchRow, candidateFiles, pipelineStages } = await runWithTenantContext(
-      tenantDbName,
-      async () => {
+    const { interview, offerLetterFile, matchRow, candidateFiles, pipelineStages, liveVisibleFields } =
+      await runWithTenantContext(tenantDbName, async () => {
         let iv = null;
         let matchRow = null;
         if (decoded.interviewId) {
@@ -2597,19 +2627,26 @@ export const interviewService = {
           iv = await buildSyntheticInterviewFromMatch(matchRow);
         }
 
-        const [offerFile, files, pipelineStages] = await Promise.all([
+        const [offerFile, files, pipelineStages, liveVisibleFields] = await Promise.all([
           prisma.candidateFile.findFirst({
             where: { candidateId: iv.candidateId, fileType: 'Offer' },
             orderBy: { uploadDate: 'desc' },
           }),
           loadCandidateFilesForReview(iv.candidateId),
           loadClientPipelineStageChoices(iv.jobId, iv.candidate, decoded),
+          loadLiveSubmitToClientFieldVisibility(),
         ]);
-        return { interview: iv, offerLetterFile: offerFile, matchRow, candidateFiles: files, pipelineStages };
-      },
-    );
+        return {
+          interview: iv,
+          offerLetterFile: offerFile,
+          matchRow,
+          candidateFiles: files,
+          pipelineStages,
+          liveVisibleFields,
+        };
+      });
 
-    const payload = serializeInterviewForClientReview(interview, {
+    const payload = await serializeInterviewForClientReview(interview, {
       submissionType,
       cvShareMode: readCandidateCvShareMode(interview.candidate) || cvShareMode,
       offerLetterFile,
@@ -2623,6 +2660,7 @@ export const interviewService = {
         matchId: decoded.matchId || matchRow?.id || null,
         jobId: interview.jobId,
       }),
+      liveVisibleFields,
     });
 
     const result = {
@@ -3057,7 +3095,7 @@ export const interviewService = {
       loadClientPipelineStageChoices(interview.jobId),
     ]);
 
-    const reviewPayload = serializeInterviewForClientReview(interview, {
+    const reviewPayload = await serializeInterviewForClientReview(interview, {
       submissionType,
       cvShareMode,
       offerLetterFile,

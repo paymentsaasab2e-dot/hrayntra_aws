@@ -201,10 +201,8 @@ export async function listCrmAssigneeCandidates(actorUserId, { req = null, modul
     const normalized = normalizeMember(row);
     if (normalized) byId.set(normalized.id, normalized);
   }
-  if (!crossCompany) {
-    const self = normalizeMember(actor);
-    if (self) byId.set(self.id, self);
-  }
+  const selfMember = normalizeMember(actor);
+  if (selfMember) byId.set(selfMember.id, selfMember);
 
   let labeled = await labelUsersWithOrgUnit(sortMembers([...byId.values()]));
   if (useCompanyWalk) {
@@ -214,9 +212,14 @@ export async function listCrmAssigneeCandidates(actorUserId, { req = null, modul
     labeled = filterUsersByAssignableCompany(labeled, requestedCompany, orgUnits);
   }
 
+  // Creator can always assign to themselves even if company walk dropped them.
+  if (selfMember && !labeled.some((member) => idStr(member.id) === idStr(selfMember.id))) {
+    labeled = [selfMember, ...labeled];
+  }
+
   let eligible = labeled;
   if (requiredModules.length) {
-    eligible = filterUsersByAssignmentAccess(labeled, { modules: requiredModules });
+    eligible = await filterUsersByAssignmentAccess(labeled, { modules: requiredModules });
   }
 
   const ruleModule = requiredModules[0] || null;

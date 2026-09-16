@@ -137,18 +137,7 @@ export const AssignmentRulesTab: React.FC = () => {
       setUsingHierarchyDefault(!isCustom);
       setSuggestedIds(hierarchy);
       setEligibleAssigneeIds(eligible);
-
-      if (isCustom) {
-        setSelectedIds((data.assigneeUserIds || []).map(String));
-      } else if (hierarchy.length > 0) {
-        // Default: their reports are already allowed / selected.
-        setSelectedIds(hierarchy);
-      } else if (eligible && eligible.length > 0) {
-        // No reports (e.g. Super Admin) = full access → show everyone with module access selected.
-        setSelectedIds(eligible);
-      } else {
-        setSelectedIds([]);
-      }
+      setSelectedIds((data.assigneeUserIds || []).map(String));
     } catch (error: any) {
       toast.error(error?.message || 'Failed to load assignment rules');
       setConfigured(false);
@@ -165,11 +154,11 @@ export const AssignmentRulesTab: React.FC = () => {
     void loadRules();
   }, [loadRules]);
 
-  // Full-access default: when hierarchy is empty and not custom-saved, tick everyone with module access.
+  // Full-access default: when API returned an empty list and not custom-saved, tick everyone with module access.
   useEffect(() => {
     if (selectionTouched || loadingRules || configured || !usingHierarchyDefault) return;
     if (!module || !assignorUserId) return;
-    if (suggestedIds.length > 0) return;
+    if (selectedIds.length > 0) return;
     if (!eligibleAssigneeIds?.length) return;
     setSelectedIds(eligibleAssigneeIds.map(String));
   }, [
@@ -179,7 +168,7 @@ export const AssignmentRulesTab: React.FC = () => {
     usingHierarchyDefault,
     module,
     assignorUserId,
-    suggestedIds.length,
+    selectedIds.length,
     eligibleAssigneeIds,
   ]);
 
@@ -193,11 +182,15 @@ export const AssignmentRulesTab: React.FC = () => {
     [eligibleAssigneeIds],
   );
 
-  /** “Can assign to” only lists people who have access to the selected module. */
+  /** “Can assign to” only lists people who have access to the selected module. Assignor first. */
   const assigneePool = useMemo(() => {
     if (!module || !assignorUserId) return [];
-    if (!eligibleAssigneeSet) return sortedMembers;
-    return sortedMembers.filter((member) => eligibleAssigneeSet.has(String(member.id)));
+    const pool = eligibleAssigneeSet
+      ? sortedMembers.filter((member) => eligibleAssigneeSet.has(String(member.id)))
+      : sortedMembers;
+    const self = pool.filter((member) => String(member.id) === String(assignorUserId));
+    const rest = pool.filter((member) => String(member.id) !== String(assignorUserId));
+    return [...self, ...rest];
   }, [assignorUserId, eligibleAssigneeSet, module, sortedMembers]);
 
   const selectedAssignor = useMemo(
@@ -207,13 +200,19 @@ export const AssignmentRulesTab: React.FC = () => {
 
   const selectedModuleLabel = moduleLabel(module);
 
-  const isFullAccessDefault =
-    Boolean(assignorUserId && module && usingHierarchyDefault && !configured && suggestedIds.length === 0);
+  const isFullAccessDefault = Boolean(
+    assignorUserId &&
+      module &&
+      usingHierarchyDefault &&
+      !configured &&
+      assigneePool.length > 0 &&
+      selectedIds.length >= assigneePool.length,
+  );
 
   const canAssignSummary = (() => {
     if (!assignorUserId || !module) return 'Can assign to…';
     if (loadingRules) return '…';
-    if (!selectedIds.length) return 'Nobody';
+    if (!selectedIds.length) return configured ? 'Themselves only' : 'Nobody';
     if (isFullAccessDefault || (assigneePool.length > 0 && selectedIds.length >= assigneePool.length)) {
       return `Everyone with access (${selectedIds.length})`;
     }
@@ -225,13 +224,13 @@ export const AssignmentRulesTab: React.FC = () => {
     if (configured) {
       return {
         className: 'bg-emerald-100 text-emerald-800',
-        label: selectedIds.length ? 'Custom saved' : 'Saved · nobody',
+        label: selectedIds.length ? 'Custom saved' : 'Saved · themselves only',
       };
     }
-    if (suggestedIds.length > 0) {
+    if (suggestedIds.length > 0 && !isFullAccessDefault) {
       return {
         className: 'bg-sky-100 text-sky-800',
-        label: 'Default · hierarchy',
+        label: 'Default · self + hierarchy',
       };
     }
     return {
@@ -503,9 +502,9 @@ export const AssignmentRulesTab: React.FC = () => {
               assignorUserId && module
                 ? configured
                   ? `Custom list for ${memberLabel(selectedAssignor!)}`
-                  : suggestedIds.length > 0
-                    ? `Default: ${memberLabel(selectedAssignor!)}’s reports with ${selectedModuleLabel} access`
-                    : `Default: everyone with ${selectedModuleLabel} access — uncheck to restrict`
+                  : suggestedIds.filter((id) => id !== String(assignorUserId)).length > 0
+                    ? `Default: themselves + reports with ${selectedModuleLabel} access`
+                    : `Default: themselves and everyone with ${selectedModuleLabel} access — uncheck to restrict`
                 : 'Select module + who assigns'
             }
             active={Boolean(assignorUserId && module)}
@@ -521,7 +520,7 @@ export const AssignmentRulesTab: React.FC = () => {
                     className="rounded-md border border-sky-200 bg-sky-50 px-2 py-1 text-[11px] font-semibold text-sky-800 hover:bg-sky-100"
                   >
                     {suggestedIds.length > 0
-                      ? `Use hierarchy (${suggestedIds.length})`
+                      ? `Use self + hierarchy (${suggestedIds.length})`
                       : `Select everyone with access (${assigneePool.length})`}
                   </button>
                   <button
@@ -585,7 +584,9 @@ export const AssignmentRulesTab: React.FC = () => {
                           <div className="min-w-0">
                             <p className="truncate text-sm font-medium text-slate-900">
                               {memberLabel(member)}
-                              {suggested ? (
+                              {id === String(assignorUserId) ? (
+                                <span className="ml-1 text-[9px] font-bold uppercase text-indigo-700">Self</span>
+                              ) : suggested ? (
                                 <span className="ml-1 text-[9px] font-bold uppercase text-sky-700">Report</span>
                               ) : null}
                             </p>
@@ -603,7 +604,8 @@ export const AssignmentRulesTab: React.FC = () => {
 
         <div className="flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/50 px-4 py-3 sm:px-6">
           <p className="hidden max-w-xl text-xs text-slate-500 sm:block">
-            Only people with access to the selected module appear here. Checked = can assign to them. Save to lock a custom list.
+            Only people with access to the selected module appear here. The person who assigns can
+            always assign to themselves. Checked = can assign to them. Save to lock a custom list.
           </p>
           <button
             type="button"
