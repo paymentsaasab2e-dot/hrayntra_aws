@@ -8,6 +8,7 @@ import {
   getAllTeamMembersForAssign,
   teamMembersToBackendUsers,
   ensureCurrentUserInMembers,
+  ASSIGNMENT_RULES_EVENT,
 } from '@/lib/api/teamApi';
 import type { TeamMember } from '@/types/team';
 import type { BackendUser } from '@/lib/api';
@@ -39,25 +40,35 @@ export function useAssignableMembers(
     ]);
   const initialCompanyId = String(options?.initialCompanyId || '').trim();
   const [workspaceCompanyId, setWorkspaceCompanyId] = useState('');
+  const [homeCompanyId, setHomeCompanyId] = useState('');
 
   const [companies, setCompanies] = useState<AssignCompanyOption[]>([]);
   const [companiesReady, setCompaniesReady] = useState(false);
   const [companyId, setCompanyId] = useState('');
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [loading, setLoading] = useState(false);
+  const [rulesEpoch, setRulesEpoch] = useState(0);
 
-  /** Show Organization whenever we have at least one org unit to assign under. */
-  const canSelectCompany = companies.length > 0;
+  /**
+   * Super Admin / cross-company users must pick an org — never load a tenant-wide mixed list.
+   * Single-company workspaces auto-select and hide the picker.
+   */
+  const canSelectCompany = mayPickCompany || companies.length > 1;
   const seededCompanyRef = useRef('');
 
   useEffect(() => {
     const syncWorkspace = () => setWorkspaceCompanyId(getActiveOrgUnitId());
     syncWorkspace();
     window.addEventListener(ORG_WORKSPACE_EVENT, syncWorkspace);
-    return () => window.removeEventListener(ORG_WORKSPACE_EVENT, syncWorkspace);
+    const onRulesChanged = () => setRulesEpoch((value) => value + 1);
+    window.addEventListener(ASSIGNMENT_RULES_EVENT, onRulesChanged);
+    return () => {
+      window.removeEventListener(ORG_WORKSPACE_EVENT, syncWorkspace);
+      window.removeEventListener(ASSIGNMENT_RULES_EVENT, onRulesChanged);
+    };
   }, []);
 
-  const preferredCompanyId = initialCompanyId || workspaceCompanyId;
+  const preferredCompanyId = initialCompanyId || workspaceCompanyId || homeCompanyId;
 
   useEffect(() => {
     if (!enabled || !canSelectCompany || !companiesReady || companyId) return;
@@ -116,8 +127,9 @@ export function useAssignableMembers(
         if (homeId && homeName && !collected.some((c) => c.id === homeId)) {
           collected.push({ id: homeId, name: homeName, kind: 'company' });
         }
+        if (!cancelled) setHomeCompanyId(homeId);
       } catch {
-        /* ignore */
+        if (!cancelled) setHomeCompanyId('');
       }
 
       if (cancelled) return;
@@ -139,13 +151,14 @@ export function useAssignableMembers(
   useEffect(() => {
     if (!enabled) return;
     if (!companiesReady) return;
-    if (canSelectCompany && !companyId) {
+    // Super Admin on All companies: do not fetch people from every org.
+    if ((canSelectCompany || mayPickCompany) && !companyId) {
       setMembers([]);
       setLoading(false);
       return;
     }
     const load = startAsyncLoad(setLoading);
-    const requestedCompanyId = canSelectCompany ? companyId : '';
+    const requestedCompanyId = canSelectCompany || mayPickCompany ? companyId : '';
     void getAllTeamMembersForAssign(requestedCompanyId || undefined, module)
       .then((rows) => {
         if (load.isActive()) setMembers(rows || []);
@@ -159,7 +172,7 @@ export function useAssignableMembers(
     return () => {
       load.abort();
     };
-  }, [enabled, companiesReady, canSelectCompany, companyId, module]);
+  }, [enabled, companiesReady, canSelectCompany, mayPickCompany, companyId, module, rulesEpoch]);
 
   const membersWithSelf = useMemo(() => ensureCurrentUserInMembers(members), [members]);
   const users: BackendUser[] = useMemo(
@@ -169,6 +182,7 @@ export function useAssignableMembers(
 
   return {
     canSelectCompany,
+    mayPickCompany,
     companies,
     companyId,
     setCompanyId,

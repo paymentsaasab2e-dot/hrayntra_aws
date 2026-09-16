@@ -27,6 +27,7 @@ import {
   reviewTokenParamSchema,
   reviewFileParamSchema,
   rescheduleInterviewSchema,
+  rejectCandidateProposalSchema,
   submitToClientSchema,
   updateInterviewSchema,
   publicClientTagSchema,
@@ -124,6 +125,18 @@ router.post(
   requireAnyPermission(['interviews_update']),
   validateRequest({ params: idParamSchema, body: rescheduleInterviewSchema }),
   interviewController.reschedule
+);
+router.post(
+  '/:id/proposal/accept',
+  requireAnyPermission(['interviews_update']),
+  validateRequest({ params: idParamSchema }),
+  interviewController.acceptCandidateProposal
+);
+router.post(
+  '/:id/proposal/reject',
+  requireAnyPermission(['interviews_update']),
+  validateRequest({ params: idParamSchema, body: rejectCandidateProposalSchema }),
+  interviewController.rejectCandidateProposal
 );
 router.post(
   '/:id/cancel',

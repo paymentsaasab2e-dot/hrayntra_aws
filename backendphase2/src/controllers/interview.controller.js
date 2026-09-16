@@ -63,6 +63,24 @@ export const interviewController = {
     }
   },
 
+  async acceptCandidateProposal(req, res) {
+    try {
+      const result = await interviewService.acceptCandidateProposal(req.params.id, req.user);
+      sendResponse(res, 200, 'Proposed time accepted', result);
+    } catch (error) {
+      sendError(res, httpStatusFromError(error), error.message, error);
+    }
+  },
+
+  async rejectCandidateProposal(req, res) {
+    try {
+      const result = await interviewService.rejectCandidateProposal(req.params.id, req.body, req.user);
+      sendResponse(res, 200, 'Proposed time rejected', result);
+    } catch (error) {
+      sendError(res, httpStatusFromError(error), error.message, error);
+    }
+  },
+
   async cancel(req, res) {
     try {
       const result = await interviewService.cancel(req.params.id, req.body, req.user);

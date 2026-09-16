@@ -196,6 +196,8 @@ export default function InterviewsPage() {
     interviewerOptions,
     interviewRoundById,
     rescheduleInterview,
+    acceptInterviewProposal,
+    rejectInterviewProposal,
     updateInterview,
     cancelInterview,
     deleteInterview,
@@ -353,14 +355,11 @@ export default function InterviewsPage() {
   const selectedInterview = useMemo(() => {
     const id = drawer.selectedInterviewId;
     if (!id) return null;
-    if (drawer.selectedInterviewSnapshot?.id === id) {
-      return drawer.selectedInterviewSnapshot;
-    }
     return (
       jobScopedInterviews.find((interview) => interview.id === id) ||
       overviewInterviews.find((interview) => interview.id === id) ||
       interviews.find((interview) => interview.id === id) ||
-      null
+      (drawer.selectedInterviewSnapshot?.id === id ? drawer.selectedInterviewSnapshot : null)
     );
   }, [
     drawer.selectedInterviewId,
@@ -672,6 +671,40 @@ export default function InterviewsPage() {
   /** From job candidates table: move R1 candidate into next round when the job already has that round. */
   const openMoveToNextRoundFromTable = (interview: Interview) => {
     openScheduleNextRoundFlow(interview, { requireCompleted: false });
+  };
+
+  const handleAcceptProposal = async (interview: Interview) => {
+    if (!canUpdateInterview || !interview.candidateProposal) return;
+    const confirmed = await requestConfirm(
+      `Accept ${interview.candidate.name}'s proposed time (${interview.candidateProposal.label}) and schedule the interview then?`,
+    );
+    if (!confirmed) return;
+    try {
+      await acceptInterviewProposal(interview.id);
+      await refreshAll({ silent: true });
+    } catch {
+      /* toast is set in the hook */
+    }
+  };
+
+  const handleRejectProposal = async (interview: Interview) => {
+    if (!canUpdateInterview || !interview.candidateProposal) return;
+    const confirmed = await requestConfirm(
+      `Reject the proposed time (${interview.candidateProposal.label}) and keep the original interview at ${interview.date} ${interview.time}?`,
+    );
+    if (!confirmed) return;
+    try {
+      await rejectInterviewProposal(interview.id);
+      await refreshAll({ silent: true });
+    } catch {
+      /* toast is set in the hook */
+    }
+  };
+
+  const handleReproposeInterview = (interview: Interview) => {
+    if (!canUpdateInterview) return;
+    openInterview(interview);
+    modals.open('reschedule');
   };
 
   const handleAction = (action: InterviewAction, interview: Interview) => {
@@ -1202,6 +1235,9 @@ export default function InterviewsPage() {
         onScheduleNextRound={
           canCreateInterview ? openMoveToNextRoundFromTable : undefined
         }
+        onAcceptProposal={canUpdateInterview ? handleAcceptProposal : undefined}
+        onRejectProposal={canUpdateInterview ? handleRejectProposal : undefined}
+        onReproposeInterview={canUpdateInterview ? handleReproposeInterview : undefined}
         onPageChange={(page) => setJobCandidatesPage(page)}
         emptyAction={
           canCreateInterview ? (
@@ -1239,6 +1275,9 @@ export default function InterviewsPage() {
             : undefined
         }
         onAction={selectedInterview ? (action) => handleAction(action, selectedInterview) : undefined}
+        onAcceptProposal={canUpdateInterview ? handleAcceptProposal : undefined}
+        onRejectProposal={canUpdateInterview ? handleRejectProposal : undefined}
+        onReproposeInterview={canUpdateInterview ? handleReproposeInterview : undefined}
         onAddNote={canUpdateInterview ? async (text) => {
           if (!selectedInterview) return;
           try {
@@ -1354,6 +1393,7 @@ export default function InterviewsPage() {
         onSubmit={async (payload) => {
           if (!selectedInterview) return;
           await rescheduleInterview(selectedInterview.id, payload);
+          await refreshAll({ silent: true });
           modals.close();
         }}
       />

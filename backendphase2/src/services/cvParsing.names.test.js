@@ -4,6 +4,7 @@ import {
   candidateNameNeedsRepair,
   extractResumeName,
   looksLikePersonName,
+  sanitizeExtractedPersonName,
 } from './cvParsing.service.js';
 
 describe('looksLikePersonName', () => {
@@ -21,6 +22,18 @@ describe('looksLikePersonName', () => {
     assert.equal(looksLikePersonName('My excellent time management'), false);
     assert.equal(looksLikePersonName('Unknown Candidate'), false);
     assert.equal(looksLikePersonName('AMHZ Consulting'), false);
+    assert.equal(looksLikePersonName('Comptabilité Audit ET Contrôle DE Gestion'), false);
+    assert.equal(looksLikePersonName('Pikkili Tamil Nadu EA'), false);
+    assert.equal(looksLikePersonName('Senior Fmcg Leader'), false);
+    assert.equal(looksLikePersonName('Telephone number'), false);
+    assert.equal(looksLikePersonName('Quality Environment Standards'), false);
+    assert.equal(looksLikePersonName('Ingénieur EN Electricité ET Expert Technique'), false);
+  });
+
+  it('still accepts a short real name with an initial', () => {
+    assert.equal(looksLikePersonName('Chetan R. Patel'), true);
+    assert.equal(looksLikePersonName('Kaushik Das'), true);
+    assert.equal(looksLikePersonName('Peter Andrew'), true);
   });
 });
 
@@ -55,5 +68,19 @@ describe('extractResumeName', () => {
     const name = extractResumeName(text, 'CV ELIE.pdf');
     assert.equal(name.firstName, '');
     assert.equal(name.lastName, '');
+  });
+});
+
+describe('sanitizeExtractedPersonName', () => {
+  it('strips CV suffix junk and keeps the person name', () => {
+    const name = sanitizeExtractedPersonName('Kamto Kamdem', 'Cédric Tel');
+    assert.equal(name.firstName, 'Kamto');
+    assert.match(name.lastName, /Cédric|Cedric/i);
+  });
+
+  it('rejects a job title or location string', () => {
+    const junk = sanitizeExtractedPersonName('Senior', 'Fmcg Leader');
+    assert.equal(junk.firstName, '');
+    assert.equal(junk.lastName, '');
   });
 });

@@ -514,7 +514,7 @@ export async function getAssignmentRulesForAssignor({
 
   const hierarchyIds = await listDescendantUserIds(assignorId);
   const suggestedAssigneeIds = [];
-  if (eligibleSet.has(assignorId)) suggestedAssigneeIds.push(assignorId);
+  suggestedAssigneeIds.push(assignorId);
   for (const id of hierarchyIds) {
     if (eligibleSet.has(id) && !suggestedAssigneeIds.includes(id)) {
       suggestedAssigneeIds.push(id);
@@ -522,19 +522,28 @@ export async function getAssignmentRulesForAssignor({
   }
   const configured = Boolean(row);
   const savedIds = row
-    ? parseAssigneeIds(row.value).filter((id) => eligibleSet.has(id))
+    ? parseAssigneeIds(row.value).filter((id) => eligibleSet.has(id) || id === assignorId)
     : [];
   const defaultAssigneeIds = hierarchyIds.length
     ? suggestedAssigneeIds
-    : eligibleAssigneeUserIds;
+    : eligibleAssigneeUserIds.includes(assignorId)
+      ? eligibleAssigneeUserIds
+      : [assignorId, ...eligibleAssigneeUserIds];
+
+  const assigneeUserIds = configured ? savedIds : defaultAssigneeIds;
+  if (!assigneeUserIds.includes(assignorId)) {
+    assigneeUserIds.unshift(assignorId);
+  }
+  if (!eligibleAssigneeUserIds.includes(assignorId)) {
+    eligibleAssigneeUserIds.unshift(assignorId);
+  }
 
   return {
     module: moduleName,
     assignorUserId: assignorId,
     orgUnitId: companyId,
     configured,
-    // When not saved: self + reports, or everyone with module access if they have no reports.
-    assigneeUserIds: configured ? savedIds : defaultAssigneeIds,
+    assigneeUserIds,
     suggestedAssigneeIds,
     eligibleAssigneeUserIds,
     usingHierarchyDefault: !configured,
@@ -578,11 +587,10 @@ export async function replaceAssignmentRules({
   }
 
   const eligibleIds = new Set(await listEligibleAssigneeUserIdsForModule(moduleName, companyId));
-  const filteredAssigneeIds = uniqueAssigneeIds.filter((id) => eligibleIds.has(id));
-  if (uniqueAssigneeIds.length && !filteredAssigneeIds.length) {
-    throw new Error(
-      `None of the selected people have access to the ${moduleName} module. Pick members who can use that module.`,
-    );
+  let filteredAssigneeIds = uniqueAssigneeIds.filter((id) => eligibleIds.has(id) || id === assignorId);
+  // The assignor can always assign to themselves — keep them ticked in the saved default.
+  if (!filteredAssigneeIds.includes(assignorId)) {
+    filteredAssigneeIds = [assignorId, ...filteredAssigneeIds];
   }
 
   if (companyId) {
@@ -627,6 +635,45 @@ export async function replaceAssignmentRules({
     assignorUserId: assignorId,
     orgUnitId: companyId,
   });
+}
+
+/**
+ * When Reports To changes, keep saved Assignment Rules in sync for the new manager
+ * so Assigned to pickers on their account update immediately.
+ * Unsaved hierarchy defaults already follow managerId live — no write needed.
+ */
+export async function syncAssignmentDefaultsAfterReportsToChange({
+  memberUserId,
+  previousManagerId = null,
+  nextManagerId = null,
+  orgUnitId = null,
+  createdById = null,
+} = {}) {
+  const memberId = idStr(memberUserId);
+  const nextId = idStr(nextManagerId);
+  if (!memberId || !nextId || memberId === nextId) return;
+
+  for (const moduleName of ASSIGNMENT_RULE_MODULES) {
+    try {
+      const state = await getAssignmentRuleState(nextId, moduleName, orgUnitId);
+      if (!state.configured) continue;
+      const allowed = new Set(state.allowedIds || []);
+      if (allowed.has(memberId)) continue;
+      const eligible = new Set(await listEligibleAssigneeUserIdsForModule(moduleName, orgUnitId));
+      if (!eligible.has(memberId)) continue;
+      await replaceAssignmentRules({
+        module: moduleName,
+        assignorUserId: nextId,
+        assigneeUserIds: [...allowed, memberId],
+        orgUnitId,
+        createdById,
+      });
+    } catch {
+      /* keep member update even if one module’s rule sync fails */
+    }
+  }
+
+  void previousManagerId;
 }
 
 /**

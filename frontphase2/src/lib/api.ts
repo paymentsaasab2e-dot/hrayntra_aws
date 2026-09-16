@@ -7246,6 +7246,13 @@ export interface BackendInterviewListItem {
   location?: string | null;
   status: string;
   notes?: string | null;
+  rsvp?: {
+    proposedAt?: string | null;
+    proposedTimezone?: string | null;
+    proposedNote?: string | null;
+    candidateStatus?: string | null;
+    recruiterDecision?: string | null;
+  } | null;
   candidate?: {
     id: string;
     firstName: string;
@@ -7453,6 +7460,22 @@ export const apiRescheduleInterview = async (
   return apiFetch<BackendInterviewListItem>(`/interviews/${id}/reschedule`, {
     method: 'POST',
     body: payload,
+    auth: true,
+  });
+};
+
+export const apiAcceptInterviewProposal = async (id: string) => {
+  return apiFetch<BackendInterviewListItem>(`/interviews/${id}/proposal/accept`, {
+    method: 'POST',
+    body: {},
+    auth: true,
+  });
+};
+
+export const apiRejectInterviewProposal = async (id: string, payload?: { reason?: string }) => {
+  return apiFetch<BackendInterviewListItem>(`/interviews/${id}/proposal/reject`, {
+    method: 'POST',
+    body: { reason: payload?.reason || '' },
     auth: true,
   });
 };
@@ -9830,6 +9853,8 @@ export const apiGetUsers = async (params?: {
   assignable?: boolean;
   companyId?: string;
   orgUnitId?: string;
+  /** Assignment Rules module (Jobs, Interviews, Candidates, …). */
+  module?: string;
 }) => {
   const queryParams = new URLSearchParams();
   if (params?.role) queryParams.append('role', params.role);
@@ -9840,6 +9865,7 @@ export const apiGetUsers = async (params?: {
   if (params?.assignable) queryParams.append('assignable', 'true');
   if (params?.companyId) queryParams.append('companyId', params.companyId);
   if (params?.orgUnitId) queryParams.append('orgUnitId', params.orgUnitId);
+  if (params?.module) queryParams.append('module', params.module);
 
   const path = `/users${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
   return apiFetch<BackendUser[] | { data: BackendUser[]; pagination?: any }>(path, {

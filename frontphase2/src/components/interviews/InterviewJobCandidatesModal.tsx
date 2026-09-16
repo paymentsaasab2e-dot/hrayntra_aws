@@ -45,6 +45,9 @@ type InterviewJobCandidatesModalProps = {
   /** Per-candidate highest round on this job. */
   candidateMaxRoundByCandidateId?: Record<string, number>;
   onScheduleNextRound?: (interview: Interview) => void;
+  onAcceptProposal?: (interview: Interview) => void;
+  onRejectProposal?: (interview: Interview) => void;
+  onReproposeInterview?: (interview: Interview) => void;
   onPageChange: (page: number) => void;
   emptyAction?: React.ReactNode;
 };
@@ -80,6 +83,9 @@ export function InterviewJobCandidatesModal({
   jobMaxRound = 1,
   candidateMaxRoundByCandidateId,
   onScheduleNextRound,
+  onAcceptProposal,
+  onRejectProposal,
+  onReproposeInterview,
   onPageChange,
   emptyAction,
 }: InterviewJobCandidatesModalProps) {
@@ -175,6 +181,9 @@ export function InterviewJobCandidatesModal({
                   jobMaxRound={jobMaxRound}
                   candidateMaxRoundByCandidateId={candidateMaxRoundByCandidateId}
                   onScheduleNextRound={onScheduleNextRound}
+                  onAcceptProposal={onAcceptProposal}
+                  onRejectProposal={onRejectProposal}
+                  onReproposeInterview={onReproposeInterview}
                 />
               </div>
             )}

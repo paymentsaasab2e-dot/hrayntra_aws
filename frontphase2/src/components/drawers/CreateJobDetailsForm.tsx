@@ -339,65 +339,19 @@ export function CreateJobDetailsForm({
 
   const currentUserId = getStoredCurrentUserId();
 
-  /** Managers of the selected organization: people who have reports, or manager-role users. Always include the creator. */
+  /** People Assignment Rules allow for Jobs, plus the person creating the job. */
   const managerUsers = useMemo(() => {
     const byId = new Map<string, BackendUser>();
-    const reportCount = new Map<string, number>();
-
-    for (const member of assignable.members) {
-      const managerId = String(member.manager?.id || member.managerId || '').trim();
-      if (!managerId) continue;
-      reportCount.set(managerId, (reportCount.get(managerId) || 0) + 1);
-      if (byId.has(managerId)) continue;
-      if (member.manager?.id === managerId) {
-        const name = [member.manager.firstName, member.manager.lastName]
-          .filter(Boolean)
-          .join(' ')
-          .trim();
-        byId.set(managerId, {
-          id: managerId,
-          name: name || 'Manager',
-          email: member.manager.email || '',
-          role: 'Manager',
-          isActive: true,
-          createdAt: '',
-        });
-      }
-    }
-
-    const looksLikeManager = (user: BackendUser) => {
-      const role = String(user.role || '').toLowerCase();
-      return (
-        role.includes('manager') ||
-        role.includes('director') ||
-        role.includes('head') ||
-        role.includes('lead')
-      );
-    };
-
-    if (useLineManagerPicker) {
-      for (const user of lineManagerOptions) {
-        byId.set(user.id, user);
-      }
-    }
-
     for (const user of recruiterUsers) {
-      if (reportCount.has(user.id) || looksLikeManager(user)) {
-        byId.set(user.id, user);
-      }
-    }
-
-    for (const user of lineManagerOptions) {
       byId.set(user.id, user);
     }
-
-    // Fallback: if hierarchy has no managers yet, allow any org member.
-    if (byId.size === 0) {
-      for (const user of recruiterUsers) {
-        byId.set(user.id, user);
+    if (useLineManagerPicker) {
+      for (const user of lineManagerOptions) {
+        if (byId.has(user.id) || user.id === currentUserId) {
+          byId.set(user.id, user);
+        }
       }
     }
-
     const me =
       recruiterUsers.find((user) => user.id === currentUserId) ||
       lineManagerOptions.find((user) => user.id === currentUserId) ||
@@ -408,24 +362,17 @@ export function CreateJobDetailsForm({
       String(a.name || '').localeCompare(String(b.name || '')),
     );
     return withCurrentUserFirst(sorted, currentUserId);
-  }, [assignable.members, currentUserId, lineManagerOptions, recruiterUsers, useLineManagerPicker]);
+  }, [currentUserId, lineManagerOptions, recruiterUsers, useLineManagerPicker]);
 
   const loadingManagerOptions = loadingLineManagers || loadingRecruiters;
   const needsOrganizationFirst = assignable.canSelectCompany && !assignable.companyId;
   const needsManagerFirst = !formData.managerId;
 
-  /** Team under the selected manager, plus the person creating the job so they can assign themselves. */
+  /** Team Assignment Rules allow for Jobs, plus the selected manager and the creator. */
   const filteredRecruiterUsers = useMemo(() => {
     if (!formData.managerId) return [];
     const managerId = String(formData.managerId).trim();
-    const team = recruiterUsers.filter((user) => {
-      if (user.id === managerId) return true;
-      if (currentUserId && user.id === currentUserId) return true;
-      const member = assignable.members.find((row) => row.id === user.id);
-      const reportsTo = member?.manager?.id || member?.managerId || user.managerId || '';
-      return reportsTo === managerId;
-    });
-    const byId = new Map(team.map((user) => [user.id, user]));
+    const byId = new Map(recruiterUsers.map((user) => [user.id, user]));
 
     const managerUser =
       managerUsers.find((user) => user.id === managerId) ||
@@ -443,7 +390,6 @@ export function CreateJobDetailsForm({
 
     return withCurrentUserFirst(Array.from(byId.values()), currentUserId);
   }, [
-    assignable.members,
     currentUserId,
     formData.managerId,
     lineManagerOptions,
@@ -540,13 +486,10 @@ export function CreateJobDetailsForm({
   const selectManager = (userId: string) => {
     const patch: Partial<CreateJobDetailsFormData> = { managerId: userId };
     if (selectedAssigneeIds.length) {
-      const kept = selectedAssigneeIds.filter((id) => {
-        if (userId && id === userId) return true; // keep manager if already selected as assignee
-        if (currentUserId && id === currentUserId) return true; // keep self-assignment
-        const member = assignable.members.find((row) => row.id === id);
-        const reportsTo = member?.manager?.id || member?.managerId || '';
-        return !userId || reportsTo === userId;
-      });
+      const allowedIds = new Set(recruiterUsers.map((user) => user.id));
+      if (currentUserId) allowedIds.add(currentUserId);
+      if (userId) allowedIds.add(userId);
+      const kept = selectedAssigneeIds.filter((id) => allowedIds.has(id));
       if (kept.length !== selectedAssigneeIds.length) {
         const primary = kept[0] || '';
         const primaryUser =
@@ -1546,7 +1489,7 @@ export function CreateJobDetailsForm({
         )}
       </DropdownField>
       <p className="-mt-2 mb-4 text-xs text-slate-500">
-        You can assign yourself as manager. People with this module also appear here.
+        You can assign this job to anyone Assignment Rules allow, including yourself.
       </p>
 
       <div>
@@ -1593,10 +1536,10 @@ export function CreateJobDetailsForm({
                   : loadingRecruiters
                     ? 'Loading team…'
                     : filteredRecruiterUsers.length === 0
-                      ? 'No team members under this manager'
+                      ? 'No people in Assignment Rules for Jobs'
                       : selectedAssignees.length
                         ? `${selectedAssignees.length} selected — add more`
-                        : 'Select team members (including yourself)'}
+                        : 'Select people Assignment Rules allow'}
             </span>
             <ChevronDown size={16} className="text-slate-400 shrink-0" />
           </button>
@@ -1624,7 +1567,7 @@ export function CreateJobDetailsForm({
                       </li>
                     ) : filteredRecruiterUsers.length === 0 ? (
                       <li className="px-4 py-2 text-sm text-slate-500">
-                        No team members report to this manager
+                        No people in Assignment Rules for Jobs
                       </li>
                     ) : (
                       <>
@@ -1684,9 +1627,9 @@ export function CreateJobDetailsForm({
             : null}
         </div>
         <p className="mt-1 text-xs text-slate-500">
-          Choose organization → manager → team. You can assign yourself as manager and as a team
-          member. The first selected member is the primary recruiter; others are supporting assignees
-          and can also see this job.
+          Assign to anyone Assignment Rules allow for Jobs, including yourself if you choose.
+          The first selected member is the primary recruiter; others are supporting assignees and can
+          also see this job.
         </p>
       </div>
     </div>

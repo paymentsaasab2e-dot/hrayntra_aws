@@ -216,21 +216,42 @@ const POPUP_TYPE_TO_INTERVIEW_ROUND: Record<string, InterviewRound> = {
   'Client Interview': 'Client',
 };
 
-const DURATION_MINUTES_TO_LABEL: Record<number, string> = {
-  30: '30 mins',
-  45: '45 mins',
-  60: '1 hour',
-  90: '1.5 hours',
-  120: '2 hours',
-};
+/** Short slots (10 / 15 min) are not offered in Schedule Interview. */
+const BLOCKED_INTERVIEW_DURATION_MINUTES = new Set([10, 15]);
+
+export const INTERVIEW_DURATION_OPTIONS: Array<{ label: string; value: number }> = [
+  { label: '30 mins', value: 30 },
+  { label: '45 mins', value: 45 },
+  { label: '1 hour', value: 60 },
+  { label: '1.5 hours', value: 90 },
+  { label: '2 hours', value: 120 },
+].filter((option) => !BLOCKED_INTERVIEW_DURATION_MINUTES.has(option.value));
+
+export const INTERVIEW_DURATION_LABELS = INTERVIEW_DURATION_OPTIONS.map((option) => option.label);
+
+const DURATION_MINUTES_TO_LABEL: Record<number, string> = Object.fromEntries(
+  INTERVIEW_DURATION_OPTIONS.map((option) => [option.value, option.label]),
+);
 
 const DURATION_LABEL_TO_MINUTES: Record<string, number> = {
-  '30 mins': 30,
-  '45 mins': 45,
-  '1 hour': 60,
-  '1.5 hours': 90,
-  '2 hours': 120,
+  ...Object.fromEntries(INTERVIEW_DURATION_OPTIONS.map((option) => [option.label, option.value])),
+  '30 min': 30,
+  '45 min': 45,
+  '60 min': 60,
+  '60 minutes': 60,
 };
+
+export function isAllowedInterviewDurationMinutes(minutes: number): boolean {
+  return INTERVIEW_DURATION_OPTIONS.some((option) => option.value === minutes);
+}
+
+export function sanitizeInterviewDurationMinutes(minutes: number, fallback = 60): number {
+  return isAllowedInterviewDurationMinutes(minutes) ? minutes : fallback;
+}
+
+export function interviewDurationMinutesToLabel(minutes: number): string {
+  return DURATION_MINUTES_TO_LABEL[minutes] || '1 hour';
+}
 
 const PANEL_ROLE_TO_POPUP_ROLE: Record<
   Interview['panel'][number]['role'],
@@ -337,7 +358,7 @@ export function mapInterviewToCandidateScheduled(
     round: roundNumber,
     date: scheduledAt ? getInterviewDateInputYmd(scheduledAt, timezone) : '',
     time: scheduledAt ? formatInterviewTimeInTimezone(scheduledAt, timezone) : interview.time,
-    duration: DURATION_MINUTES_TO_LABEL[interview.duration] || `${interview.duration} mins`,
+    duration: DURATION_MINUTES_TO_LABEL[interview.duration] || '1 hour',
     mode: interviewModeToPopupMode(interview),
     platform:
       interview.meetingPlatform === 'Google Meet'

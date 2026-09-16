@@ -14,6 +14,13 @@ const SECTION_LABELS = {
   projects: 'Projects',
   visa: 'Visa & work authorization',
   vaccination: 'Vaccination',
+  internships: 'Internships',
+  accomplishments: 'Accomplishments',
+  resume: 'Resume / CV',
+  skills: 'Skills',
+  languages: 'Languages',
+  portfolio: 'Portfolio links',
+  careerPreferences: 'Career preferences',
 };
 
 const SECTION_IDS = [
@@ -28,6 +35,13 @@ const SECTION_IDS = [
   'projects',
   'visa',
   'vaccination',
+  'internships',
+  'accomplishments',
+  'resume',
+  'skills',
+  'languages',
+  'portfolio',
+  'careerPreferences',
 ];
 
 const DEFAULT_VISIBILITY = Object.fromEntries(SECTION_IDS.map((id) => [id, true]));
@@ -154,6 +168,11 @@ export function buildPhase1ClientReviewSections(snapshot, visibility) {
     appendVisibleSection(sections, 'certifications', [], { entries });
   }
 
+  if (isVisible('internships', visible)) {
+    const entries = Array.isArray(snapshot.internships) ? snapshot.internships.map((row) => ({ ...row })) : [];
+    appendVisibleSection(sections, 'internships', [], { entries });
+  }
+
   if (isVisible('gap', visible)) {
     const entries = Array.isArray(snapshot.gapExplanations) ? snapshot.gapExplanations.map((g) => ({ ...g })) : [];
     appendVisibleSection(sections, 'gap', [], { entries });
@@ -176,6 +195,83 @@ export function buildPhase1ClientReviewSections(snapshot, visibility) {
   if (isVisible('projects', visible)) {
     const entries = Array.isArray(snapshot.projects) ? snapshot.projects.map((p) => ({ ...p })) : [];
     appendVisibleSection(sections, 'projects', [], { entries });
+  }
+
+  if (isVisible('accomplishments', visible)) {
+    const entries = Array.isArray(snapshot.accomplishments)
+      ? snapshot.accomplishments.map((row) => ({ ...row }))
+      : [];
+    appendVisibleSection(sections, 'accomplishments', [], { entries });
+  }
+
+  if (isVisible('resume', visible)) {
+    const resume = snapshot.resume || {};
+    appendVisibleSection(
+      sections,
+      'resume',
+      fieldsFromPairs([
+        ['File name', resume.fileName],
+        ['ATS readiness', resume.atsScore != null ? `${resume.atsScore}%` : ''],
+      ]),
+    );
+  }
+
+  if (isVisible('skills', visible)) {
+    const skillLines = Array.isArray(snapshot.skills)
+      ? snapshot.skills
+          .map((row) => [row?.name, row?.proficiency, row?.category].filter(Boolean).join(' · '))
+          .filter(Boolean)
+      : [];
+    appendVisibleSection(
+      sections,
+      'skills',
+      skillLines.length
+        ? skillLines.map((line, index) => ({ label: `Skill ${index + 1}`, value: line }))
+        : [],
+    );
+  }
+
+  if (isVisible('languages', visible)) {
+    const langLines = Array.isArray(snapshot.languages)
+      ? snapshot.languages
+          .map((row) => [row?.name, row?.proficiency].filter(Boolean).join(' — '))
+          .filter(Boolean)
+      : [];
+    appendVisibleSection(
+      sections,
+      'languages',
+      langLines.length
+        ? langLines.map((line, index) => ({ label: `Language ${index + 1}`, value: line }))
+        : [],
+    );
+  }
+
+  if (isVisible('portfolio', visible)) {
+    const entries = Array.isArray(snapshot.portfolioLinks)
+      ? snapshot.portfolioLinks.map((link) => ({ ...link }))
+      : [];
+    appendVisibleSection(sections, 'portfolio', [], { entries });
+  }
+
+  if (isVisible('careerPreferences', visible)) {
+    const prefs = snapshot.careerPreferences || {};
+    appendVisibleSection(
+      sections,
+      'careerPreferences',
+      fieldsFromPairs([
+        ['Current role', prefs.currentRole],
+        ['Preferred job titles', prefs.preferredJobTitles || prefs.preferredRoles],
+        ['Preferred industries', prefs.preferredIndustries || prefs.preferredIndustry],
+        ['Functional areas', prefs.functionalAreas || prefs.functionalArea],
+        ['Job types', prefs.jobTypes],
+        ['Work modes', prefs.workModes || prefs.preferredWorkMode],
+        ['Preferred locations', prefs.preferredLocations],
+        ['Relocation', prefs.relocationPreference],
+        ['Notice period', prefs.noticePeriod],
+        ['Availability to start', prefs.availabilityToStart],
+        ['Salary expectation', prefs.preferredSalary || prefs.salaryAmount],
+      ]),
+    );
   }
 
   if (isVisible('visa', visible)) {

@@ -296,6 +296,8 @@ interface CandidateTableProps {
   workspaceAlertsByEntityId?: Record<string, AiWorkspaceBriefAlert[]>;
   /** When true, omit overflow wrappers so a parent scroll region owns scrolling. */
   fillScrollParent?: boolean;
+  /** Tighter row height so more candidates fit in job drawers and short viewports. */
+  compact?: boolean;
   /** Show/hide optional columns; locked columns (candidate, actions) always render. */
   isColumnVisible?: (columnId: string) => boolean;
 }
@@ -325,6 +327,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
   labeledSubmitToClient = false,
   workspaceAlertsByEntityId,
   fillScrollParent = false,
+  compact = false,
   isColumnVisible = () => true,
 }) => {
   const allSelected = candidates.length > 0 && selectedIds.length === candidates.length;
@@ -349,7 +352,13 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
             : 'overflow-x-auto [scrollbar-width:thin] [scrollbar-color:rgba(129,140,248,0.45)_transparent]'
         }
       >
-        <table className="w-max min-w-full border-collapse text-left">
+        <table
+          className={`w-max min-w-full border-collapse text-left ${
+            compact
+              ? '[&_th]:!px-2 [&_th]:!py-1.5 [&_td]:!px-2 [&_td]:!py-1.5 [&_th]:first:!pl-3 [&_td]:first:!pl-3'
+              : ''
+          }`}
+        >
           <thead className="sticky top-0 z-10">
             <tr className="border-b border-indigo-100/60 bg-gradient-to-r from-slate-50 via-indigo-50/55 to-violet-50/40 text-[10px] font-bold uppercase tracking-[0.14em] text-indigo-900/50 backdrop-blur-md">
               {show('select') ? (
@@ -416,12 +425,12 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                   </td>
                 ) : null}
                 <td className="px-3 py-3 sm:px-4 sm:py-3.5">
-                  <div className="flex items-center gap-3">
+                    <div className={`flex items-center ${compact ? 'gap-2' : 'gap-3'}`}>
                     <div className="relative">
                       <ImageWithFallback
                         src={candidate.avatar || ''}
                         fallbackInitials={initialsFromDisplayName(candidate.name)}
-                        className="h-10 w-10 rounded-full object-cover ring-2 ring-white shadow-sm shadow-indigo-500/10"
+                        className={`${compact ? 'h-7 w-7' : 'h-10 w-10'} rounded-full object-cover ring-2 ring-white shadow-sm shadow-indigo-500/10`}
                         alt={candidate.name}
                       />
                       <div

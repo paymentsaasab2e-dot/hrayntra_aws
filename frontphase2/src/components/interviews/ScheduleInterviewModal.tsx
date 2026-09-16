@@ -6,8 +6,10 @@ import {
   combineInterviewDateAndTimeToIso,
   formatInterviewTimeInTimezone,
   getInterviewDateInputYmd,
+  INTERVIEW_DURATION_OPTIONS,
   interviewTime12hToInputValue,
   interviewTimeInputValueTo12h,
+  sanitizeInterviewDurationMinutes,
 } from '../../lib/interview-schedule-helpers';
 import { requestError } from '../../lib/appDialog';
 import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
@@ -55,13 +57,7 @@ const onlineTypes: InterviewType[] = ['Video', 'Phone', 'Technical Test', 'Asses
 /** Interview type options exposed when the recruiter picks an Offline mode. Excludes Video / Phone. */
 const offlineTypes: InterviewType[] = ['In-Person', 'Technical Test', 'Assessment', 'Group Discussion'];
 const platforms = ['Zoom', 'Google Meet', 'MS Teams'] as const;
-const durationOptions: Array<{ label: string; value: number }> = [
-  { label: '30 mins', value: 30 },
-  { label: '45 mins', value: 45 },
-  { label: '1 hour', value: 60 },
-  { label: '1.5 hours', value: 90 },
-  { label: '2 hours', value: 120 },
-];
+const durationOptions = INTERVIEW_DURATION_OPTIONS;
 
 export function ScheduleInterviewModal({
   isOpen,
@@ -118,7 +114,7 @@ export function ScheduleInterviewModal({
     mode: interview.mode,
     date: getInterviewDateInputYmd(interview.scheduledAt, interview.timezone) || interview.date,
     time: formatInterviewTimeInTimezone(interview.scheduledAt, interview.timezone) || interview.time,
-    duration: interview.duration,
+    duration: sanitizeInterviewDurationMinutes(interview.duration),
     timezone: resolveIanaFromTimezoneValue(interview.timezone),
     panelIds: interview.panel.map((member) => member.userId || member.id).filter(Boolean),
     meetingPlatform: interview.meetingPlatform || 'Zoom',
@@ -456,7 +452,9 @@ export function ScheduleInterviewModal({
                     }
                     className="w-full rounded-xl border border-[#E5E7EB] px-3 py-2.5 text-sm outline-none focus:border-[#2563EB]"
                   >
-                    {durationOptions.map((option) => (
+                    {durationOptions
+                      .filter((option) => option.value !== 10 && option.value !== 15)
+                      .map((option) => (
                       <option key={option.value} value={option.value}>
                         {option.label}
                       </option>

@@ -9,7 +9,7 @@ import {
 import { startAsyncLoad } from '@/lib/asyncLoadGuard';
 import type { TeamMember } from '@/types/team';
 import { UserStatus } from '@/types/team';
-import { ensureCurrentUserInMembers } from '@/lib/api/teamApi';
+import { ensureCurrentUserInMembers, ASSIGNMENT_RULES_EVENT } from '@/lib/api/teamApi';
 
 const CRM_ASSIGN_MODULES = new Set(['Leads', 'Clients', 'RecruitmentClients']);
 
@@ -66,6 +66,13 @@ function toTeamMember(member: CrmAssignableMember): TeamMember {
 export function useCrmAssignableMembers(enabled = true, module?: string) {
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [loading, setLoading] = useState(false);
+  const [rulesEpoch, setRulesEpoch] = useState(0);
+
+  useEffect(() => {
+    const onRulesChanged = () => setRulesEpoch((value) => value + 1);
+    window.addEventListener(ASSIGNMENT_RULES_EVENT, onRulesChanged);
+    return () => window.removeEventListener(ASSIGNMENT_RULES_EVENT, onRulesChanged);
+  }, []);
 
   useEffect(() => {
     if (!enabled || !isCrmAssignmentModule(module)) {
@@ -98,7 +105,7 @@ export function useCrmAssignableMembers(enabled = true, module?: string) {
     return () => {
       load.abort();
     };
-  }, [enabled, module]);
+  }, [enabled, module, rulesEpoch]);
 
   return {
     members: ensureCurrentUserInMembers(members),

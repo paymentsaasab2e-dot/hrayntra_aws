@@ -10,6 +10,8 @@ export const INTERVIEW_ACTIVITY_ACTIONS = {
   MEETING_LINK_REGENERATED: 'Meeting Link Regenerated',
   STATUS_UPDATED: 'Status Updated',
   NO_SHOW_MARKED: 'No Show Marked',
+  PROPOSAL_ACCEPTED: 'Candidate proposed time accepted',
+  PROPOSAL_REJECTED: 'Candidate proposed time rejected',
 };
 
 export async function logActivity(prismaClient, { interviewId, action, userId, metadata }) {

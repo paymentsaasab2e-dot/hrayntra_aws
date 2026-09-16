@@ -61,8 +61,15 @@ export function RescheduleModal({ isOpen, interview, onClose, onSubmit }: Resche
           >
             <div className="flex items-center justify-between border-b border-[#E5E7EB] px-6 py-4">
               <div>
-                <h3 className="text-lg font-semibold text-[#111827]">Reschedule Interview</h3>
-                <p className="text-sm text-[#6B7280]">Current: {interview.date} at {interview.time}</p>
+                <h3 className="text-lg font-semibold text-[#111827]">
+                  {interview.candidateProposal ? 'Repropose interview time' : 'Reschedule Interview'}
+                </h3>
+                <p className="text-sm text-[#6B7280]">
+                  Current: {interview.date} at {interview.time}
+                  {interview.candidateProposal
+                    ? ` · Candidate proposed: ${interview.candidateProposal.label}`
+                    : ''}
+                </p>
               </div>
               <button
                 type="button"

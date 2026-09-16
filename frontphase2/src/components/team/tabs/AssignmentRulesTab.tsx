@@ -24,6 +24,13 @@ function memberLabel(member: TeamMember) {
   );
 }
 
+function withAssignorChecked(ids: string[], assignorUserId: string) {
+  const assignorId = String(assignorUserId || '').trim();
+  const next = [...new Set((ids || []).map(String).filter(Boolean))];
+  if (assignorId && !next.includes(assignorId)) next.unshift(assignorId);
+  return next;
+}
+
 function moduleLabel(value: string) {
   return ASSIGNMENT_RULE_MODULE_OPTIONS.find((o) => o.value === value)?.label || value;
 }
@@ -81,6 +88,7 @@ export const AssignmentRulesTab: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [loadingRules, setLoadingRules] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [autoSaving, setAutoSaving] = useState(false);
   const [memberSearch, setMemberSearch] = useState('');
   const [assigneeSearch, setAssigneeSearch] = useState('');
   const [selectionTouched, setSelectionTouched] = useState(false);
@@ -137,7 +145,7 @@ export const AssignmentRulesTab: React.FC = () => {
       setUsingHierarchyDefault(!isCustom);
       setSuggestedIds(hierarchy);
       setEligibleAssigneeIds(eligible);
-      setSelectedIds((data.assigneeUserIds || []).map(String));
+      setSelectedIds(withAssignorChecked(data.assigneeUserIds || [], assignorUserId));
     } catch (error: any) {
       toast.error(error?.message || 'Failed to load assignment rules');
       setConfigured(false);
@@ -160,7 +168,7 @@ export const AssignmentRulesTab: React.FC = () => {
     if (!module || !assignorUserId) return;
     if (selectedIds.length > 0) return;
     if (!eligibleAssigneeIds?.length) return;
-    setSelectedIds(eligibleAssigneeIds.map(String));
+    setSelectedIds(withAssignorChecked(eligibleAssigneeIds, assignorUserId));
   }, [
     selectionTouched,
     loadingRules,
@@ -283,6 +291,7 @@ export const AssignmentRulesTab: React.FC = () => {
   };
 
   const toggleId = (id: string) => {
+    if (id === String(assignorUserId)) return;
     setSelectionTouched(true);
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
@@ -290,54 +299,82 @@ export const AssignmentRulesTab: React.FC = () => {
   const selectSuggested = () => {
     setSelectionTouched(true);
     if (suggestedIds.length > 0) {
-      setSelectedIds([...suggestedIds.map(String)]);
+      setSelectedIds(withAssignorChecked(suggestedIds, assignorUserId));
       return;
     }
-    // No reports → full access = everyone with module access
-    setSelectedIds(assigneePool.map((m) => String(m.id)));
+    setSelectedIds(withAssignorChecked(assigneePool.map((m) => String(m.id)), assignorUserId));
   };
 
   const clearAll = () => {
     setSelectionTouched(true);
-    setSelectedIds([]);
+    setSelectedIds(assignorUserId ? [String(assignorUserId)] : []);
   };
 
-  const handleSave = async () => {
-    if (!module) {
-      toast.error('Select a module first');
-      return;
-    }
-    if (!assignorUserId) {
-      toast.error('Select who assigns');
-      return;
-    }
-    setSaving(true);
-    try {
-      const data = await saveAssignmentRules({
-        module,
-        assignorUserId,
-        assigneeUserIds: selectedIds,
-        orgUnitId: orgUnitId || null,
-      });
-      setConfigured(Boolean(data.configured));
-      setUsingHierarchyDefault(false);
-      setSelectedIds(data.assigneeUserIds || []);
-      setSuggestedIds(data.suggestedAssigneeIds || []);
-      setEligibleAssigneeIds(
-        Array.isArray(data.eligibleAssigneeUserIds)
-          ? data.eligibleAssigneeUserIds.map(String)
-          : null,
-      );
-      toast.success(
-        selectedIds.length
-          ? `Saved: ${selectedAssignor ? memberLabel(selectedAssignor) : 'Member'} can assign ${selectedModuleLabel} to ${selectedIds.length} people`
-          : `Saved: ${selectedAssignor ? memberLabel(selectedAssignor) : 'Member'} cannot assign ${selectedModuleLabel} to anyone`,
-      );
-    } catch (error: any) {
-      toast.error(error?.message || 'Failed to save assignment rules');
-    } finally {
-      setSaving(false);
-    }
+  const persistRules = useCallback(
+    async (ids: string[], { silent = false }: { silent?: boolean } = {}) => {
+      if (!module) {
+        if (!silent) toast.error('Select a module first');
+        return;
+      }
+      if (!assignorUserId) {
+        if (!silent) toast.error('Select who assigns');
+        return;
+      }
+      if (silent) setAutoSaving(true);
+      else setSaving(true);
+      try {
+        const data = await saveAssignmentRules({
+          module,
+          assignorUserId,
+          assigneeUserIds: withAssignorChecked(ids, assignorUserId),
+          orgUnitId: orgUnitId || null,
+        });
+        setConfigured(Boolean(data.configured));
+        setUsingHierarchyDefault(false);
+        setSelectedIds(withAssignorChecked(data.assigneeUserIds || [], assignorUserId));
+        setSuggestedIds((data.suggestedAssigneeIds || []).map(String));
+        setEligibleAssigneeIds(
+          Array.isArray(data.eligibleAssigneeUserIds)
+            ? data.eligibleAssigneeUserIds.map(String)
+            : null,
+        );
+        setSelectionTouched(false);
+        if (!silent) {
+          const count = (data.assigneeUserIds || []).length;
+          toast.success(
+            count
+              ? `Saved: ${selectedAssignor ? memberLabel(selectedAssignor) : 'Member'} can assign ${selectedModuleLabel} to ${count} people. Assigned to lists on their account update now.`
+              : `Saved: ${selectedAssignor ? memberLabel(selectedAssignor) : 'Member'} can only assign ${selectedModuleLabel} to themselves.`,
+          );
+        }
+      } catch (error: any) {
+        toast.error(error?.message || 'Failed to save assignment rules');
+      } finally {
+        setSaving(false);
+        setAutoSaving(false);
+      }
+    },
+    [assignorUserId, module, orgUnitId, selectedAssignor, selectedModuleLabel],
+  );
+
+  useEffect(() => {
+    if (!selectionTouched || !assignorUserId || !module || loadingRules || saving) return;
+    const timer = window.setTimeout(() => {
+      void persistRules(selectedIds, { silent: true });
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [
+    assignorUserId,
+    loadingRules,
+    module,
+    persistRules,
+    saving,
+    selectedIds,
+    selectionTouched,
+  ]);
+
+  const handleSave = () => {
+    void persistRules(selectedIds, { silent: false });
   };
 
   return (
@@ -351,7 +388,8 @@ export const AssignmentRulesTab: React.FC = () => {
             <div className="min-w-0">
               <h2 className="text-base font-bold text-slate-900">Assignment Rules</h2>
               <p className="mt-1 max-w-2xl text-sm text-slate-600">
-                Who can assign to whom — by default from reporting hierarchy. Change the list and Save to customize.
+                Who can assign to whom. This list is what appears in Assigned to. Checking or
+                unchecking updates that person&apos;s account immediately.
               </p>
             </div>
           </div>
@@ -577,15 +615,18 @@ export const AssignmentRulesTab: React.FC = () => {
                         >
                           <input
                             type="checkbox"
-                            checked={checked}
+                            checked={id === String(assignorUserId) ? true : checked}
+                            disabled={id === String(assignorUserId)}
                             onChange={() => toggleId(id)}
-                            className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-indigo-600"
+                            className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-indigo-600 disabled:opacity-100"
                           />
                           <div className="min-w-0">
                             <p className="truncate text-sm font-medium text-slate-900">
                               {memberLabel(member)}
                               {id === String(assignorUserId) ? (
-                                <span className="ml-1 text-[9px] font-bold uppercase text-indigo-700">Self</span>
+                                <span className="ml-1 text-[9px] font-bold uppercase text-indigo-700">
+                                  Self · always
+                                </span>
                               ) : suggested ? (
                                 <span className="ml-1 text-[9px] font-bold uppercase text-sky-700">Report</span>
                               ) : null}
@@ -604,17 +645,17 @@ export const AssignmentRulesTab: React.FC = () => {
 
         <div className="flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/50 px-4 py-3 sm:px-6">
           <p className="hidden max-w-xl text-xs text-slate-500 sm:block">
-            Only people with access to the selected module appear here. The person who assigns can
-            always assign to themselves. Checked = can assign to them. Save to lock a custom list.
+            Only people with access to the selected module appear here. Changes apply immediately to
+            that person&apos;s Assigned to lists. They can always assign to themselves.
           </p>
           <button
             type="button"
             onClick={() => void handleSave()}
-            disabled={saving || !assignorUserId || !module || loadingRules}
+            disabled={saving || autoSaving || !assignorUserId || !module || loadingRules}
             className="ml-auto inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 transition hover:bg-indigo-700 disabled:opacity-50"
           >
             <Save size={16} />
-            {saving ? 'Saving…' : 'Save Rules'}
+            {saving || autoSaving ? 'Updating…' : 'Save Rules'}
           </button>
         </div>
       </div>

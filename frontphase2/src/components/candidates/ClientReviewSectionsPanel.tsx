@@ -189,16 +189,19 @@ function findExistingFieldValue(
   preferredLabel: string,
 ): string {
   const preferredKey = preferredLabel.trim().toLowerCase();
+  let fallback = '';
   for (const row of fields) {
     const labelKey = String(row.label || '')
       .trim()
       .toLowerCase()
       .replace(/\s+/g, ' ');
-    if (labelKey === preferredKey) return display(row.value);
+    const value = display(row.value);
+    if (labelKey === preferredKey && value) return value;
     const mapped = SUBMIT_TO_CLIENT_REVIEW_LABEL_FIELDS[labelKey];
-    if (mapped?.includes(fieldId) && display(row.value)) return display(row.value);
+    if (mapped?.includes(fieldId) && value) return value;
+    if (!fallback && labelKey === preferredKey) fallback = value;
   }
-  return '';
+  return fallback;
 }
 
 /** Ensure every tenant-visible field appears in the section (empty → Not provided). */

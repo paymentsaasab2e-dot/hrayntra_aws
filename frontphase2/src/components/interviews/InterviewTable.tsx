@@ -129,6 +129,9 @@ interface InterviewTableProps {
   candidateMaxRoundByCandidateId?: Record<string, number>;
   /** Schedule / move candidate forward to the next interview round. */
   onScheduleNextRound?: (interview: Interview) => void;
+  onAcceptProposal?: (interview: Interview) => void;
+  onRejectProposal?: (interview: Interview) => void;
+  onReproposeInterview?: (interview: Interview) => void;
 }
 
 const statusClasses = {
@@ -150,10 +153,11 @@ function isJoinableMeetingLink(link?: string | null) {
   return /^https?:\/\//i.test(String(link || '').trim());
 }
 
-function interviewStatusLabel(status: Interview['status']) {
-  if (status === 'Completed') return 'Interview completed';
-  if (status === 'Accepted') return 'Candidate accepted';
-  return status;
+function interviewStatusLabel(interview: Interview) {
+  if (interview.candidateProposal) return 'Reschedule requested';
+  if (interview.status === 'Completed') return 'Interview completed';
+  if (interview.status === 'Accepted') return 'Candidate accepted';
+  return interview.status;
 }
 
 function resolveInterviewGroupStatusBadge(
@@ -209,6 +213,9 @@ export function InterviewTable({
   jobMaxRound = 1,
   candidateMaxRoundByCandidateId,
   onScheduleNextRound,
+  onAcceptProposal,
+  onRejectProposal,
+  onReproposeInterview,
 }: InterviewTableProps) {
   const show = isColumnVisible;
   const groups = useMemo(() => groupInterviewsForTable(interviews), [interviews]);
@@ -586,10 +593,12 @@ export function InterviewTable({
                             ) : null}
                             <span
                               className={`inline-flex w-fit rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
-                                statusClasses[interview.status] || statusClasses.Scheduled
+                                interview.candidateProposal
+                                  ? statusClasses.Rescheduled
+                                  : statusClasses[interview.status] || statusClasses.Scheduled
                               }`}
                             >
-                              {interviewStatusLabel(interview.status)}
+                              {interviewStatusLabel(interview)}
                             </span>
                           </div>
                         );
@@ -658,6 +667,50 @@ export function InterviewTable({
                               <span className="text-[12px] text-[#111827]">
                                 {[interview.date, interview.time].filter(Boolean).join(' ') || '—'}
                               </span>
+                              {interview.candidateProposal ? (
+                                <div
+                                  className="mt-1 rounded-lg border border-orange-200 bg-orange-50 px-2 py-1.5"
+                                  onClick={(event) => event.stopPropagation()}
+                                >
+                                  <p className="text-[10px] font-semibold uppercase tracking-wide text-orange-700">
+                                    Candidate proposed
+                                  </p>
+                                  <p className="text-[12px] font-semibold text-orange-950">
+                                    {interview.candidateProposal.label}
+                                  </p>
+                                  {onAcceptProposal || onRejectProposal || onReproposeInterview ? (
+                                    <div className="mt-1.5 flex flex-wrap gap-1">
+                                      {onAcceptProposal ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => onAcceptProposal(interview)}
+                                          className="rounded-md bg-emerald-600 px-2 py-0.5 text-[10px] font-semibold text-white hover:bg-emerald-700"
+                                        >
+                                          Accept
+                                        </button>
+                                      ) : null}
+                                      {onRejectProposal ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => onRejectProposal(interview)}
+                                          className="rounded-md border border-rose-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-rose-700 hover:bg-rose-50"
+                                        >
+                                          Reject
+                                        </button>
+                                      ) : null}
+                                      {onReproposeInterview ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => onReproposeInterview(interview)}
+                                          className="rounded-md border border-indigo-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-indigo-700 hover:bg-indigo-50"
+                                        >
+                                          Repropose
+                                        </button>
+                                      ) : null}
+                                    </div>
+                                  ) : null}
+                                </div>
+                              ) : null}
                             </div>
                           );
                         })}

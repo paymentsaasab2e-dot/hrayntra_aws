@@ -93,6 +93,9 @@ import {
 import { extractApiData } from '../../lib/mapCandidateProfile';
 import { getAllTeamMembersForAssign, getLineManagersForJobPicker, teamMembersToBackendUsers } from '../../lib/api/teamApi';
 import { getActiveOrgUnitId } from '../../lib/org/orgWorkspaceStorage';
+import { useAssignableMembers } from '../../hooks/useAssignableMembers';
+import { AssignCompanySelect } from '../assign/AssignCompanySelect';
+import { assigneeCompanyId, formatAssigneeDisplayName, stripAssigneeCompanySuffix } from '../../lib/assigneeDisplay';
 import { toast } from 'sonner';
 import { parseClientsListFromResponse, parseJobsListFromResponse } from '../../lib/parseApiList';
 import {
@@ -105,6 +108,8 @@ import {
   extractEditableInterviewNotes,
   formatInterviewTimeInTimezone,
   getInterviewDateInputYmd,
+  INTERVIEW_DURATION_LABELS,
+  interviewDurationMinutesToLabel,
   interviewTime12hToInputValue,
   interviewTimeInputValueTo12h,
   mergeEditableInterviewNotesWithAudit,
@@ -171,6 +176,7 @@ export interface CandidatePipelineJobOption {
   managerName?: string | null;
   /** Job status label/enum used to keep schedule picker on open roles. */
   status?: string | null;
+  orgUnitId?: string | null;
 }
 
 export interface CandidatePipelineRecruiterOption {
@@ -391,12 +397,21 @@ function getTimelineConfig(
 }
 
 function getAvatarInitials(name: string) {
-  return name
-    .split(' ')
-    .filter(Boolean)
+  return stripAssigneeCompanySuffix(name)
+    .split(/\s+/)
+    .filter((part) => part && part !== '·')
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase())
     .join('');
+}
+
+function InterviewerInitialsAvatar({ name, size = 8 }: { name: string; size?: 7 | 8 }) {
+  const box = size === 7 ? 'h-7 w-7 text-[10px]' : 'h-8 w-8 text-[10px]';
+  return (
+    <span className={`flex ${box} shrink-0 items-center justify-center rounded-full bg-blue-100 font-semibold text-blue-700`}>
+      {getAvatarInitials(name) || 'NA'}
+    </span>
+  );
 }
 
 function formatRelativeTime(value: string) {
@@ -715,7 +730,9 @@ function mergeInterviewTypeOptions(
   if (current) push(current);
   return out;
 }
-const INTERVIEW_DURATIONS = ['30 mins', '45 mins', '1 hour', '1.5 hours', '2 hours'] as const;
+const INTERVIEW_DURATIONS = INTERVIEW_DURATION_LABELS.filter(
+  (option) => !/^(10|15)\s*mins?$/i.test(option),
+);
 const INTERVIEW_PANEL_ROLES = ['Lead Interviewer', 'Interviewer', 'Observer'] as const;
 
 type ScheduleClientContactOption = {
@@ -776,7 +793,7 @@ function mapInterviewListItemToScheduled(
     round: roundIndex,
     date: scheduledAt ? getInterviewDateInputYmd(scheduledAt, timezone) : '',
     time: scheduledAt ? formatInterviewTimeInTimezone(scheduledAt, timezone) : '',
-    duration: item.duration ? `${item.duration} mins` : '1 hour',
+    duration: interviewDurationMinutesToLabel(Number(item.duration) || 60),
     timezone,
     mode:
       String(item.mode || '').toUpperCase() === 'OFFLINE' && !item.meetingLink && !item.platform
@@ -845,7 +862,7 @@ export function ScheduleInterviewModal({
   linkedJobCompany,
   initialJobId,
   jobs: jobsList,
-  interviewers: interviewersList,
+  interviewers: _interviewersList,
   existingInterviews: existingInterviewsList,
   isOpen,
   onClose,
@@ -855,9 +872,17 @@ export function ScheduleInterviewModal({
   onScheduledSuccess,
 }: ScheduleInterviewModalProps) {
   const jobsProp = orEmpty(jobsList);
-  const interviewers = orEmpty(interviewersList);
   const existingInterviews = orEmpty(existingInterviewsList);
   const isStandaloneMode = getCachedOrgRecruitmentMode() === 'standalone';
+  const interviewCompanySeed = String(
+    jobsProp.find((job) => job.id === String(initialJobId || ''))?.orgUnitId ||
+      jobsProp.find((job) => job.id === String(fixedCandidate?.assignedJobId || ''))?.orgUnitId ||
+      getActiveOrgUnitId() ||
+      '',
+  ).trim();
+  const assignableInterviewers = useAssignableMembers(isOpen, 'Interviews', {
+    initialCompanyId: interviewCompanySeed,
+  });
   const [selectedCandidateIds, setSelectedCandidateIds] = useState<string[]>([]);
   const [candidateSearch, setCandidateSearch] = useState('');
   const [candidatePickerOpen, setCandidatePickerOpen] = useState(false);
@@ -996,30 +1021,32 @@ export function ScheduleInterviewModal({
     selectedJobId,
   ]);
 
+  const needsInterviewOrg =
+    assignableInterviewers.canSelectCompany && !assignableInterviewers.companyId;
+
   const panelMemberOptions = useMemo(() => {
-    if (!isStandaloneMode) return interviewers;
+    if (needsInterviewOrg) return [];
+    const companyId = assignableInterviewers.companyId;
+    return assignableInterviewers.members
+      .filter((member) => {
+        if (!companyId) return true;
+        const memberCompany = assigneeCompanyId(member);
+        return !memberCompany || memberCompany === companyId;
+      })
+      .map((member) => ({
+        id: member.id,
+        name: formatAssigneeDisplayName(member) || member.email || 'Member',
+        role: member.role?.roleName || 'Interviewer',
+        department: member.department?.name || null,
+        avatar: null as string | null,
+      }));
+  }, [
+    assignableInterviewers.companyId,
+    assignableInterviewers.members,
+    needsInterviewOrg,
+  ]);
 
-    const byId = new Map<string, CandidateInterviewerOption>();
-    for (const member of teamMemberOptions) {
-      if (member.id) byId.set(member.id, member);
-    }
-    for (const member of interviewers) {
-      if (member.id && !byId.has(member.id)) byId.set(member.id, member);
-    }
-    for (const manager of lineManagerOptions) {
-      if (!manager.id) continue;
-      const existing = byId.get(manager.id);
-      byId.set(manager.id, {
-        ...(existing || manager),
-        role: 'Line Manager',
-      });
-    }
-
-    if (byId.size === 0) return interviewers;
-    return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [interviewers, isStandaloneMode, lineManagerOptions, teamMemberOptions]);
-
-  const loadingPanelMembers = isStandaloneMode && (loadingLineManagers || loadingTeamMembers);
+  const loadingPanelMembers = assignableInterviewers.loading;
 
   useEffect(() => {
     if (!isOpen) return;
@@ -1381,7 +1408,7 @@ export function ScheduleInterviewModal({
 
   useEffect(() => {
     if (!isOpen || !isStandaloneMode || isEditingInterview) return;
-    if (!lineManagerOptions.length) return;
+    if (!panelMemberOptions.length) return;
 
     const jobChanged = prevAutoPanelJobIdRef.current !== selectedJobId;
     prevAutoPanelJobIdRef.current = selectedJobId;
@@ -1389,8 +1416,12 @@ export function ScheduleInterviewModal({
     const job = selectedJobId ? scheduleJobOptions.find((item) => item.id === selectedJobId) : null;
     const preferredManagerId = job?.managerId;
     const manager =
-      (preferredManagerId && lineManagerOptions.find((item) => item.id === preferredManagerId)) ||
-      lineManagerOptions[0];
+      (preferredManagerId &&
+        panelMemberOptions.find((item) => item.id === preferredManagerId)) ||
+      panelMemberOptions.find((item) =>
+        lineManagerOptions.some((managerOption) => managerOption.id === item.id),
+      ) ||
+      panelMemberOptions[0];
     if (!manager) return;
 
     setSelectedInterviewers((prev) => {
@@ -1408,6 +1439,7 @@ export function ScheduleInterviewModal({
     isStandaloneMode,
     isEditingInterview,
     lineManagerOptions,
+    panelMemberOptions,
     selectedJobId,
     scheduleJobOptions,
   ]);
@@ -1430,7 +1462,9 @@ export function ScheduleInterviewModal({
     setRoundNumber(editInterview.round || 1);
     setDate(editInterview.date || '');
     setTime(editInterview.time || '');
-    setDuration(editInterview.duration || '');
+    setDuration(
+      INTERVIEW_DURATIONS.includes(editInterview.duration) ? editInterview.duration : '1 hour',
+    );
     setTimezone(resolveIanaFromTimezoneValue(editInterview.timezone));
     setMode(normalizePopupInterviewMode(editInterview));
     setMeetingPlatform(
@@ -2271,7 +2305,9 @@ export function ScheduleInterviewModal({
                         </button>
                         {durationOpen ? (
                           <div className="absolute left-0 right-0 top-12 z-20 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
-                            {INTERVIEW_DURATIONS.map((option) => (
+                            {INTERVIEW_DURATIONS.filter(
+                              (option) => !/^(10|15)\s*mins?$/i.test(String(option)),
+                            ).map((option) => (
                               <button
                                 key={option}
                                 type="button"
@@ -2536,21 +2572,47 @@ export function ScheduleInterviewModal({
                   <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                     {isStandaloneMode ? 'Panel members' : 'Internal panel'}
                   </p>
+                  {assignableInterviewers.canSelectCompany ? (
+                    <div className="mt-2">
+                      {assignableInterviewers.companies.length ? (
+                        <AssignCompanySelect
+                          companies={assignableInterviewers.companies}
+                          value={assignableInterviewers.companyId}
+                          label="Organization"
+                          onChange={(id) => {
+                            assignableInterviewers.setCompanyId(id);
+                            setInterviewerSearch('');
+                            setSelectedInterviewers([]);
+                          }}
+                        />
+                      ) : (
+                        <p className="text-xs text-slate-500">Loading organizations…</p>
+                      )}
+                      <p className="mt-1 text-xs text-slate-500">
+                        Only people in this company with Interviews assignment access appear below.
+                      </p>
+                    </div>
+                  ) : null}
                   <div className="relative mt-2" ref={interviewerRef}>
                     <button
                       type="button"
                       onClick={() => setInterviewerOpen((prev) => !prev)}
-                      disabled={loadingPanelMembers}
+                      disabled={
+                        loadingPanelMembers ||
+                        needsInterviewOrg
+                      }
                       className={`flex w-full items-center justify-between rounded-xl border bg-white px-3 py-2.5 text-left text-sm ${
                         errors.interviewers ? 'border-red-300' : 'border-slate-200'
                       } ${loadingPanelMembers ? 'cursor-not-allowed opacity-60' : ''}`}
                     >
                       <span className="text-slate-400">
-                        {isStandaloneMode
-                          ? loadingPanelMembers
-                            ? 'Loading team members...'
-                            : 'Search and assign team members'
-                          : 'Search and assign interviewers'}
+                        {needsInterviewOrg
+                          ? 'Select an organization first'
+                          : loadingPanelMembers
+                            ? 'Loading interviewers…'
+                            : isStandaloneMode
+                              ? 'Search and assign team members'
+                              : 'Search and assign interviewers'}
                       </span>
                       <ChevronDown size={16} className="text-slate-400" />
                     </button>
@@ -2565,7 +2627,9 @@ export function ScheduleInterviewModal({
                         <div className="mt-3 max-h-56 overflow-y-auto">
                           {filteredInterviewers.length === 0 ? (
                             <p className="px-3 py-2 text-sm text-slate-500">
-                              {isStandaloneMode ? 'No team members available' : 'No interviewers available'}
+                              {needsInterviewOrg
+                                ? 'Select an organization to see interviewers'
+                                : 'No one in this company has Interviews assignment access'}
                             </p>
                           ) : (
                             filteredInterviewers.map((person) => {
@@ -2580,13 +2644,7 @@ export function ScheduleInterviewModal({
                                 }`}
                               >
                                 <span className="flex items-center gap-3">
-                                  {person.avatar ? (
-                                    <img src={person.avatar} alt={person.name} className="h-8 w-8 rounded-full object-cover" />
-                                  ) : (
-                                    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 text-[10px] font-semibold text-blue-700">
-                                      {getAvatarInitials(person.name)}
-                                    </span>
-                                  )}
+                                  <InterviewerInitialsAvatar name={person.name} />
                                   <span>
                                     <span className="block font-medium">{person.name}</span>
                                     <span className="block text-xs text-slate-500">
@@ -2681,17 +2739,7 @@ export function ScheduleInterviewModal({
                           key={person.id}
                           className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2"
                         >
-                          {panelMemberOptions.find((item) => item.id === person.id)?.avatar ? (
-                            <img
-                              src={panelMemberOptions.find((item) => item.id === person.id)?.avatar || ''}
-                              alt={person.name}
-                              className="h-7 w-7 rounded-full object-cover"
-                            />
-                          ) : (
-                            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-100 text-[10px] font-semibold text-blue-700">
-                              {getAvatarInitials(person.name)}
-                            </span>
-                          )}
+                          <InterviewerInitialsAvatar name={person.name} size={7} />
                           <span className="text-sm font-medium text-slate-700">{person.name}</span>
 
                           <div className="relative">
@@ -2884,6 +2932,7 @@ function mapJobsToPipelineOptions(
       managerId: job.managerId || job.manager?.id || null,
       managerName: job.manager?.name || null,
       status: job.status || null,
+      orgUnitId: (job as { orgUnitId?: string | null }).orgUnitId || null,
     }))
     .sort((a, b) => a.title.localeCompare(b.title));
 }
