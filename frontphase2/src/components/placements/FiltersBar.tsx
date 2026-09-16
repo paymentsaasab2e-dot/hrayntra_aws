@@ -107,7 +107,7 @@ export function FiltersBar({
   );
 
   const shellClass = embedded
-    ? 'space-y-3 border-0 bg-transparent p-0 shadow-none'
+    ? 'border-0 bg-transparent p-0 shadow-none'
     : 'space-y-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm';
 
   const searchInputClass = embedded
@@ -131,11 +131,11 @@ export function FiltersBar({
         <div
           className={
             embedded
-              ? 'grid gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(220px,1.3fr)_repeat(4,minmax(120px,1fr))]'
+              ? 'no-scrollbar flex flex-nowrap items-center gap-2 overflow-x-auto'
               : 'grid gap-3 xl:grid-cols-[minmax(280px,1.4fr)_repeat(4,minmax(150px,1fr))_auto]'
           }
         >
-          <div className="relative">
+          <div className={`relative ${embedded ? 'w-52 shrink-0' : ''}`}>
             <Search
               className={`pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 ${embedded ? 'h-4 w-4 text-indigo-400' : 'h-4 w-4 text-[#9CA3AF]'}`}
             />
@@ -152,9 +152,10 @@ export function FiltersBar({
             onChange={(value) => onFilterChange({ status: value as any })}
             options={statusOptions as any}
             embedded={embedded}
+            className={embedded ? 'w-[9.5rem] shrink-0' : ''}
           />
 
-          <div className="relative">
+          <div className={`relative ${embedded ? 'w-[11.5rem] shrink-0' : ''}`}>
             <select
               value={filters.companyId || ''}
               onChange={(event) => onFilterChange({ companyId: event.target.value })}
@@ -179,9 +180,10 @@ export function FiltersBar({
             onChange={(value) => onFilterChange({ employmentType: value as any })}
             options={typeOptions as any}
             embedded={embedded}
+            className={embedded ? 'w-[9.5rem] shrink-0' : ''}
           />
 
-          <div className={`grid gap-2 ${embedded ? 'grid-cols-2' : 'grid-cols-2 gap-2'}`}>
+          <div className={`grid shrink-0 gap-2 ${embedded ? 'grid-cols-2' : 'grid-cols-2 gap-2'}`}>
             <input
               type="date"
               value={filters.offerDateFrom || ''}
@@ -202,42 +204,37 @@ export function FiltersBar({
               More Filters
             </button>
           ) : null}
+
+          {embedded && totalCount !== undefined ? (
+            <span className="shrink-0 whitespace-nowrap text-[11px] font-medium text-slate-500">
+              Total: <span className="font-semibold text-slate-800">{totalCount.toLocaleString()}</span>
+            </span>
+          ) : null}
+          {embedded && hasActiveFilters ? (
+            <button
+              type="button"
+              onClick={onReset}
+              className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-lg px-2 py-1.5 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700"
+            >
+              <X className="h-3.5 w-3.5 shrink-0 text-rose-500" />
+              Clear filters
+            </button>
+          ) : null}
         </div>
 
-        <div
-          className={`flex items-center justify-between ${embedded ? 'pt-1' : ''}`}
-        >
-          {!embedded ? (
-            <div className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[#6B7280]">
+        {!embedded ? (
+        <div className="flex items-center justify-between">
+          <div className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[#6B7280]">
               <Filter className="h-4 w-4" />
               Filters
             </div>
-          ) : (
-            <span />
-          )}
-          <div className="flex flex-wrap items-center gap-2">
-            {embedded && totalCount !== undefined ? (
-              <span className="text-[11px] font-medium text-slate-500">
-                Total: <span className="font-semibold text-slate-800">{totalCount.toLocaleString()}</span>
-              </span>
-            ) : null}
-            {embedded && hasActiveFilters ? (
-              <button
-                type="button"
-                onClick={onReset}
-                className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700"
-              >
-                <X className="h-3.5 w-3.5 shrink-0 text-rose-500" />
-                Clear filters
-              </button>
-            ) : null}
-            {!embedded ? (
+          <div className="flex flex-nowrap items-center gap-2">
               <button type="button" onClick={onReset} className="text-sm font-medium text-[#2563EB] hover:text-[#1D4ED8]">
                 Reset Filters
               </button>
-            ) : null}
           </div>
         </div>
+        ) : null}
       </div>
 
       {!embedded ? (

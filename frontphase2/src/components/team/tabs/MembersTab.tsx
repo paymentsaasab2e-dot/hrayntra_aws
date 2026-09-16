@@ -588,8 +588,8 @@ export const MembersTab: React.FC<MembersTabProps> = ({ onHeaderExtrasChange }) 
 
       <div className={PH2_TABLE_CARD_CLASS}>
         <div className={PH2_TOOLBAR_ROW_CLASS}>
-          <div className="flex w-full flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="relative w-full lg:max-w-md lg:flex-1">
+          <div className="flex w-full flex-nowrap items-center gap-2">
+            <div className="relative w-44 shrink-0 sm:w-52">
               <Search
                 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-indigo-400"
                 strokeWidth={2.25}
@@ -603,7 +603,7 @@ export const MembersTab: React.FC<MembersTabProps> = ({ onHeaderExtrasChange }) 
                 aria-label="Search team members"
               />
             </div>
-            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center lg:justify-end">
+            <div className="flex flex-nowrap items-center gap-2">
               <TableColumnsMenu
                 columns={TEAM_TABLE_COLUMNS}
                 isVisible={teamColumnVisibility.isVisible}

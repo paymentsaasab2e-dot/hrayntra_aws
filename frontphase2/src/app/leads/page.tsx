@@ -2082,8 +2082,8 @@ export default function RecruitmentAgencyDashboard() {
 
           {/* Table Controls + scrollable rows */}
           <div className="mb-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-indigo-100/60 bg-white/70 shadow-[0_12px_40px_-18px_rgba(59,130,246,0.18)] backdrop-blur-sm transition-shadow hover:shadow-[0_16px_48px_-14px_rgba(79,70,229,0.16)]">
-            <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20 p-2.5 sm:p-4">
-              <div className="relative min-w-[14rem] max-w-md shrink-0 grow basis-[14rem] sm:basis-[18rem]">
+            <div className="no-scrollbar flex shrink-0 flex-nowrap items-center gap-2 overflow-x-auto overflow-y-hidden border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20 p-2.5 sm:p-4">
+              <div className="relative w-44 shrink-0 sm:w-52">
                 <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-indigo-400" size={16} strokeWidth={2.25} />
                 <input 
                   type="text" 

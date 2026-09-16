@@ -837,7 +837,7 @@ export default function InterviewsPage() {
   };
 
   const viewSegmented = (
-    <div className="inline-flex w-fit items-center rounded-lg border border-indigo-100/90 bg-white/95 p-0.5 shadow-sm ring-1 ring-indigo-100/40">
+    <div className="inline-flex w-fit shrink-0 items-center rounded-lg border border-indigo-100/90 bg-white/95 p-0.5 shadow-sm ring-1 ring-indigo-100/40">
       <button
         type="button"
         onClick={() => setView('list')}
@@ -906,7 +906,7 @@ export default function InterviewsPage() {
       <Toaster position="top-right" richColors style={{ top: '5rem' }} />
       <div className="ph2-page-shell flex h-[calc(100dvh-3.5rem)] w-full flex-col overflow-hidden text-slate-900">
         <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-          <header className="flex min-h-[4.5rem] shrink-0 flex-wrap items-center justify-between gap-3 border-b border-indigo-100/50 bg-white/80 px-4 py-3 shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)] backdrop-blur-md sm:px-6">
+          <header className="flex min-h-[4.5rem] shrink-0 flex-nowrap items-center justify-between gap-3 overflow-x-auto no-scrollbar border-b border-indigo-100/50 bg-white/80 px-4 py-3 shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)] backdrop-blur-md sm:px-6">
             <div className="flex items-center gap-2.5 sm:gap-3">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 via-indigo-600 to-blue-600 text-white shadow-lg shadow-indigo-500/30 ring-1 ring-white/20">
                 <Calendar className="h-5 w-5" strokeWidth={2.2} />
@@ -915,7 +915,7 @@ export default function InterviewsPage() {
                 <h1 className="text-xl font-bold leading-none tracking-tight text-slate-900 sm:text-[1.35rem]">Interviews</h1>
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-nowrap items-center gap-2 overflow-x-auto no-scrollbar">
                   <button
                     type="button"
                 onClick={() => void refreshAll()}
@@ -1002,8 +1002,7 @@ export default function InterviewsPage() {
                 <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} className="flex min-h-0 flex-1 flex-col overflow-hidden">
                   <div className={PH2_TABLE_CARD_CLASS}>
                     <div className={PH2_TOOLBAR_ROW_CLASS}>
-                      <div className="flex w-full flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                        <div className="relative w-full lg:max-w-md lg:flex-1">
+                        <div className="relative w-44 shrink-0 sm:w-52">
                           <Search
                             className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-indigo-400"
                             size={16}
@@ -1021,7 +1020,6 @@ export default function InterviewsPage() {
                             className="h-9 w-full rounded-xl border border-indigo-100/90 bg-white/95 pl-10 pr-3 text-xs text-slate-800 shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)] placeholder:text-slate-400 transition-all focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
                           />
                         </div>
-                        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center lg:justify-end">
                           <SmartSearchToggleButton
                             open={interviewSmartSearch.open}
                             onToggle={() => interviewSmartSearch.setOpen((value) => !value)}
@@ -1088,7 +1086,7 @@ export default function InterviewsPage() {
                             })}
                           </select>
                           <select
-                            className={PH2_TOOLBAR_SELECT_CLASS}
+                            className={`${PH2_TOOLBAR_SELECT_CLASS} max-w-[11.5rem]`}
                             value={filters.clientJob}
                             onChange={(e) => patchFilter('clientJob', e.target.value)}
                           >
@@ -1110,19 +1108,17 @@ export default function InterviewsPage() {
                             <button
                               type="button"
                               onClick={handleClearToolbar}
-                              className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700"
+                              className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-lg px-2 py-1.5 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700"
                             >
                               <XCircle size={15} className="shrink-0 text-rose-500" strokeWidth={2.35} />
                               Clear
                             </button>
                           ) : null}
-                          <span className="whitespace-nowrap text-[11px] font-medium text-slate-500">
+                          <span className="shrink-0 whitespace-nowrap text-[11px] font-medium text-slate-500">
                             Total:{' '}
                             <span className="font-semibold text-slate-800">{listTotalCount}</span>
                           </span>
-                        </div>
-              </div>
-            </div>
+                    </div>
 
                     {interviewSmartSearch.open ? (
                       <SmartSearchPromptPanel

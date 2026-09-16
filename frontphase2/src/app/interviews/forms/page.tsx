@@ -101,7 +101,7 @@ export default function InterviewFormsPage() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-indigo-100/80 bg-white/90 px-4 py-4 sm:px-6">
+      <header className="flex flex-nowrap items-center justify-between gap-3 overflow-x-auto no-scrollbar border-b border-indigo-100/80 bg-white/90 px-4 py-4 sm:px-6">
         <div className="flex items-center gap-3">
           <Link
             href="/interviews"

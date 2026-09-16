@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Eye, Plus, RefreshCcw } from 'lucide-react';
 import { apiListInterviewApplications, type InterviewApplicationRow, type InterviewApplicationStatus } from '../../lib/api';
 import { startAsyncLoad } from '../../lib/asyncLoadGuard';
-import { PH2_TABLE_CARD_CLASS, PH2_TOOLBAR_ROW_CLASS } from '../layout/Ph2ModulePageLayout';
+import { PH2_TABLE_CARD_CLASS, PH2_TOOLBAR_FILTERS_CLASS, PH2_TOOLBAR_ROW_CLASS } from '../layout/Ph2ModulePageLayout';
 import { TableSkeleton } from '../ui/Skeleton';
 
 const STATUS_LABELS: Record<InterviewApplicationStatus, string> = {
@@ -61,10 +61,10 @@ export function InterviewApplicationsTab({ onReview }: Props) {
   return (
     <div className={PH2_TABLE_CARD_CLASS}>
       <div className={PH2_TOOLBAR_ROW_CLASS}>
-        <p className="text-xs font-semibold text-slate-600">
+        <p className="shrink-0 whitespace-nowrap text-xs font-semibold text-slate-600">
           Phase 1 interview form submissions for this tenant
         </p>
-        <div className="flex items-center gap-2">
+        <div className={`${PH2_TOOLBAR_FILTERS_CLASS} ml-auto`}>
           <Link
             href="/interviews/forms"
             className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:opacity-95"

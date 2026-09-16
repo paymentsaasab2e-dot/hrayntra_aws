@@ -429,7 +429,7 @@ function PlacementsPageContent() {
                 </div>
 
                 <div className={PH2_TOOLBAR_ROW_CLASS}>
-                  <div className="flex w-full flex-col gap-2 xl:flex-row xl:items-start xl:gap-3">
+                  <div className="flex w-full flex-nowrap items-center gap-2">
                     <div className="min-w-0 flex-1">
                       <FiltersBar
                         embedded
@@ -448,7 +448,7 @@ function PlacementsPageContent() {
                         }}
                       />
                     </div>
-                    <div className="flex shrink-0 flex-wrap items-center gap-2 xl:pt-0.5">
+                    <div className="flex shrink-0 flex-nowrap items-center gap-2">
                       <SmartSearchToggleButton
                         open={placementSmartSearch.open}
                         onToggle={() => placementSmartSearch.setOpen((value) => !value)}

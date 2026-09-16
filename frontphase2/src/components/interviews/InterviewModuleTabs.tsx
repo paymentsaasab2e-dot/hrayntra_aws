@@ -17,7 +17,7 @@ const TABS: { key: InterviewModuleTab; label: string }[] = [
 
 export function InterviewModuleTabs({ active, onChange }: Props) {
   return (
-    <div className="flex flex-wrap gap-1 rounded-xl border border-indigo-100/90 bg-white/95 p-1 shadow-sm">
+    <div className="flex w-max max-w-full flex-nowrap gap-1 overflow-x-auto no-scrollbar rounded-xl border border-indigo-100/90 bg-white/95 p-1 shadow-sm">
       {TABS.map((tab) => {
         const isActive = tab.key === active;
         return (
