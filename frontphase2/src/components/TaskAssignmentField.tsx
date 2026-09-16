@@ -5,6 +5,7 @@ import { ChevronDown, Search, X, Loader2, User } from 'lucide-react';
 import { ImageWithFallback } from './ImageWithFallback';
 import type { TaskAssignee } from '../app/Task&Activites/types';
 import { AssignCompanySelect } from './assign/AssignCompanySelect';
+import { formatAssigneeOptionLabel, getStoredCurrentUserId } from '../lib/assigneeDisplay';
 import type { AssignCompanyOption } from '../hooks/useAssignableMembers';
 
 export type AssignmentAuditEvent = {
@@ -68,15 +69,20 @@ export function TaskAssignmentField({
   const containerRef = useRef<HTMLDivElement>(null);
 
   const isDisabled = disabled || noPermission;
+  const currentUserId = getStoredCurrentUserId();
   const selectedAssignee = useMemo(() => assignees.find((a) => a.id === value), [assignees, value]);
 
   const filteredAssignees = useMemo(() => {
-    if (!search.trim()) return assignees;
-    const q = search.trim().toLowerCase();
-    return assignees.filter(
-      (a) => a.name.toLowerCase().includes(q) || (a.role && a.role.toLowerCase().includes(q))
-    );
-  }, [assignees, search]);
+    const list = !search.trim()
+      ? assignees
+      : assignees.filter(
+          (a) => a.name.toLowerCase().includes(search.trim().toLowerCase()) || (a.role && a.role.toLowerCase().includes(search.trim().toLowerCase())),
+        );
+    if (!currentUserId) return list;
+    const self = list.filter((a) => a.id === currentUserId);
+    const rest = list.filter((a) => a.id !== currentUserId);
+    return [...self, ...rest];
+  }, [assignees, search, currentUserId]);
 
   const handleSelect = (assignee: TaskAssignee) => {
     const previousId = value || undefined;
@@ -160,7 +166,9 @@ export function TaskAssignmentField({
                 </div>
               )}
               <div className="min-w-0 text-left">
-                <span className="font-medium text-slate-900 truncate block">{selectedAssignee.name}</span>
+                <span className="font-medium text-slate-900 truncate block">
+                  {formatAssigneeOptionLabel(selectedAssignee, currentUserId)}
+                </span>
                 {selectedAssignee.role && (
                   <span className="text-xs text-slate-500 truncate block">{selectedAssignee.role}</span>
                 )}
@@ -248,7 +256,9 @@ export function TaskAssignmentField({
                       </div>
                     )}
                     <div className="min-w-0 flex-1">
-                      <div className="font-medium truncate">{assignee.name}</div>
+                      <div className="font-medium truncate">
+                        {formatAssigneeOptionLabel(assignee, currentUserId)}
+                      </div>
                       {assignee.role && (
                         <div className="text-xs text-slate-500 truncate">{assignee.role}</div>
                       )}

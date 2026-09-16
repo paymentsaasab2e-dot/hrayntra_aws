@@ -10,7 +10,7 @@ import {
   useCrmAssignableMembers,
 } from '../../hooks/useCrmAssignableMembers';
 import { AssignCompanySelect } from '../assign/AssignCompanySelect';
-import { assigneeCompanyId, formatAssigneeDisplayName } from '../../lib/assigneeDisplay';
+import { assigneeCompanyId, formatAssigneeDisplayName, formatAssigneeOptionLabel, getStoredCurrentUserId } from '../../lib/assigneeDisplay';
 import { orEmpty } from '../../lib/asyncLoadGuard';
 
 /** Role chip background classes — mirrors the existing palette used elsewhere. */
@@ -34,7 +34,7 @@ function initials(first?: string, last?: string): string {
 }
 
 function displayName(member: TeamMember): string {
-  return formatAssigneeDisplayName(member) || 'Team member';
+  return formatAssigneeOptionLabel(member, getStoredCurrentUserId()) || 'Team member';
 }
 
 function colorForMember(member: TeamMember): string {

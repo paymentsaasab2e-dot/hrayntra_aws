@@ -11,7 +11,7 @@ import {
   clientTrackerAllowsResponse,
   normalizeClientTrackerOptions,
 } from '../../lib/clientTrackerOptions';
-import { isSubmitToClientReviewFieldVisible } from '../../lib/submitToClientFieldVisibility';
+import { isSubmitToClientReviewFieldVisible, isSubmitToClientCandidateNameVisible } from '../../lib/submitToClientFieldVisibility';
 
 type Props = {
   rows: ClientReviewBatchRow[];
@@ -297,6 +297,9 @@ export function ClientReviewBatchTable({
               const skills = skillsLabel(row);
               const education = educationLabel(row);
               const company = companyLabel(row);
+              const displayName = isSubmitToClientCandidateNameVisible(row.detail?.visibleFields)
+                ? row.candidateName || 'Candidate'
+                : 'Candidate';
               const email = isSubmitToClientReviewFieldVisible(
                 'E-mail',
                 row.detail?.visibleFields,
@@ -334,7 +337,7 @@ export function ClientReviewBatchTable({
                   <td className="px-4 py-4 sm:px-6">
                     <div className="flex items-center gap-3">
                       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-sky-500 text-xs font-bold text-white">
-                        {String(row.candidateName || 'C')
+                        {String(displayName || 'C')
                           .split(/\s+/)
                           .filter(Boolean)
                           .slice(0, 2)
@@ -343,7 +346,7 @@ export function ClientReviewBatchTable({
                           .toUpperCase() || 'C'}
                       </span>
                       <div className="min-w-0">
-                        <p className="font-semibold text-slate-900">{row.candidateName || 'Candidate'}</p>
+                        <p className="font-semibold text-slate-900">{displayName}</p>
                         {email ? <p className="truncate text-xs text-slate-500">{email}</p> : null}
                       </div>
                     </div>

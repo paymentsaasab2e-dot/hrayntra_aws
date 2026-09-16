@@ -509,6 +509,14 @@ function reviewFieldIdsForLabel(label: string): SubmitToClientFieldId[] | null {
   return null;
 }
 
+export function isSubmitToClientCandidateNameVisible(
+  visibility?: Partial<SubmitToClientFieldVisibility> | null,
+): boolean {
+  if (!visibility) return true;
+  const parsed = parseSubmitToClientFieldVisibility(visibility);
+  return parsed.firstName !== false || parsed.middleName !== false || parsed.lastName !== false;
+}
+
 export function isSubmitToClientReviewFieldVisible(
   label: string,
   visibility?: Partial<SubmitToClientFieldVisibility> | null,

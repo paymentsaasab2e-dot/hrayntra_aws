@@ -18,6 +18,7 @@ import type {
   CreateTeamRequestPayload,
   UpdateTeamRequestPayload,
 } from '../../types/team';
+import { UserStatus } from '../../types/team';
 import { formatAssigneeDisplayName } from '../assigneeDisplay';
 import { sanitizeMojibakeDeep } from '../sanitizeMojibake';
 
@@ -240,10 +241,10 @@ async function getAllTeamMembersPaginated(
 
 export async function getAllTeamMembersForAssign(companyId?: string, module?: string): Promise<TeamMember[]> {
   const orgUnitId = String(companyId || '').trim();
-  if (orgUnitId) {
-    return getAllTeamMembersPaginated(true, orgUnitId, module);
-  }
-  return getAllTeamMembersPaginated(true, undefined, module);
+  const rows = orgUnitId
+    ? await getAllTeamMembersPaginated(true, orgUnitId, module)
+    : await getAllTeamMembersPaginated(true, undefined, module);
+  return ensureCurrentUserInMembers(rows);
 }
 
 /** Full tenant team directory (activity log, reports, Assignment Rules config). Falls back to assignable list if needed. */
@@ -1493,13 +1494,39 @@ export function getCurrentUserRequestIdentity(): TeamRequestUserIdentity {
       [firstName, lastName].filter(Boolean).join(' ') ||
       String(user.email || '').trim();
     return {
-      id: String(user.id || user.userId || '').trim() || undefined,
+      id: String(user.id || user.userId || user._id || '').trim() || undefined,
       email: String(user.email || '').trim().toLowerCase() || undefined,
       name: name || undefined,
     };
   } catch {
     return {};
   }
+}
+
+/** Ensure the signed-in user appears first in Assigned to pickers. */
+export function ensureCurrentUserInMembers(members: TeamMember[]): TeamMember[] {
+  const me = getCurrentUserRequestIdentity();
+  const id = String(me.id || '').trim();
+  if (!id) return members;
+  const existing = members.find((member) => String(member.id) === id);
+  const rest = members.filter((member) => String(member.id) !== id);
+  if (existing) return [existing, ...rest];
+  const parts = String(me.name || '').split(/\s+/).filter(Boolean);
+  const stub: TeamMember = {
+    id,
+    firstName: parts[0] || me.name || 'You',
+    lastName: parts.slice(1).join(' ') || '',
+    email: me.email || '',
+    status: UserStatus.ACTIVE,
+    role: { id: '', roleName: '', color: 'gray', createdAt: '' },
+    department: null,
+    manager: null,
+    credential: null,
+    _count: { tasks: 0 },
+    createdAt: '',
+    updatedAt: '',
+  };
+  return [stub, ...rest];
 }
 
 function normalizeEmail(value: unknown) {

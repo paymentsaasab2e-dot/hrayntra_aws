@@ -9,6 +9,7 @@ import {
 import { startAsyncLoad } from '@/lib/asyncLoadGuard';
 import type { TeamMember } from '@/types/team';
 import { UserStatus } from '@/types/team';
+import { ensureCurrentUserInMembers } from '@/lib/api/teamApi';
 
 const CRM_ASSIGN_MODULES = new Set(['Leads', 'Clients', 'RecruitmentClients']);
 
@@ -100,7 +101,7 @@ export function useCrmAssignableMembers(enabled = true, module?: string) {
   }, [enabled, module]);
 
   return {
-    members,
+    members: ensureCurrentUserInMembers(members),
     loading,
     canSelectCompany: false as const,
   };

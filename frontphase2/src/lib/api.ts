@@ -6471,6 +6471,10 @@ export async function apiGetCandidates(params: {
   Object.entries(params).forEach(([key, value]) => {
     if (value === undefined || value === null || value === '') return;
     if (typeof value === 'boolean') {
+      if (key === 'includeCommonPool' || key === 'mine') {
+        query.set(key, value ? 'true' : 'false');
+        return;
+      }
       if (value) query.set(key, 'true');
       return;
     }

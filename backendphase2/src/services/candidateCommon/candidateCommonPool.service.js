@@ -358,7 +358,7 @@ async function getAllTenantJobIdSet() {
  * Verified Phase 1 snapshots for CRM "All candidates" (tenant uploads + portal pool).
  * Job links on candidatecommon are global — keep only rows for this tenant or pure discovery.
  */
-export async function fetchCandidateCommonForCandidatesList(req) {
+export async function fetchCandidateCommonListIndex(req) {
   const commonPrisma = getCandidateCommonPrismaClient();
   if (!commonPrisma) return [];
   if (!(await tenantAllowsPhase1CommonPool())) return [];
@@ -370,6 +370,74 @@ export async function fetchCandidateCommonForCandidatesList(req) {
 
   const rows = await commonPrisma.candidateCommon.findMany({
     where: { isVerified: true },
+    orderBy: { syncedAt: 'desc' },
+    take: limit,
+    select: {
+      id: true,
+      candidateId: true,
+      firstName: true,
+      lastName: true,
+      email: true,
+      assignedJobs: true,
+      matchJobIds: true,
+      source: true,
+      syncedAt: true,
+      updatedAt: true,
+    },
+  });
+
+  let mapped = rows
+    .map((row) => {
+      const id = String(row.candidateId || row.id || '').trim();
+      if (!id) return null;
+      return {
+        id,
+        firstName: row.firstName,
+        lastName: row.lastName,
+        email: row.email,
+        assignedJobs: Array.isArray(row.assignedJobs) ? row.assignedJobs : [],
+        matchJobIds: Array.isArray(row.matchJobIds) ? row.matchJobIds : [],
+        source: row.source || 'phase1',
+        updatedAt: row.updatedAt || row.syncedAt,
+        createdAt: row.syncedAt || row.updatedAt,
+      };
+    })
+    .filter(Boolean);
+
+  if (isTenantScopedRequest()) {
+    const allowed = await getAllTenantJobIdSet();
+    mapped = mapped.filter((row) => {
+      if (!candidateHasAnyJobLink(row)) return true;
+      if (!allowed.size) return false;
+      return rowHasTenantJobLink(row, allowed);
+    });
+  }
+
+  return mapped;
+}
+
+export async function fetchCandidateCommonForCandidatesList(req, options = {}) {
+  const commonPrisma = getCandidateCommonPrismaClient();
+  if (!commonPrisma) return [];
+  if (!(await tenantAllowsPhase1CommonPool())) return [];
+
+  const idFilter = Array.isArray(options.ids)
+    ? [...new Set(options.ids.map((id) => String(id || '').trim()).filter(Boolean))]
+    : null;
+  const limit = idFilter?.length
+    ? Math.min(500, idFilter.length)
+    : Math.min(
+        10000,
+        Math.max(1, Number(process.env.CANDIDATES_COMMON_POOL_MAX || 5000) || 5000),
+      );
+
+  const where = { isVerified: true };
+  if (idFilter?.length) {
+    where.OR = [{ candidateId: { in: idFilter } }, { id: { in: idFilter } }];
+  }
+
+  const rows = await commonPrisma.candidateCommon.findMany({
+    where,
     orderBy: { syncedAt: 'desc' },
     take: limit,
   });

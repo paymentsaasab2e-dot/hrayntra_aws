@@ -7,6 +7,7 @@ import { getActiveOrgUnitId, ORG_WORKSPACE_EVENT } from '@/lib/org/orgWorkspaceS
 import {
   getAllTeamMembersForAssign,
   teamMembersToBackendUsers,
+  ensureCurrentUserInMembers,
 } from '@/lib/api/teamApi';
 import type { TeamMember } from '@/types/team';
 import type { BackendUser } from '@/lib/api';
@@ -160,14 +161,18 @@ export function useAssignableMembers(
     };
   }, [enabled, companiesReady, canSelectCompany, companyId, module]);
 
-  const users: BackendUser[] = useMemo(() => teamMembersToBackendUsers(members), [members]);
+  const membersWithSelf = useMemo(() => ensureCurrentUserInMembers(members), [members]);
+  const users: BackendUser[] = useMemo(
+    () => teamMembersToBackendUsers(membersWithSelf),
+    [membersWithSelf],
+  );
 
   return {
     canSelectCompany,
     companies,
     companyId,
     setCompanyId,
-    members,
+    members: membersWithSelf,
     users,
     loading,
     companiesReady,

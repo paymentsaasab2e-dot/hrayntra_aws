@@ -111,7 +111,7 @@ export async function listTaskAssigneeCandidates(actorUserId, { req = null } = {
       select: memberSelect,
       orderBy: { firstName: 'asc' },
     });
-    const eligible = filterUsersByAssignmentAccess(
+    const eligible = await filterUsersByAssignmentAccess(
       await labelUsersWithOrgUnit(
         excludeHqPlatformUsers(all).map(normalizeMember).filter(Boolean),
       ),
@@ -125,7 +125,7 @@ export async function listTaskAssigneeCandidates(actorUserId, { req = null } = {
   byId.set(actor.id, normalizeMember(actor));
 
   if (!actorDeptId) {
-    const eligible = filterUsersByAssignmentAccess(
+    const eligible = await filterUsersByAssignmentAccess(
       await labelUsersWithOrgUnit([normalizeMember(actor)].filter(Boolean)),
       { modules: ['Tasks'] },
     );
@@ -168,7 +168,7 @@ export async function listTaskAssigneeCandidates(actorUserId, { req = null } = {
     }
   }
 
-  const eligible = filterUsersByAssignmentAccess(
+  const eligible = await filterUsersByAssignmentAccess(
     await labelUsersWithOrgUnit(
       [...byId.values()]
         .filter(
