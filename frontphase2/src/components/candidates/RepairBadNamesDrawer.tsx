@@ -39,6 +39,14 @@ type Props = {
   onApplied?: () => void | Promise<void>;
 };
 
+function sourceLabel(source?: string | null): string {
+  const key = String(source || '').trim().toLowerCase();
+  if (key === 'openai') return 'OpenAI (re-parsed CV)';
+  if (key === 'resume') return 'Resume text';
+  if (key === 'email') return 'Email';
+  return source || '';
+}
+
 function statusLabel(status: RowStatus): string {
   switch (status) {
     case 'checking':
@@ -289,7 +297,7 @@ export default function RepairBadNamesDrawer({ isOpen, onClose, onApplied }: Pro
                   Fix candidate names
                 </h2>
                 <p className="mt-0.5 text-sm text-slate-500">
-                  Recheck bad names from stored CVs, review changes, then save.
+                  Recheck bad names from stored CVs. Insufficient names are re-parsed with OpenAI, then you can save.
                 </p>
               </div>
             </div>
@@ -381,7 +389,7 @@ export default function RepairBadNamesDrawer({ isOpen, onClose, onApplied }: Pro
                           <span className="truncate font-semibold text-slate-900">{row.to}</span>
                         </div>
                         {row.source ? (
-                          <p className="mt-1 text-[11px] text-slate-400">Source: {row.source}</p>
+                          <p className="mt-1 text-[11px] text-slate-400">Source: {sourceLabel(row.source)}</p>
                         ) : null}
                         {row.error ? (
                           <p className="mt-1 text-[11px] font-medium text-rose-600">{row.error}</p>

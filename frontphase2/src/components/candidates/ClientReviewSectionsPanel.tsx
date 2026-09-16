@@ -23,6 +23,7 @@ import { CLIENT_PRESENTATION_SECTION_LABELS, type ClientReviewSection } from '@/
 import { PHASE1_CLIENT_SECTION_LABELS } from '@/lib/phase1ClientPresentationSections';
 import {
   isSubmitToClientReviewFieldVisible,
+  parseSubmitToClientFieldVisibility,
   phase1SectionVisibilityFromSubmitFields,
   sectionVisibilityFromSubmitFields,
   SUBMIT_TO_CLIENT_FIELD_GROUPS,
@@ -178,7 +179,8 @@ function isFieldIdVisible(
   visibleFields: Record<string, boolean> | null | undefined,
 ): boolean {
   if (!visibleFields) return true;
-  return visibleFields[fieldId] !== false;
+  const parsed = parseSubmitToClientFieldVisibility(visibleFields);
+  return parsed[fieldId] !== false;
 }
 
 function findExistingFieldValue(
@@ -210,6 +212,15 @@ function expandSectionForVisibleFields(
     : null;
 
   if (group) {
+    if (!visibleFields) {
+      const kept = (section.fields || []).filter((row) => {
+        if (shouldHideClientReviewField(row.label, row.value)) return false;
+        if (row.value === 'No entries provided') return false;
+        return true;
+      });
+      return { ...section, fields: kept };
+    }
+
     const nextFields = group.fields
       .filter((field) => isFieldIdVisible(field.id, visibleFields))
       .map((field) => ({
@@ -241,7 +252,7 @@ function expandSectionForVisibleFields(
           ? (['cvEducationEntries'] as SubmitToClientFieldId[])
           : null;
     const entriesAllowed =
-      !entryFields || !visibleFields || entryFields.some((id) => isFieldIdVisible(id, visibleFields));
+      !entryFields || entryFields.some((id) => isFieldIdVisible(id, visibleFields));
 
     return {
       ...section,
@@ -1055,9 +1066,15 @@ export function ClientReviewSectionsPanel({
     const activeProfile = profileTabs.find((tab) => tab.id === resolvedActiveTab);
     const activeExtra = extraTabs.find((tab) => tab.id === resolvedActiveTab);
     const tabHideOpts = {
-      hideLinkedIn: visibleFields ? visibleFields.linkedIn === false : hideLinkedIn,
-      hideInternalNotes: visibleFields ? visibleFields.notes === false : hideInternalNotes,
-      hideResumeLinks: visibleFields ? visibleFields.p1Resume === false : hideResumeLinks,
+      hideLinkedIn: visibleFields
+        ? parseSubmitToClientFieldVisibility(visibleFields).linkedIn === false
+        : hideLinkedIn,
+      hideInternalNotes: visibleFields
+        ? parseSubmitToClientFieldVisibility(visibleFields).notes === false
+        : hideInternalNotes,
+      hideResumeLinks: visibleFields
+        ? parseSubmitToClientFieldVisibility(visibleFields).p1Resume === false
+        : hideResumeLinks,
       keepEmptyFields: true,
     };
 

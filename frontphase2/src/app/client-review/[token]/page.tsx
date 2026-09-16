@@ -56,6 +56,10 @@ export default function ClientReviewPage() {
           row.clientMarkedStage ||
           row.detail?.clientMarkedStage ||
           null,
+        detail: {
+          ...(row.detail || {}),
+          visibleFields: row.detail?.visibleFields ?? reviewData.visibleFields ?? null,
+        },
       }));
     }
     if (!reviewData) return [];
@@ -281,6 +285,7 @@ export default function ClientReviewPage() {
         rows={tableRows}
         jobTitle={reviewData?.job?.title}
         clientName={reviewData?.client?.companyName}
+        visibleFields={reviewData?.visibleFields ?? null}
         onClose={() => setCompareOpen(false)}
       />
     </div>
