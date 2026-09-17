@@ -444,6 +444,7 @@ function CandidatesPageContent() {
   const [candidateEditOpenToken, setCandidateEditOpenToken] = useState<number | null>(null);
   const pendingDeepLinkCandidateIdRef = useRef<string | null>(null);
   const loadCandidatesRequestIdRef = useRef(0);
+  const loadCandidatesAbortRef = useRef<AbortController | null>(null);
   const candidatePrefetchGenRef = useRef(0);
   const [loadingCandidateProfile, setLoadingCandidateProfile] = useState(false);
   const [availableDrawerTags, setAvailableDrawerTags] = useState<CandidateTagItem[]>([]);
@@ -746,6 +747,9 @@ function CandidatesPageContent() {
     const activePage = opts?.page ?? currentPage;
     const isFirstLoad = !hasLoadedCandidatesOnceRef.current;
     const requestId = ++loadCandidatesRequestIdRef.current;
+    loadCandidatesAbortRef.current?.abort();
+    const abortController = new AbortController();
+    loadCandidatesAbortRef.current = abortController;
     // Cancel in-flight progressive prefetch on user-visible reloads (tab/filter/page).
     if (!silent) {
       candidatePrefetchGenRef.current += 1;
@@ -785,7 +789,7 @@ function CandidatesPageContent() {
         ...listFilterBits,
       });
 
-      const res = await apiGetCandidates(queryParams);
+      const res = await apiGetCandidates(queryParams, { signal: abortController.signal });
 
       let backendCandidates: BackendCandidate[] = [];
       let pagination: any = null;
@@ -839,6 +843,13 @@ function CandidatesPageContent() {
       );
     } catch (err: any) {
       if (requestId !== loadCandidatesRequestIdRef.current) return;
+      if (
+        abortController.signal.aborted ||
+        err?.name === 'AbortError' ||
+        err?.kind === 'abort'
+      ) {
+        return;
+      }
       const message = err?.message || 'Failed to load candidates.';
       if (!silent) {
         if (!hasLoadedCandidatesOnceRef.current) {
