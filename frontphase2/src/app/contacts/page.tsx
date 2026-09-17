@@ -36,6 +36,7 @@ import {
   Ph2ModulePageLayout,
   PH2_TABLE_CARD_CLASS,
 } from '../../components/layout/Ph2ModulePageLayout';
+import { ShowSummaryCardsButton } from '../../components/layout/ShowSummaryCardsButton';
 import { coerceTablePageSize } from '../../constants/tablePagination';
 
 export const dynamic = 'force-dynamic';
@@ -57,6 +58,7 @@ function ContactsPageContent() {
   const [isEditDrawerOpen, setIsEditDrawerOpen] = useState(false);
   const [isImportDrawerOpen, setIsImportDrawerOpen] = useState(false);
   const [isMergeDrawerOpen, setIsMergeDrawerOpen] = useState(false);
+  const [showSummaryCards, setShowSummaryCards] = useState(false);
   const [pagination, setPagination] = useState({ page: 1, limit: 10, total: 0, totalPages: 0 });
   const pendingDeepLinkContactIdRef = useRef<string | null>(null);
   const contactColumnVisibility = usePersistedColumnVisibility(
@@ -399,6 +401,10 @@ function ContactsPageContent() {
         icon={<BookUser className="h-5 w-5" strokeWidth={2.2} />}
         actions={
           <>
+            <ShowSummaryCardsButton
+              open={showSummaryCards}
+              onToggle={() => setShowSummaryCards((open) => !open)}
+            />
             <button
               type="button"
               onClick={() => void loadContactsData()}
@@ -495,7 +501,7 @@ function ContactsPageContent() {
           </>
         }
       >
-          {stats ? (
+          {showSummaryCards && stats ? (
           <div className="shrink-0">
             <ContactsKPICards stats={stats} />
           </div>

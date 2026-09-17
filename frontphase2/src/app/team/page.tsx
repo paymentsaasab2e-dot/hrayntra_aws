@@ -14,6 +14,7 @@ import { CredentialsTab } from '../../components/team/tabs/CredentialsTab';
 import { SalesGroupsTab } from '../../components/team/tabs/SalesGroupsTab';
 import { AssignmentRulesTab } from '../../components/team/tabs/AssignmentRulesTab';
 import { AddMemberDrawer } from '../../components/team/AddMemberDrawer';
+import { ShowSummaryCardsButton } from '../../components/layout/ShowSummaryCardsButton';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,6 +42,7 @@ function TeamPageContent() {
   );
   const [showAddMemberDrawer, setShowAddMemberDrawer] = useState(false);
   const [membersHeaderExtras, setMembersHeaderExtras] = useState<TeamMembersHeaderExtras | null>(null);
+  const [showSummaryCards, setShowSummaryCards] = useState(false);
 
   useEffect(() => {
     if (activeTab !== 'members') {
@@ -162,6 +164,12 @@ function TeamPageContent() {
               </div>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">
+              {activeTab === 'members' ? (
+                <ShowSummaryCardsButton
+                  open={showSummaryCards}
+                  onToggle={() => setShowSummaryCards((open) => !open)}
+                />
+              ) : null}
               {activeTab === 'members' && membersHeaderExtras ? (
                 <>
                   <span className="whitespace-nowrap text-[11px] font-medium text-slate-500 sm:text-xs">
@@ -222,7 +230,12 @@ function TeamPageContent() {
               ) : null}
 
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                {activeTab === 'members' && <MembersTab onHeaderExtrasChange={setMembersHeaderExtras} />}
+                {activeTab === 'members' && (
+                  <MembersTab
+                    onHeaderExtrasChange={setMembersHeaderExtras}
+                    showSummaryCards={showSummaryCards}
+                  />
+                )}
                 {activeTab === 'roles' && <RolesTab />}
                 {activeTab === 'departments' && <DepartmentsTab />}
                 {activeTab === 'assignment-rules' && <AssignmentRulesTab />}

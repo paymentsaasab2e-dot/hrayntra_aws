@@ -171,8 +171,10 @@ import {
   PH2_TABLE_BODY_SCROLL_CLASS,
   PH2_TABLE_CARD_CLASS,
   PH2_TABLE_CARD_FOOTER_CLASS,
+  PH2_TOOLBAR_FILTERS_CLASS,
   PH2_TOOLBAR_ROW_CLASS,
 } from '../../components/layout/Ph2ModulePageLayout';
+import { ShowSummaryCardsButton } from '../../components/layout/ShowSummaryCardsButton';
 import { SearchableToolbarFilterSelect } from '../../components/forms/SearchableToolbarFilterSelect';
 import { dedupeByCompanyName } from '../../lib/companyNameKey';
 
@@ -1453,6 +1455,7 @@ export default function JobsPage() {
   const [jobAiWizardOpen, setJobAiWizardOpen] = useState(false);
   const [createJobMode, setCreateJobMode] = useState<'ai' | 'manual'>('manual');
   const [recycleBinDrawerOpen, setRecycleBinDrawerOpen] = useState(false);
+  const [showSummaryCards, setShowSummaryCards] = useState(false);
   const [duplicateFromJobId, setDuplicateFromJobId] = useState<string | null>(null);
   const [addCandidateDrawerOpen, setAddCandidateDrawerOpen] = useState(false);
   /** Chooser shown before the Add Candidate drawer asking the recruiter
@@ -2749,6 +2752,10 @@ export default function JobsPage() {
         icon={<Briefcase className="h-5 w-5" strokeWidth={2.2} />}
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            <ShowSummaryCardsButton
+              open={showSummaryCards}
+              onToggle={() => setShowSummaryCards((open) => !open)}
+            />
                   <button
                     type="button"
               onClick={() => void reloadMyJobsAndMetrics()}
@@ -2845,6 +2852,7 @@ export default function JobsPage() {
         }
       >
         <div className="mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col overflow-hidden">
+          {showSummaryCards ? (
           <div className={PH2_KPI_ROW_CLASS}>
             {loadingMetrics
               ? STATS_CONFIG.map((statConfig, i) => <SummaryCardSkeleton key={i} color={statConfig.color} />)
@@ -2862,6 +2870,7 @@ export default function JobsPage() {
                 );
               })}
             </div>
+          ) : null}
 
           {loading ? (
               <div className={PH2_TABLE_CARD_CLASS}>
@@ -2876,7 +2885,7 @@ export default function JobsPage() {
           ) : (
             <div className={PH2_TABLE_CARD_CLASS}>
               <div className={PH2_TOOLBAR_ROW_CLASS}>
-                <div className="relative w-full lg:max-w-md lg:flex-1">
+                <div className="relative w-44 shrink-0 sm:w-52">
                   <Search
                     className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-indigo-400"
                     size={16}
@@ -2893,7 +2902,7 @@ export default function JobsPage() {
                     className="h-9 w-full rounded-xl border border-indigo-100/90 bg-white/95 pl-10 pr-3 text-xs text-slate-800 shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)] placeholder:text-slate-400 transition-all focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
                   />
                 </div>
-                <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                <div className={PH2_TOOLBAR_FILTERS_CLASS}>
                   <SmartSearchToggleButton
                     open={jobSmartSearch.open}
                     onToggle={() => jobSmartSearch.setOpen((value) => !value)}

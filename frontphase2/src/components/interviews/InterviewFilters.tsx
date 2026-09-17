@@ -38,7 +38,7 @@ export function InterviewFilters({
       </div>
 
       <div className="rounded-2xl border border-[#E5E7EB] bg-white p-3 shadow-sm">
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-nowrap items-center gap-2 overflow-x-auto no-scrollbar">
           {fieldMeta.map(({ key, label, icon: Icon, options }) => (
             <label
               key={key}

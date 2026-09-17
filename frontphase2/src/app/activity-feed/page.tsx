@@ -219,8 +219,8 @@ function ActivityFilters({
           : 'all';
 
   return (
-    <div className={`${PH2_TOOLBAR_ROW_CLASS} flex-wrap gap-2 p-3 sm:p-4`}>
-      <div className="relative flex-1 min-w-[200px]">
+    <div className={`${PH2_TOOLBAR_ROW_CLASS} p-3 sm:p-4`}>
+      <div className="relative w-44 shrink-0 sm:w-52">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
         <input
           type="search"
@@ -233,7 +233,7 @@ function ActivityFilters({
       <select
         value={entityType}
         onChange={(e) => setEntityType(e.target.value)}
-        className="h-9 rounded-xl border border-indigo-100/90 bg-white px-2 text-xs text-slate-800"
+        className="h-9 shrink-0 rounded-xl border border-indigo-100/90 bg-white px-2 text-xs text-slate-800"
         aria-label="Module"
       >
         {MODULE_OPTIONS.map((o) => (
@@ -242,7 +242,7 @@ function ActivityFilters({
           </option>
         ))}
       </select>
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex shrink-0 flex-nowrap items-center gap-2">
         <button
           type="button"
           onClick={() => {

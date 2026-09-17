@@ -4,15 +4,19 @@ import React from 'react';
 
 /** Shared `<select>` styling — Leads / Client toolbar (indigo). */
 export const PH2_TOOLBAR_SELECT_CLASS =
-  'h-9 min-h-9 appearance-none bg-none rounded-lg border border-indigo-100/90 bg-white/95 px-2.5 py-1.5 text-xs font-medium text-slate-800 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-300 cursor-pointer hover:border-indigo-200/90 hover:bg-indigo-50/40';
+  'h-9 min-h-9 shrink-0 appearance-none bg-none rounded-lg border border-indigo-100/90 bg-white/95 px-2.5 py-1.5 text-xs font-medium text-slate-800 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-300 cursor-pointer hover:border-indigo-200/90 hover:bg-indigo-50/40';
 
 /** Frosted table / panel wrapper — viewport-locked list card (fills remaining height). */
 export const PH2_TABLE_CARD_CLASS =
   'mb-0 flex min-h-0 min-w-0 w-full max-w-full flex-1 flex-col overflow-hidden rounded-xl border border-indigo-100/60 bg-white shadow-[0_12px_40px_-18px_rgba(59,130,246,0.18)] transition-shadow hover:shadow-[0_16px_48px_-14px_rgba(79,70,229,0.16)]';
 
-/** Top row inside table card (search + filters). */
+/** Top row inside table card (search + filters) — always one row; scroll sideways on small screens. */
 export const PH2_TOOLBAR_ROW_CLASS =
-  'shrink-0 p-2.5 sm:p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-2 sm:gap-3 border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20';
+  'no-scrollbar shrink-0 min-w-0 p-2.5 sm:p-4 flex flex-row flex-nowrap items-center gap-2 sm:gap-3 overflow-x-auto overflow-y-hidden border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20';
+
+/** Filter chips/selects sitting on the same toolbar row. */
+export const PH2_TOOLBAR_FILTERS_CLASS =
+  'flex w-max min-w-max shrink-0 flex-nowrap items-center gap-1.5 sm:gap-2';
 
 export const PH2_TABLE_CARD_FOOTER_CLASS =
   'mt-0 w-full min-w-0 shrink-0 border-t border-indigo-100/50 bg-gradient-to-r from-slate-50/40 via-white to-indigo-50/25 px-2.5 py-2 sm:px-4';

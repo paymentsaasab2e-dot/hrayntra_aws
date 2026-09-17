@@ -109,17 +109,33 @@ export async function decorateAssigneeUser(user) {
  * Never returns units from another tenant (tenant DB isolation).
  */
 export async function listAssignableCompanies(req) {
-  if (!canViewCrossCompanyMembers(req)) return [];
-  const companies = await prisma.orgUnit.findMany({
-    where: ACTIVE_ORG_COMPANY_WHERE,
-    orderBy: { name: 'asc' },
-    select: { id: true, name: true, isLeaf: true },
-  });
-  return companies.map((unit) => ({
-    id: String(unit.id),
-    name: unit.name,
-    kind: 'company',
-  }));
+  if (canViewCrossCompanyMembers(req)) {
+    const companies = await prisma.orgUnit.findMany({
+      where: ACTIVE_ORG_COMPANY_WHERE,
+      orderBy: { name: 'asc' },
+      select: { id: true, name: true, isLeaf: true },
+    });
+    return companies.map((unit) => ({
+      id: String(unit.id),
+      name: unit.name,
+      kind: 'company',
+    }));
+  }
+
+  const scope = await getRequestOrgScope(req);
+  const seen = new Set();
+  const out = [];
+  for (const row of [
+    ...(Array.isArray(scope?.companies) ? scope.companies : []),
+    ...(Array.isArray(scope?.companiesCrm) ? scope.companiesCrm : []),
+    ...(Array.isArray(scope?.companiesRecruitment) ? scope.companiesRecruitment : []),
+  ]) {
+    const id = String(row?.id || '').trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push({ id, name: String(row?.name || 'Company'), kind: 'company' });
+  }
+  return out;
 }
 
 /** Reject company ids that do not exist in the current tenant database. */

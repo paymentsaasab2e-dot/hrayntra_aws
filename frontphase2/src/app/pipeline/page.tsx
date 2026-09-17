@@ -1042,7 +1042,7 @@ export default function App() {
             </div>
 
             {/* Filter Bar */}
-            <div className="flex flex-wrap items-center gap-2.5 overflow-x-auto no-scrollbar pb-1">
+            <div className="flex flex-nowrap items-center gap-2.5 overflow-x-auto no-scrollbar pb-1">
               <label className="flex items-center gap-2 whitespace-nowrap rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-[13px] font-medium text-slate-600 shadow-sm transition-colors">
                 <Briefcase className="w-3.5 h-3.5 text-slate-400" />
                 <span>Job:</span>

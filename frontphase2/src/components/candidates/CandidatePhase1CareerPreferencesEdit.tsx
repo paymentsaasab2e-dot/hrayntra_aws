@@ -7,6 +7,7 @@ import {
 } from '@/lib/normalizeCareerPreferencesRecord';
 import { parseAvailabilityFields } from '@/lib/candidateCareerPreferencesModel';
 import { phase1FieldLabelClass, phase1FieldValueClass } from '@/lib/phase1Typography';
+import { CurrencySearchPicker } from '../CurrencySearchPicker';
 import { EditDateField } from './EditDateField';
 
 function EditField({
@@ -79,11 +80,14 @@ export function CandidatePhase1CareerPreferencesEdit({ careerPreferences, onChan
         value={String(prefs.currentRole ?? '')}
         onChange={(v) => patch({ currentRole: v })}
       />
-      <EditField
-        label="Current currency"
-        value={String(prefs.currentCurrency ?? '')}
-        onChange={(v) => patch({ currentCurrency: v })}
-      />
+      <div>
+        <CurrencySearchPicker
+          compact
+          label="Current currency"
+          value={String(prefs.currentCurrency ?? '')}
+          onChange={(code) => patch({ currentCurrency: code })}
+        />
+      </div>
       <EditField
         label="Current salary type"
         value={String(prefs.currentSalaryType ?? '')}
@@ -115,11 +119,14 @@ export function CandidatePhase1CareerPreferencesEdit({ careerPreferences, onChan
           onChange={(v) => patch({ preferredRoles: v, preferredJobTitles: v })}
         />
       </div>
-      <EditField
-        label="Preferred currency"
-        value={String(prefs.preferredCurrency ?? prefs.salaryCurrency ?? '')}
-        onChange={(v) => patch({ preferredCurrency: v, salaryCurrency: v })}
-      />
+      <div>
+        <CurrencySearchPicker
+          compact
+          label="Preferred currency"
+          value={String(prefs.preferredCurrency ?? prefs.salaryCurrency ?? '')}
+          onChange={(code) => patch({ preferredCurrency: code, salaryCurrency: code })}
+        />
+      </div>
       <EditField
         label="Preferred salary type"
         value={String(prefs.preferredSalaryType ?? prefs.salaryFrequency ?? '')}

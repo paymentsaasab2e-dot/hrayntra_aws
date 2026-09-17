@@ -126,9 +126,13 @@ export type TeamMembersHeaderExtras = {
 
 type MembersTabProps = {
   onHeaderExtrasChange?: (extras: TeamMembersHeaderExtras | null) => void;
+  showSummaryCards?: boolean;
 };
 
-export const MembersTab: React.FC<MembersTabProps> = ({ onHeaderExtrasChange }) => {
+export const MembersTab: React.FC<MembersTabProps> = ({
+  onHeaderExtrasChange,
+  showSummaryCards = false,
+}) => {
   const { hasPermission, isSuperAdmin } = usePermissions();
   const { user } = useUser();
   const [members, setMembers] = useState<TeamMember[]>([]);
@@ -553,6 +557,7 @@ export const MembersTab: React.FC<MembersTabProps> = ({ onHeaderExtrasChange }) 
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 sm:gap-6">
+      {showSummaryCards ? (
       <div className={PH2_KPI_ROW_CLASS}>
         {isLoading && members.length === 0 ? (
           (['blue', 'green', 'indigo', 'purple'] as SummaryCardColor[]).map((c, i) => <SummaryCardSkeleton key={i} color={c} />)
@@ -585,11 +590,12 @@ export const MembersTab: React.FC<MembersTabProps> = ({ onHeaderExtrasChange }) 
           </>
         )}
       </div>
+      ) : null}
 
       <div className={PH2_TABLE_CARD_CLASS}>
         <div className={PH2_TOOLBAR_ROW_CLASS}>
-          <div className="flex w-full flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="relative w-full lg:max-w-md lg:flex-1">
+          <div className="flex w-full flex-nowrap items-center gap-2">
+            <div className="relative w-44 shrink-0 sm:w-52">
               <Search
                 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-indigo-400"
                 strokeWidth={2.25}
@@ -603,7 +609,7 @@ export const MembersTab: React.FC<MembersTabProps> = ({ onHeaderExtrasChange }) 
                 aria-label="Search team members"
               />
             </div>
-            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center lg:justify-end">
+            <div className="flex flex-nowrap items-center gap-2">
               <TableColumnsMenu
                 columns={TEAM_TABLE_COLUMNS}
                 isVisible={teamColumnVisibility.isVisible}

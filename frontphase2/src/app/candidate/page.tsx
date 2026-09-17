@@ -145,6 +145,7 @@ import {
   PH2_TABLE_BODY_SCROLL_CLASS,
   PH2_TABLE_CARD_CLASS,
   PH2_TABLE_CARD_FOOTER_CLASS,
+  PH2_TOOLBAR_FILTERS_CLASS,
   PH2_TOOLBAR_ROW_CLASS,
 } from '../../components/layout/Ph2ModulePageLayout';
 import {
@@ -2431,8 +2432,8 @@ function CandidatesPageContent() {
                   </p>
                 </div>
                 <div className={PH2_TOOLBAR_ROW_CLASS}>
-                  <div className="flex w-full flex-col gap-2 xl:flex-row xl:items-center xl:gap-2">
-                    <div className="relative w-full shrink-0 sm:w-48 lg:w-52">
+                  <div className={PH2_TOOLBAR_FILTERS_CLASS}>
+                    <div className="relative w-44 shrink-0 sm:w-52">
                       <Search
                         className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-indigo-400"
                         size={16}
@@ -2467,7 +2468,7 @@ function CandidatesPageContent() {
                       onReset={candidateColumnVisibility.resetToDefault}
                       unlockedVisibleCount={candidateColumnVisibility.unlockedVisibleCount}
                     />
-                    <div className="flex shrink-0 items-center self-end xl:ml-auto xl:self-center">
+                    <div className="flex shrink-0 items-center self-center xl:ml-auto">
                       {hasToolbarFilters ? (
                 <button
                           type="button"

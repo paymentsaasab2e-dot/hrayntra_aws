@@ -14,6 +14,7 @@ import { InterviewCalendarView } from '../../components/interviews/InterviewCale
 import { InterviewDrawer } from '../../components/interviews/InterviewDrawer';
 import { InterviewKPICards } from '../../components/interviews/InterviewKPICards';
 import { InterviewJobsTable } from '../../components/interviews/InterviewJobsTable';
+import { SearchableToolbarFilterSelect } from '../../components/forms/SearchableToolbarFilterSelect';
 import { TableColumnsMenu } from '../../components/table/TableColumnsMenu';
 import { usePersistedColumnVisibility } from '../../hooks/usePersistedColumnVisibility';
 import { INTERVIEW_TABLE_COLUMNS } from '../../lib/tableColumns/moduleTableColumns';
@@ -47,6 +48,7 @@ import {
   PH2_TOOLBAR_ROW_CLASS,
   PH2_TOOLBAR_SELECT_CLASS,
 } from '../../components/layout/Ph2ModulePageLayout';
+import { ShowSummaryCardsButton } from '../../components/layout/ShowSummaryCardsButton';
 import { ALL_STATUS_LABEL } from '../../constants/filterLabels';
 import {
   SmartSearchActiveKeywordsBar,
@@ -82,6 +84,11 @@ const INTERVIEW_DATE_OPTIONS = ['This Week', 'Today', 'This Month'] as const;
 const INTERVIEW_STATUS_OPTIONS = [ALL_STATUS_LABEL, 'Scheduled', 'Accepted', 'Completed', 'Cancelled', 'Rescheduled', 'No Show'] as const;
 const INTERVIEW_ROUND_OPTIONS = ['All Rounds', 'Screening', 'Technical', 'HR', 'Managerial', 'Client', 'Final'] as const;
 const INTERVIEW_MODE_OPTIONS = ['All Modes', 'Online', 'Offline', 'Video', 'Phone', 'In-Person', 'Technical Test', 'Assessment'] as const;
+
+/** Compact toolbar: wrap to at most two rows; never stretch a filter across the card. */
+const INTERVIEW_TOOLBAR_ROW_CLASS =
+  'no-scrollbar shrink-0 min-w-0 p-2.5 sm:p-4 flex flex-row flex-wrap items-center gap-2 sm:gap-2.5 overflow-x-hidden border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20';
+const INTERVIEW_COMPACT_SELECT_CLASS = `${PH2_TOOLBAR_SELECT_CLASS} !w-[7.5rem] min-w-0 !max-w-[7.5rem] overflow-hidden`;
 
 /** Loaded only when scheduling — keeps /interviews from crashing if the candidate drawer chunk fails in production. */
 const CandidateScheduleInterviewModal = dynamic(
@@ -151,6 +158,7 @@ export default function InterviewsPage() {
   const [scheduleNextRoundFrom, setScheduleNextRoundFrom] = useState<Interview | null>(null);
   const [smartSearchInterviewIds, setSmartSearchInterviewIds] = useState<string[]>([]);
   const [moduleTab, setModuleTab] = useState<InterviewModuleTab>('scheduled');
+  const [showSummaryCards, setShowSummaryCards] = useState(false);
   const [scheduleModalReady, setScheduleModalReady] = useState(false);
   const [reviewApplicationId, setReviewApplicationId] = useState<string | null>(null);
   const [applicationsRefreshKey, setApplicationsRefreshKey] = useState(0);
@@ -429,6 +437,21 @@ export default function InterviewsPage() {
   const clientJobOptions = useMemo(
     () => jobOptions.map((job) => `${job.client} • ${job.title}`),
     [jobOptions]
+  );
+
+  const interviewerFilterOptions = useMemo(
+    () =>
+      interviewerOptions.flatMap((member) => {
+        const name = member.name?.trim() || '';
+        if (!name) return [];
+        return [{ value: name, label: name, searchText: String(member.userId || member.id) }];
+      }),
+    [interviewerOptions],
+  );
+
+  const clientJobFilterOptions = useMemo(
+    () => clientJobOptions.map((label) => ({ value: label, label, searchText: label })),
+    [clientJobOptions],
   );
 
   const scheduleCandidateOptions = useMemo(() => {
@@ -837,7 +860,7 @@ export default function InterviewsPage() {
   };
 
   const viewSegmented = (
-    <div className="inline-flex w-fit items-center rounded-lg border border-indigo-100/90 bg-white/95 p-0.5 shadow-sm ring-1 ring-indigo-100/40">
+    <div className="inline-flex w-fit shrink-0 items-center rounded-lg border border-indigo-100/90 bg-white/95 p-0.5 shadow-sm ring-1 ring-indigo-100/40">
       <button
         type="button"
         onClick={() => setView('list')}
@@ -906,7 +929,7 @@ export default function InterviewsPage() {
       <Toaster position="top-right" richColors style={{ top: '5rem' }} />
       <div className="ph2-page-shell flex h-[calc(100dvh-3.5rem)] w-full flex-col overflow-hidden text-slate-900">
         <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-          <header className="flex min-h-[4.5rem] shrink-0 flex-wrap items-center justify-between gap-3 border-b border-indigo-100/50 bg-white/80 px-4 py-3 shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)] backdrop-blur-md sm:px-6">
+          <header className="flex min-h-[4.5rem] shrink-0 flex-nowrap items-center justify-between gap-3 overflow-x-auto no-scrollbar border-b border-indigo-100/50 bg-white/80 px-4 py-3 shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)] backdrop-blur-md sm:px-6">
             <div className="flex items-center gap-2.5 sm:gap-3">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 via-indigo-600 to-blue-600 text-white shadow-lg shadow-indigo-500/30 ring-1 ring-white/20">
                 <Calendar className="h-5 w-5" strokeWidth={2.2} />
@@ -915,7 +938,13 @@ export default function InterviewsPage() {
                 <h1 className="text-xl font-bold leading-none tracking-tight text-slate-900 sm:text-[1.35rem]">Interviews</h1>
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-nowrap items-center gap-2 overflow-x-auto no-scrollbar">
+              {moduleTab === 'scheduled' ? (
+                <ShowSummaryCardsButton
+                  open={showSummaryCards}
+                  onToggle={() => setShowSummaryCards((open) => !open)}
+                />
+              ) : null}
                   <button
                     type="button"
                 onClick={() => void refreshAll()}
@@ -986,6 +1015,7 @@ export default function InterviewsPage() {
                 </div>
               ) : (
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              {showSummaryCards ? (
               <div className="mb-5 shrink-0">
                 {loading ? (
                   <div className={PH2_KPI_ROW_CLASS}>
@@ -997,13 +1027,13 @@ export default function InterviewsPage() {
                   <InterviewKPICards items={kpis} />
                 )}
               </div>
+              ) : null}
 
               {view === 'list' ? (
                 <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} className="flex min-h-0 flex-1 flex-col overflow-hidden">
                   <div className={PH2_TABLE_CARD_CLASS}>
-                    <div className={PH2_TOOLBAR_ROW_CLASS}>
-                      <div className="flex w-full flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                        <div className="relative w-full lg:max-w-md lg:flex-1">
+                    <div className={INTERVIEW_TOOLBAR_ROW_CLASS}>
+                        <div className="relative w-40 shrink-0 sm:w-48">
                           <Search
                             className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-indigo-400"
                             size={16}
@@ -1021,16 +1051,17 @@ export default function InterviewsPage() {
                             className="h-9 w-full rounded-xl border border-indigo-100/90 bg-white/95 pl-10 pr-3 text-xs text-slate-800 shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)] placeholder:text-slate-400 transition-all focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
                           />
                         </div>
-                        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center lg:justify-end">
+                        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
                           <SmartSearchToggleButton
                             open={interviewSmartSearch.open}
                             onToggle={() => interviewSmartSearch.setOpen((value) => !value)}
                           />
                           {viewSegmented}
                           <select
-                            className={PH2_TOOLBAR_SELECT_CLASS}
+                            className={INTERVIEW_COMPACT_SELECT_CLASS}
                             value={filters.date}
                             onChange={(e) => patchFilter('date', e.target.value)}
+                            aria-label="Filter by date"
                           >
                             {INTERVIEW_DATE_OPTIONS.map((opt) => (
                               <option key={opt} value={opt}>
@@ -1039,9 +1070,10 @@ export default function InterviewsPage() {
                             ))}
                           </select>
                           <select
-                            className={PH2_TOOLBAR_SELECT_CLASS}
+                            className={INTERVIEW_COMPACT_SELECT_CLASS}
                             value={filters.status}
                             onChange={(e) => patchFilter('status', e.target.value)}
+                            aria-label="Filter by status"
                           >
                             {INTERVIEW_STATUS_OPTIONS.map((opt) => (
                               <option key={opt} value={opt}>
@@ -1050,9 +1082,10 @@ export default function InterviewsPage() {
                             ))}
                           </select>
                           <select
-                            className={PH2_TOOLBAR_SELECT_CLASS}
+                            className={INTERVIEW_COMPACT_SELECT_CLASS}
                             value={filters.round}
                             onChange={(e) => patchFilter('round', e.target.value)}
+                            aria-label="Filter by round"
                           >
                             {INTERVIEW_ROUND_OPTIONS.map((opt) => (
                               <option key={opt} value={opt}>
@@ -1061,9 +1094,10 @@ export default function InterviewsPage() {
                             ))}
                           </select>
                           <select
-                            className={PH2_TOOLBAR_SELECT_CLASS}
+                            className={INTERVIEW_COMPACT_SELECT_CLASS}
                             value={filters.mode}
                             onChange={(e) => patchFilter('mode', e.target.value)}
+                            aria-label="Filter by mode"
                           >
                             {INTERVIEW_MODE_OPTIONS.map((opt) => (
                               <option key={opt} value={opt}>
@@ -1071,34 +1105,28 @@ export default function InterviewsPage() {
                               </option>
                             ))}
                           </select>
-                          <select
-                            className={PH2_TOOLBAR_SELECT_CLASS}
-                            value={filters.interviewer}
-                            onChange={(e) => patchFilter('interviewer', e.target.value)}
-                          >
-                            <option value="All Interviewers">All interviewers</option>
-                            {interviewerOptions.map((m) => {
-                              const name = m.name?.trim() || '';
-                              if (!name) return null;
-                              return (
-                                <option key={String(m.userId || m.id)} value={name}>
-                                  {name}
-                                </option>
-                              );
-                            })}
-                          </select>
-                          <select
-                            className={PH2_TOOLBAR_SELECT_CLASS}
-                            value={filters.clientJob}
-                            onChange={(e) => patchFilter('clientJob', e.target.value)}
-                          >
-                            <option value="All Clients">All Recruitment Clients / Jobs</option>
-                            {clientJobOptions.map((label) => (
-                              <option key={label} value={label}>
-                                {label}
-                              </option>
-                            ))}
-                          </select>
+                          <SearchableToolbarFilterSelect
+                            value={filters.interviewer === 'All Interviewers' ? '' : filters.interviewer}
+                            onChange={(next) => patchFilter('interviewer', next || 'All Interviewers')}
+                            options={interviewerFilterOptions}
+                            placeholder="All interviewers"
+                            allLabel="All interviewers"
+                            className="w-[8.5rem] max-w-[8.5rem]"
+                            ariaLabel="Filter by interviewer"
+                            searchPlaceholder="Search interviewers…"
+                          />
+                          <SearchableToolbarFilterSelect
+                            value={filters.clientJob === 'All Clients' ? '' : filters.clientJob}
+                            onChange={(next) => patchFilter('clientJob', next || 'All Clients')}
+                            options={clientJobFilterOptions}
+                            placeholder="All clients / jobs"
+                            allLabel="All clients / jobs"
+                            className="w-[10rem] max-w-[10rem]"
+                            ariaLabel="Filter by client or job"
+                            searchPlaceholder="Search clients or jobs…"
+                          />
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
                           <TableColumnsMenu
                             columns={INTERVIEW_TABLE_COLUMNS}
                             isVisible={interviewColumnVisibility.isVisible}
@@ -1110,19 +1138,18 @@ export default function InterviewsPage() {
                             <button
                               type="button"
                               onClick={handleClearToolbar}
-                              className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700"
+                              className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-lg px-2 py-1.5 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700"
                             >
                               <XCircle size={15} className="shrink-0 text-rose-500" strokeWidth={2.35} />
                               Clear
                             </button>
                           ) : null}
-                          <span className="whitespace-nowrap text-[11px] font-medium text-slate-500">
+                          <span className="shrink-0 whitespace-nowrap text-[11px] font-medium text-slate-500">
                             Total:{' '}
                             <span className="font-semibold text-slate-800">{listTotalCount}</span>
                           </span>
                         </div>
-              </div>
-            </div>
+                    </div>
 
                     {interviewSmartSearch.open ? (
                       <SmartSearchPromptPanel

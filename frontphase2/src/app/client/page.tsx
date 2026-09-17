@@ -85,6 +85,7 @@ import { useClientHandoffStatuses } from '../../hooks/useClientHandoffStatuses';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
 import { SummaryCard, SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
 import { PH2_KPI_ROW_CLASS } from '../../components/layout/Ph2ModulePageLayout';
+import { ShowSummaryCardsButton } from '../../components/layout/ShowSummaryCardsButton';
 import { TableSkeleton } from '../../components/ui/Skeleton';
 import type { CsvColumn } from '../../utils/csv';
 import { mergeCatalogOptions } from '../../components/forms/CatalogOptionDropdown';
@@ -426,6 +427,7 @@ export default function App() {
   const [recruitmentForwardClient, setRecruitmentForwardClient] = useState<Client | null>(null);
   const fetchRequestIdRef = useRef(0);
   const [showImportDrawer, setShowImportDrawer] = useState(false);
+  const [showSummaryCards, setShowSummaryCards] = useState(false);
   const [recycleBinDrawerOpen, setRecycleBinDrawerOpen] = useState(false);
   const [clients, setClients] = useState<Client[]>([]);
   const [exportModalOpen, setExportModalOpen] = useState(false);
@@ -1221,6 +1223,10 @@ export default function App() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <ShowSummaryCardsButton
+              open={showSummaryCards}
+              onToggle={() => setShowSummaryCards((open) => !open)}
+            />
             {canOpenClientTrash && (
               <button
                 type="button"
@@ -1328,21 +1334,23 @@ export default function App() {
         </header>
 
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
-          {loading ? (
-            <div className="mb-5 shrink-0">
-              <StatusCardsSkeleton />
-            </div>
-          ) : (
-            <div className="mb-5 shrink-0">
-              <StatusCards
-                activeTab={activeTab}
-                onTabChange={setActiveTab}
-                counts={tabCounts}
-                fieldVisibility={clientFieldVisibility}
-                isRecruitmentScope={isRecruitmentScope}
-              />
-            </div>
-          )}
+          {showSummaryCards ? (
+            loading ? (
+              <div className="mb-5 shrink-0">
+                <StatusCardsSkeleton />
+              </div>
+            ) : (
+              <div className="mb-5 shrink-0">
+                <StatusCards
+                  activeTab={activeTab}
+                  onTabChange={setActiveTab}
+                  counts={tabCounts}
+                  fieldVisibility={clientFieldVisibility}
+                  isRecruitmentScope={isRecruitmentScope}
+                />
+              </div>
+            )
+          ) : null}
 
           {loading ? (
             <div className="mb-0 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-indigo-100/60 bg-white/70 shadow-[0_12px_40px_-18px_rgba(59,130,246,0.18)] backdrop-blur-sm">
@@ -1376,8 +1384,8 @@ export default function App() {
             </div>
           ) : (
             <div className="mb-0 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-indigo-100/60 bg-white/70 shadow-[0_12px_40px_-18px_rgba(59,130,246,0.18)] backdrop-blur-sm transition-shadow hover:shadow-[0_16px_48px_-14px_rgba(79,70,229,0.16)]">
-              <div className="shrink-0 p-3 sm:p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20">
-                <div className="relative w-full lg:max-w-md lg:flex-1">
+              <div className="no-scrollbar shrink-0 min-w-0 p-3 sm:p-4 flex flex-row flex-nowrap items-center gap-2 overflow-x-auto overflow-y-hidden border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20">
+                <div className="relative w-44 shrink-0 sm:w-52">
                   <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-indigo-400" size={16} strokeWidth={2.25} />
                   <input
                     type="text"
@@ -1394,7 +1402,7 @@ export default function App() {
                     className="w-full h-9 pl-10 pr-3 bg-white/95 border border-indigo-100/90 rounded-xl text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-300 transition-all [box-shadow:inset_0_1px_2px_rgba(15,23,42,0.04)]"
                   />
                 </div>
-                <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                <div className="flex flex-nowrap items-center gap-1.5 sm:gap-2">
                   <SmartSearchToggleButton
                     open={clientSmartSearch.open}
                     onToggle={() => clientSmartSearch.setOpen((value) => !value)}

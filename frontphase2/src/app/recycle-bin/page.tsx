@@ -60,6 +60,7 @@ import {
   PH2_TABLE_BODY_SCROLL_CLASS,
   PH2_TABLE_CARD_CLASS,
   PH2_TABLE_CLASS,
+  PH2_TOOLBAR_FILTERS_CLASS,
   PH2_TOOLBAR_ROW_CLASS,
 } from '../../components/layout/Ph2ModulePageLayout';
 import { TableAuditColumnHeader, TableAuditCell } from '../../components/table/TableAuditCell';
@@ -667,7 +668,7 @@ export default function RecycleBinPage() {
           <div className="mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col overflow-hidden">
             <div className={`${PH2_TABLE_CARD_CLASS} mb-4 !flex-none shrink-0`}>
               <div className={PH2_TOOLBAR_ROW_CLASS}>
-                <div className="relative w-full lg:max-w-md lg:flex-1">
+                <div className="relative w-52 shrink-0 sm:w-64">
                   <Search
                     className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-indigo-400"
                     strokeWidth={2.25}
@@ -681,7 +682,7 @@ export default function RecycleBinPage() {
                     aria-label="Search recycle bin"
                   />
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
+                <div className={PH2_TOOLBAR_FILTERS_CLASS}>
                   {searchNorm ? (
                     <button
                       type="button"

@@ -88,6 +88,7 @@ import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
 import { TableSkeleton } from '../../components/ui/Skeleton';
 import { SummaryCard, SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
 import { PH2_KPI_ROW_CLASS } from '../../components/layout/Ph2ModulePageLayout';
+import { ShowSummaryCardsButton } from '../../components/layout/ShowSummaryCardsButton';
 import { TableBrandAvatar } from '../../components/ui/TableBrandAvatar';
 import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../constants/tablePagination';
 import { requestError } from '../../lib/appDialog';
@@ -549,6 +550,7 @@ export default function RecruitmentAgencyDashboard() {
   const [exportLeads, setExportLeads] = useState<Lead[]>([]);
   const [exportLeadsLoading, setExportLeadsLoading] = useState(false);
   const [recycleBinDrawerOpen, setRecycleBinDrawerOpen] = useState(false);
+  const [showSummaryCards, setShowSummaryCards] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<LeadStatus | 'All'>('All');
   const [leadStatusOptions, setLeadStatusOptions] = useState<LeadStatus[]>(DEFAULT_LEAD_STATUS_OPTIONS);
@@ -1899,6 +1901,10 @@ export default function RecruitmentAgencyDashboard() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <ShowSummaryCardsButton
+              open={showSummaryCards}
+              onToggle={() => setShowSummaryCards((open) => !open)}
+            />
             {canCreateLead ? (
               <>
                 <DrawerLinkActions
@@ -2026,64 +2032,65 @@ export default function RecruitmentAgencyDashboard() {
           </div>
         </header>
 
-        {/* Content: stats + filters stay put; table body scrolls inside its panel */}
+        {/* Content: optional stats; table body scrolls inside its panel */}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden px-3 py-2 sm:px-5 sm:py-4 lg:px-6">
-          {/* Summary Cards — stay in one row and shrink on compact screens. */}
-          <div className={PH2_KPI_ROW_CLASS}>
-            {loading ? (
-              (['blue', 'yellow', 'purple', 'green', 'gray'] as SummaryCardColor[]).map((c, i) => (
-                <SummaryCardSkeleton key={i} color={c} />
-              ))
-            ) : (
-              <>
-                <SummaryCard
-                  label="NEW LEADS"
-                  count={metrics.NEW_LEADS}
-                  color="blue"
-                  icon={<Plus size={16} strokeWidth={2.35} />}
-                  active={statusFilter === 'New'}
-                  onClick={() => handleStatusCardClick('New')}
-                />
-                <SummaryCard
-                  label="CONTACTED"
-                  count={metrics.CONTACTED}
-                  color="yellow"
-                  icon={<Phone size={16} strokeWidth={2.35} />}
-                  active={statusFilter === 'Contacted'}
-                  onClick={() => handleStatusCardClick('Contacted')}
-                />
-                <SummaryCard
-                  label="QUALIFIED"
-                  count={metrics.QUALIFIED}
-                  color="purple"
-                  icon={<Target size={16} strokeWidth={2.35} />}
-                  active={statusFilter === 'Qualified'}
-                  onClick={() => handleStatusCardClick('Qualified')}
-                />
-                <SummaryCard
-                  label="CONVERTED"
-                  count={metrics.CONVERTED}
-                  color="green"
-                  icon={<CheckCircle size={16} strokeWidth={2.35} />}
-                  active={statusFilter === 'Converted'}
-                  onClick={() => handleStatusCardClick('Converted')}
-                />
-                <SummaryCard
-                  label="LOST"
-                  count={metrics.LOST}
-                  color="gray"
-                  icon={<XCircle size={16} strokeWidth={2.35} />}
-                  active={statusFilter === 'Lost'}
-                  onClick={() => handleStatusCardClick('Lost')}
-                />
-              </>
-            )}
-          </div>
+          {showSummaryCards ? (
+            <div className={PH2_KPI_ROW_CLASS}>
+              {loading ? (
+                (['blue', 'yellow', 'purple', 'green', 'gray'] as SummaryCardColor[]).map((c, i) => (
+                  <SummaryCardSkeleton key={i} color={c} />
+                ))
+              ) : (
+                <>
+                  <SummaryCard
+                    label="NEW LEADS"
+                    count={metrics.NEW_LEADS}
+                    color="blue"
+                    icon={<Plus size={16} strokeWidth={2.35} />}
+                    active={statusFilter === 'New'}
+                    onClick={() => handleStatusCardClick('New')}
+                  />
+                  <SummaryCard
+                    label="CONTACTED"
+                    count={metrics.CONTACTED}
+                    color="yellow"
+                    icon={<Phone size={16} strokeWidth={2.35} />}
+                    active={statusFilter === 'Contacted'}
+                    onClick={() => handleStatusCardClick('Contacted')}
+                  />
+                  <SummaryCard
+                    label="QUALIFIED"
+                    count={metrics.QUALIFIED}
+                    color="purple"
+                    icon={<Target size={16} strokeWidth={2.35} />}
+                    active={statusFilter === 'Qualified'}
+                    onClick={() => handleStatusCardClick('Qualified')}
+                  />
+                  <SummaryCard
+                    label="CONVERTED"
+                    count={metrics.CONVERTED}
+                    color="green"
+                    icon={<CheckCircle size={16} strokeWidth={2.35} />}
+                    active={statusFilter === 'Converted'}
+                    onClick={() => handleStatusCardClick('Converted')}
+                  />
+                  <SummaryCard
+                    label="LOST"
+                    count={metrics.LOST}
+                    color="gray"
+                    icon={<XCircle size={16} strokeWidth={2.35} />}
+                    active={statusFilter === 'Lost'}
+                    onClick={() => handleStatusCardClick('Lost')}
+                  />
+                </>
+              )}
+            </div>
+          ) : null}
 
           {/* Table Controls + scrollable rows */}
           <div className="mb-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-indigo-100/60 bg-white/70 shadow-[0_12px_40px_-18px_rgba(59,130,246,0.18)] backdrop-blur-sm transition-shadow hover:shadow-[0_16px_48px_-14px_rgba(79,70,229,0.16)]">
-            <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20 p-2.5 sm:p-4">
-              <div className="relative min-w-[14rem] max-w-md shrink-0 grow basis-[14rem] sm:basis-[18rem]">
+            <div className="no-scrollbar flex shrink-0 flex-nowrap items-center gap-2 overflow-x-auto overflow-y-hidden border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20 p-2.5 sm:p-4">
+              <div className="relative w-44 shrink-0 sm:w-52">
                 <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-indigo-400" size={16} strokeWidth={2.25} />
                 <input 
                   type="text" 

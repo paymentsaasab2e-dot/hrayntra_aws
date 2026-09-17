@@ -18,8 +18,8 @@ export function InterviewHorizontalFilterBar() {
         <span className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Quick Filters</span>
       </div>
       
-      <div className="bg-white border border-slate-200 rounded-xl p-2 flex flex-wrap items-center gap-2 shadow-sm">
-        <div className="flex flex-wrap items-center gap-2 flex-1">
+      <div className="bg-white border border-slate-200 rounded-xl p-2 flex flex-nowrap items-center gap-2 overflow-x-auto no-scrollbar shadow-sm">
+        <div className="flex flex-nowrap items-center gap-2 flex-1">
           {filters.map((filter) => (
             <button
               key={filter.label}

@@ -72,6 +72,7 @@ import {
   PH2_TOOLBAR_ROW_CLASS,
   PH2_TOOLBAR_SELECT_CLASS,
 } from '../../components/layout/Ph2ModulePageLayout';
+import { ShowSummaryCardsButton } from '../../components/layout/ShowSummaryCardsButton';
 import { SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
 
 // --- Types ---
@@ -274,8 +275,8 @@ const TasksFilterToolbar = ({
   viewSegmented: React.ReactNode;
   columnsMenu?: React.ReactNode;
 }) => (
-  <div className="flex w-full flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-    <div className="relative w-full lg:max-w-md lg:flex-1">
+  <div className="flex w-full flex-nowrap items-center gap-2">
+    <div className="relative w-44 shrink-0 sm:w-52">
       <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-indigo-400" strokeWidth={2.25} />
       <input
         type="text"
@@ -285,7 +286,7 @@ const TasksFilterToolbar = ({
         className="h-9 w-full rounded-xl border border-indigo-100/90 bg-white/95 pl-10 pr-3 text-xs text-slate-800 shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)] placeholder:text-slate-400 transition-all focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
       />
     </div>
-    <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center lg:justify-end">
+    <div className="flex flex-nowrap items-center gap-2">
       {viewSegmented}
       {columnsMenu}
       <button
@@ -513,6 +514,7 @@ export default function App() {
   const [createTaskPrefill, setCreateTaskPrefill] = useState<Partial<TaskFormValues> | null>(null);
   const [deleteConfirmTask, setDeleteConfirmTask] = useState<Task | null>(null);
   const [slaDrawerOpen, setSlaDrawerOpen] = useState(false);
+  const [showSummaryCards, setShowSummaryCards] = useState(false);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [exportTasks, setExportTasks] = useState<Task[]>([]);
@@ -1269,6 +1271,10 @@ export default function App() {
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <ShowSummaryCardsButton
+                open={showSummaryCards}
+                onToggle={() => setShowSummaryCards((open) => !open)}
+              />
               <button
                 type="button"
                 onClick={async () => {
@@ -1323,6 +1329,7 @@ export default function App() {
 
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
             <div className="mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col overflow-hidden">
+              {showSummaryCards ? (
               <div className={PH2_KPI_ROW_CLASS}>
                 {loading && tasks.length === 0 ? (
                   (['blue', 'cyan', 'orange', 'purple', 'orange'] as SummaryCardColor[]).map((c, i) => <SummaryCardSkeleton key={i} color={c} />)
@@ -1336,6 +1343,7 @@ export default function App() {
                   </>
                 )}
               </div>
+              ) : null}
 
           {/* Main Content */}
           {view === 'list' ? (

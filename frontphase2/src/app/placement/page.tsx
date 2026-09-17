@@ -32,6 +32,7 @@ import {
   PH2_TABLE_CARD_FOOTER_CLASS,
   PH2_TOOLBAR_ROW_CLASS,
 } from '../../components/layout/Ph2ModulePageLayout';
+import { ShowSummaryCardsButton } from '../../components/layout/ShowSummaryCardsButton';
 import { SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
 import {
   SmartSearchActiveKeywordsBar,
@@ -109,6 +110,7 @@ function PlacementsPageContent() {
   const [detailPlacementId, setDetailPlacementId] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | undefined>();
   const [smartSearchPlacementIds, setSmartSearchPlacementIds] = useState<string[]>([]);
+  const [showSummaryCards, setShowSummaryCards] = useState(false);
   const placementColumnVisibility = usePersistedColumnVisibility(
     'placements.visibleColumns',
     PLACEMENT_TABLE_COLUMNS,
@@ -350,6 +352,10 @@ function PlacementsPageContent() {
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <ShowSummaryCardsButton
+                open={showSummaryCards}
+                onToggle={() => setShowSummaryCards((open) => !open)}
+              />
               <button
                 type="button"
                 onClick={() => void refresh()}
@@ -407,6 +413,7 @@ function PlacementsPageContent() {
 
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
             <div className="mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col overflow-hidden">
+              {showSummaryCards ? (
               <div className="mb-5 shrink-0">
                 {loading ? (
                   <div className={PH2_KPI_ROW_CLASS}>
@@ -418,6 +425,7 @@ function PlacementsPageContent() {
                   <KPICards stats={stats} />
                 )}
               </div>
+              ) : null}
 
               <div className={PH2_TABLE_CARD_CLASS}>
                 <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-indigo-100/50 px-4 py-2 sm:px-5">
@@ -429,7 +437,7 @@ function PlacementsPageContent() {
                 </div>
 
                 <div className={PH2_TOOLBAR_ROW_CLASS}>
-                  <div className="flex w-full flex-col gap-2 xl:flex-row xl:items-start xl:gap-3">
+                  <div className="flex w-full flex-nowrap items-center gap-2">
                     <div className="min-w-0 flex-1">
                       <FiltersBar
                         embedded
@@ -448,7 +456,7 @@ function PlacementsPageContent() {
                         }}
                       />
                     </div>
-                    <div className="flex shrink-0 flex-wrap items-center gap-2 xl:pt-0.5">
+                    <div className="flex shrink-0 flex-nowrap items-center gap-2">
                       <SmartSearchToggleButton
                         open={placementSmartSearch.open}
                         onToggle={() => placementSmartSearch.setOpen((value) => !value)}

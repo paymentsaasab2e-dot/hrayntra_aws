@@ -9,7 +9,7 @@ import {
   type InterviewApplicationStatus,
 } from '../../lib/api';
 import { startAsyncLoad } from '../../lib/asyncLoadGuard';
-import { PH2_TABLE_CARD_CLASS, PH2_TOOLBAR_ROW_CLASS } from '../layout/Ph2ModulePageLayout';
+import { PH2_TABLE_CARD_CLASS, PH2_TOOLBAR_FILTERS_CLASS, PH2_TOOLBAR_ROW_CLASS } from '../layout/Ph2ModulePageLayout';
 import { TableSkeleton } from '../ui/Skeleton';
 
 const STATUS_LABELS: Record<InterviewApplicationStatus, string> = {
@@ -59,13 +59,13 @@ export function InterviewerApplicationsTab({ onReview }: Props) {
   return (
     <div className={PH2_TABLE_CARD_CLASS}>
       <div className={PH2_TOOLBAR_ROW_CLASS}>
-        <div>
+        <div className="shrink-0 whitespace-nowrap">
           <p className="text-xs font-semibold text-slate-800">Interviewer workspace</p>
           <p className="text-[11px] text-slate-500">
             {pendingCount} pending review{pendingCount === 1 ? '' : 's'} in your queue
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className={`${PH2_TOOLBAR_FILTERS_CLASS} ml-auto`}>
           <Link
             href="/interviews/forms"
             className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-white px-3 py-2 text-xs font-semibold text-indigo-800 shadow-sm hover:bg-indigo-50"
