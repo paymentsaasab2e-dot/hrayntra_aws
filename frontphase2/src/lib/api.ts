@@ -6451,22 +6451,25 @@ export interface BackendCandidate {
   }>;
 }
 
-export async function apiGetCandidates(params: {
-  status?: string;
-  stage?: string;
-  assignedToId?: string;
-  search?: string;
-  company?: string;
-  location?: string;
-  jobId?: string;
-  experienceRange?: string;
-  page?: number;
-  limit?: number;
-  ids?: string;
-  mine?: boolean;
-  /** Merge verified Phase 1 snapshots from candidatecommon DB */
-  includeCommonPool?: boolean;
-}) {
+export async function apiGetCandidates(
+  params: {
+    status?: string;
+    stage?: string;
+    assignedToId?: string;
+    search?: string;
+    company?: string;
+    location?: string;
+    jobId?: string;
+    experienceRange?: string;
+    page?: number;
+    limit?: number;
+    ids?: string;
+    mine?: boolean;
+    /** Merge verified Phase 1 snapshots from candidatecommon DB */
+    includeCommonPool?: boolean;
+  },
+  options: { signal?: AbortSignal } = {},
+) {
   const query = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
     if (value === undefined || value === null || value === '') return;
@@ -6482,7 +6485,11 @@ export async function apiGetCandidates(params: {
   });
   const qs = query.toString();
   const path = `/candidates${qs ? `?${qs}` : ''}`;
-  return apiFetch<BackendCandidate[]>(path, { auth: true, includeTenantHeader: true });
+  return apiFetch<BackendCandidate[]>(path, {
+    auth: true,
+    includeTenantHeader: true,
+    signal: options.signal,
+  });
 }
 
 export const apiGetCandidate = async (id: string) => {

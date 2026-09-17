@@ -3142,11 +3142,13 @@ async function buildCandidateResponse(candidate, activityClient = prisma, viewer
 }
 
 /** Job ids the signed-in user owns (creator, assignee, manager, or supporting recruiter). */
-async function getMyJobIds(userId) {
+async function getMyJobIds(userId, { take } = {}) {
   if (!userId) return [];
   const myJobs = await prisma.job.findMany({
     where: buildMyJobsWhereClause(userId),
     select: { id: true },
+    orderBy: { updatedAt: 'desc' },
+    ...(take ? { take } : {}),
   });
   return myJobs.map((j) => String(j.id));
 }
@@ -3193,18 +3195,18 @@ function candidateMatchesMineScope(candidate, userId, myJobIds) {
 }
 
 /** Candidates the user may see when mine=true: created by them, assigned to them, or linked to jobs they own. */
-async function buildMineCandidatesScope(userId) {
+async function buildMineCandidatesScope(userId, knownJobIds) {
   if (!userId) {
     return { id: { in: [] } };
   }
-  const myJobIds = await getMyJobIds(userId);
+  const myJobIds = Array.isArray(knownJobIds) ? knownJobIds : await getMyJobIds(userId, { take: 400 });
   const orClause = buildAssigneeVisibilityOr(userId);
   if (myJobIds.length > 0) {
-    orClause.push({ matches: { some: { jobId: { in: myJobIds } } } });
-    orClause.push({ pipelineEntries: { some: { jobId: { in: myJobIds } } } });
-    orClause.push({ interviews: { some: { jobId: { in: myJobIds } } } });
+    // Keep this OR small. Nested matches/interviews `some` scans on every list load
+    // and stalls My candidates for minutes once the tenant has a large pipeline.
     orClause.push({ assignedJobs: { hasSome: myJobIds } });
     orClause.push({ applications: { some: { jobId: { in: myJobIds } } } });
+    orClause.push({ pipelineEntries: { some: { jobId: { in: myJobIds } } } });
   }
   return { OR: orClause };
 }
@@ -3615,8 +3617,12 @@ export const candidateService = {
       req.query?.mine === 'true' || req.query?.mine === '1' || req.query?.mine === true;
     // My candidates is tenant CRM + portal applicants only — never the full Phase 1 pool.
     const loadCommonPool = mine ? false : await resolveLoadCommonPool(req.query);
-    const myJobIds = mine && req.user?.id ? await getMyJobIds(req.user.id) : [];
-    const tenantJobIdSet = isTenantScopedRequest() ? await getTenantJobIdSet() : null;
+    const myJobIds = mine && req.user?.id ? await getMyJobIds(req.user.id, { take: 400 }) : [];
+    const tenantJobIdSet = isTenantScopedRequest()
+      ? mine
+        ? new Set(myJobIds)
+        : await getTenantJobIdSet()
+      : null;
 
     if (mine && !req.user?.id) {
       return formatPaginationResponse([], page, limit, 0);
@@ -3658,7 +3664,7 @@ export const candidateService = {
     // Do NOT also AND with the legacy super-admin owner scope, otherwise
     // candidates applied on my jobs but not directly assigned/created get excluded.
     if (mine && req.user?.id) {
-      andParts.push(await buildMineCandidatesScope(req.user.id));
+      andParts.push(await buildMineCandidatesScope(req.user.id, myJobIds));
     } else if (superAdminScope) {
       andParts.push(superAdminScope);
     } else if (!canViewAllCandidates && req.user?.id) {
@@ -3695,6 +3701,21 @@ export const candidateService = {
 
     if (cachedMerged) {
       candidates = await sliceMerged(cachedMerged);
+    } else if (mine && !loadCommonPool && !ids) {
+      // My candidates: page in the tenant DB. The All-candidates merge loads every
+      // tenant + portal + Phase 1 row into memory and can stall for minutes.
+      const [rowTotal, pageRows] = await Promise.all([
+        prisma.candidate.count({ where }),
+        prisma.candidate.findMany({
+          where,
+          include: candidateListInclude,
+          orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+          skip,
+          take: limit,
+        }),
+      ]);
+      total = rowTotal;
+      candidates = await attachPlacementsToCandidates(pageRows);
     } else if (isTenantScopedRequest()) {
       const [tenantIndex, portalIndex, commonIndex] = await Promise.all([
         prisma.candidate.findMany({
