@@ -462,6 +462,7 @@ export function ClientReviewCandidateDrawer({
                       ...reviewData,
                       matchScore: reviewData.matchScore ?? row.matchScore,
                     })}
+                    resumeUrl={canOpenResume ? sharedResumeUrl : null}
                     extraTabs={extraTabs}
                   />
                 ) : (

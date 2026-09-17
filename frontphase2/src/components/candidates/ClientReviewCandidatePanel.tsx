@@ -142,6 +142,7 @@ export function ClientReviewCandidatePanel({ reviewData, variant = 'page' }: Pro
             hideResumeLinks={!tracker.downloadResume}
             visibleFields={reviewData?.visibleFields ?? null}
             fieldFallbacks={clientReviewFieldFallbacks(reviewData)}
+            resumeUrl={canOpenResume ? sharedResumeUrl : null}
           />
         ) : (
           <div className="rounded-3xl bg-slate-50 px-5 py-4 ring-1 ring-slate-200/70">
