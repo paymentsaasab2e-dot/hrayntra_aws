@@ -510,25 +510,25 @@ function buildCompareParams(
 
   params.push({ kind: 'section', id: 'candidate-details', label: 'Candidate Details' });
   if (nameVisible) {
-    const nameValues: Record<string, string> = {};
-    for (const row of selectedRows) {
-      nameValues[row.matchId] = cell(row.candidateName || row.detail?.candidate?.name);
-    }
-    params.push({
-      kind: 'field',
-      id: 'name',
-      label: 'Name of Candidate',
-      emphasize: true,
-      valuesByMatchId: nameValues,
-    });
+  const nameValues: Record<string, string> = {};
+  for (const row of selectedRows) {
+    nameValues[row.matchId] = cell(row.candidateName || row.detail?.candidate?.name);
+  }
+  params.push({
+    kind: 'field',
+    id: 'name',
+    label: 'Name of Candidate',
+    emphasize: true,
+    valuesByMatchId: nameValues,
+  });
     seenFieldIds.add('name');
   }
 
   if (showStage) {
-    const stageValues: Record<string, string> = {};
-    for (const row of selectedRows) {
+  const stageValues: Record<string, string> = {};
+  for (const row of selectedRows) {
       stageValues[row.matchId] = cell(profileFallbackForLabel(row, 'Stage'));
-    }
+  }
     params.push({
       kind: 'field',
       id: 'stage',
@@ -580,9 +580,9 @@ function buildCompareParams(
     if (!visibleFields.length) continue;
 
     const isPersonal = group.id === 'personal';
-    if (!isPersonal) {
-      params.push({
-        kind: 'section',
+        if (!isPersonal) {
+          params.push({
+            kind: 'section',
         id: `section-${group.id}`,
         label: group.title,
       });
@@ -608,10 +608,10 @@ function buildCompareParams(
         valuesByMatchId,
       });
     }
-  }
+    }
 
-  return params;
-}
+    return params;
+  }
 
 type CompareExportRow =
   | { kind: 'section'; label: string }
@@ -1210,14 +1210,14 @@ export function ClientReviewComparativeAnalysisDrawer({
                     )}
                     Print
                   </button>
-                  <button
-                    type="button"
-                    onClick={onClose}
+                <button
+                  type="button"
+                  onClick={onClose}
                     className="rounded-lg border border-slate-200 bg-white p-1.5 text-slate-500 transition hover:bg-slate-50 hover:text-slate-800"
-                    aria-label="Close comparative analysis"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
+                  aria-label="Close comparative analysis"
+                >
+                  <X className="h-4 w-4" />
+                </button>
                 </div>
               </div>
             </header>

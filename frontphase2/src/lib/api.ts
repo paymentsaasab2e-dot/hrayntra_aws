@@ -5424,6 +5424,7 @@ export async function apiSaveJobVisibilityDefaults(body: JobVisibilityDefaultsPa
 
 export type SubmitToClientVisibilityDefaultsPayload = {
   fieldVisibility?: Record<string, boolean> | null;
+  tableColumns?: string[] | null;
   allowedClientStages?: string[] | null;
   clientStageCatalog?: string[] | null;
   updatedAt?: string | null;

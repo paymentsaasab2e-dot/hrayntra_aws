@@ -85,7 +85,6 @@ const SUBMIT_TO_CLIENT_FIELDS = [
   'city',
   'state',
   'country',
-  'location',
   'address',
   'zip',
   'avatar',
@@ -114,13 +113,11 @@ const SUBMIT_TO_CLIENT_FIELDS = [
   'workHistoryText',
   'extracurricular',
   'volunteers',
-  'p1CurrentRole',
   'p1PreferredJobTitles',
   'p1PreferredIndustries',
   'p1FunctionalAreas',
   'p1JobTypes',
   'p1WorkModes',
-  'p1PreferredLocations',
   'p1Relocation',
   'p1AvailabilityToStart',
   'cvWorkExperienceEntries',
@@ -131,7 +128,6 @@ const SUBMIT_TO_CLIENT_FIELDS = [
   'facebook',
   'stackOverflow',
   'website',
-  'portfolio',
   'cvPortfolioLinks',
   'cvSummary',
   'skills',
@@ -151,14 +147,87 @@ const SUBMIT_TO_CLIENT_FIELDS = [
   'p1Vaccination',
 ];
 
+const DEFAULT_SUBMIT_TO_CLIENT_TABLE_COLUMNS = [
+  'firstName',
+  'lastName',
+  'email',
+  'phone',
+  'currentTitle',
+  'currentCompany',
+];
+
+const PREVIOUS_FIVE_COLUMN_SUBMIT_TO_CLIENT_TABLE = [
+  'lastName',
+  'email',
+  'phone',
+  'currentTitle',
+  'currentCompany',
+];
+
+const LEGACY_DEFAULT_SUBMIT_TO_CLIENT_TABLE_COLUMNS = [
+  'firstName',
+  'lastName',
+  'email',
+  'phone',
+  'currentTitle',
+  'currentCompany',
+  'city',
+  'state',
+  'country',
+  'preferredLocation',
+  'skills',
+  'cvEducationEntries',
+  'experience',
+  'candidateScore',
+];
+
 function emptySubmitToClientVisibilityDefaults() {
   const catalog = CLIENT_PREVIEW_STAGE_CATALOG.map((row) => row.name);
   return {
     fieldVisibility: Object.fromEntries(SUBMIT_TO_CLIENT_FIELDS.map((key) => [key, true])),
+    tableColumns: [...DEFAULT_SUBMIT_TO_CLIENT_TABLE_COLUMNS],
     allowedClientStages: catalog,
     clientStageCatalog: catalog,
     updatedAt: null,
   };
+}
+
+const SUBMIT_TO_CLIENT_FIELD_SET = new Set(SUBMIT_TO_CLIENT_FIELDS);
+
+function isLegacyUncustomizedTableColumns(raw) {
+  if (!Array.isArray(raw) || raw.length === 0) return true;
+  const ids = raw.map((item) => String(item || '').trim()).filter(Boolean);
+  if (ids.join(',') === LEGACY_DEFAULT_SUBMIT_TO_CLIENT_TABLE_COLUMNS.join(',')) return true;
+  if (ids.join(',') === PREVIOUS_FIVE_COLUMN_SUBMIT_TO_CLIENT_TABLE.join(',')) return true;
+  if (ids.length <= DEFAULT_SUBMIT_TO_CLIENT_TABLE_COLUMNS.length) return false;
+  const legacy = LEGACY_DEFAULT_SUBMIT_TO_CLIENT_TABLE_COLUMNS;
+  const legacySet = new Set(legacy);
+  if (ids.some((id) => !legacySet.has(id))) return false;
+  let index = 0;
+  for (const id of ids) {
+    while (index < legacy.length && legacy[index] !== id) index += 1;
+    if (index >= legacy.length) return false;
+    index += 1;
+  }
+  return true;
+}
+
+function parseSubmitToClientTableColumns(raw, fieldVisibility) {
+  const source = isLegacyUncustomizedTableColumns(raw)
+    ? DEFAULT_SUBMIT_TO_CLIENT_TABLE_COLUMNS
+    : Array.isArray(raw)
+      ? raw
+      : DEFAULT_SUBMIT_TO_CLIENT_TABLE_COLUMNS;
+  const seen = new Set();
+  const next = [];
+  for (const item of source) {
+    const id = String(item || '').trim();
+    if (!SUBMIT_TO_CLIENT_FIELD_SET.has(id) || seen.has(id)) continue;
+    if (fieldVisibility && fieldVisibility[id] === false) continue;
+    seen.add(id);
+    next.push(id);
+  }
+  return next.length > 0 ? next : [...DEFAULT_SUBMIT_TO_CLIENT_TABLE_COLUMNS];
 }
 
 function normalizeSubmitToClientVisibilityDefaults(raw) {
@@ -180,6 +249,7 @@ function normalizeSubmitToClientVisibilityDefaults(raw) {
   }).map((row) => row.name);
   return {
     fieldVisibility,
+    tableColumns: parseSubmitToClientTableColumns(source.tableColumns, fieldVisibility),
     allowedClientStages,
     clientStageCatalog,
     updatedAt: typeof source.updatedAt === 'string' && source.updatedAt.trim() ? source.updatedAt : null,

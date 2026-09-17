@@ -53,6 +53,7 @@ import {
 import { CandidateCertificationEntryView } from './CandidateCertificationEntryView';
 import { CandidateVisaWorkAuthorizationEntryView } from './CandidateVisaWorkAuthorizationEntryView';
 import { CandidateVaccinationEntryView } from './CandidateVaccinationEntryView';
+import { ageFromBirthDate } from '@/lib/clientReviewFieldFallbacks';
 
 function isUrl(value: string): boolean {
   const raw = value.trim();
@@ -148,7 +149,7 @@ const PHASE1_SECTION_FIELD_IDS: Record<string, SubmitToClientFieldId> = {
   vaccination: 'p1Vaccination',
   certifications: 'certifications',
   projects: 'projects',
-  portfolio: 'portfolio',
+  portfolio: 'cvPortfolioLinks',
   skills: 'skills',
   languages: 'languageProficiency',
 };
@@ -198,54 +199,80 @@ function findExistingFieldValue(
     const value = display(row.value);
     if (labelKey === preferredKey && value) return value;
     const mapped = SUBMIT_TO_CLIENT_REVIEW_LABEL_FIELDS[labelKey];
-    if (mapped?.includes(fieldId) && value) return value;
+    if (mapped?.length === 1 && mapped[0] === fieldId && value) return value;
+    if (mapped?.includes(fieldId) && mapped.length === 1 && value) return value;
     if (!fallback && labelKey === preferredKey) fallback = value;
   }
   return fallback;
+}
+
+function reviewFieldDedupeKey(label: string): string {
+  const key = String(label || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/ \(extra\)$/, '');
+  if (key === 'current role') return 'current designation';
+  if (key === 'preferred locations') return 'preferred location';
+  if (key === 'portfolio url') return 'portfolio / project links';
+  if (key === 'salary expectation') return 'expected salary';
+  return key;
+}
+
+function dedupeReviewFields(fields: Array<{ label: string; value: string }>) {
+  const seen = new Set<string>();
+  const next: Array<{ label: string; value: string }> = [];
+  for (const row of fields || []) {
+    const key = reviewFieldDedupeKey(row.label);
+    if (
+      !key ||
+      key === 'name' ||
+      key === 'full name' ||
+      key === 'name of candidate' ||
+      key === 'city & state' ||
+      key === 'salary expectation' ||
+      key === 'location (display)' ||
+      seen.has(key)
+    ) {
+      continue;
+    }
+    seen.add(key);
+    next.push(row);
+  }
+  return next;
 }
 
 /** Ensure every tenant-visible field appears in the section (empty → Not provided). */
 function expandSectionForVisibleFields(
   section: ClientReviewSection,
   visibleFields: Record<string, boolean> | null | undefined,
+  omitFieldIds: SubmitToClientFieldId[] = [],
+  fallbackValues: Partial<Record<SubmitToClientFieldId, string>> = {},
 ): ClientReviewSection {
   const groupId = SECTION_GROUP_ID[section.id];
   const group = groupId
     ? SUBMIT_TO_CLIENT_FIELD_GROUPS.find((item) => item.id === groupId)
     : null;
+  const omitted = new Set(omitFieldIds);
 
   if (group) {
-    if (!visibleFields) {
-      const kept = (section.fields || []).filter((row) => {
-        if (shouldHideClientReviewField(row.label, row.value)) return false;
-        if (row.value === 'No entries provided') return false;
-        return true;
-      });
-      return { ...section, fields: kept };
-    }
-
     const nextFields = group.fields
-      .filter((field) => isFieldIdVisible(field.id, visibleFields))
+      .filter((field) => isFieldIdVisible(field.id, visibleFields) && !omitted.has(field.id))
       .map((field) => ({
+        id: field.id,
         label: field.label,
-        value: findExistingFieldValue(section.fields || [], field.id, field.label),
+        value:
+          findExistingFieldValue(section.fields || [], field.id, field.label) ||
+          String(fallbackValues[field.id] || ''),
       }));
 
-    // Keep useful extra rows only when Settings → Submit to Client still allows that label.
-    // Never re-introduce permanently hidden fields (e.g. "Name" after First/Last Name hidden).
-    const covered = new Set(nextFields.map((row) => row.label.trim().toLowerCase()));
-    for (const row of section.fields || []) {
-      const key = String(row.label || '')
-        .trim()
-        .toLowerCase()
-        .replace(/\s+/g, ' ');
-      if (!key || covered.has(key)) continue;
-      if (key === 'entries' || row.value === 'No entries provided') continue;
-      if (!display(row.value)) continue;
-      if (shouldHideClientReviewField(row.label, row.value)) continue;
-      if (visibleFields && !isSubmitToClientReviewFieldVisible(row.label, visibleFields)) continue;
-      nextFields.push({ label: row.label, value: display(row.value) });
-      covered.add(key);
+    const ageField = nextFields.find((field) => field.id === 'age');
+    if (ageField && !String(ageField.value || '').trim()) {
+      const birthValue =
+        nextFields.find((field) => field.id === 'birthDate')?.value ||
+        fallbackValues.birthDate ||
+        findExistingFieldValue(section.fields || [], 'birthDate', 'Birth Date');
+      ageField.value = ageFromBirthDate(birthValue);
     }
 
     const entryFields =
@@ -259,7 +286,7 @@ function expandSectionForVisibleFields(
 
     return {
       ...section,
-      fields: nextFields,
+      fields: nextFields.map(({ label, value }) => ({ label, value })),
       entries: entriesAllowed ? section.entries : undefined,
     };
   }
@@ -275,7 +302,10 @@ function expandSectionForVisibleFields(
     .filter((row) => {
       if (shouldHideClientReviewField(row.label, row.value)) return false;
       if (row.value === 'No entries provided') return false;
-      if (visibleFields && !isSubmitToClientReviewFieldVisible(row.label, visibleFields)) return false;
+      if (phase1FieldId) return isFieldIdVisible(phase1FieldId, visibleFields);
+      if (visibleFields && !isSubmitToClientReviewFieldVisible(row.label, visibleFields, section.id)) {
+        return false;
+      }
       return true;
     })
     .map((row) => ({ label: row.label, value: display(row.value) }));
@@ -392,16 +422,122 @@ function mergeSectionsById(sections: ClientReviewSection[]): ClientReviewSection
       map.set(section.id, {
         id: section.id,
         title: resolveSectionTitle(section.id, section.title),
-        fields: [...section.fields],
+        fields: dedupeReviewFields([...section.fields]),
         entries: section.entries ? [...section.entries] : undefined,
       });
       continue;
     }
-    existing.fields.push(...section.fields);
+    existing.fields = dedupeReviewFields([...existing.fields, ...section.fields]);
     if (section.entries?.length) {
-      existing.entries = [...(existing.entries || []), ...section.entries];
+      const combined = [...(existing.entries || []), ...section.entries];
+      const seen = new Set<string>();
+      existing.entries = combined.filter((entry) => {
+        let signature = '';
+        try {
+          signature = JSON.stringify(entry);
+        } catch {
+          signature = display(entry);
+        }
+        if (!signature || seen.has(signature)) return false;
+        seen.add(signature);
+        return true;
+      });
     }
   }
+
+  const professional = map.get('professional');
+  const prefs = map.get('careerPreferences');
+  const personalEarly = map.get('personal');
+  if (professional && prefs) {
+    const mappedPrefs: Array<{ label: string; value: string }> = [];
+    for (const row of prefs.fields) {
+      const key = reviewFieldDedupeKey(row.label);
+      if (key === 'preferred location') {
+        if (personalEarly) {
+          const exists = personalEarly.fields.some(
+            (field) => reviewFieldDedupeKey(field.label) === 'preferred location',
+          );
+          if (!exists) personalEarly.fields.push({ label: 'Preferred Location', value: row.value });
+          else {
+            personalEarly.fields = personalEarly.fields.map((field) =>
+              reviewFieldDedupeKey(field.label) === 'preferred location' && !display(field.value)
+                ? { ...field, value: row.value }
+                : field,
+            );
+          }
+        }
+        continue;
+      }
+      if (key === 'expected salary') {
+        mappedPrefs.push({ label: 'Expected Salary', value: row.value });
+        continue;
+      }
+      if (key === 'current designation') {
+        mappedPrefs.push({ label: 'Current Designation', value: row.value });
+        continue;
+      }
+      mappedPrefs.push(row);
+    }
+    professional.fields = dedupeReviewFields([...professional.fields, ...mappedPrefs]);
+    map.delete('careerPreferences');
+  } else if (prefs && !professional) {
+    map.set('professional', { ...prefs, id: 'professional', title: resolveSectionTitle('professional') });
+    map.delete('careerPreferences');
+  }
+
+  const personal = map.get('personal');
+  const social = map.get('social');
+  if (personal) {
+    const linkedIn = personal.fields.find((row) => reviewFieldDedupeKey(row.label) === 'linkedin');
+    if (linkedIn && display(linkedIn.value) && social) {
+      const exists = social.fields.some((row) => reviewFieldDedupeKey(row.label) === 'linkedin');
+      if (!exists) social.fields.push({ label: 'LinkedIn', value: linkedIn.value });
+      else {
+        social.fields = social.fields.map((row) =>
+          reviewFieldDedupeKey(row.label) === 'linkedin' && !display(row.value)
+            ? { ...row, value: linkedIn.value }
+            : row,
+        );
+      }
+    }
+    personal.fields = personal.fields.filter((row) => reviewFieldDedupeKey(row.label) !== 'linkedin');
+  }
+
+  const foldInto = (
+    fromId: string,
+    targetId: string,
+    targetLabel: string,
+  ) => {
+    const from = map.get(fromId);
+    const target = map.get(targetId);
+    if (!from || !target) {
+      if (from && !target) return;
+      return;
+    }
+    const fromText = (from.fields || [])
+      .map((row) => display(row.value))
+      .filter(Boolean)
+      .join(', ');
+    if (fromText) {
+      const exists = target.fields.some(
+        (row) => reviewFieldDedupeKey(row.label) === reviewFieldDedupeKey(targetLabel),
+      );
+      if (!exists) target.fields.push({ label: targetLabel, value: fromText });
+      else {
+        target.fields = target.fields.map((row) =>
+          reviewFieldDedupeKey(row.label) === reviewFieldDedupeKey(targetLabel) && !display(row.value)
+            ? { ...row, value: fromText }
+            : row,
+        );
+      }
+    }
+    map.delete(fromId);
+  };
+
+  foldInto('skills', 'summary', 'Skills');
+  foldInto('languages', 'summary', 'Language & proficiency');
+  foldInto('portfolio', 'social', 'Portfolio / project links');
+
   return Array.from(map.values());
 }
 
@@ -767,7 +903,28 @@ type Props = {
   extraTabs?: ExtraTab[];
   /** Tenant Submit-to-Client field visibility — drives which tabs appear. */
   visibleFields?: Record<string, boolean> | null;
+  /** Table/candidate values used to fill empty drawer fields (e.g. match score). */
+  fieldFallbacks?: Partial<Record<SubmitToClientFieldId, string>>;
 };
+
+function omitFieldIdsForSections(
+  sections: ClientReviewSection[],
+): Record<string, SubmitToClientFieldId[]> {
+  const omit: Record<string, SubmitToClientFieldId[]> = {};
+  const skip: SubmitToClientFieldId[] = [];
+  const cert = sections.find((section) => section.id === 'certifications');
+  const projects = sections.find((section) => section.id === 'projects');
+  const hasData = (section?: ClientReviewSection) =>
+    Boolean(
+      section &&
+        ((Array.isArray(section.entries) && section.entries.length > 0) ||
+          (section.fields || []).some((row) => display(row.value))),
+    );
+  if (hasData(cert)) skip.push('certifications');
+  if (hasData(projects)) skip.push('projects');
+  if (skip.length) omit.summary = skip;
+  return omit;
+}
 
 function emptySection(id: string, title: string): ClientReviewSection {
   return { id, title, fields: [] };
@@ -785,31 +942,30 @@ function sectionLooksPlaceholderOnly(section: ClientReviewSection): boolean {
 }
 
 const PHASE1_EXTRA_IDS = new Set([
-  'certifications',
   'gap',
   'academic',
   'exams',
-  'projects',
   'visa',
   'vaccination',
   'internships',
   'resume',
   'accomplishments',
-  'portfolio',
-  'skills',
-  'languages',
 ]);
 
 const TAB_ORDER: Array<{ id: string; label: string; sectionIds: string[] }> = [
   { id: 'personal', label: 'Personal Information', sectionIds: ['personal'] },
   { id: 'education', label: 'Education', sectionIds: ['education'] },
-  { id: 'professional', label: 'Career Preferences', sectionIds: ['professional', 'careerPreferences'] },
+  { id: 'professional', label: 'Career Preferences', sectionIds: ['professional'] },
   { id: 'work', label: 'Work Experience', sectionIds: ['work'] },
   { id: 'social', label: 'Social Network Information', sectionIds: ['social'] },
-  { id: 'summary', label: 'Summary & Additional', sectionIds: ['summary'] },
+  {
+    id: 'summary',
+    label: 'Summary & Additional',
+    sectionIds: ['summary', 'certifications', 'projects'],
+  },
   {
     id: 'phase1',
-    label: 'Phase 1 extra sections',
+    label: 'Other',
     sectionIds: [...PHASE1_EXTRA_IDS],
   },
 ];
@@ -893,8 +1049,8 @@ function renderSectionBody(
       {structuredRows}
       {scalarFields.length > 0 ? (
         <div className="rounded-2xl bg-white px-3 ring-1 ring-slate-100">
-          {scalarFields.map((row) => (
-            <FieldRow key={`${section.id}-${row.label}`} label={row.label} value={row.value} />
+          {scalarFields.map((row, index) => (
+            <FieldRow key={`${section.id}-${row.label}-${index}`} label={row.label} value={row.value} />
           ))}
         </div>
       ) : !entryCards && !structuredRows.length ? (
@@ -916,6 +1072,7 @@ export function ClientReviewSectionsPanel({
   mode = 'accordion',
   extraTabs = [],
   visibleFields = null,
+  fieldFallbacks = {},
 }: Props) {
   const hideOpts = { hideLinkedIn, hideInternalNotes, hideResumeLinks };
   const mergedSections = useMemo(() => mergeSectionsById(sections), [sections]);
@@ -982,9 +1139,24 @@ export function ClientReviewSectionsPanel({
 
       const matched = def.sectionIds
         .map((id) => byId.get(id))
-        .filter((section): section is ClientReviewSection => Boolean(section));
+        .filter((section): section is ClientReviewSection => Boolean(section))
+        .filter((section) => {
+          if (section.id === 'certifications') {
+            return (
+              isFieldIdVisible('certifications', visibleFields) &&
+              sectionHasVisibleContent(section, hideOpts)
+            );
+          }
+          if (section.id === 'projects') {
+            return (
+              isFieldIdVisible('projects', visibleFields) &&
+              sectionHasVisibleContent(section, hideOpts)
+            );
+          }
+          return true;
+        });
 
-      for (const section of matched) byId.delete(section.id);
+      for (const id of def.sectionIds) byId.delete(id);
 
       if (!sectionAllowed) continue;
 
@@ -1001,10 +1173,19 @@ export function ClientReviewSectionsPanel({
     }
 
     for (const section of byId.values()) {
+      if (
+        section.id === 'skills' ||
+        section.id === 'languages' ||
+        section.id === 'portfolio' ||
+        section.id === 'careerPreferences'
+      ) {
+        continue;
+      }
       if (!sectionHasVisibleContent(section, hideOpts) && sectionLooksPlaceholderOnly(section)) {
         continue;
       }
-      const expanded = expandSectionForVisibleFields(section, visibleFields);
+      const omitIds = omitFieldIdsForSections(mergedSections)[section.id] || [];
+      const expanded = expandSectionForVisibleFields(section, visibleFields, omitIds, fieldFallbacks);
       if (
         !expanded.fields.length &&
         !(Array.isArray(expanded.entries) && expanded.entries.length)
@@ -1025,6 +1206,7 @@ export function ClientReviewSectionsPanel({
     hideInternalNotes,
     hideResumeLinks,
     visibleFields,
+    fieldFallbacks,
     coreSectionVisibility,
     phase1FieldVisibility,
     mode,
@@ -1112,7 +1294,8 @@ export function ClientReviewSectionsPanel({
           {activeProfile ? (
             <div className="w-full space-y-4">
               {activeProfile.sections.map((section) => {
-                const expanded = expandSectionForVisibleFields(section, visibleFields);
+                const omitIds = omitFieldIdsForSections(activeProfile.sections)[section.id] || [];
+                const expanded = expandSectionForVisibleFields(section, visibleFields, omitIds, fieldFallbacks);
                 if (
                   !expanded.fields.length &&
                   !(Array.isArray(expanded.entries) && expanded.entries.length)
@@ -1168,7 +1351,8 @@ export function ClientReviewSectionsPanel({
 
       <div className="overflow-hidden rounded-3xl bg-white shadow-[0_8px_30px_rgba(15,23,42,0.04)] ring-1 ring-slate-200/70">
       {mergedSections.map((section) => {
-        const expanded = expandSectionForVisibleFields(section, visibleFields);
+        const omitIds = omitFieldIdsForSections(mergedSections)[section.id] || [];
+        const expanded = expandSectionForVisibleFields(section, visibleFields, omitIds, fieldFallbacks);
         if (
           !expanded.fields.length &&
           !(Array.isArray(expanded.entries) && expanded.entries.length)

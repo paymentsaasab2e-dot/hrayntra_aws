@@ -2,6 +2,8 @@ import { apiGetSubmitToClientVisibilityDefaults, apiSaveSubmitToClientVisibility
 import {
   DEFAULT_SUBMIT_TO_CLIENT_FIELD_VISIBILITY,
   parseSubmitToClientFieldVisibility,
+  parseSubmitToClientTableColumns,
+  type SubmitToClientFieldId,
   type SubmitToClientFieldVisibility,
 } from './submitToClientFieldVisibility';
 import {
@@ -12,6 +14,7 @@ import { CLIENT_PIPELINE_STAGE_CHOICES } from './clientReviewTypes';
 
 export type SubmitToClientVisibilityUserDefaults = {
   visibility: SubmitToClientFieldVisibility;
+  tableColumns: SubmitToClientFieldId[];
   allowedClientStages: string[];
   clientStageCatalog: string[];
   updatedAt: string | null;
@@ -96,14 +99,16 @@ function normalizeDefaults(raw: unknown): SubmitToClientVisibilityUserDefaults {
       : source,
   );
   const stages = normalizeStageDefaults(source);
+  const tableColumns = parseSubmitToClientTableColumns(source.tableColumns, visibility);
   const updatedAt = typeof source.updatedAt === 'string' && source.updatedAt.trim() ? source.updatedAt : null;
-  return { visibility, ...stages, updatedAt };
+  return { visibility, tableColumns, ...stages, updatedAt };
 }
 
 export function readCachedSubmitToClientVisibilityDefaults(): SubmitToClientVisibilityUserDefaults {
   if (typeof window === 'undefined') {
     return {
       visibility: { ...DEFAULT_SUBMIT_TO_CLIENT_FIELD_VISIBILITY },
+      tableColumns: parseSubmitToClientTableColumns(null, DEFAULT_SUBMIT_TO_CLIENT_FIELD_VISIBILITY),
       ...defaultStages(),
       updatedAt: null,
     };
@@ -113,6 +118,7 @@ export function readCachedSubmitToClientVisibilityDefaults(): SubmitToClientVisi
     if (!parsed) {
       return {
         visibility: { ...DEFAULT_SUBMIT_TO_CLIENT_FIELD_VISIBILITY },
+        tableColumns: parseSubmitToClientTableColumns(null, DEFAULT_SUBMIT_TO_CLIENT_FIELD_VISIBILITY),
         ...defaultStages(),
         updatedAt: null,
       };
@@ -121,6 +127,7 @@ export function readCachedSubmitToClientVisibilityDefaults(): SubmitToClientVisi
   } catch {
     return {
       visibility: { ...DEFAULT_SUBMIT_TO_CLIENT_FIELD_VISIBILITY },
+      tableColumns: parseSubmitToClientTableColumns(null, DEFAULT_SUBMIT_TO_CLIENT_FIELD_VISIBILITY),
       ...defaultStages(),
       updatedAt: null,
     };
@@ -136,6 +143,7 @@ export function writeCachedSubmitToClientVisibilityDefaults(
       storageKey(),
       JSON.stringify({
         fieldVisibility: defaults.visibility,
+        tableColumns: defaults.tableColumns,
         allowedClientStages: defaults.allowedClientStages,
         clientStageCatalog: defaults.clientStageCatalog,
         updatedAt: defaults.updatedAt,
@@ -176,6 +184,7 @@ export function stagesDefaultsEqual(
 
 export function saveSubmitToClientVisibilityDefaultsLocal(payload: {
   visibility: SubmitToClientFieldVisibility;
+  tableColumns?: SubmitToClientFieldId[];
   allowedClientStages?: string[];
   clientStageCatalog?: string[];
 }): SubmitToClientVisibilityUserDefaults {
@@ -184,8 +193,13 @@ export function saveSubmitToClientVisibilityDefaultsLocal(payload: {
     allowedClientStages: payload.allowedClientStages ?? cached.allowedClientStages,
     clientStageCatalog: payload.clientStageCatalog ?? cached.clientStageCatalog,
   });
+  const visibility = parseSubmitToClientFieldVisibility(payload.visibility);
   const next = normalizeDefaults({
-    fieldVisibility: parseSubmitToClientFieldVisibility(payload.visibility),
+    fieldVisibility: visibility,
+    tableColumns: parseSubmitToClientTableColumns(
+      payload.tableColumns ?? cached.tableColumns,
+      visibility,
+    ),
     ...stages,
     updatedAt: new Date().toISOString(),
   });
@@ -196,18 +210,21 @@ export function saveSubmitToClientVisibilityDefaultsLocal(payload: {
 
 export async function saveSubmitToClientVisibilityDefaults(
   visibility: SubmitToClientFieldVisibility,
-  stages?: {
+  extras?: {
+    tableColumns?: SubmitToClientFieldId[];
     allowedClientStages?: string[];
     clientStageCatalog?: string[];
   },
 ): Promise<SubmitToClientVisibilityUserDefaults> {
   const optimistic = saveSubmitToClientVisibilityDefaultsLocal({
     visibility,
-    allowedClientStages: stages?.allowedClientStages,
-    clientStageCatalog: stages?.clientStageCatalog,
+    tableColumns: extras?.tableColumns,
+    allowedClientStages: extras?.allowedClientStages,
+    clientStageCatalog: extras?.clientStageCatalog,
   });
   void apiSaveSubmitToClientVisibilityDefaults({
     fieldVisibility: optimistic.visibility,
+    tableColumns: optimistic.tableColumns,
     allowedClientStages: optimistic.allowedClientStages,
     clientStageCatalog: optimistic.clientStageCatalog,
     updatedAt: optimistic.updatedAt,

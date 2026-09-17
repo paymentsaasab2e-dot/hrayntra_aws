@@ -59,6 +59,7 @@ export default function ClientReviewPage() {
         detail: {
           ...(row.detail || {}),
           visibleFields: row.detail?.visibleFields ?? reviewData.visibleFields ?? null,
+          tableColumns: row.detail?.tableColumns ?? reviewData.tableColumns ?? null,
         },
       }));
     }

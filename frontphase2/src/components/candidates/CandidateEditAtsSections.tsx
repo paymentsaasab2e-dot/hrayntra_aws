@@ -91,6 +91,19 @@ export type CandidateEditFormState = {
   projects: string;
   hackathons: string;
   avatar: string;
+  middleName?: string;
+  phoneCode?: string;
+  gender?: string;
+  employment?: string;
+  p1CurrentRole?: string;
+  p1PreferredJobTitles?: string;
+  p1PreferredIndustries?: string;
+  p1FunctionalAreas?: string;
+  p1JobTypes?: string;
+  p1WorkModes?: string;
+  p1PreferredLocations?: string;
+  p1Relocation?: string;
+  p1AvailabilityToStart?: string;
 };
 
 function str(value: unknown): string {

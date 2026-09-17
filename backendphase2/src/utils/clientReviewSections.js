@@ -312,6 +312,31 @@ function parseWorkEntriesFromUnknown(value) {
   return [];
 }
 
+function firstNonEmpty(...values) {
+  for (const value of values) {
+    const text = str(value);
+    if (text) return value;
+  }
+  return '';
+}
+
+function joinUniqueDisplay(...values) {
+  const parts = [];
+  const seen = new Set();
+  for (const value of values) {
+    for (const part of str(value)
+      .split(/[,;\n]/)
+      .map((item) => item.trim())
+      .filter(Boolean)) {
+      const key = part.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      parts.push(part);
+    }
+  }
+  return parts.join(', ');
+}
+
 function buildSectionsFromEditForm(editForm, visibility) {
   if (!editForm || typeof editForm !== 'object' || Array.isArray(editForm)) return [];
   const visible = normalizeVisibility(visibility);
@@ -319,7 +344,6 @@ function buildSectionsFromEditForm(editForm, visibility) {
 
   if (isVisible('personal', visible)) {
     pushVisibleSection(sections, 'personal', [
-      ['Name', [editForm.firstName, editForm.lastName].filter(Boolean).join(' ')],
       ['First Name', editForm.firstName],
       ['Middle Name', editForm.middleName],
       ['Last Name', editForm.lastName],
@@ -328,11 +352,9 @@ function buildSectionsFromEditForm(editForm, visibility) {
       ['Mobile No', editForm.phone],
       ['Age', editForm.age],
       ['Candidate Score', editForm.candidateScore],
-      ['City & State', [editForm.city, editForm.state].filter(Boolean).join(', ')],
       ['City', editForm.city],
       ['State', editForm.state],
       ['Country', editForm.country],
-      ['Location (display)', editForm.location],
       ['Current Address', editForm.address],
       ['Zip', editForm.zip],
       ['Candidate Image', editForm.avatar ? 'On file' : ''],
@@ -343,7 +365,7 @@ function buildSectionsFromEditForm(editForm, visibility) {
       ['Marital Status', editForm.maritalStatus],
       ['Birth Date', editForm.birthDate],
       ['Passport Number', editForm.passportNumber],
-      ['Preferred Location', editForm.preferredLocation],
+      ['Preferred Location', joinUniqueDisplay(editForm.preferredLocation, editForm.p1PreferredLocations)],
     ]);
   }
 
@@ -380,7 +402,7 @@ function buildSectionsFromEditForm(editForm, visibility) {
     pushVisibleSection(sections, 'professional', [
       ['Remarks', editForm.remarks],
       ['Experience (years)', editForm.experience],
-      ['Current Designation', editForm.currentTitle],
+      ['Current Designation', firstNonEmpty(editForm.currentTitle, editForm.p1CurrentRole)],
       ['Current Employer', editForm.currentCompany],
       ['Current Salary', editForm.currentSalary],
       ['Current Salary Currency', editForm.currentSalaryCurrency],
@@ -392,13 +414,11 @@ function buildSectionsFromEditForm(editForm, visibility) {
       ['Work history (narrative)', editForm.workHistoryText],
       ['Extracurricular activities', editForm.extracurricular],
       ['Volunteers', editForm.volunteers],
-      ['Current role', editForm.p1CurrentRole || editForm.currentTitle],
       ['Preferred job titles', editForm.p1PreferredJobTitles],
       ['Preferred industries', editForm.p1PreferredIndustries],
       ['Functional areas', editForm.p1FunctionalAreas],
       ['Job types', editForm.p1JobTypes],
       ['Work modes', editForm.p1WorkModes],
-      ['Preferred locations', editForm.p1PreferredLocations],
       ['Relocation', editForm.p1Relocation],
       ['Availability to start', editForm.p1AvailabilityToStart],
     ]);
@@ -409,7 +429,7 @@ function buildSectionsFromEditForm(editForm, visibility) {
     pushVisibleSection(
       sections,
       'work',
-      workEntries.length ? [] : [['Work experience', editForm.cvWorkExperienceEntries]],
+      workEntries.length ? [] : [['Work experience entries', editForm.cvWorkExperienceEntries]],
       workEntries.length ? { entries: workEntries } : {},
     );
   }
@@ -423,8 +443,7 @@ function buildSectionsFromEditForm(editForm, visibility) {
       ['Facebook', editForm.facebook],
       ['Stack Overflow', editForm.stackOverflow],
       ['Website', editForm.website],
-      ['Portfolio URL', editForm.portfolio],
-      ['Portfolio / project links', editForm.cvPortfolioLinks],
+      ['Portfolio / project links', joinUniqueDisplay(editForm.cvPortfolioLinks, editForm.portfolio)],
     ]);
   }
 
@@ -435,8 +454,8 @@ function buildSectionsFromEditForm(editForm, visibility) {
       ['Language & proficiency', editForm.languageProficiency || editForm.languages],
       ['Honours & awards', editForm.honours],
       ['Certifications', editForm.certifications],
-      ['Projects (extra)', editForm.projects],
-      ['Hackathons (extra)', editForm.hackathons],
+      ['Projects', editForm.projects],
+      ['Hackathons', editForm.hackathons],
       ['Internal notes', editForm.notes],
     ]);
   }
@@ -474,7 +493,6 @@ const SUBMIT_FIELD_LABEL_MAP = {
   city: ['city'],
   state: ['state'],
   country: ['country'],
-  'location (display)': ['location'],
   'current address': ['address'],
   zip: ['zip'],
   'candidate image': ['avatar'],
@@ -493,18 +511,18 @@ const SUBMIT_FIELD_LABEL_MAP = {
   remarks: ['remarks'],
   'experience (years)': ['experience'],
   'current designation': ['currentTitle'],
+  'current role': ['currentTitle'],
   'current employer': ['currentCompany'],
   'current salary': ['currentSalary'],
   'current salary currency': ['currentSalaryCurrency'],
   'current benefits': ['currentBenefits'],
   'expected salary': ['expectedSalary'],
-  'current role': ['p1CurrentRole', 'currentTitle'],
   'preferred job titles': ['p1PreferredJobTitles'],
   'preferred industries': ['p1PreferredIndustries'],
   'functional areas': ['p1FunctionalAreas'],
   'job types': ['p1JobTypes'],
   'work modes': ['p1WorkModes'],
-  'preferred locations': ['p1PreferredLocations'],
+  'preferred locations': ['preferredLocation'],
   relocation: ['p1Relocation'],
   'availability to start': ['p1AvailabilityToStart'],
   'salary expectation': ['expectedSalary'],
@@ -523,7 +541,7 @@ const SUBMIT_FIELD_LABEL_MAP = {
   facebook: ['facebook'],
   'stack overflow': ['stackOverflow'],
   website: ['website'],
-  'portfolio url': ['portfolio'],
+  'portfolio url': ['cvPortfolioLinks'],
   'portfolio / project links': ['cvPortfolioLinks'],
   summary: ['cvSummary'],
   skills: ['skills'],
@@ -533,9 +551,20 @@ const SUBMIT_FIELD_LABEL_MAP = {
   'projects (extra)': ['projects'],
   projects: ['projects'],
   'hackathons (extra)': ['hackathons'],
+  hackathons: ['hackathons'],
   'internal notes': ['notes'],
   'file name': ['p1Resume'],
   'ats readiness': ['p1Resume'],
+  'resume / cv': ['p1Resume'],
+  internships: ['p1Internships'],
+  'gap explanation': ['p1Gap'],
+  'academic achievements': ['p1Academic'],
+  'competitive exams': ['p1Exams'],
+  accomplishments: ['p1Accomplishments'],
+  'visa & work authorization': ['p1Visa'],
+  vaccination: ['p1Vaccination'],
+  languages: ['languageProficiency'],
+  'portfolio links': ['cvPortfolioLinks'],
 };
 
 const SUBMIT_SECTION_ENTRY_FIELDS = {
@@ -543,7 +572,7 @@ const SUBMIT_SECTION_ENTRY_FIELDS = {
   education: ['cvEducationEntries'],
   professional: ['currentTitle', 'currentCompany', 'expectedSalary', 'noticePeriod'],
   work: ['cvWorkExperienceEntries'],
-  social: ['linkedIn', 'website', 'portfolio', 'cvPortfolioLinks'],
+  social: ['linkedIn', 'website', 'cvPortfolioLinks'],
   summary: ['cvSummary', 'skills'],
   resume: ['p1Resume'],
   internships: ['p1Internships'],
@@ -553,13 +582,235 @@ const SUBMIT_SECTION_ENTRY_FIELDS = {
   skills: ['skills'],
   languages: ['languageProficiency'],
   projects: ['projects'],
-  portfolio: ['cvPortfolioLinks', 'portfolio'],
+  portfolio: ['cvPortfolioLinks'],
   certifications: ['certifications'],
   accomplishments: ['p1Accomplishments'],
-  careerPreferences: ['p1CurrentRole', 'currentTitle', 'noticePeriod', 'expectedSalary'],
+  careerPreferences: ['currentTitle', 'noticePeriod', 'expectedSalary'],
   visa: ['p1Visa'],
   vaccination: ['p1Vaccination'],
 };
+
+const COMPOSITE_REVIEW_LABELS = new Set([
+  'name',
+  'full name',
+  'name of candidate',
+  'city & state',
+  'salary expectation',
+  'location (display)',
+]);
+
+const REVIEW_LABEL_CANONICAL = {
+  'first name': 'First Name',
+  'middle name': 'Middle Name',
+  'last name': 'Last Name',
+  email: 'E-mail',
+  'e-mail': 'E-mail',
+  mobile: 'Mobile No',
+  'mobile no': 'Mobile No',
+  'date of birth': 'Birth Date',
+  'projects (extra)': 'Projects',
+  'hackathons (extra)': 'Hackathons',
+  'work experience': 'Work experience entries',
+  'salary expectation': 'Expected Salary',
+  'current role': 'Current Designation',
+  'preferred locations': 'Preferred Location',
+  'portfolio url': 'Portfolio / project links',
+  languages: 'Language & proficiency',
+};
+
+const REVIEW_LABEL_DEDUP_ALIASES = {
+  'projects (extra)': 'projects',
+  'hackathons (extra)': 'hackathons',
+  'work experience': 'work experience entries',
+  email: 'e-mail',
+  mobile: 'mobile no',
+  'date of birth': 'birth date',
+  'full name': 'name',
+  'name of candidate': 'name',
+  'current role': 'current designation',
+  'preferred locations': 'preferred location',
+  'portfolio url': 'portfolio / project links',
+  'salary expectation': 'expected salary',
+};
+
+const SECTION_SORT_ORDER = [
+  'personal',
+  'education',
+  'professional',
+  'work',
+  'social',
+  'summary',
+  'resume',
+  'internships',
+  'gap',
+  'academic',
+  'exams',
+  'accomplishments',
+  'visa',
+  'vaccination',
+  'certifications',
+  'projects',
+];
+
+const FOLD_DUPLICATE_SECTIONS = {
+  skills: { targetId: 'summary', targetLabel: 'Skills' },
+  languages: { targetId: 'summary', targetLabel: 'Language & proficiency' },
+  portfolio: { targetId: 'social', targetLabel: 'Portfolio / project links' },
+};
+
+function normalizeReviewLabelKey(label) {
+  return String(label || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+function canonicalReviewLabel(label) {
+  const key = normalizeReviewLabelKey(label);
+  return REVIEW_LABEL_CANONICAL[key] || String(label || '').trim();
+}
+
+function reviewFieldDedupeKey(label) {
+  const key = normalizeReviewLabelKey(label);
+  return REVIEW_LABEL_DEDUP_ALIASES[key] || key;
+}
+
+function cloneReviewSection(section) {
+  return {
+    ...section,
+    fields: Array.isArray(section?.fields) ? section.fields.map((row) => ({ ...row })) : [],
+    entries: Array.isArray(section?.entries) ? section.entries.map((entry) => ({ ...entry })) : undefined,
+  };
+}
+
+function formatReviewEntriesAsText(entries) {
+  if (!Array.isArray(entries) || !entries.length) return '';
+  return entries
+    .map((entry) => str(entry))
+    .filter(Boolean)
+    .join('\n');
+}
+
+function upsertReviewField(section, label, value) {
+  const nextValue = str(value);
+  if (!section || !nextValue) return;
+  const key = reviewFieldDedupeKey(label);
+  const existing = (section.fields || []).find((row) => reviewFieldDedupeKey(row.label) === key);
+  if (existing) {
+    if (!str(existing.value)) existing.value = nextValue;
+    return;
+  }
+  section.fields.push({ label: canonicalReviewLabel(label), value: nextValue });
+}
+
+function dedupeReviewFields(fields) {
+  const seen = new Set();
+  const next = [];
+  for (const row of fields || []) {
+    const key = reviewFieldDedupeKey(row?.label);
+    if (!key || COMPOSITE_REVIEW_LABELS.has(key) || seen.has(key)) continue;
+    seen.add(key);
+    next.push({
+      label: canonicalReviewLabel(row.label),
+      value: row.value,
+    });
+  }
+  return next;
+}
+
+function dedupeReviewEntries(entries) {
+  if (!Array.isArray(entries) || !entries.length) return entries;
+  const seen = new Set();
+  return entries.filter((entry) => {
+    let signature = '';
+    try {
+      signature = JSON.stringify(entry);
+    } catch {
+      signature = str(entry);
+    }
+    if (!signature || seen.has(signature)) return false;
+    seen.add(signature);
+    return true;
+  });
+}
+
+function foldDuplicateClientReviewSections(sections) {
+  if (!Array.isArray(sections) || !sections.length) return [];
+  const byId = new Map();
+  for (const section of sections) {
+    if (!section?.id) continue;
+    byId.set(section.id, cloneReviewSection(section));
+  }
+
+  const personal = byId.get('personal');
+  const social = byId.get('social');
+  if (personal) {
+    const linkedIn = (personal.fields || []).find(
+      (row) => normalizeReviewLabelKey(row.label) === 'linkedin',
+    );
+    if (linkedIn?.value && social) upsertReviewField(social, 'LinkedIn', linkedIn.value);
+    personal.fields = (personal.fields || []).filter((row) => {
+      const key = normalizeReviewLabelKey(row.label);
+      return key !== 'linkedin' && !COMPOSITE_REVIEW_LABELS.has(key);
+    });
+  }
+
+  const prefs = byId.get('careerPreferences');
+  const professional = byId.get('professional');
+  if (prefs && professional) {
+    for (const row of prefs.fields || []) {
+      const key = normalizeReviewLabelKey(row.label);
+      if (key === 'salary expectation') {
+        upsertReviewField(professional, 'Expected Salary', row.value);
+        continue;
+      }
+      if (key === 'current role') {
+        upsertReviewField(professional, 'Current Designation', row.value);
+        continue;
+      }
+      if (key === 'preferred locations') {
+        if (personal) upsertReviewField(personal, 'Preferred Location', row.value);
+        continue;
+      }
+      if (key === 'notice period') {
+        upsertReviewField(professional, 'Notice Period', row.value);
+        continue;
+      }
+      upsertReviewField(professional, canonicalReviewLabel(row.label), row.value);
+    }
+    byId.delete('careerPreferences');
+  } else if (prefs && !professional) {
+    prefs.id = 'professional';
+    prefs.title = SECTION_LABELS.professional;
+    byId.set('professional', prefs);
+    byId.delete('careerPreferences');
+  }
+
+  for (const [fromId, spec] of Object.entries(FOLD_DUPLICATE_SECTIONS)) {
+    const from = byId.get(fromId);
+    if (!from) continue;
+    const target = byId.get(spec.targetId);
+    const fromText =
+      (from.fields || [])
+        .map((row) => str(row.value))
+        .filter(Boolean)
+        .join(', ') || formatReviewEntriesAsText(from.entries);
+    if (target) upsertReviewField(target, spec.targetLabel, fromText);
+    byId.delete(fromId);
+  }
+
+  for (const section of byId.values()) {
+    section.fields = dedupeReviewFields(section.fields);
+    if (section.entries?.length) {
+      section.entries = dedupeReviewEntries(section.entries);
+    }
+  }
+
+  const leftoverIds = [...byId.keys()].filter((id) => !SECTION_SORT_ORDER.includes(id));
+  return [...SECTION_SORT_ORDER, ...leftoverIds]
+    .filter((id, index, list) => byId.has(id) && list.indexOf(id) === index)
+    .map((id) => byId.get(id));
+}
 
 function parseSubmitFieldVisibility(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
@@ -573,12 +824,16 @@ function isSubmitFieldVisible(visibility, fieldId) {
   return visibility[fieldId] !== false;
 }
 
-function isSubmitReviewLabelVisible(label, visibility) {
+function isSubmitReviewLabelVisible(label, visibility, sectionId) {
   if (!visibility) return true;
   const key = String(label || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  if (COMPOSITE_REVIEW_LABELS.has(key)) return false;
   let ids = SUBMIT_FIELD_LABEL_MAP[key];
   if (!ids && /^skill\s+\d+$/.test(key)) ids = ['skills'];
   if (!ids && /^language\s+\d+$/.test(key)) ids = ['languageProficiency'];
+  if (!ids && sectionId && SUBMIT_SECTION_ENTRY_FIELDS[sectionId]) {
+    ids = SUBMIT_SECTION_ENTRY_FIELDS[sectionId];
+  }
   // Unknown labels must not leak when the tenant configured Submit-to-Client visibility.
   if (!ids) return false;
   return ids.some((id) => isSubmitFieldVisible(visibility, id));
@@ -594,7 +849,9 @@ function applySubmitFieldVisibility(sections, visibility) {
       return {
         ...section,
         fields: Array.isArray(section?.fields)
-          ? section.fields.filter((row) => isSubmitReviewLabelVisible(row?.label, visibility))
+          ? section.fields.filter((row) =>
+              isSubmitReviewLabelVisible(row?.label, visibility, section.id),
+            )
           : [],
         entries: entriesAllowed ? section.entries : undefined,
       };
@@ -646,10 +903,9 @@ export function applyVisibleFieldsToClientCandidate(candidate, visibleFields) {
   if (hide('email')) next.email = '';
   if (hide('phone')) next.phone = '';
   if (hide('city')) next.city = '';
+  if (hide('state')) next.state = '';
   if (hide('country')) next.country = '';
-  if (hide('location')) {
-    // location display is composed; clear address-based location helpers only when location hidden
-  }
+  if (hide('preferredLocation')) next.preferredLocation = '';
   if (hide('address')) next.address = '';
   if (hide('currentCompany')) next.currentCompany = '';
   if (hide('currentTitle')) next.designation = '';
@@ -667,6 +923,19 @@ export function applyVisibleFieldsToClientCandidate(candidate, visibleFields) {
   if (hide('cvSummary')) next.cvSummary = '';
   if (hide('certifications')) next.certifications = [];
   if (hide('linkedIn')) next.linkedIn = '';
+  if (hide('birthDate')) next.birthDate = '';
+  if (hide('age')) next.age = '';
+  if (hide('zip')) next.zip = '';
+  if (hide('nationality')) next.nationality = '';
+  if (hide('gender')) next.gender = '';
+  if (hide('employment')) next.employment = '';
+  if (hide('maritalStatus')) next.maritalStatus = '';
+  if (hide('phoneCode')) next.phoneCode = '';
+  if (hide('middleName')) next.middleName = '';
+  if (hide('noticePeriod')) next.noticePeriod = '';
+  if (hide('currentSalary')) next.currentSalary = '';
+  if (hide('expectedSalary')) next.expectedSalary = '';
+  if (hide('website')) next.website = '';
   if (hide('firstName') || hide('lastName')) {
     const parts = String(next.name || '')
       .split(/\s+/)
@@ -752,9 +1021,327 @@ export function buildClientReviewSectionsFromPresentation(saved) {
   ingest(fromPhase1);
   ingest(fromStoredSections);
 
-  return order.map((id) => byId.get(id)).filter(Boolean);
+  const merged = order.map((id) => byId.get(id)).filter(Boolean);
+  return foldDuplicateClientReviewSections(merged);
 }
 
 export function buildClientReviewSectionsFromEditForm(editForm, visibleSections) {
   return buildSectionsFromEditForm(editForm, visibleSections);
+}
+
+const DEFAULT_CLIENT_REVIEW_TABLE_COLUMNS = [
+  'firstName',
+  'lastName',
+  'email',
+  'phone',
+  'currentTitle',
+  'currentCompany',
+];
+
+const PREVIOUS_FIVE_COLUMN_CLIENT_REVIEW_TABLE = [
+  'lastName',
+  'email',
+  'phone',
+  'currentTitle',
+  'currentCompany',
+];
+
+const LEGACY_DEFAULT_CLIENT_REVIEW_TABLE_COLUMNS = [
+  'firstName',
+  'lastName',
+  'email',
+  'phone',
+  'currentTitle',
+  'currentCompany',
+  'city',
+  'state',
+  'country',
+  'preferredLocation',
+  'skills',
+  'cvEducationEntries',
+  'experience',
+  'candidateScore',
+];
+
+const CLIENT_REVIEW_TABLE_FIELD_IDS = new Set([
+  ...LEGACY_DEFAULT_CLIENT_REVIEW_TABLE_COLUMNS,
+  ...DEFAULT_CLIENT_REVIEW_TABLE_COLUMNS,
+  'middleName',
+  'phoneCode',
+  'age',
+  'address',
+  'zip',
+  'avatar',
+  'nationality',
+  'currentCompanyWebsite',
+  'gender',
+  'employment',
+  'maritalStatus',
+  'birthDate',
+  'passportNumber',
+  'educationSummary',
+  'educationCourses',
+  'remarks',
+  'currentSalary',
+  'currentSalaryCurrency',
+  'currentBenefits',
+  'expectedSalary',
+  'expectedSalaryCurrency',
+  'expectedBenefits',
+  'noticePeriod',
+  'workHistoryText',
+  'extracurricular',
+  'volunteers',
+  'p1PreferredJobTitles',
+  'p1PreferredIndustries',
+  'p1FunctionalAreas',
+  'p1JobTypes',
+  'p1WorkModes',
+  'p1Relocation',
+  'p1AvailabilityToStart',
+  'cvWorkExperienceEntries',
+  'linkedIn',
+  'twitter',
+  'xing',
+  'skypeId',
+  'facebook',
+  'stackOverflow',
+  'website',
+  'cvPortfolioLinks',
+  'cvSummary',
+  'languageProficiency',
+  'honours',
+  'certifications',
+  'projects',
+  'hackathons',
+  'notes',
+  'p1Resume',
+  'p1Internships',
+  'p1Gap',
+  'p1Academic',
+  'p1Exams',
+  'p1Accomplishments',
+  'p1Visa',
+  'p1Vaccination',
+]);
+
+function isLegacyUncustomizedClientReviewTableColumns(raw) {
+  if (!Array.isArray(raw) || raw.length === 0) return true;
+  const ids = raw.map((item) => String(item || '').trim()).filter(Boolean);
+  if (ids.join(',') === LEGACY_DEFAULT_CLIENT_REVIEW_TABLE_COLUMNS.join(',')) return true;
+  if (ids.join(',') === PREVIOUS_FIVE_COLUMN_CLIENT_REVIEW_TABLE.join(',')) return true;
+  if (ids.length <= DEFAULT_CLIENT_REVIEW_TABLE_COLUMNS.length) return false;
+  const legacy = LEGACY_DEFAULT_CLIENT_REVIEW_TABLE_COLUMNS;
+  const legacySet = new Set(legacy);
+  if (ids.some((id) => !legacySet.has(id))) return false;
+  let index = 0;
+  for (const id of ids) {
+    while (index < legacy.length && legacy[index] !== id) index += 1;
+    if (index >= legacy.length) return false;
+    index += 1;
+  }
+  return true;
+}
+
+export function parseClientReviewTableColumns(raw, visibleFields) {
+  const source = isLegacyUncustomizedClientReviewTableColumns(raw)
+    ? DEFAULT_CLIENT_REVIEW_TABLE_COLUMNS
+    : Array.isArray(raw)
+      ? raw
+      : DEFAULT_CLIENT_REVIEW_TABLE_COLUMNS;
+  const seen = new Set();
+  const next = [];
+  for (const item of source) {
+    const id = String(item || '').trim();
+    if (!CLIENT_REVIEW_TABLE_FIELD_IDS.has(id) || seen.has(id)) continue;
+    if (visibleFields && visibleFields[id] === false) continue;
+    seen.add(id);
+    next.push(id);
+  }
+  return next.length > 0 ? next : [...DEFAULT_CLIENT_REVIEW_TABLE_COLUMNS];
+}
+
+function isBlankClientReviewValue(value) {
+  const raw = String(value ?? '').trim();
+  return !raw || raw === 'No entries provided' || raw === '—' || raw === '-';
+}
+
+function parseBirthDate(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) {
+    const date = new Date(`${iso[1]}-${iso[2]}-${iso[3]}T00:00:00`);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  const dmy = raw.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/);
+  if (dmy) {
+    const day = dmy[1].padStart(2, '0');
+    const month = dmy[2].padStart(2, '0');
+    const date = new Date(`${dmy[3]}-${month}-${day}T00:00:00`);
+    if (!Number.isNaN(date.getTime()) && date.getDate() === Number(dmy[1])) return date;
+    const alt = new Date(`${dmy[3]}-${day}-${month}T00:00:00`);
+    return Number.isNaN(alt.getTime()) ? null : alt;
+  }
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+export function ageFromBirthDate(value) {
+  const birth = parseBirthDate(value);
+  if (!birth) return '';
+  const today = new Date();
+  let age = today.getFullYear() - birth.getFullYear();
+  const monthDiff = today.getMonth() - birth.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) age -= 1;
+  if (!Number.isFinite(age) || age < 0 || age > 120) return '';
+  return String(age);
+}
+
+function storedAge(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  const num = Number(raw);
+  if (Number.isFinite(num) && num > 0 && num <= 120) return String(Math.round(num));
+  return raw;
+}
+
+function joinClientReviewList(value) {
+  if (!Array.isArray(value)) return String(value || '').trim();
+  return value
+    .map((item) => {
+      if (item && typeof item === 'object') {
+        const lang = item.language || item.name || '';
+        const prof = item.proficiency || item.level || '';
+        const joined = [lang, prof]
+          .map((part) => String(part || '').trim())
+          .filter(Boolean)
+          .join(' | ');
+        if (joined) return joined;
+        return Object.values(item)
+          .map((part) => (typeof part === 'object' ? '' : String(part || '').trim()))
+          .filter(Boolean)
+          .join(' | ');
+      }
+      return String(item || '').trim();
+    })
+    .filter(Boolean)
+    .join(', ');
+}
+
+function fallbackValuesFromCandidate(candidate, matchScore) {
+  const parts = String(candidate?.name || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  const score = Number.isFinite(Number(matchScore)) ? String(Math.round(Number(matchScore))) : '';
+  const experience = Number.isFinite(Number(candidate?.experience))
+    ? String(candidate.experience)
+    : String(candidate?.experience || '').trim();
+  const birthDate = String(
+    candidate?.birthDate || candidate?.dob || candidate?.dateOfBirth || '',
+  ).trim();
+  const age = storedAge(candidate?.age) || ageFromBirthDate(birthDate);
+  const money = (value) => {
+    if (value === undefined || value === null || value === '') return '';
+    return String(value).trim();
+  };
+  return {
+    'first name': parts[0] || String(candidate?.firstName || '').trim(),
+    'middle name': String(candidate?.middleName || '').trim(),
+    'last name': parts.length > 1 ? parts[parts.length - 1] : String(candidate?.lastName || '').trim(),
+    'e-mail': String(candidate?.email || '').trim(),
+    email: String(candidate?.email || '').trim(),
+    'phone code': String(candidate?.phoneCode || '').trim(),
+    'mobile no': String(candidate?.phone || '').trim(),
+    age,
+    'birth date': birthDate,
+    'date of birth': birthDate,
+    city: String(candidate?.city || '').trim(),
+    state: String(candidate?.state || '').trim(),
+    country: String(candidate?.country || '').trim(),
+    'current address': String(candidate?.address || '').trim(),
+    zip: String(candidate?.zip || candidate?.zipCode || '').trim(),
+    nationality: String(candidate?.nationality || '').trim(),
+    gender: String(candidate?.gender || '').trim(),
+    'employment status': String(candidate?.employment || '').trim(),
+    'marital status': String(candidate?.maritalStatus || '').trim(),
+    'passport number': String(candidate?.passportNumber || '').trim(),
+    'preferred location': String(candidate?.preferredLocation || '').trim(),
+    'current company website': String(candidate?.currentCompanyWebsite || '').trim(),
+    'current designation': String(candidate?.designation || candidate?.currentTitle || '').trim(),
+    'current employer': String(candidate?.currentCompany || '').trim(),
+    'experience (years)': experience,
+    'candidate score': score,
+    'current salary': money(candidate?.currentSalary),
+    'current salary currency': String(candidate?.currentSalaryCurrency || '').trim(),
+    'current benefits': String(candidate?.currentBenefits || '').trim(),
+    'expected salary': money(candidate?.expectedSalary),
+    'expected salary currency': String(candidate?.expectedSalaryCurrency || '').trim(),
+    'expected benefits': String(candidate?.expectedBenefits || '').trim(),
+    'notice period': String(candidate?.noticePeriod || '').trim(),
+    remarks: String(candidate?.remarks || '').trim(),
+    skills: joinClientReviewList(candidate?.skills),
+    'language & proficiency': joinClientReviewList(
+      candidate?.languageProficiency || candidate?.languages,
+    ),
+    languages: joinClientReviewList(candidate?.languages),
+    summary: String(candidate?.cvSummary || '').trim(),
+    'education summary': String(candidate?.education || candidate?.educationSummary || '').trim(),
+    courses: joinClientReviewList(candidate?.educationCourses),
+    linkedin: String(candidate?.linkedIn || '').trim(),
+    twitter: String(candidate?.twitter || '').trim(),
+    facebook: String(candidate?.facebook || '').trim(),
+    website: String(candidate?.website || '').trim(),
+    'skype id': String(candidate?.skypeId || '').trim(),
+    'stack overflow': String(candidate?.stackOverflow || '').trim(),
+    xing: String(candidate?.xing || '').trim(),
+    'portfolio / project links': joinClientReviewList(candidate?.cvPortfolioLinks || candidate?.portfolio),
+    certifications: joinClientReviewList(candidate?.certifications),
+    'honours & awards': joinClientReviewList(candidate?.honours),
+    'internal notes': String(candidate?.notes || '').trim(),
+  };
+}
+
+/** Fill empty drawer fields from the same candidate + match payload the table uses. */
+export function hydrateClientReviewSections(sections, { candidate, matchScore } = {}) {
+  const fallbacks = fallbackValuesFromCandidate(candidate || {}, matchScore);
+  return (Array.isArray(sections) ? sections : []).map((section) => {
+    const fields = Array.isArray(section?.fields)
+      ? section.fields.map((row) => {
+          if (!isBlankClientReviewValue(row?.value)) return row;
+          const key = String(row?.label || '')
+            .trim()
+            .toLowerCase();
+          const next = fallbacks[key];
+          if (!next) return row;
+          return { ...row, value: next };
+        })
+      : [];
+
+    let entries = section?.entries;
+    if (
+      section?.id === 'education' &&
+      !(Array.isArray(entries) && entries.length) &&
+      Array.isArray(candidate?.cvEducationEntries) &&
+      candidate.cvEducationEntries.length
+    ) {
+      entries = candidate.cvEducationEntries.map((entry) => ({
+        degreeProgram: entry?.degree || entry?.degreeProgram || '',
+        institutionName: entry?.institution || entry?.institutionName || '',
+        startYear: entry?.startYear || '',
+        endYear: entry?.endYear || '',
+      }));
+    }
+    if (
+      section?.id === 'work' &&
+      !(Array.isArray(entries) && entries.length) &&
+      Array.isArray(candidate?.cvWorkExperienceEntries) &&
+      candidate.cvWorkExperienceEntries.length
+    ) {
+      entries = candidate.cvWorkExperienceEntries;
+    }
+
+    return { ...section, fields, entries };
+  });
 }

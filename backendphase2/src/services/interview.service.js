@@ -69,6 +69,9 @@ import { assertNoInterviewerScheduleConflicts } from '../utils/interviewConflict
 import {
   buildClientReviewSectionsFromPresentation,
   applyVisibleFieldsToClientCandidate,
+  parseClientReviewTableColumns,
+  hydrateClientReviewSections,
+  ageFromBirthDate,
 } from '../utils/clientReviewSections.js';
 import {
   mergeCvSubmissionExtraData,
@@ -83,23 +86,33 @@ import { isOurS3PdfUrl } from '../utils/s3.js';
 
 const SUBMIT_TO_CLIENT_VISIBILITY_DEFAULTS_KEY = 'submitToClientFieldVisibility';
 
-async function loadLiveSubmitToClientFieldVisibility() {
+async function loadLiveSubmitToClientDefaults() {
   try {
     const row = await prisma.setting.findFirst({
       where: { key: SUBMIT_TO_CLIENT_VISIBILITY_DEFAULTS_KEY },
       orderBy: { updatedAt: 'desc' },
     });
     const raw = row?.value;
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      return { fieldVisibility: null, tableColumns: null };
+    }
     const nested =
       raw.fieldVisibility && typeof raw.fieldVisibility === 'object' && !Array.isArray(raw.fieldVisibility)
         ? raw.fieldVisibility
         : raw;
     const hasFlag = Object.values(nested).some((value) => typeof value === 'boolean');
-    return hasFlag ? nested : null;
+    return {
+      fieldVisibility: hasFlag ? nested : null,
+      tableColumns: Array.isArray(raw.tableColumns) ? raw.tableColumns : null,
+    };
   } catch {
-    return null;
+    return { fieldVisibility: null, tableColumns: null };
   }
+}
+
+async function loadLiveSubmitToClientFieldVisibility() {
+  const live = await loadLiveSubmitToClientDefaults();
+  return live.fieldVisibility;
 }
 
 const interviewInclude = {
@@ -842,6 +855,20 @@ function applyTrackerOptionsToReviewPayload(payload, trackerOptions) {
   }
   if (!trackerOptions.showScore) {
     next.matchScore = null;
+    next.presentationSections = Array.isArray(next.presentationSections)
+      ? next.presentationSections.map((section) => ({
+          ...section,
+          fields: Array.isArray(section?.fields)
+            ? section.fields.map((row) =>
+                String(row?.label || '')
+                  .trim()
+                  .toLowerCase() === 'candidate score'
+                  ? { ...row, value: '' }
+                  : row,
+              )
+            : section?.fields,
+        }))
+      : next.presentationSections;
   }
   if (!trackerOptions.showNotes) {
     next.recruiterNotes = '';
@@ -1495,6 +1522,7 @@ async function serializeInterviewForClientReview(
     pipelineStages = null,
     clientMarkedStage = null,
     liveVisibleFields = undefined,
+    liveTableColumns = undefined,
   } = {},
 ) {
   const tenantRow = await loadFullTenantCandidateForClientReview(interview.candidate);
@@ -1507,37 +1535,80 @@ async function serializeInterviewForClientReview(
 
   const baseCandidate = {
     name: `${c.firstName || ''} ${c.lastName || ''}`.trim(),
+    firstName: c.firstName || '',
+    middleName: c.middleName || '',
+    lastName: c.lastName || '',
     email: c.email || '',
+    phoneCode: c.phoneCode || '',
     phone: c.phone || '',
     currentCompany: c.currentCompany || '',
     designation: c.designation || c.currentTitle || '',
+    currentTitle: c.currentTitle || c.designation || '',
     experience: c.experience ?? null,
     skills: Array.isArray(c.skills) ? c.skills : [],
     languages: Array.isArray(c.languages) ? c.languages : [],
+    languageProficiency: c.languageProficiency || '',
     education: c.education || '',
+    educationSummary: c.educationSummary || c.education || '',
+    educationCourses: c.educationCourses || '',
     certifications: c.certifications || [],
     cvSummary: c.cvSummary || '',
     cvEducationEntries: Array.isArray(c.cvEducationEntries) ? c.cvEducationEntries : [],
     cvWorkExperienceEntries: Array.isArray(c.cvWorkExperienceEntries) ? c.cvWorkExperienceEntries : [],
     address: c.address || '',
     city: c.city || '',
+    state: c.state || '',
     country: c.country || '',
+    preferredLocation: c.preferredLocation || '',
+    zip: c.zip || c.zipCode || '',
+    nationality: c.nationality || '',
+    gender: c.gender || '',
+    employment: c.employment || '',
+    maritalStatus: c.maritalStatus || '',
+    passportNumber: c.passportNumber || '',
+    currentCompanyWebsite: c.currentCompanyWebsite || '',
+    currentSalary: c.currentSalary ?? '',
+    currentSalaryCurrency: c.currentSalaryCurrency || '',
+    currentBenefits: c.currentBenefits || '',
+    expectedSalary: c.expectedSalary ?? '',
+    expectedSalaryCurrency: c.expectedSalaryCurrency || '',
+    expectedBenefits: c.expectedBenefits || '',
+    noticePeriod: c.noticePeriod || '',
+    website: c.website || '',
+    twitter: c.twitter || '',
+    facebook: c.facebook || '',
+    skypeId: c.skypeId || '',
+    stackOverflow: c.stackOverflow || '',
+    xing: c.xing || '',
+    remarks: c.remarks || '',
+    honours: c.honours || '',
+    notes: c.notes || '',
+    cvPortfolioLinks: c.cvPortfolioLinks || c.portfolio || '',
+    birthDate: c.birthDate || c.dob || c.dateOfBirth || '',
+    age: String(c.age ?? '').trim() || ageFromBirthDate(c.birthDate || c.dob || c.dateOfBirth || ''),
     linkedIn: c.linkedIn || '',
     resume: c.resume || c.resumeUrl || '',
   };
 
   // Live Settings → Submit to Client wins so hiding a field updates existing preview links.
   const snapshotFields = resolveClientReviewVisibleFields(cRaw);
-  const liveFields =
-    liveVisibleFields !== undefined
-      ? liveVisibleFields
-      : await loadLiveSubmitToClientFieldVisibility();
-  const visibleFields = liveFields || snapshotFields || null;
+  const liveDefaults =
+    liveVisibleFields !== undefined && liveTableColumns !== undefined
+      ? { fieldVisibility: liveVisibleFields, tableColumns: liveTableColumns }
+      : await loadLiveSubmitToClientDefaults();
+  const visibleFields =
+    (liveVisibleFields !== undefined ? liveVisibleFields : liveDefaults.fieldVisibility) ||
+    snapshotFields ||
+    null;
+  const tableColumns = parseClientReviewTableColumns(
+    liveTableColumns !== undefined ? liveTableColumns : liveDefaults.tableColumns,
+    visibleFields,
+  );
   const presentation = buildDirectClientReviewPresentation(cRaw);
   if (visibleFields && presentation && typeof presentation === 'object') {
     presentation.visibleFields = visibleFields;
   }
-  const presentationSections = buildClientReviewSectionsFromPresentation(presentation);
+  let presentationSections = buildClientReviewSectionsFromPresentation(presentation);
 
   const candidateExtra =
     cRaw?.extraData && typeof cRaw.extraData === 'object' && !Array.isArray(cRaw.extraData)
@@ -1565,6 +1636,17 @@ async function serializeInterviewForClientReview(
       resume: '',
     };
   }
+
+  const resolvedMatchScore =
+    visibleFields && visibleFields.candidateScore === false
+      ? null
+      : Number.isFinite(Number(matchScore ?? interview.matchScore))
+        ? Math.round(Number(matchScore ?? interview.matchScore))
+        : null;
+  presentationSections = hydrateClientReviewSections(presentationSections, {
+    candidate: candidateForClient,
+    matchScore: resolvedMatchScore,
+  });
   candidateForClient = applyVisibleFieldsToClientCandidate(candidateForClient, visibleFields);
 
   const cvEditorPreview =
@@ -1586,6 +1668,7 @@ async function serializeInterviewForClientReview(
     candidate: candidateForClient,
     presentationSections,
     visibleFields: visibleFields || null,
+    tableColumns,
     cvEditorPreview,
     sharedResumeUrl: sharedResumeUrl.startsWith('http') ? sharedResumeUrl : null,
     job: {
@@ -1604,12 +1687,7 @@ async function serializeInterviewForClientReview(
       weakness: entry.weakness || '',
       overallScore: entry.overallScore ?? null,
     })),
-    matchScore:
-      visibleFields && visibleFields.candidateScore === false
-        ? null
-        : Number.isFinite(Number(matchScore ?? interview.matchScore))
-          ? Math.round(Number(matchScore ?? interview.matchScore))
-          : null,
+    matchScore: resolvedMatchScore,
     recruiterNotes: sanitizeRecruiterNotes(recruiterNotes || interview.notes || ''),
     candidateFiles: mapCandidateFilesForClient(candidateFiles),
     pipelineStages: Array.isArray(pipelineStages) && pipelineStages.length
@@ -2917,7 +2995,8 @@ export const interviewService = {
 
     if (isBatchReview) {
       const payloads = await runWithTenantContext(tenantDbName, async () => {
-        const liveVisibleFields = await loadLiveSubmitToClientFieldVisibility();
+        const liveDefaults = await loadLiveSubmitToClientDefaults();
+        const liveVisibleFields = liveDefaults.fieldVisibility;
         const matches = await prisma.match.findMany({
           where: { id: { in: batchMatchIds } },
           include: matchClientReviewInclude,
@@ -2956,6 +3035,7 @@ export const interviewService = {
                 jobId: match.jobId,
               }),
               liveVisibleFields,
+              liveTableColumns: liveDefaults.tableColumns,
             });
           }),
         );
@@ -2982,7 +3062,7 @@ export const interviewService = {
       return maskStorage ? maskClientReviewStorageUrls(result, publicToken) : result;
     }
 
-    const { interview, offerLetterFile, matchRow, candidateFiles, pipelineStages, liveVisibleFields } =
+    const { interview, offerLetterFile, matchRow, candidateFiles, pipelineStages, liveVisibleFields, liveTableColumns } =
       await runWithTenantContext(tenantDbName, async () => {
         let iv = null;
         let matchRow = null;
@@ -2997,14 +3077,14 @@ export const interviewService = {
           iv = await buildSyntheticInterviewFromMatch(matchRow);
         }
 
-        const [offerFile, files, pipelineStages, liveVisibleFields] = await Promise.all([
+        const [offerFile, files, pipelineStages, liveDefaults] = await Promise.all([
           prisma.candidateFile.findFirst({
             where: { candidateId: iv.candidateId, fileType: 'Offer' },
             orderBy: { uploadDate: 'desc' },
           }),
           loadCandidateFilesForReview(iv.candidateId),
           loadClientPipelineStageChoices(iv.jobId, iv.candidate, decoded),
-          loadLiveSubmitToClientFieldVisibility(),
+          loadLiveSubmitToClientDefaults(),
         ]);
         return {
           interview: iv,
@@ -3012,7 +3092,8 @@ export const interviewService = {
           matchRow,
           candidateFiles: files,
           pipelineStages,
-          liveVisibleFields,
+          liveVisibleFields: liveDefaults.fieldVisibility,
+          liveTableColumns: liveDefaults.tableColumns,
         };
       });
 
@@ -3031,6 +3112,7 @@ export const interviewService = {
         jobId: interview.jobId,
       }),
       liveVisibleFields,
+      liveTableColumns,
     });
 
     const result = {
