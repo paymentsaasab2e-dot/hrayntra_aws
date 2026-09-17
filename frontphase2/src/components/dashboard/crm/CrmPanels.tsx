@@ -27,6 +27,7 @@ import {
 } from 'recharts';
 import type { CrmOverview } from '@/lib/dashboard/api';
 import { asList } from '@/lib/dashboard/api';
+import { buildClientSliceDrillDown, buildFollowupDrillDown, buildKpiDrillDown, buildLeadSliceDrillDown } from './crmDrillDown';
 import { crmCard, dashCard, formatInr, formatNum, relativeTime, useCrmDashboard } from './crmShared';
 import { CrmStatNumber } from './crmStatNumber';
 
@@ -56,11 +57,7 @@ export function CrmAnalyticsRow({ overview }: Props) {
                 key={stage.stage}
                 type="button"
                 onClick={() =>
-                  openDrillDown({
-                    title: `${stage.stage} leads`,
-                    href: stage.href || '/leads',
-                    rows: [{ stage: stage.stage, count: stage.count }],
-                  })
+                  openDrillDown(buildLeadSliceDrillDown(overview, stage.stage, 'status'))
                 }
                 className="min-w-[72px] flex-1 rounded-xl px-2 py-2.5 text-center text-white transition hover:opacity-90"
                 style={{ background: COLORS[i % COLORS.length] }}
@@ -78,7 +75,19 @@ export function CrmAnalyticsRow({ overview }: Props) {
               {sources.length ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <Pie data={sources} dataKey="value" nameKey="name" innerRadius={40} outerRadius={60} paddingAngle={2}>
+                    <Pie
+                      data={sources}
+                      dataKey="value"
+                      nameKey="name"
+                      innerRadius={40}
+                      outerRadius={60}
+                      paddingAngle={2}
+                      onClick={(entry: { name?: string; payload?: { name?: string } }) => {
+                        const name = entry?.payload?.name || entry?.name;
+                        if (name) openDrillDown(buildLeadSliceDrillDown(overview, String(name), 'source'));
+                      }}
+                      className="cursor-pointer"
+                    >
                       {sources.map((_, i) => (
                         <Cell key={i} fill={COLORS[i % COLORS.length]} />
                       ))}
@@ -100,7 +109,16 @@ export function CrmAnalyticsRow({ overview }: Props) {
                     <XAxis dataKey="name" tick={{ fontSize: 10 }} />
                     <YAxis hide />
                     <Tooltip />
-                    <Bar dataKey="value" fill="#3B82F6" radius={[6, 6, 0, 0]} />
+                    <Bar
+                      dataKey="value"
+                      fill="#3B82F6"
+                      radius={[6, 6, 0, 0]}
+                      cursor="pointer"
+                      onClick={(entry: { name?: string; payload?: { name?: string } }) => {
+                        const name = entry?.payload?.name || entry?.name;
+                        if (name) openDrillDown(buildLeadSliceDrillDown(overview, String(name), 'status'));
+                      }}
+                    />
                   </BarChart>
                 </ResponsiveContainer>
               ) : (
@@ -125,7 +143,13 @@ export function CrmAnalyticsRow({ overview }: Props) {
             <button
               key={c.label}
               type="button"
-              onClick={() => openDrillDown({ title: c.label, href: c.href, rows: [{ count: c.value }] })}
+              onClick={() =>
+                openDrillDown(
+                  c.label === 'Total'
+                    ? buildKpiDrillDown(overview, 'totalClients', 'Clients', '/client')
+                    : buildClientSliceDrillDown(overview, c.label),
+                )
+              }
               className="rounded-xl bg-slate-50 px-2 py-2.5 text-center hover:bg-blue-50"
             >
               <p className="text-base font-bold text-slate-900">{formatNum(c.value as number)}</p>
@@ -156,12 +180,18 @@ export function CrmAnalyticsRow({ overview }: Props) {
             <ul className="max-h-40 space-y-1.5 overflow-y-auto text-xs">
               {industries.length ? (
                 industries.map((d, i) => (
-                  <li key={d.name} className="flex items-center justify-between gap-2">
-                    <span className="flex items-center gap-1.5 truncate text-slate-600">
-                      <span className="h-2 w-2 rounded-full" style={{ background: COLORS[i % COLORS.length] }} />
-                      {d.name}
-                    </span>
-                    <span className="font-semibold text-slate-800">{d.value}</span>
+                  <li key={d.name}>
+                    <button
+                      type="button"
+                      className="flex w-full items-center justify-between gap-2 text-left hover:text-slate-900"
+                      onClick={() => openDrillDown(buildClientSliceDrillDown(overview, d.name))}
+                    >
+                      <span className="flex items-center gap-1.5 truncate text-slate-600">
+                        <span className="h-2 w-2 rounded-full" style={{ background: COLORS[i % COLORS.length] }} />
+                        {d.name}
+                      </span>
+                      <span className="font-semibold text-slate-800">{d.value}</span>
+                    </button>
                   </li>
                 ))
               ) : (
@@ -209,18 +239,7 @@ export function CrmFollowupActivity({ overview, compact = false }: Props) {
               key={c.label}
               type="button"
               onClick={() =>
-                openDrillDown({
-                  title: `${c.label} follow-ups`,
-                  href: '/leads',
-                  rows: (fu?.upcoming || []).map((item) => ({
-                    Company: item.company,
-                    Contact: item.contact || '—',
-                    When: item.at ? new Date(item.at).toLocaleString() : '—',
-                    Status: item.status || '—',
-                    Priority: item.priority || '—',
-                    Assignee: item.assignee || '—',
-                  })),
-                })
+                openDrillDown(buildFollowupDrillDown(overview, c.label, `${c.label} follow-ups`))
               }
               className={`rounded-2xl px-3 py-3.5 text-left shadow-[0_8px_24px_-18px_rgba(15,23,42,0.25)] transition hover:-translate-y-0.5 ${c.tone}`}
             >
@@ -675,7 +694,13 @@ export function CrmBusinessSummary({ overview }: Props) {
         <button
           key={c.label}
           type="button"
-          onClick={() => openDrillDown({ title: c.label, href: c.href, rows: [{ value: c.value }] })}
+          onClick={() =>
+            openDrillDown(
+              c.href === '/client'
+                ? buildKpiDrillDown(overview, 'totalClients', c.label, '/client')
+                : buildKpiDrillDown(overview, 'totalLeads', c.label, c.href),
+            )
+          }
           className={`${crmCard} p-4 text-left transition hover:-translate-y-0.5 hover:shadow-md`}
         >
           <p className="text-[11px] font-medium text-slate-500">{c.label}</p>

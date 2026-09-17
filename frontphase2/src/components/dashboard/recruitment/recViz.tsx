@@ -296,10 +296,12 @@ export function RecDonut({
   data,
   center,
   height = 168,
+  onSlice,
 }: {
   data: Slice[];
   center?: { value: string; label?: string };
   height?: number;
+  onSlice?: (name: string) => void;
 }) {
   const [active, setActive] = useState<number | null>(null);
   const total = data.reduce((s, d) => s + Math.max(0, d.value), 0) || 1;
@@ -323,6 +325,11 @@ export function RecDonut({
                 strokeWidth={2}
                 onMouseEnter={(_, i) => setActive(i)}
                 onMouseLeave={() => setActive(null)}
+                onClick={(entry: { name?: string; payload?: { name?: string } }) => {
+                  const name = entry?.payload?.name || entry?.name;
+                  if (name && onSlice) onSlice(String(name));
+                }}
+                className={onSlice ? 'cursor-pointer' : undefined}
               >
                 {rows.map((d, i) => (
                   <Cell
@@ -350,11 +357,12 @@ export function RecDonut({
         {rows.slice(0, 6).map((d, i) => (
           <li
             key={d.name}
-            className={`flex items-center justify-between gap-2 rounded-md px-1 py-0.5 text-[11px] ${
+            className={`flex cursor-pointer items-center justify-between gap-2 rounded-md px-1 py-0.5 text-[11px] ${
               active === i ? 'bg-slate-50' : ''
             }`}
             onMouseEnter={() => setActive(i)}
             onMouseLeave={() => setActive(null)}
+            onClick={() => onSlice?.(d.name)}
           >
             <span className="flex min-w-0 items-center gap-1.5 truncate text-slate-600">
               <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: d.color || REC_SLICE[i % REC_SLICE.length] }} />

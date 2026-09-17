@@ -9,6 +9,7 @@ import { HqInfoTip } from '@/components/hq/analytics/HqPhase2DashboardParts';
 import { useUser } from '@/hooks/useUser';
 import { CrmStatNumber, sparkDelta, sparkValues } from '@/components/dashboard/crm/crmStatNumber';
 import { formatInr, formatNum, relativeTime, recCard, useRecDashboard } from './recShared';
+import { buildRecKpiDrillDown } from './recDrillDown';
 import {
   REC_CARD,
   REC_CARD_COMPACT,
@@ -220,7 +221,23 @@ export function RecDecisionInsights({ overview, loading }: Props) {
                     type="button"
                     onClick={() => {
                       if (!step) return;
-                      openDrillDown({ title: step.title, href: step.href, rows: [{ Action: step.title, Why: step.why }] });
+                      const metric =
+                        step.id === 'emp-fb' || step.id.includes('feedback')
+                          ? 'interviewsOverdueFeedback'
+                          : step.id === 'emp-today'
+                            ? 'interviewsToday'
+                            : step.id === 'mgr-sla'
+                              ? 'jobsSlaRisk'
+                              : step.id === 'mgr-source'
+                                ? 'jobsNoCandidates'
+                                : step.id === 'approvals-waiting'
+                                  ? 'waitingOnYou'
+                                  : '';
+                      openDrillDown(
+                        metric
+                          ? buildRecKpiDrillDown(overview, metric, step.title, step.href)
+                          : { title: step.title, href: step.href, rows: [{ Action: step.title, Why: step.why }] },
+                      );
                     }}
                     className={`flex w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left transition ${
                       i === 0 ? 'bg-white/18 hover:bg-white/25' : 'hover:bg-white/10'
@@ -362,7 +379,9 @@ export function RecDecisionInsights({ overview, loading }: Props) {
           <RecStatShell
             info="Open jobs with zero candidates — source before adding more reqs."
             className={REC_CARD_COMPACT}
-            onClick={() => openDrillDown({ title: 'Jobs with no candidates', href: '/job', rows: [{ Count: noCand }] })}
+            onClick={() =>
+              openDrillDown(buildRecKpiDrillDown(overview, 'jobsNoCandidates', 'Jobs with no candidates', '/job'))
+            }
           >
             <p className="text-[11px] font-medium text-slate-500">Empty pipelines</p>
             <CrmStatNumber className="mt-1.5" value={formatNum(noCand)} label="jobs" invertDelta />
@@ -374,7 +393,7 @@ export function RecDecisionInsights({ overview, loading }: Props) {
           <RecStatShell
             info="Open jobs flagged at SLA risk."
             className={REC_CARD_COMPACT}
-            onClick={() => openDrillDown({ title: 'SLA risk jobs', href: '/job', rows: [{ Count: sla }] })}
+            onClick={() => openDrillDown(buildRecKpiDrillDown(overview, 'jobsSlaRisk', 'SLA risk jobs', '/job'))}
           >
             <p className="text-[11px] font-medium text-slate-500">SLA risk</p>
             <CrmStatNumber className="mt-1.5" value={formatNum(sla)} label="open" invertDelta />

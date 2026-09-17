@@ -514,6 +514,8 @@ interface NavFlyoutItemConfig {
 
 interface NavGroupFlyoutProps {
   icon: React.ElementType;
+  /** Optional PNG/SVG from `/public` — used instead of the Lucide icon when set. */
+  imageSrc?: string;
   label: string;
   collapsed: boolean;
   accent?: keyof typeof NAV_ICON_ACCENTS;
@@ -529,6 +531,7 @@ const FLYOUT_GAP = 12;
 
 const NavGroupFlyout = ({
   icon: Icon,
+  imageSrc,
   label,
   collapsed,
   accent = 'sky',
@@ -720,11 +723,24 @@ const NavGroupFlyout = ({
               active || open ? tone.activeWrap : 'border border-white/[0.05] bg-white/[0.02]'
             }`}
           >
-            <Icon
-              size={17}
-              strokeWidth={active || open ? 2 : 1.6}
-              className={active || open ? tone.activeIcon : `${tone.idle} group-hover:text-white`}
-            />
+            {imageSrc ? (
+              <img
+                src={imageSrc}
+                alt=""
+                aria-hidden
+                className={`h-[18px] w-[18px] object-contain transition-[filter] duration-150 ${
+                  active
+                    ? ''
+                    : 'grayscale brightness-0 invert-[0.55] group-hover:invert'
+                }`}
+              />
+            ) : (
+              <Icon
+                size={17}
+                strokeWidth={active || open ? 2 : 1.6}
+                className={active || open ? tone.activeIcon : `${tone.idle} group-hover:text-white`}
+              />
+            )}
           </div>
 
           {!collapsed && (
@@ -1736,6 +1752,7 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
           {mounted && (canViewLeads || canViewClients || canViewDashboard) && (
             <NavGroupFlyout
               icon={Building2}
+              imageSrc="/crmlog.png"
               label="CRM"
               collapsed={navCollapsed}
               accent="sky"
@@ -1760,6 +1777,7 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
           {mounted && canViewRecruitmentNav && (
             <NavGroupFlyout
               icon={Briefcase}
+              imageSrc="/image-removebg-preview.png"
               label="Recruitment"
               collapsed={navCollapsed}
               accent="amber"

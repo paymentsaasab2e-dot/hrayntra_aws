@@ -3190,7 +3190,8 @@ export function AddToPipelineModal({
     return pipelineJobOptions.filter(
       (job) =>
         job.title.toLowerCase().includes(q) ||
-        (job.department || '').toLowerCase().includes(q)
+        (job.department || '').toLowerCase().includes(q) ||
+        (job.clientName || '').toLowerCase().includes(q)
     );
   }, [pipelineJobOptions, jobSearch]);
 
@@ -3468,7 +3469,9 @@ export function AddToPipelineModal({
             transition={{ type: 'spring', stiffness: 400, damping: 32 }}
           >
             <div
-              className="flex max-h-[min(90vh,620px)] w-full max-w-[460px] flex-col overflow-hidden rounded-[22px] border border-white/60 bg-white shadow-[0_28px_80px_-28px_rgba(15,23,42,0.55)] ring-1 ring-slate-200/80"
+              className={`flex max-h-[min(92vh,860px)] w-full max-w-[720px] flex-col rounded-[22px] border border-white/60 bg-white shadow-[0_28px_80px_-28px_rgba(15,23,42,0.55)] ring-1 ring-slate-200/80 ${
+                jobDropdownOpen ? 'overflow-visible' : 'overflow-hidden'
+              }`}
               onClick={(e) => e.stopPropagation()}
             >
               {/* Header */}
@@ -3515,7 +3518,12 @@ export function AddToPipelineModal({
                 </div>
               </div>
 
-              <div ref={formSectionRef} className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 pb-5">
+              <div
+                ref={formSectionRef}
+                className={`min-h-[22rem] flex-1 space-y-5 px-6 pb-6 ${
+                  jobDropdownOpen ? 'overflow-visible' : 'min-h-0 overflow-y-auto'
+                }`}
+              >
                 {/* Job */}
                 <section>
                   <div className="mb-2.5 flex items-center gap-2">
@@ -3583,36 +3591,45 @@ export function AddToPipelineModal({
                   ) : null}
 
                   {addNewJobMode && !(lockJobToInitial && initialJobId) ? (
-                    <div className="relative" ref={jobDropdownRef}>
+                    <div className="relative z-20" ref={jobDropdownRef}>
                       <button
                         type="button"
                         onClick={() => setJobDropdownOpen((prev) => !prev)}
-                        className={`flex w-full items-center justify-between rounded-2xl border bg-white px-3.5 py-3 text-left text-sm shadow-sm transition-shadow ${
+                        className={`flex min-h-[3.5rem] w-full items-center justify-between gap-3 rounded-2xl border bg-white px-4 py-3.5 text-left text-sm shadow-sm transition-shadow ${
                           errors.job
                             ? 'border-red-300'
                             : 'border-slate-200 hover:border-slate-300 focus:ring-4 focus:ring-indigo-100/80'
                         }`}
                       >
-                        <span className={selectedJob ? 'font-medium text-slate-800' : 'text-slate-400'}>
-                          {selectedJob
-                            ? `${selectedJob.title}${selectedJob.department ? ` · ${selectedJob.department}` : ''}`
-                            : 'Search and select job'}
+                        <span className={`min-w-0 flex-1 ${selectedJob ? 'font-medium text-slate-800' : 'text-slate-400'}`}>
+                          {selectedJob ? (
+                            <span className="block">
+                              <span className="block whitespace-normal break-words leading-5">{selectedJob.title}</span>
+                              {selectedJob.department || selectedJob.clientName ? (
+                                <span className="mt-0.5 block text-xs font-normal text-slate-500">
+                                  {[selectedJob.clientName, selectedJob.department].filter(Boolean).join(' · ')}
+                                </span>
+                              ) : null}
+                            </span>
+                          ) : (
+                            'Search and select job'
+                          )}
                         </span>
-                        <Search size={16} className="text-slate-400" />
+                        <Search size={16} className="shrink-0 text-slate-400" />
                       </button>
                       {jobDropdownOpen ? (
-                        <div className="absolute left-0 right-0 top-[3.25rem] z-10 overflow-hidden rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl shadow-slate-300/40">
+                        <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-30 w-full overflow-hidden rounded-2xl border border-slate-200 bg-white p-3 shadow-2xl shadow-slate-300/40">
                           <input
                             value={jobSearch}
                             onChange={(e) => setJobSearch(e.target.value)}
-                            placeholder="Search jobs"
-                            className="mb-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                            placeholder="Search jobs by title, client, or department"
+                            className="mb-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
                           />
-                          <div className="max-h-40 overflow-y-auto">
+                          <div className="max-h-[min(22rem,46vh)] overflow-y-auto">
                             {loadingJobs ? (
-                              <p className="px-2 py-2 text-sm text-slate-500">Loading…</p>
+                              <p className="px-2 py-3 text-sm text-slate-500">Loading…</p>
                             ) : filteredJobs.length === 0 ? (
-                              <p className="px-2 py-2 text-sm text-slate-500">No jobs</p>
+                              <p className="px-2 py-3 text-sm text-slate-500">No jobs</p>
                             ) : (
                               filteredJobs.map((job) => (
                                 <button
@@ -3635,9 +3652,16 @@ export function AddToPipelineModal({
                                       setNotes('');
                                     }
                                   }}
-                                  className="flex w-full rounded-xl px-3 py-2.5 text-left text-sm transition-colors hover:bg-indigo-50"
+                                  className="flex w-full flex-col items-stretch rounded-xl px-3 py-2.5 text-left text-sm transition-colors hover:bg-indigo-50"
                                 >
-                                  <span className="font-medium text-slate-800">{job.title}</span>
+                                  <span className="whitespace-normal break-words font-medium leading-5 text-slate-800">
+                                    {job.title}
+                                  </span>
+                                  {job.department || job.clientName ? (
+                                    <span className="mt-0.5 text-xs font-normal leading-4 text-slate-500">
+                                      {[job.clientName, job.department].filter(Boolean).join(' · ')}
+                                    </span>
+                                  ) : null}
                                 </button>
                               ))
                             )}

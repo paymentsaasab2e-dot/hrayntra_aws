@@ -5,6 +5,7 @@ import type { RecruitmentOverview } from '@/lib/dashboard/api';
 import { HqInfoTip } from '@/components/hq/analytics/HqPhase2DashboardParts';
 import { CrmStatNumber, crmNumFont } from '@/components/dashboard/crm/crmStatNumber';
 import { formatNum, useRecDashboard } from './recShared';
+import { buildRecOwnershipDrillDown } from './recDrillDown';
 import {
   REC_CARD_COMPACT,
   REC_CARD_PAD,
@@ -83,7 +84,7 @@ export function RecTeamIntelligence({ overview }: Props) {
           <RecStatShell
             className={REC_CARD_COMPACT}
             info="Share of listed jobs with an assignee."
-            onClick={() => openDrillDown({ title: 'Job ownership', href: '/job', rows: [{ Owned: owned, Open: unassigned }] })}
+            onClick={() => openDrillDown(buildRecOwnershipDrillDown(overview))}
           >
             <p className="text-[11px] font-medium text-slate-500">Job ownership</p>
             <CrmStatNumber className="mt-1.5" value={`${ownedPct}%`} label="owned" />

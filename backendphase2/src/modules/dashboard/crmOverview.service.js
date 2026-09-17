@@ -403,8 +403,11 @@ export async function getCrmOverview(req) {
       .catch(() => []),
     prisma.lead
       .findMany({
-        where: { ...leadOpen, nextFollowUp: { gte: startOfToday, lte: in7Days } },
-        take: 12,
+        where: {
+          ...leadOpen,
+          nextFollowUp: { not: null, lte: in7Days },
+        },
+        take: 150,
         orderBy: { nextFollowUp: 'asc' },
         select: {
           id: true,
@@ -906,7 +909,7 @@ export async function getCrmOverview(req) {
     prisma.lead
       .findMany({
         where: leadOpen,
-        take: 200,
+        take: 400,
         orderBy: { updatedAt: 'desc' },
         select: {
           id: true,
@@ -933,7 +936,7 @@ export async function getCrmOverview(req) {
     prisma.client
       .findMany({
         where: clientBase,
-        take: 200,
+        take: 400,
         orderBy: { updatedAt: 'desc' },
         select: {
           id: true,
@@ -1233,6 +1236,115 @@ export async function getCrmOverview(req) {
     openPipelineLeads,
   };
 
+  const startMs = startOfToday.getTime();
+  const endTodayMs = endOfToday.getTime();
+  const endTomorrowMs = endTomorrow.getTime();
+  const followupBucketOf = (at) => {
+    if (!at) return 'upcoming';
+    const t = new Date(at).getTime();
+    if (!Number.isFinite(t)) return 'upcoming';
+    if (t < startMs) return 'overdue';
+    if (t <= endTodayMs) return 'today';
+    if (t <= endTomorrowMs) return 'tomorrow';
+    return 'upcoming';
+  };
+
+  const toIso = (value) => {
+    if (!value) return null;
+    const d = value instanceof Date ? value : new Date(value);
+    return Number.isFinite(d.getTime()) ? d.toISOString() : null;
+  };
+
+  const mapLeadFollowup = (l, bucket) => ({
+    id: l.id,
+    company: l.companyName || 'Lead',
+    contact: l.directorName || '',
+    at: toIso(l.nextFollowUp),
+    status: l.status,
+    priority: l.priority,
+    value: parseMoney(l.expectedBusinessValue),
+    assignee: formatPersonName(l.assignedTo) || l.assignedTo?.email || 'Unassigned',
+    href: '/leads',
+    type: 'lead',
+    bucket: bucket || followupBucketOf(l.nextFollowUp),
+  });
+
+  const leadFollowupSelect = {
+    id: true,
+    companyName: true,
+    directorName: true,
+    nextFollowUp: true,
+    lastFollowUp: true,
+    status: true,
+    priority: true,
+    expectedBusinessValue: true,
+    assignedTo: { select: { name: true, email: true } },
+  };
+
+  const [overdueLeadFollowupRows, overdueClientFollowupRows, completedLeadFollowupRows] = await Promise.all([
+    prisma.lead
+      .findMany({
+        where: { ...leadOpen, nextFollowUp: { not: null, lt: startOfToday } },
+        take: 150,
+        orderBy: { nextFollowUp: 'asc' },
+        select: leadFollowupSelect,
+      })
+      .catch(() => []),
+    prisma.client
+      .findMany({
+        where: { ...clientBase, nextFollowUpDue: { not: null, lt: startOfToday } },
+        take: 80,
+        orderBy: { nextFollowUpDue: 'asc' },
+        select: {
+          id: true,
+          companyName: true,
+          nextFollowUpDue: true,
+          status: true,
+          assignedTo: { select: { name: true, email: true } },
+        },
+      })
+      .catch(() => []),
+    prisma.lead
+      .findMany({
+        where: { ...leadBase, lastFollowUp: { gte: startOfToday, lte: endOfToday } },
+        take: 50,
+        orderBy: { lastFollowUp: 'desc' },
+        select: leadFollowupSelect,
+      })
+      .catch(() => []),
+  ]);
+
+  const followupItems = [
+    ...(overdueLeadFollowupRows || []).map((l) => mapLeadFollowup(l, 'overdue')),
+    ...(upcomingFollowupRows || []).map((l) => mapLeadFollowup(l)),
+    ...(overdueClientFollowupRows || []).map((c) => ({
+      id: c.id,
+      company: c.companyName || 'Client',
+      contact: '',
+      at: toIso(c.nextFollowUpDue),
+      status: c.status,
+      priority: '',
+      value: 0,
+      assignee: formatPersonName(c.assignedTo) || c.assignedTo?.email || 'Unassigned',
+      href: '/client',
+      type: 'client',
+      bucket: 'overdue',
+    })),
+    ...(completedLeadFollowupRows || []).map((l) => ({
+      ...mapLeadFollowup({ ...l, nextFollowUp: l.lastFollowUp }, 'completed'),
+      at: toIso(l.lastFollowUp),
+      bucket: 'completed',
+    })),
+  ];
+
+  const seenFollowup = new Set();
+  const uniqueFollowupItems = followupItems.filter((row) => {
+    const key = `${row.type}:${row.id}:${row.bucket}`;
+    if (seenFollowup.has(key)) return false;
+    seenFollowup.add(key);
+    return true;
+  });
+
   return {
     scope: 'crm',
     kpis,
@@ -1306,17 +1418,7 @@ export async function getCrmOverview(req) {
       tomorrow: followupsTomorrow,
       overdue: overdueFollowups,
       completed: followupsCompletedHint,
-      upcoming: (upcomingFollowupRows || []).map((l) => ({
-        id: l.id,
-        company: l.companyName || 'Lead',
-        contact: l.directorName || '',
-        at: l.nextFollowUp,
-        status: l.status,
-        priority: l.priority,
-        value: parseMoney(l.expectedBusinessValue),
-        assignee: formatPersonName(l.assignedTo) || l.assignedTo?.email || 'Unassigned',
-        href: '/leads',
-      })),
+      upcoming: uniqueFollowupItems,
     },
     calendar: (upcomingMeetingTasks || []).map((t) => ({
       id: t.id,

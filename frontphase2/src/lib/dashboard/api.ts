@@ -87,12 +87,14 @@ export type ChartSlice = { name: string; value: number };
 export type UpcomingFollowup = {
   id: string;
   company: string;
+  contact?: string;
   type?: string;
   at?: string | null;
   status?: string;
   priority?: string;
   assignee?: string;
   href?: string;
+  bucket?: string;
 };
 
 export type ScheduleItem = {

@@ -420,7 +420,7 @@ export async function getRecruitmentOverview(req) {
     prisma.job
       .findMany({
         where: jobBase,
-        take: 25,
+        take: 80,
         orderBy: { updatedAt: 'desc' },
         select: {
           id: true,
@@ -445,7 +445,7 @@ export async function getRecruitmentOverview(req) {
     prisma.candidate
       .findMany({
         where: candidateBase,
-        take: 25,
+        take: 80,
         orderBy: { updatedAt: 'desc' },
         select: {
           id: true,
@@ -469,7 +469,7 @@ export async function getRecruitmentOverview(req) {
     prisma.interview
       .findMany({
         where: interviewBase,
-        take: 20,
+        take: 80,
         orderBy: { scheduledAt: 'desc' },
         select: {
           id: true,
@@ -485,7 +485,7 @@ export async function getRecruitmentOverview(req) {
     prisma.placement
       .findMany({
         where: placementBase,
-        take: 20,
+        take: 80,
         orderBy: { updatedAt: 'desc' },
         select: {
           id: true,
@@ -539,7 +539,26 @@ export async function getRecruitmentOverview(req) {
       .catch(() => []),
   ]);
 
-  const [clientIdGroups, recentCandidatesCreated] = await Promise.all([
+  const jobRowSelect = {
+    id: true,
+    title: true,
+    status: true,
+    openings: true,
+    department: true,
+    location: true,
+    priority: true,
+    hot: true,
+    noCandidates: true,
+    slaRisk: true,
+    postedDate: true,
+    createdAt: true,
+    updatedAt: true,
+    client: { select: { companyName: true } },
+    assignedTo: { select: { firstName: true, lastName: true, email: true } },
+    _count: { select: { matches: true, interviews: true, placements: true } },
+  };
+
+  const [clientIdGroups, recentCandidatesCreated, overdueFeedbackRows, emptyJobRows, slaJobRows] = await Promise.all([
     prisma.job.groupBy({ by: ['clientId'], where: jobBase, _count: { _all: true } }).catch(() => []),
     prisma.candidate
       .findMany({
@@ -551,7 +570,53 @@ export async function getRecruitmentOverview(req) {
         take: 800,
       })
       .catch(() => []),
+    prisma.interview
+      .findMany({
+        where: {
+          ...interviewBase,
+          status: 'FEEDBACK_PENDING',
+          scheduledAt: { lt: startOfToday },
+        },
+        take: 80,
+        orderBy: { scheduledAt: 'asc' },
+        select: {
+          id: true,
+          status: true,
+          round: true,
+          scheduledAt: true,
+          createdAt: true,
+          candidate: { select: { firstName: true, lastName: true } },
+          job: { select: { title: true } },
+        },
+      })
+      .catch(() => []),
+    prisma.job
+      .findMany({
+        where: { ...jobBase, status: 'OPEN', noCandidates: true },
+        take: 50,
+        orderBy: { updatedAt: 'desc' },
+        select: jobRowSelect,
+      })
+      .catch(() => []),
+    prisma.job
+      .findMany({
+        where: { ...jobBase, status: 'OPEN', slaRisk: true },
+        take: 50,
+        orderBy: { updatedAt: 'desc' },
+        select: jobRowSelect,
+      })
+      .catch(() => []),
   ]);
+
+  const mergeById = (primary = [], extra = []) => {
+    const map = new Map();
+    for (const row of [...extra, ...primary]) {
+      if (row?.id) map.set(String(row.id), row);
+    }
+    return [...map.values()];
+  };
+  const mergedJobRows = mergeById(mergeById(jobRows, emptyJobRows), slaJobRows);
+  const mergedInterviewRows = mergeById(interviewRows, overdueFeedbackRows);
 
   const jobStatusPie = (jobStatusGroups || [])
     .map((g) => ({ name: prettyLabel(g.status) || 'Other', value: Number(g._count?._all || 0) }))
@@ -856,7 +921,7 @@ export async function getRecruitmentOverview(req) {
     jobsByClient,
     jobSpark,
     sourceSpark,
-    jobsTable: (jobRows || []).map((j) => ({
+    jobsTable: (mergedJobRows || []).map((j) => ({
       id: j.id,
       title: j.title || 'Untitled Job',
       status: j.status || '',
@@ -892,13 +957,13 @@ export async function getRecruitmentOverview(req) {
       updatedAt: c.updatedAt || c.createdAt,
       href: '/candidate',
     })),
-    interviewsTable: (interviewRows || []).map((i) => ({
+    interviewsTable: (mergedInterviewRows || []).map((i) => ({
       id: i.id,
       candidate: formatPersonName(i.candidate) || 'Candidate',
       job: i.job?.title || 'Interview',
       status: i.status || '',
       round: i.round || '',
-      scheduledAt: i.scheduledAt,
+      scheduledAt: i.scheduledAt ? new Date(i.scheduledAt).toISOString() : null,
       href: '/interviews',
     })),
     placementsTable: (placementRows || []).map((p) => ({
