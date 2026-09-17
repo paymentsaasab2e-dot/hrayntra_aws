@@ -311,9 +311,15 @@ function expandSectionForVisibleFields(
     .map((row) => ({ label: row.label, value: display(row.value) }));
 
   if (!cleanedFields.length && !hasEntries) {
-    // Settings-hidden sections stay empty — do not invent a placeholder row that re-shows them.
     if (visibleFields && phase1FieldId && !isFieldIdVisible(phase1FieldId, visibleFields)) {
       return { ...section, fields: [], entries: undefined };
+    }
+    if (phase1FieldId) {
+      return {
+        ...section,
+        fields: [{ label: resolveSectionTitle(section.id, section.title), value: '' }],
+        entries: section.entries,
+      };
     }
     if (visibleFields) {
       return { ...section, fields: [], entries: undefined };
@@ -927,7 +933,7 @@ function omitFieldIdsForSections(
 }
 
 function emptySection(id: string, title: string): ClientReviewSection {
-  return { id, title, fields: [] };
+  return { id, title, fields: [{ label: title, value: '' }] };
 }
 
 function sectionLooksPlaceholderOnly(section: ClientReviewSection): boolean {
@@ -1296,17 +1302,27 @@ export function ClientReviewSectionsPanel({
               {activeProfile.sections.map((section) => {
                 const omitIds = omitFieldIdsForSections(activeProfile.sections)[section.id] || [];
                 const expanded = expandSectionForVisibleFields(section, visibleFields, omitIds, fieldFallbacks);
+                const phase1FieldId = PHASE1_SECTION_FIELD_IDS[section.id];
+                const keepEmptyPhase1 =
+                  Boolean(phase1FieldId) && isFieldIdVisible(phase1FieldId, visibleFields);
                 if (
                   !expanded.fields.length &&
-                  !(Array.isArray(expanded.entries) && expanded.entries.length)
+                  !(Array.isArray(expanded.entries) && expanded.entries.length) &&
+                  !keepEmptyPhase1
                 ) {
                   return null;
                 }
-                const meta = SECTION_META[expanded.id] || { title: expanded.title, icon: FileText };
+                const shown = expanded.fields.length
+                  ? expanded
+                  : {
+                      ...expanded,
+                      fields: [{ label: resolveSectionTitle(section.id, section.title), value: '' }],
+                    };
+                const meta = SECTION_META[shown.id] || { title: shown.title, icon: FileText };
                 const Icon = meta.icon;
                 return (
                   <section
-                    key={expanded.id}
+                    key={shown.id}
                     className="overflow-hidden rounded-2xl border border-indigo-100/80 bg-white shadow-[0_10px_30px_-18px_rgba(79,70,229,0.28)] ring-1 ring-indigo-500/5"
                   >
                     <div className="flex items-center gap-3 border-b border-indigo-50 bg-gradient-to-r from-white via-indigo-50/30 to-violet-50/20 px-5 py-3.5 sm:px-6">
@@ -1314,10 +1330,10 @@ export function ClientReviewSectionsPanel({
                         <Icon size={16} />
                       </span>
                       <h3 className="text-sm font-semibold text-slate-900 sm:text-base">
-                        {meta.title || expanded.title}
+                        {meta.title || shown.title}
                       </h3>
                     </div>
-                    <div className="px-5 py-4 sm:px-6">{renderSectionBody(expanded, tabHideOpts)}</div>
+                    <div className="px-5 py-4 sm:px-6">{renderSectionBody(shown, tabHideOpts)}</div>
                   </section>
                 );
               })}
