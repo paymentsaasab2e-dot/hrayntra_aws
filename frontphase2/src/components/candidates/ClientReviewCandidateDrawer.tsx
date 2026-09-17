@@ -19,6 +19,7 @@ import {
 } from '../../lib/clientTrackerOptions';
 import { isClientReviewFileHref } from '../../lib/clientReviewAssets';
 import { isSubmitToClientCandidateNameVisible } from '../../lib/submitToClientFieldVisibility';
+import { clientReviewFieldFallbacks } from '../../lib/clientReviewFieldFallbacks';
 
 const EASE_OUT = [0.22, 1, 0.36, 1] as const;
 
@@ -457,6 +458,10 @@ export function ClientReviewCandidateDrawer({
                     hideInternalNotes={!tracker.showNotes}
                     hideResumeLinks={!tracker.downloadResume}
                     visibleFields={reviewData.visibleFields}
+                    fieldFallbacks={clientReviewFieldFallbacks({
+                      ...reviewData,
+                      matchScore: reviewData.matchScore ?? row.matchScore,
+                    })}
                     extraTabs={extraTabs}
                   />
                 ) : (

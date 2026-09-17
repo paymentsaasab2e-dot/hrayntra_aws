@@ -25,7 +25,6 @@ export const SUBMIT_TO_CLIENT_FIELDS = [
   'city',
   'state',
   'country',
-  'location',
   'address',
   'zip',
   'avatar',
@@ -54,13 +53,11 @@ export const SUBMIT_TO_CLIENT_FIELDS = [
   'workHistoryText',
   'extracurricular',
   'volunteers',
-  'p1CurrentRole',
   'p1PreferredJobTitles',
   'p1PreferredIndustries',
   'p1FunctionalAreas',
   'p1JobTypes',
   'p1WorkModes',
-  'p1PreferredLocations',
   'p1Relocation',
   'p1AvailabilityToStart',
   'cvWorkExperienceEntries',
@@ -71,7 +68,6 @@ export const SUBMIT_TO_CLIENT_FIELDS = [
   'facebook',
   'stackOverflow',
   'website',
-  'portfolio',
   'cvPortfolioLinks',
   'cvSummary',
   'skills',
@@ -122,7 +118,6 @@ export const SUBMIT_TO_CLIENT_FIELD_GROUPS: SubmitToClientFieldGroup[] = [
       { id: 'city', label: 'City' },
       { id: 'state', label: 'State' },
       { id: 'country', label: 'Country' },
-      { id: 'location', label: 'Location (display)' },
       { id: 'address', label: 'Current Address' },
       { id: 'zip', label: 'Zip' },
       { id: 'avatar', label: 'Candidate Image' },
@@ -163,13 +158,11 @@ export const SUBMIT_TO_CLIENT_FIELD_GROUPS: SubmitToClientFieldGroup[] = [
       { id: 'workHistoryText', label: 'Work history (narrative)' },
       { id: 'extracurricular', label: 'Extracurricular activities' },
       { id: 'volunteers', label: 'Volunteers' },
-      { id: 'p1CurrentRole', label: 'Current role' },
       { id: 'p1PreferredJobTitles', label: 'Preferred job titles' },
       { id: 'p1PreferredIndustries', label: 'Preferred industries' },
       { id: 'p1FunctionalAreas', label: 'Functional areas' },
       { id: 'p1JobTypes', label: 'Job types' },
       { id: 'p1WorkModes', label: 'Work modes' },
-      { id: 'p1PreferredLocations', label: 'Preferred locations' },
       { id: 'p1Relocation', label: 'Relocation' },
       { id: 'p1AvailabilityToStart', label: 'Availability to start' },
     ],
@@ -190,7 +183,6 @@ export const SUBMIT_TO_CLIENT_FIELD_GROUPS: SubmitToClientFieldGroup[] = [
       { id: 'facebook', label: 'Facebook' },
       { id: 'stackOverflow', label: 'Stack Overflow' },
       { id: 'website', label: 'Website' },
-      { id: 'portfolio', label: 'Portfolio URL' },
       { id: 'cvPortfolioLinks', label: 'Portfolio / project links' },
     ],
   },
@@ -210,7 +202,7 @@ export const SUBMIT_TO_CLIENT_FIELD_GROUPS: SubmitToClientFieldGroup[] = [
   },
   {
     id: 'phase1Extra',
-    title: 'Phase 1 extra sections',
+    title: 'Other',
     description: 'Shown when submitting a Phase 1 portal candidate.',
     fields: [
       { id: 'p1Resume', label: 'Resume / CV' },
@@ -229,6 +221,93 @@ export const SUBMIT_TO_CLIENT_FIELD_LABELS: Record<SubmitToClientFieldId, string
   Object.fromEntries(
     SUBMIT_TO_CLIENT_FIELD_GROUPS.flatMap((group) => group.fields.map((field) => [field.id, field.label])),
   ) as Record<SubmitToClientFieldId, string>;
+
+export const DEFAULT_SUBMIT_TO_CLIENT_TABLE_COLUMNS: SubmitToClientFieldId[] = [
+  'firstName',
+  'lastName',
+  'email',
+  'phone',
+  'currentTitle',
+  'currentCompany',
+];
+
+/** Previous factory lists — treat as unset so tenants pick up First Name + 5 other columns. */
+const LEGACY_DEFAULT_SUBMIT_TO_CLIENT_TABLE_COLUMNS: readonly string[] = [
+  'firstName',
+  'lastName',
+  'email',
+  'phone',
+  'currentTitle',
+  'currentCompany',
+  'city',
+  'state',
+  'country',
+  'preferredLocation',
+  'skills',
+  'cvEducationEntries',
+  'experience',
+  'candidateScore',
+];
+
+const PREVIOUS_FIVE_COLUMN_SUBMIT_TO_CLIENT_TABLE: readonly string[] = [
+  'lastName',
+  'email',
+  'phone',
+  'currentTitle',
+  'currentCompany',
+];
+
+const SUBMIT_TO_CLIENT_FIELD_ID_SET = new Set<string>(SUBMIT_TO_CLIENT_FIELDS);
+
+function isLegacyUncustomizedTableColumns(raw: unknown): boolean {
+  if (!Array.isArray(raw) || raw.length === 0) return true;
+  const ids = raw.map((item) => String(item || '').trim()).filter(Boolean);
+  if (ids.join(',') === LEGACY_DEFAULT_SUBMIT_TO_CLIENT_TABLE_COLUMNS.join(',')) return true;
+  if (ids.join(',') === PREVIOUS_FIVE_COLUMN_SUBMIT_TO_CLIENT_TABLE.join(',')) return true;
+  if (ids.length <= DEFAULT_SUBMIT_TO_CLIENT_TABLE_COLUMNS.length) return false;
+  const legacy = LEGACY_DEFAULT_SUBMIT_TO_CLIENT_TABLE_COLUMNS;
+  const legacySet = new Set(legacy);
+  if (ids.some((id) => !legacySet.has(id))) return false;
+  let index = 0;
+  for (const id of ids) {
+    while (index < legacy.length && legacy[index] !== id) index += 1;
+    if (index >= legacy.length) return false;
+    index += 1;
+  }
+  return true;
+}
+
+export function parseSubmitToClientTableColumns(
+  raw: unknown,
+  visibility?: Partial<SubmitToClientFieldVisibility> | null,
+): SubmitToClientFieldId[] {
+  const parsedVisibility = parseSubmitToClientFieldVisibility(visibility ?? DEFAULT_SUBMIT_TO_CLIENT_FIELD_VISIBILITY);
+  const source = isLegacyUncustomizedTableColumns(raw)
+    ? DEFAULT_SUBMIT_TO_CLIENT_TABLE_COLUMNS
+    : Array.isArray(raw)
+      ? raw
+      : DEFAULT_SUBMIT_TO_CLIENT_TABLE_COLUMNS;
+  const seen = new Set<SubmitToClientFieldId>();
+  const next: SubmitToClientFieldId[] = [];
+  for (const item of source) {
+    const id = String(item || '').trim() as SubmitToClientFieldId;
+    if (!SUBMIT_TO_CLIENT_FIELD_ID_SET.has(id) || seen.has(id)) continue;
+    if (parsedVisibility[id] === false) continue;
+    seen.add(id);
+    next.push(id);
+  }
+  return next.length > 0 ? next : [...DEFAULT_SUBMIT_TO_CLIENT_TABLE_COLUMNS];
+}
+
+export function submitToClientTableColumnsEqual(
+  a: readonly string[] | null | undefined,
+  b: readonly string[] | null | undefined,
+): boolean {
+  const left = Array.isArray(a) ? a : [];
+  const right = Array.isArray(b) ? b : [];
+  if (left.length !== right.length) return false;
+  return left.every((id, index) => id === right[index]);
+}
 
 function fieldsForGroup(groupId: string): SubmitToClientFieldId[] {
   return SUBMIT_TO_CLIENT_FIELD_GROUPS.find((group) => group.id === groupId)?.fields.map((field) => field.id) ?? [];
@@ -262,7 +341,6 @@ export const SUBMIT_TO_CLIENT_REVIEW_LABEL_FIELDS: Record<string, SubmitToClient
   city: ['city'],
   state: ['state'],
   country: ['country'],
-  'location (display)': ['location'],
   'current address': ['address'],
   zip: ['zip'],
   'candidate image': ['avatar'],
@@ -281,18 +359,18 @@ export const SUBMIT_TO_CLIENT_REVIEW_LABEL_FIELDS: Record<string, SubmitToClient
   remarks: ['remarks'],
   'experience (years)': ['experience'],
   'current designation': ['currentTitle'],
+  'current role': ['currentTitle'],
   'current employer': ['currentCompany'],
   'current salary': ['currentSalary'],
   'current salary currency': ['currentSalaryCurrency'],
   'current benefits': ['currentBenefits'],
   'expected salary': ['expectedSalary'],
-  'current role': ['p1CurrentRole', 'currentTitle'],
   'preferred job titles': ['p1PreferredJobTitles'],
   'preferred industries': ['p1PreferredIndustries'],
   'functional areas': ['p1FunctionalAreas'],
   'job types': ['p1JobTypes'],
   'work modes': ['p1WorkModes'],
-  'preferred locations': ['p1PreferredLocations'],
+  'preferred locations': ['preferredLocation'],
   relocation: ['p1Relocation'],
   'availability to start': ['p1AvailabilityToStart'],
   'salary expectation': ['expectedSalary'],
@@ -311,7 +389,7 @@ export const SUBMIT_TO_CLIENT_REVIEW_LABEL_FIELDS: Record<string, SubmitToClient
   facebook: ['facebook'],
   'stack overflow': ['stackOverflow'],
   website: ['website'],
-  'portfolio url': ['portfolio'],
+  'portfolio url': ['cvPortfolioLinks'],
   'portfolio / project links': ['cvPortfolioLinks'],
   summary: ['cvSummary'],
   skills: ['skills'],
@@ -325,6 +403,16 @@ export const SUBMIT_TO_CLIENT_REVIEW_LABEL_FIELDS: Record<string, SubmitToClient
   'internal notes': ['notes'],
   'file name': ['p1Resume'],
   'ats readiness': ['p1Resume'],
+  'resume / cv': ['p1Resume'],
+  internships: ['p1Internships'],
+  'gap explanation': ['p1Gap'],
+  'academic achievements': ['p1Academic'],
+  'competitive exams': ['p1Exams'],
+  accomplishments: ['p1Accomplishments'],
+  'visa & work authorization': ['p1Visa'],
+  vaccination: ['p1Vaccination'],
+  languages: ['languageProficiency'],
+  'portfolio links': ['cvPortfolioLinks'],
 };
 
 const PHASE1_SECTION_FIELDS: Record<Phase1ClientSectionId, SubmitToClientFieldId[]> = {
@@ -340,7 +428,7 @@ const PHASE1_SECTION_FIELDS: Record<Phase1ClientSectionId, SubmitToClientFieldId
   skills: ['skills'],
   languages: ['languageProficiency'],
   projects: ['projects'],
-  portfolio: ['cvPortfolioLinks', 'portfolio'],
+  portfolio: ['cvPortfolioLinks'],
   certifications: ['certifications'],
   accomplishments: ['p1Accomplishments'],
   careerPreferences: [
@@ -358,13 +446,11 @@ const PHASE1_SECTION_FIELDS: Record<Phase1ClientSectionId, SubmitToClientFieldId
     'workHistoryText',
     'extracurricular',
     'volunteers',
-    'p1CurrentRole',
     'p1PreferredJobTitles',
     'p1PreferredIndustries',
     'p1FunctionalAreas',
     'p1JobTypes',
     'p1WorkModes',
-    'p1PreferredLocations',
     'p1Relocation',
     'p1AvailabilityToStart',
   ],
@@ -499,6 +585,15 @@ function normalizeReviewLabel(label: string): string {
     .replace(/\s+/g, ' ');
 }
 
+const COMPOSITE_REVIEW_LABELS = new Set([
+  'name',
+  'full name',
+  'name of candidate',
+  'city & state',
+  'salary expectation',
+  'location (display)',
+]);
+
 function reviewFieldIdsForLabel(label: string): SubmitToClientFieldId[] | null {
   const key = normalizeReviewLabel(label);
   if (SUBMIT_TO_CLIENT_REVIEW_LABEL_FIELDS[key]) {
@@ -520,14 +615,19 @@ export function isSubmitToClientCandidateNameVisible(
 export function isSubmitToClientReviewFieldVisible(
   label: string,
   visibility?: Partial<SubmitToClientFieldVisibility> | null,
+  sectionId?: string,
 ): boolean {
   if (!visibility) return true;
+  const key = normalizeReviewLabel(label);
+  if (COMPOSITE_REVIEW_LABELS.has(key)) return false;
   const ids = reviewFieldIdsForLabel(label);
+  const fallbackIds = sectionId ? REVIEW_SECTION_ENTRY_FIELDS[sectionId] : null;
+  const resolved = ids || fallbackIds || null;
   // When Settings → Submit to Client defaults exist, only known allowlisted labels may show.
   // Unmapped leftovers must not leak permanently hidden data.
-  if (!ids) return false;
+  if (!resolved) return false;
   const parsed = parseSubmitToClientFieldVisibility(visibility);
-  return ids.some((id) => parsed[id] !== false);
+  return resolved.some((id) => parsed[id] !== false);
 }
 
 const REVIEW_SECTION_ENTRY_FIELDS: Record<string, SubmitToClientFieldId[]> = {
@@ -545,7 +645,7 @@ const REVIEW_SECTION_ENTRY_FIELDS: Record<string, SubmitToClientFieldId[]> = {
   skills: ['skills'],
   languages: ['languageProficiency'],
   projects: ['projects'],
-  portfolio: ['cvPortfolioLinks', 'portfolio'],
+  portfolio: ['cvPortfolioLinks'],
   certifications: ['certifications'],
   accomplishments: ['p1Accomplishments'],
   careerPreferences: PHASE1_SECTION_FIELDS.careerPreferences,
@@ -564,7 +664,7 @@ export function applySubmitToClientFieldVisibilityToReviewSections(
       const entryFields = REVIEW_SECTION_ENTRY_FIELDS[section.id];
       const entriesAllowed = !entryFields || entryFields.some((id) => parsed[id] !== false);
       const fields = (section.fields || []).filter((row) =>
-        isSubmitToClientReviewFieldVisible(row.label, parsed),
+        isSubmitToClientReviewFieldVisible(row.label, parsed, section.id),
       );
       const entries = entriesAllowed ? section.entries : undefined;
       return {

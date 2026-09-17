@@ -119,7 +119,6 @@ export function buildPhase1ClientReviewSections(snapshot, visibility) {
   const pi = snapshot.personalInfo || {};
 
   if (isVisible('personal', visible)) {
-    const fullName = [pi.firstName, pi.middleName, pi.lastName].filter(Boolean).join(' ').trim();
     const phone = [pi.phoneCode, pi.phone].map((v) => str(v)).filter(Boolean).join(' ');
     appendVisibleSection(
       sections,
@@ -128,7 +127,6 @@ export function buildPhase1ClientReviewSections(snapshot, visibility) {
         ['First name', pi.firstName],
         ['Middle name', pi.middleName],
         ['Last name', pi.lastName],
-        ['Full name', fullName],
         ['Email', pi.email],
         ['Phone code', pi.phoneCode],
         ['Mobile', phone],

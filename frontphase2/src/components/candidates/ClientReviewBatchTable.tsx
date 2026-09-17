@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Eye, FileText, Loader2, MessageSquareText } from 'lucide-react';
 import {
   CLIENT_PIPELINE_STAGE_CHOICES,
@@ -11,7 +11,13 @@ import {
   clientTrackerAllowsResponse,
   normalizeClientTrackerOptions,
 } from '../../lib/clientTrackerOptions';
-import { isSubmitToClientReviewFieldVisible, isSubmitToClientCandidateNameVisible } from '../../lib/submitToClientFieldVisibility';
+import {
+  parseSubmitToClientTableColumns,
+  SUBMIT_TO_CLIENT_FIELD_LABELS,
+  SUBMIT_TO_CLIENT_REVIEW_LABEL_FIELDS,
+  type SubmitToClientFieldId,
+} from '../../lib/submitToClientFieldVisibility';
+import { ageFromBirthDate } from '../../lib/clientReviewFieldFallbacks';
 
 type Props = {
   rows: ClientReviewBatchRow[];
@@ -25,6 +31,44 @@ type Props = {
   /** Called after a stage is saved from the table dropdown. */
   onStageSubmitted?: (matchId: string, stageLabel: string) => void;
 };
+
+type TableCellValue =
+  | { kind: 'text'; text: string }
+  | { kind: 'chips'; chips: string[] }
+  | { kind: 'score'; score: number }
+  | { kind: 'empty' };
+
+const CHIP_FIELDS = new Set<SubmitToClientFieldId>([
+  'skills',
+  'languageProficiency',
+  'certifications',
+  'educationCourses',
+  'p1PreferredJobTitles',
+  'p1PreferredIndustries',
+  'p1FunctionalAreas',
+  'p1JobTypes',
+  'p1WorkModes',
+]);
+
+const NAME_FIELDS = new Set<SubmitToClientFieldId>(['firstName', 'middleName', 'lastName']);
+
+const LABEL_KEYS_BY_FIELD: Record<SubmitToClientFieldId, string[]> = (() => {
+  const map = {} as Record<SubmitToClientFieldId, string[]>;
+  for (const [fieldId, label] of Object.entries(SUBMIT_TO_CLIENT_FIELD_LABELS) as Array<
+    [SubmitToClientFieldId, string]
+  >) {
+    map[fieldId] = [label.trim().toLowerCase()];
+  }
+  for (const [label, ids] of Object.entries(SUBMIT_TO_CLIENT_REVIEW_LABEL_FIELDS)) {
+    if (ids.length !== 1) continue;
+    const fieldId = ids[0];
+    if (!fieldId) continue;
+    const next = map[fieldId] ?? [];
+    if (!next.includes(label)) next.push(label);
+    map[fieldId] = next;
+  }
+  return map;
+})();
 
 function stageBadgeClass(stage: string): string {
   const n = stage.toLowerCase();
@@ -41,32 +85,72 @@ function candidateOf(row: ClientReviewBatchRow) {
   return row.detail?.candidate || {};
 }
 
-function locationLabel(row: ClientReviewBatchRow) {
-  const canLocation = isSubmitToClientReviewFieldVisible(
-    'Location (display)',
-    row.detail?.visibleFields,
+function assignedColumnsForRows(rows: ClientReviewBatchRow[]): SubmitToClientFieldId[] {
+  if (!rows.length) return parseSubmitToClientTableColumns(null);
+  const first = parseSubmitToClientTableColumns(
+    rows[0]?.detail?.tableColumns,
+    rows[0]?.detail?.visibleFields,
   );
-  const canCity = isSubmitToClientReviewFieldVisible('City', row.detail?.visibleFields);
-  const canCountry = isSubmitToClientReviewFieldVisible('Country', row.detail?.visibleFields);
-  if (!canLocation && !canCity && !canCountry) return '';
+  const seen = new Set(first);
+  const extra: SubmitToClientFieldId[] = [];
+  for (const row of rows.slice(1)) {
+    for (const id of parseSubmitToClientTableColumns(row.detail?.tableColumns, row.detail?.visibleFields)) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      extra.push(id);
+    }
+  }
+  return [...first, ...extra];
+}
 
-  const candidate = candidateOf(row);
-  const parts = [canCity ? candidate.city : '', canCountry ? candidate.country : '']
-    .map((part) => String(part || '').trim())
+function nameParts(row: ClientReviewBatchRow) {
+  const name = String(row.detail?.candidate?.name || row.candidateName || '').trim();
+  const parts = name.split(/\s+/).filter(Boolean);
+  return {
+    first: parts[0] || '',
+    middle: parts.length > 2 ? parts.slice(1, -1).join(' ') : '',
+    last: parts.length > 1 ? parts[parts.length - 1] : '',
+  };
+}
+
+function initialsFor(row: ClientReviewBatchRow) {
+  const name = String(row.detail?.candidate?.name || row.candidateName || 'C').trim() || 'C';
+  return (
+    name
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0])
+      .join('')
+      .toUpperCase() || 'C'
+  );
+}
+
+function splitList(raw: string): string[] {
+  return raw
+    .split(/[,|\n]/)
+    .map((part) => part.trim())
     .filter(Boolean);
-  if (parts.length) return Array.from(new Set(parts)).join(', ');
-  if (!canLocation) return '';
-  return String(candidate.address || '').trim();
 }
 
-function skillsLabel(row: ClientReviewBatchRow) {
-  if (!isSubmitToClientReviewFieldVisible('Skills', row.detail?.visibleFields)) return [];
-  const candidate = candidateOf(row);
-  const fromCandidate = Array.isArray(candidate.skills)
-    ? candidate.skills.map((skill) => String(skill || '').trim()).filter(Boolean)
-    : [];
-  if (fromCandidate.length) return fromCandidate.slice(0, 3);
+function compactEntry(
+  entry: Record<string, unknown> | undefined,
+  titleKeys: string[],
+  subKeys: string[],
+): string {
+  if (!entry) return '';
+  const title = titleKeys
+    .map((key) => String(entry[key] || '').trim())
+    .find(Boolean);
+  const sub = subKeys
+    .map((key) => String(entry[key] || '').trim())
+    .find(Boolean);
+  if (title && sub) return `${title} · ${sub}`;
+  return title || sub || '';
+}
 
+function presentationValue(row: ClientReviewBatchRow, fieldId: SubmitToClientFieldId): string {
+  const labels = new Set(LABEL_KEYS_BY_FIELD[fieldId] || []);
   const sections = Array.isArray(row.detail?.presentationSections)
     ? row.detail.presentationSections
     : [];
@@ -75,87 +159,197 @@ function skillsLabel(row: ClientReviewBatchRow) {
       const label = String(field.label || '')
         .trim()
         .toLowerCase();
-      if (label !== 'skills' && label !== 'domain of expertise') continue;
-      const parts = String(field.value || '')
-        .split(/[,|\n]/)
-        .map((part) => part.trim())
-        .filter(Boolean);
-      if (parts.length) return parts.slice(0, 3);
-    }
-  }
-  return [];
-}
-
-function educationLabel(row: ClientReviewBatchRow) {
-  const canShowEntries = isSubmitToClientReviewFieldVisible(
-    'Education entries',
-    row.detail?.visibleFields,
-  );
-  const canShowSummary = isSubmitToClientReviewFieldVisible(
-    'Education summary',
-    row.detail?.visibleFields,
-  );
-  if (!canShowEntries && !canShowSummary) return '';
-
-  const candidate = candidateOf(row);
-  if (canShowEntries) {
-    const entries = Array.isArray(candidate.cvEducationEntries) ? candidate.cvEducationEntries : [];
-    const first = entries.find((entry) =>
-      String(
-        entry?.degree || entry?.institution || (entry as { instituteName?: string })?.instituteName || '',
-      ).trim(),
-    );
-    if (first) {
-      const degree = String(first.degree || '').trim();
-      const institution = String(
-        first.institution || (first as { instituteName?: string }).instituteName || '',
-      ).trim();
-      if (degree && institution) return `${degree} · ${institution}`;
-      return degree || institution;
-    }
-  }
-  if (canShowSummary) {
-    const raw = String(candidate.education || '').trim();
-    if (raw) return raw.split('|')[0]?.trim() || raw;
-  }
-
-  const sections = Array.isArray(row.detail?.presentationSections)
-    ? row.detail.presentationSections
-    : [];
-  for (const section of sections) {
-    if (
-      canShowEntries &&
-      String(section.id || '').toLowerCase() === 'education' &&
-      Array.isArray(section.entries)
-    ) {
-      const entry = section.entries[0];
-      if (entry) {
-        const degree = String(entry.degreeProgram || entry.degree || entry.title || '').trim();
-        const institution = String(
-          entry.institutionName || entry.institution || entry.company || '',
-        ).trim();
-        if (degree && institution) return `${degree} · ${institution}`;
-        if (degree || institution) return degree || institution;
-      }
-    }
-    if (!canShowSummary) continue;
-    for (const field of section.fields || []) {
-      const label = String(field.label || '')
-        .trim()
-        .toLowerCase();
-      if (!label.includes('education')) continue;
+      if (!labels.has(label)) continue;
       const value = String(field.value || '').trim();
-      if (value) return value.split('|')[0]?.trim() || value;
+      if (value) return value;
     }
   }
   return '';
 }
 
-function companyLabel(row: ClientReviewBatchRow) {
-  if (!isSubmitToClientReviewFieldVisible('Current Employer', row.detail?.visibleFields)) {
-    return '';
+function educationEntriesValue(row: ClientReviewBatchRow): string {
+  const candidate = candidateOf(row);
+  const entries = Array.isArray(candidate.cvEducationEntries) ? candidate.cvEducationEntries : [];
+  const first = entries.find((entry) =>
+    String(entry?.degree || entry?.institution || '').trim(),
+  );
+  if (first) {
+    const degree = String(first.degree || '').trim();
+    const institution = String(first.institution || '').trim();
+    const text = degree && institution ? `${degree} · ${institution}` : degree || institution;
+    if (entries.length > 1) return `${text} +${entries.length - 1}`;
+    return text;
   }
-  return String(candidateOf(row).currentCompany || row.designation || '').trim();
+
+  const sections = Array.isArray(row.detail?.presentationSections)
+    ? row.detail.presentationSections
+    : [];
+  for (const section of sections) {
+    if (String(section.id || '').toLowerCase() !== 'education') continue;
+    if (!Array.isArray(section.entries) || !section.entries.length) continue;
+    const text = compactEntry(
+      section.entries[0] as Record<string, unknown>,
+      ['degreeProgram', 'degree', 'title'],
+      ['institutionName', 'institution', 'company'],
+    );
+    if (!text) continue;
+    return section.entries.length > 1 ? `${text} +${section.entries.length - 1}` : text;
+  }
+  return presentationValue(row, 'cvEducationEntries');
+}
+
+function workEntriesValue(row: ClientReviewBatchRow): string {
+  const candidate = candidateOf(row);
+  const entries = Array.isArray(candidate.cvWorkExperienceEntries)
+    ? candidate.cvWorkExperienceEntries
+    : [];
+  const first = entries.find((entry) => String(entry?.title || entry?.company || '').trim());
+  if (first) {
+    const title = String(first.title || '').trim();
+    const company = String(first.company || '').trim();
+    const text = title && company ? `${title} · ${company}` : title || company;
+    if (entries.length > 1) return `${text} +${entries.length - 1}`;
+    return text;
+  }
+
+  const sections = Array.isArray(row.detail?.presentationSections)
+    ? row.detail.presentationSections
+    : [];
+  for (const section of sections) {
+    if (String(section.id || '').toLowerCase() !== 'work') continue;
+    if (!Array.isArray(section.entries) || !section.entries.length) continue;
+    const text = compactEntry(
+      section.entries[0] as Record<string, unknown>,
+      ['title', 'role', 'designation'],
+      ['company', 'employer'],
+    );
+    if (!text) continue;
+    return section.entries.length > 1 ? `${text} +${section.entries.length - 1}` : text;
+  }
+  return presentationValue(row, 'cvWorkExperienceEntries');
+}
+
+function resolveTableCell(row: ClientReviewBatchRow, fieldId: SubmitToClientFieldId): TableCellValue {
+  const candidate = candidateOf(row);
+  const names = nameParts(row);
+  let text = '';
+
+  switch (fieldId) {
+    case 'firstName':
+      text = presentationValue(row, fieldId) || names.first;
+      break;
+    case 'middleName':
+      text = presentationValue(row, fieldId) || names.middle;
+      break;
+    case 'lastName':
+      text = presentationValue(row, fieldId) || names.last;
+      break;
+    case 'email':
+      text = String(candidate.email || '').trim() || presentationValue(row, fieldId);
+      break;
+    case 'phone':
+      text = String(candidate.phone || '').trim() || presentationValue(row, fieldId);
+      break;
+    case 'currentTitle':
+      text =
+        String(candidate.designation || row.designation || '').trim() ||
+        presentationValue(row, fieldId);
+      break;
+    case 'currentCompany':
+      text = String(candidate.currentCompany || '').trim() || presentationValue(row, fieldId);
+      break;
+    case 'city':
+      text = String(candidate.city || '').trim() || presentationValue(row, fieldId);
+      break;
+    case 'state':
+      text = String(candidate.state || '').trim() || presentationValue(row, fieldId);
+      break;
+    case 'country':
+      text = String(candidate.country || '').trim() || presentationValue(row, fieldId);
+      break;
+    case 'preferredLocation':
+      text = String(candidate.preferredLocation || '').trim() || presentationValue(row, fieldId);
+      break;
+    case 'address':
+      text = String(candidate.address || '').trim() || presentationValue(row, fieldId);
+      break;
+    case 'age': {
+      text =
+        String(candidate.age || '').trim() ||
+        ageFromBirthDate(candidate.birthDate) ||
+        presentationValue(row, fieldId) ||
+        ageFromBirthDate(presentationValue(row, 'birthDate'));
+      break;
+    }
+    case 'birthDate':
+      text = String(candidate.birthDate || '').trim() || presentationValue(row, fieldId);
+      break;
+    case 'experience': {
+      const experience = row.experience ?? candidate.experience;
+      text = Number.isFinite(Number(experience))
+        ? String(Number(experience))
+        : presentationValue(row, fieldId);
+      break;
+    }
+    case 'candidateScore': {
+      if (row.detail?.trackerOptions?.showScore === false) return { kind: 'empty' };
+      const score = row.matchScore ?? row.detail?.matchScore;
+      if (Number.isFinite(Number(score))) return { kind: 'score', score: Math.round(Number(score)) };
+      text = presentationValue(row, fieldId);
+      break;
+    }
+    case 'skills': {
+      const fromCandidate = Array.isArray(candidate.skills)
+        ? candidate.skills.map((skill) => String(skill || '').trim()).filter(Boolean)
+        : [];
+      const chips = fromCandidate.length ? fromCandidate : splitList(presentationValue(row, fieldId));
+      return chips.length ? { kind: 'chips', chips: chips.slice(0, 4) } : { kind: 'empty' };
+    }
+    case 'languageProficiency': {
+      const fromCandidate = Array.isArray(candidate.languages)
+        ? candidate.languages.map((lang) => String(lang || '').trim()).filter(Boolean)
+        : [];
+      const chips = fromCandidate.length ? fromCandidate : splitList(presentationValue(row, fieldId));
+      return chips.length ? { kind: 'chips', chips: chips.slice(0, 4) } : { kind: 'empty' };
+    }
+    case 'certifications': {
+      const fromCandidate = Array.isArray(candidate.certifications)
+        ? candidate.certifications.map((item) => String(item || '').trim()).filter(Boolean)
+        : [];
+      const chips = fromCandidate.length ? fromCandidate : splitList(presentationValue(row, fieldId));
+      return chips.length ? { kind: 'chips', chips: chips.slice(0, 4) } : { kind: 'empty' };
+    }
+    case 'cvEducationEntries':
+      text = educationEntriesValue(row);
+      break;
+    case 'educationSummary':
+      text = String(candidate.education || '').trim() || presentationValue(row, fieldId);
+      break;
+    case 'cvWorkExperienceEntries':
+      text = workEntriesValue(row);
+      break;
+    case 'cvSummary':
+      text = String(candidate.cvSummary || '').trim() || presentationValue(row, fieldId);
+      break;
+    case 'linkedIn':
+      text = String(candidate.linkedIn || '').trim() || presentationValue(row, fieldId);
+      break;
+    case 'p1Resume':
+      text = resumeUrlOf(row) ? 'Available' : presentationValue(row, fieldId);
+      break;
+    case 'avatar':
+      text = presentationValue(row, fieldId) || initialsFor(row);
+      break;
+    default:
+      text = presentationValue(row, fieldId);
+  }
+
+  if (CHIP_FIELDS.has(fieldId) && text) {
+    const chips = splitList(text);
+    if (chips.length > 1) return { kind: 'chips', chips: chips.slice(0, 4) };
+  }
+  const trimmed = text.trim();
+  return trimmed ? { kind: 'text', text: trimmed } : { kind: 'empty' };
 }
 
 function resumeUrlOf(row: ClientReviewBatchRow): string {
@@ -182,6 +376,52 @@ function stageOptionsFor(row: ClientReviewBatchRow): Array<{ id: string; name: s
     .filter((stage) => stage.name);
 }
 
+function TableCellContent({
+  row,
+  fieldId,
+  showAvatar,
+}: {
+  row: ClientReviewBatchRow;
+  fieldId: SubmitToClientFieldId;
+  showAvatar: boolean;
+}) {
+  const value = resolveTableCell(row, fieldId);
+  const body =
+    value.kind === 'chips' ? (
+      <div className="flex max-w-[16rem] flex-wrap gap-1">
+        {value.chips.map((chip) => (
+          <span
+            key={chip}
+            className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700"
+          >
+            {chip}
+          </span>
+        ))}
+      </div>
+    ) : value.kind === 'score' ? (
+      <span className="text-slate-600">{value.score}</span>
+    ) : value.kind === 'text' ? (
+      <span className="block max-w-[14rem] truncate text-slate-600" title={value.text}>
+        {value.text}
+      </span>
+    ) : (
+      <span className="text-slate-400">—</span>
+    );
+
+  if (!showAvatar) return body;
+
+  const nameText = value.kind === 'text' ? value.text : nameParts(row).first || 'Candidate';
+  return (
+    <div className="flex items-center gap-3">
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-sky-500 text-xs font-bold text-white">
+        {initialsFor(row)}
+      </span>
+      <div className="min-w-0">{value.kind === 'empty' ? <span className="text-slate-400">—</span> : body}</div>
+      {nameText ? <span className="sr-only">{nameText}</span> : null}
+    </div>
+  );
+}
+
 export function ClientReviewBatchTable({
   rows,
   onView,
@@ -194,21 +434,9 @@ export function ClientReviewBatchTable({
   const [savingMatchId, setSavingMatchId] = useState<string | null>(null);
   const [stageErrorByMatchId, setStageErrorByMatchId] = useState<Record<string, string>>({});
 
-  const showScore = rows.some((row) => {
-    const score = row.matchScore ?? row.detail?.matchScore;
-    return (
-      Number.isFinite(Number(score)) &&
-      row.detail?.trackerOptions?.showScore !== false &&
-      isSubmitToClientReviewFieldVisible('Candidate Score', row.detail?.visibleFields)
-    );
-  });
+  const tableColumns = useMemo(() => assignedColumnsForRows(rows), [rows]);
+  const leadNameField = tableColumns.find((fieldId) => NAME_FIELDS.has(fieldId)) ?? null;
   const viewEnabled = rows.some((row) => row.detail?.trackerOptions?.viewProfile !== false);
-  const showCompany = rows.some((row) => Boolean(companyLabel(row)));
-  const showXp = rows.some(
-    (row) =>
-      Number.isFinite(Number(row.experience ?? row.detail?.candidate?.experience)) &&
-      isSubmitToClientReviewFieldVisible('Experience (years)', row.detail?.visibleFields),
-  );
   const showStage = rows.some((row) => normalizeClientTrackerOptions(row.detail?.trackerOptions).changeStage);
 
   const saveStage = async (row: ClientReviewBatchRow, nextStage: string) => {
@@ -279,34 +507,17 @@ export function ClientReviewBatchTable({
           <thead className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur">
             <tr className="border-b border-slate-200 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
               <th className="px-4 py-3.5 sm:px-6 lg:px-8">#</th>
-              <th className="px-4 py-3.5 sm:px-6">Candidate</th>
-              {showCompany ? <th className="px-4 py-3.5 sm:px-6">Company</th> : null}
-              <th className="px-4 py-3.5 sm:px-6">Location</th>
-              <th className="px-4 py-3.5 sm:px-6">Skills</th>
-              <th className="px-4 py-3.5 sm:px-6">Education</th>
-              {showXp ? <th className="px-4 py-3.5 sm:px-6">EXP (yr)</th> : null}
-              {showScore ? <th className="px-4 py-3.5 sm:px-6">Score</th> : null}
+              {tableColumns.map((fieldId) => (
+                <th key={fieldId} className="px-4 py-3.5 sm:px-6">
+                  {SUBMIT_TO_CLIENT_FIELD_LABELS[fieldId]}
+                </th>
+              ))}
               {showStage ? <th className="px-4 py-3.5 sm:px-6">Stage</th> : null}
               <th className="px-4 py-3.5 text-right sm:px-6 lg:px-8">Action</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((row, index) => {
-              const score = row.matchScore ?? row.detail?.matchScore;
-              const location = locationLabel(row);
-              const skills = skillsLabel(row);
-              const education = educationLabel(row);
-              const company = companyLabel(row);
-              const displayName = isSubmitToClientCandidateNameVisible(row.detail?.visibleFields)
-                ? row.candidateName || 'Candidate'
-                : 'Candidate';
-              const email = isSubmitToClientReviewFieldVisible(
-                'E-mail',
-                row.detail?.visibleFields,
-              )
-                ? String(candidateOf(row).email || '').trim()
-                : '';
-              const experience = row.experience ?? row.detail?.candidate?.experience;
               const cvUrl = resumeUrlOf(row);
               const cvAvailable = canOpenCv(row);
               const tracker = normalizeClientTrackerOptions(row.detail?.trackerOptions);
@@ -334,60 +545,15 @@ export function ClientReviewBatchTable({
                   onClick={() => onView(row)}
                 >
                   <td className="px-4 py-4 text-slate-400 sm:px-6 lg:px-8">{index + 1}</td>
-                  <td className="px-4 py-4 sm:px-6">
-                    <div className="flex items-center gap-3">
-                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-sky-500 text-xs font-bold text-white">
-                        {String(displayName || 'C')
-                          .split(/\s+/)
-                          .filter(Boolean)
-                          .slice(0, 2)
-                          .map((part) => part[0])
-                          .join('')
-                          .toUpperCase() || 'C'}
-                      </span>
-                      <div className="min-w-0">
-                        <p className="font-semibold text-slate-900">{displayName}</p>
-                        {email ? <p className="truncate text-xs text-slate-500">{email}</p> : null}
-                      </div>
-                    </div>
-                  </td>
-                  {showCompany ? (
-                    <td className="max-w-[10rem] truncate px-4 py-4 text-slate-600 sm:px-6">
-                      {company || '—'}
+                  {tableColumns.map((fieldId) => (
+                    <td key={fieldId} className="px-4 py-4 sm:px-6">
+                      <TableCellContent
+                        row={row}
+                        fieldId={fieldId}
+                        showAvatar={fieldId === leadNameField}
+                      />
                     </td>
-                  ) : null}
-                  <td className="max-w-[11rem] truncate px-4 py-4 text-slate-600 sm:px-6">
-                    {location || '—'}
-                  </td>
-                  <td className="px-4 py-4 sm:px-6">
-                    {skills.length ? (
-                      <div className="flex max-w-[16rem] flex-wrap gap-1">
-                        {skills.map((skill) => (
-                          <span
-                            key={skill}
-                            className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700"
-                          >
-                            {skill}
-                          </span>
-                        ))}
-                      </div>
-                    ) : (
-                      <span className="text-slate-400">—</span>
-                    )}
-                  </td>
-                  <td className="max-w-[16rem] truncate px-4 py-4 text-slate-600 sm:px-6">
-                    {education || '—'}
-                  </td>
-                  {showXp ? (
-                    <td className="px-4 py-4 text-slate-600 sm:px-6">
-                      {Number.isFinite(Number(experience)) ? Number(experience) : '—'}
-                    </td>
-                  ) : null}
-                  {showScore ? (
-                    <td className="px-4 py-4 text-slate-600 sm:px-6">
-                      {Number.isFinite(Number(score)) ? Math.round(Number(score)) : '—'}
-                    </td>
-                  ) : null}
+                  ))}
                   {showStage ? (
                     <td className="px-4 py-4 sm:px-6" onClick={(event) => event.stopPropagation()}>
                       {canPickStage && token && apiBase ? (

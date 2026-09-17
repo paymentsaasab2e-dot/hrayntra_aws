@@ -6,6 +6,7 @@ import type { ClientReviewData } from '../../lib/clientReviewTypes';
 import { ClientReviewSectionsPanel } from './ClientReviewSectionsPanel';
 import { normalizeClientTrackerOptions } from '../../lib/clientTrackerOptions';
 import { isClientReviewFileHref } from '../../lib/clientReviewAssets';
+import { clientReviewFieldFallbacks } from '../../lib/clientReviewFieldFallbacks';
 
 const CVEditorModal = dynamic(() => import('../CVEditorModal'), { ssr: false });
 
@@ -140,6 +141,7 @@ export function ClientReviewCandidatePanel({ reviewData, variant = 'page' }: Pro
             hideInternalNotes={!tracker.showNotes}
             hideResumeLinks={!tracker.downloadResume}
             visibleFields={reviewData?.visibleFields ?? null}
+            fieldFallbacks={clientReviewFieldFallbacks(reviewData)}
           />
         ) : (
           <div className="rounded-3xl bg-slate-50 px-5 py-4 ring-1 ring-slate-200/70">
