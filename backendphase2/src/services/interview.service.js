@@ -71,6 +71,7 @@ import {
   applyVisibleFieldsToClientCandidate,
   parseClientReviewTableColumns,
   hydrateClientReviewSections,
+  attachSharedResumeToClientReviewSections,
   ageFromBirthDate,
 } from '../utils/clientReviewSections.js';
 import {
@@ -1658,6 +1659,10 @@ async function serializeInterviewForClientReview(
     cvShareMode === 'saasa'
       ? saasaCvUrl
       : String(c.resume || c.resumeUrl || submissionSnapshot?.resume || '').trim();
+  presentationSections = attachSharedResumeToClientReviewSections(
+    presentationSections,
+    sharedResumeUrl,
+  );
 
   const payload = {
     matchId: matchId || interview.id,

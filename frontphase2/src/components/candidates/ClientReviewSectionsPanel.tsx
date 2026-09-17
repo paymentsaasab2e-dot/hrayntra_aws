@@ -5,6 +5,7 @@ import {
   Award,
   Briefcase,
   ChevronDown,
+  ExternalLink,
   FileText,
   GraduationCap,
   Globe2,
@@ -100,6 +101,49 @@ function display(value: unknown): string {
   return raw;
 }
 
+function isOpenableResumeHref(value: string): boolean {
+  const raw = String(value || '').trim();
+  if (!raw) return false;
+  return raw.startsWith('http') || isClientReviewFileHref(raw);
+}
+
+function ResumeOpenButton({ href }: { href: string }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+    >
+      <ExternalLink size={14} />
+      Open in new tab
+    </a>
+  );
+}
+
+function applySharedResumeUrl(
+  section: ClientReviewSection,
+  resumeUrl?: string | null,
+): ClientReviewSection {
+  if (section.id !== 'resume') return section;
+  const url = String(resumeUrl || '').trim();
+  if (!isOpenableResumeHref(url)) return section;
+  const fields = [...(section.fields || [])];
+  if (fields.some((row) => isOpenableResumeHref(display(row.value)))) {
+    return { ...section, fields };
+  }
+  const placeholderIdx = fields.findIndex((row) => {
+    const key = reviewFieldDedupeKey(row.label);
+    return (key === 'resume / cv' || key === 'resume') && !display(row.value);
+  });
+  if (placeholderIdx >= 0) {
+    fields[placeholderIdx] = { ...fields[placeholderIdx], value: url };
+  } else {
+    fields.unshift({ label: 'Resume / CV', value: url });
+  }
+  return { ...section, fields };
+}
+
 function FieldRow({
   label,
   value,
@@ -112,18 +156,16 @@ function FieldRow({
   const text = display(value);
   const empty = !text;
   const link = href || (isUrl(text) ? text : '');
+  const isResumeLink =
+    Boolean(link) &&
+    (isInternalResumeStorageUrl(link) ||
+      isClientReviewFileHref(link) ||
+      /resume|cv/i.test(label));
 
   const valueNode = empty ? (
     <p className={phase1FieldEmptyClass}>Not provided</p>
-  ) : link && (isInternalResumeStorageUrl(link) || isClientReviewFileHref(link)) ? (
-    <a
-      href={link}
-      target="_blank"
-      rel="noreferrer"
-      className="text-sm font-medium text-indigo-600 hover:text-indigo-700"
-    >
-      Open resume
-    </a>
+  ) : isResumeLink && link ? (
+    <ResumeOpenButton href={link} />
   ) : link && looksLikeHttpUrl(link) ? (
     <DrawerLinkActions url={link} shareTitle={label} />
   ) : (
@@ -911,6 +953,8 @@ type Props = {
   visibleFields?: Record<string, boolean> | null;
   /** Table/candidate values used to fill empty drawer fields (e.g. match score). */
   fieldFallbacks?: Partial<Record<SubmitToClientFieldId, string>>;
+  /** Selected CV for this review (original / edited / SAASA), opened in a new tab. */
+  resumeUrl?: string | null;
 };
 
 function omitFieldIdsForSections(
@@ -988,7 +1032,7 @@ function sectionHasVisibleContent(
     if (shouldHideClientReviewField(row.label, row.value)) continue;
     if (opts.hideLinkedIn && /linkedin/i.test(row.label)) continue;
     if (opts.hideInternalNotes && /internal notes|^notes$/i.test(row.label)) continue;
-    if (opts.hideResumeLinks && /resume/i.test(row.label)) continue;
+    if (opts.hideResumeLinks && /resume/i.test(row.label) && !isOpenableResumeHref(display(row.value))) continue;
     if (display(row.value)) return true;
   }
   return false;
@@ -1016,7 +1060,7 @@ function renderSectionBody(
     if (shouldHideClientReviewField(row.label, row.value)) continue;
     if (opts.hideLinkedIn && /linkedin/i.test(row.label)) continue;
     if (opts.hideInternalNotes && /internal notes|^notes$/i.test(row.label)) continue;
-    if (opts.hideResumeLinks && /resume/i.test(row.label)) continue;
+    if (opts.hideResumeLinks && /resume/i.test(row.label) && !isOpenableResumeHref(display(row.value))) continue;
     const structured = opts.keepEmptyFields ? null : renderStructuredField(row.label, row.value);
     if (structured) {
       structuredRows.push(
@@ -1079,6 +1123,7 @@ export function ClientReviewSectionsPanel({
   extraTabs = [],
   visibleFields = null,
   fieldFallbacks = {},
+  resumeUrl = null,
 }: Props) {
   const hideOpts = { hideLinkedIn, hideInternalNotes, hideResumeLinks };
   const mergedSections = useMemo(() => mergeSectionsById(sections), [sections]);
@@ -1301,7 +1346,10 @@ export function ClientReviewSectionsPanel({
             <div className="w-full space-y-4">
               {activeProfile.sections.map((section) => {
                 const omitIds = omitFieldIdsForSections(activeProfile.sections)[section.id] || [];
-                const expanded = expandSectionForVisibleFields(section, visibleFields, omitIds, fieldFallbacks);
+                const expanded = applySharedResumeUrl(
+                  expandSectionForVisibleFields(section, visibleFields, omitIds, fieldFallbacks),
+                  resumeUrl,
+                );
                 const phase1FieldId = PHASE1_SECTION_FIELD_IDS[section.id];
                 const keepEmptyPhase1 =
                   Boolean(phase1FieldId) && isFieldIdVisible(phase1FieldId, visibleFields);
@@ -1368,7 +1416,10 @@ export function ClientReviewSectionsPanel({
       <div className="overflow-hidden rounded-3xl bg-white shadow-[0_8px_30px_rgba(15,23,42,0.04)] ring-1 ring-slate-200/70">
       {mergedSections.map((section) => {
         const omitIds = omitFieldIdsForSections(mergedSections)[section.id] || [];
-        const expanded = expandSectionForVisibleFields(section, visibleFields, omitIds, fieldFallbacks);
+        const expanded = applySharedResumeUrl(
+          expandSectionForVisibleFields(section, visibleFields, omitIds, fieldFallbacks),
+          resumeUrl,
+        );
         if (
           !expanded.fields.length &&
           !(Array.isArray(expanded.entries) && expanded.entries.length)

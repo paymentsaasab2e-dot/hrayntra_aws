@@ -1345,3 +1345,28 @@ export function hydrateClientReviewSections(sections, { candidate, matchScore } 
     return { ...section, fields, entries };
   });
 }
+
+function isOpenableClientResumeHref(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return false;
+  return /^https?:\/\//i.test(raw) || /\/client-review\/[^/]+\/resume\b/i.test(raw);
+}
+
+/** Put the recruiter-selected CV URL on the Resume / CV section for client review. */
+export function attachSharedResumeToClientReviewSections(sections, resumeUrl) {
+  const url = String(resumeUrl || '').trim();
+  const list = Array.isArray(sections) ? sections : [];
+  if (!isOpenableClientResumeHref(url)) return list;
+  return list.map((section) => {
+    if (section?.id !== 'resume') return section;
+    const fields = Array.isArray(section.fields) ? [...section.fields] : [];
+    if (fields.some((row) => isOpenableClientResumeHref(row?.value))) return section;
+    const idx = fields.findIndex((row) => {
+      const key = String(row?.label || '').trim().toLowerCase();
+      return (key === 'resume / cv' || key === 'resume') && !String(row?.value || '').trim();
+    });
+    if (idx >= 0) fields[idx] = { ...fields[idx], value: url };
+    else fields.unshift({ label: 'Resume / CV', value: url });
+    return { ...section, fields };
+  });
+}
