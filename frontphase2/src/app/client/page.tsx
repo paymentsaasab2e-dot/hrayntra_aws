@@ -85,6 +85,7 @@ import { useClientHandoffStatuses } from '../../hooks/useClientHandoffStatuses';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
 import { SummaryCard, SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
 import { PH2_KPI_ROW_CLASS } from '../../components/layout/Ph2ModulePageLayout';
+import { ShowSummaryCardsButton } from '../../components/layout/ShowSummaryCardsButton';
 import { TableSkeleton } from '../../components/ui/Skeleton';
 import type { CsvColumn } from '../../utils/csv';
 import { mergeCatalogOptions } from '../../components/forms/CatalogOptionDropdown';
@@ -426,6 +427,7 @@ export default function App() {
   const [recruitmentForwardClient, setRecruitmentForwardClient] = useState<Client | null>(null);
   const fetchRequestIdRef = useRef(0);
   const [showImportDrawer, setShowImportDrawer] = useState(false);
+  const [showSummaryCards, setShowSummaryCards] = useState(false);
   const [recycleBinDrawerOpen, setRecycleBinDrawerOpen] = useState(false);
   const [clients, setClients] = useState<Client[]>([]);
   const [exportModalOpen, setExportModalOpen] = useState(false);
@@ -1221,6 +1223,10 @@ export default function App() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <ShowSummaryCardsButton
+              open={showSummaryCards}
+              onToggle={() => setShowSummaryCards((open) => !open)}
+            />
             {canOpenClientTrash && (
               <button
                 type="button"
@@ -1328,21 +1334,23 @@ export default function App() {
         </header>
 
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
-          {loading ? (
-            <div className="mb-5 shrink-0">
-              <StatusCardsSkeleton />
-            </div>
-          ) : (
-            <div className="mb-5 shrink-0">
-              <StatusCards
-                activeTab={activeTab}
-                onTabChange={setActiveTab}
-                counts={tabCounts}
-                fieldVisibility={clientFieldVisibility}
-                isRecruitmentScope={isRecruitmentScope}
-              />
-            </div>
-          )}
+          {showSummaryCards ? (
+            loading ? (
+              <div className="mb-5 shrink-0">
+                <StatusCardsSkeleton />
+              </div>
+            ) : (
+              <div className="mb-5 shrink-0">
+                <StatusCards
+                  activeTab={activeTab}
+                  onTabChange={setActiveTab}
+                  counts={tabCounts}
+                  fieldVisibility={clientFieldVisibility}
+                  isRecruitmentScope={isRecruitmentScope}
+                />
+              </div>
+            )
+          ) : null}
 
           {loading ? (
             <div className="mb-0 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-indigo-100/60 bg-white/70 shadow-[0_12px_40px_-18px_rgba(59,130,246,0.18)] backdrop-blur-sm">

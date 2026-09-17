@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  applyAssignmentOverrides,
   assignmentRoleNameOf,
   filterCompanyOptionsByEligibleUnits,
   filterUsersByAssignableCompany,
   isSuperAdminRoleName,
   resolveAssignmentModules,
+  userHasAnyGrantedPermission,
   userSatisfiesAssignmentAccess,
 } from './assigneeModuleAccess.service.js';
 import { newlyAddedAssigneeIds } from './crmAssignmentScope.service.js';
@@ -312,6 +314,62 @@ describe('assignee module access — eligibility', () => {
         modules: ['Jobs'],
       }),
       true,
+    );
+  });
+
+  it('21. DENY override strips permission; GRANT adds it', () => {
+    const denied = applyAssignmentOverrides(
+      { names: ['jobs_read', 'leads_read'], modules: ['Jobs', 'Leads'] },
+      [{ effect: 'DENY', permissionName: 'jobs_read' }],
+      'Recruiter',
+    );
+    assert.equal(
+      userSatisfiesAssignmentAccess({
+        permissionNames: denied.names,
+        permissionModules: denied.modules,
+        modules: ['Jobs'],
+      }),
+      false,
+    );
+
+    const granted = applyAssignmentOverrides(
+      { names: [], modules: [] },
+      [{ effect: 'GRANT', permissionName: 'jobs_read', module: 'Jobs' }],
+      'Custom',
+    );
+    assert.equal(
+      userSatisfiesAssignmentAccess({
+        permissionNames: granted.names,
+        permissionModules: granted.modules,
+        modules: ['Jobs'],
+      }),
+      true,
+    );
+  });
+
+  it('22. organization with no granted permissions is hidden', () => {
+    assert.equal(
+      userHasAnyGrantedPermission({ permissionNames: [], permissionModules: [], roleName: 'Custom' }),
+      false,
+    );
+    assert.equal(
+      userHasAnyGrantedPermission({ permissionNames: ['jobs_read'], permissionModules: [], roleName: 'Custom' }),
+      true,
+    );
+    const visible = filterCompanyOptionsByEligibleUnits(
+      [
+        { id: 'co-ok', name: 'Has access' },
+        { id: 'co-empty', name: 'No permissions' },
+      ],
+      ['co-ok'],
+      [
+        { id: 'co-ok', parentId: null },
+        { id: 'co-empty', parentId: null },
+      ],
+    );
+    assert.deepEqual(
+      visible.map((row) => row.id),
+      ['co-ok'],
     );
   });
 

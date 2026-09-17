@@ -126,9 +126,13 @@ export type TeamMembersHeaderExtras = {
 
 type MembersTabProps = {
   onHeaderExtrasChange?: (extras: TeamMembersHeaderExtras | null) => void;
+  showSummaryCards?: boolean;
 };
 
-export const MembersTab: React.FC<MembersTabProps> = ({ onHeaderExtrasChange }) => {
+export const MembersTab: React.FC<MembersTabProps> = ({
+  onHeaderExtrasChange,
+  showSummaryCards = false,
+}) => {
   const { hasPermission, isSuperAdmin } = usePermissions();
   const { user } = useUser();
   const [members, setMembers] = useState<TeamMember[]>([]);
@@ -553,6 +557,7 @@ export const MembersTab: React.FC<MembersTabProps> = ({ onHeaderExtrasChange }) 
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 sm:gap-6">
+      {showSummaryCards ? (
       <div className={PH2_KPI_ROW_CLASS}>
         {isLoading && members.length === 0 ? (
           (['blue', 'green', 'indigo', 'purple'] as SummaryCardColor[]).map((c, i) => <SummaryCardSkeleton key={i} color={c} />)
@@ -585,6 +590,7 @@ export const MembersTab: React.FC<MembersTabProps> = ({ onHeaderExtrasChange }) 
           </>
         )}
       </div>
+      ) : null}
 
       <div className={PH2_TABLE_CARD_CLASS}>
         <div className={PH2_TOOLBAR_ROW_CLASS}>

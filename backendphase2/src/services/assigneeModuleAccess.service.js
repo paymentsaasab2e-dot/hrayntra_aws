@@ -287,6 +287,94 @@ function assignmentAccessOf(user, accessByRole) {
   return { names, modules };
 }
 
+/** GRANT adds names/modules; DENY removes them. Super Admin is unchanged. */
+export function applyAssignmentOverrides(access, overrides = [], roleName = '') {
+  const next = {
+    names: [...(access?.names || [])],
+    modules: [...(access?.modules || [])],
+  };
+  if (isSuperAdminRoleName(roleName)) return next;
+  const rows = Array.isArray(overrides) ? overrides : [];
+  if (!rows.length) return next;
+
+  for (const row of rows) {
+    const name = String(row?.permissionName || '').trim();
+    const moduleName = String(row?.module || '').trim();
+    const effect = String(row?.effect || '').toUpperCase();
+    if (effect === 'DENY') {
+      if (name) {
+        const lower = name.toLowerCase();
+        next.names = next.names.filter((item) => String(item).toLowerCase() !== lower);
+        const catalogModule = catalogModuleForPermissionName(name);
+        const deniedModules = new Set(
+          [catalogModule, moduleName].flatMap((label) => resolveAssignmentModules(label || [])),
+        );
+        if (deniedModules.size) {
+          const stillGranted = next.names.some((item) => {
+            const fromName = catalogModuleForPermissionName(item);
+            return fromName && deniedModules.has(fromName);
+          });
+          if (!stillGranted) {
+            next.modules = next.modules.filter((item) => {
+              const resolved = resolveAssignmentModules(item);
+              return !resolved.some((moduleKey) => deniedModules.has(moduleKey));
+            });
+          }
+        }
+      }
+      continue;
+    }
+    if (name) next.names.push(name);
+    if (moduleName) next.modules.push(moduleName);
+  }
+  return next;
+}
+
+export function userHasAnyGrantedPermission({
+  permissionNames = [],
+  permissionModules = [],
+  roleName = '',
+} = {}) {
+  if (isSuperAdminRoleName(roleName)) return true;
+  const names = (Array.isArray(permissionNames) ? permissionNames : [])
+    .map((name) => String(name || '').trim())
+    .filter(Boolean);
+  if (names.some((name) => name.toLowerCase() === 'all')) return true;
+  if (names.length) return true;
+  return (Array.isArray(permissionModules) ? permissionModules : []).some((item) =>
+    Boolean(String(item || '').trim()),
+  );
+}
+
+async function loadAssignmentOverridesByUserId(userIds = []) {
+  const ids = [...new Set((userIds || []).map(idStr).filter(Boolean))];
+  const map = new Map();
+  if (!ids.length) return map;
+  try {
+    const rows = await prisma.userPermissionOverride.findMany({
+      where: { userId: { in: ids } },
+      select: {
+        userId: true,
+        effect: true,
+        permission: { select: { permissionName: true, module: true } },
+      },
+    });
+    for (const row of rows || []) {
+      const userId = idStr(row.userId);
+      if (!userId) continue;
+      if (!map.has(userId)) map.set(userId, []);
+      map.get(userId).push({
+        effect: String(row.effect || '').toUpperCase() === 'DENY' ? 'DENY' : 'GRANT',
+        permissionName: row.permission?.permissionName || '',
+        module: row.permission?.module || '',
+      });
+    }
+  } catch {
+    return map;
+  }
+  return map;
+}
+
 /** SystemRole name only — ignore the legacy Prisma Role enum (SUPER_ADMIN/RECRUITER). */
 export function assignmentRoleNameOf(user) {
   const fromSystem = String(user?.systemRole?.roleName || '').trim();
@@ -299,24 +387,39 @@ export function assignmentRoleNameOf(user) {
 
 export async function filterUsersByAssignmentAccess(
   users = [],
-  { modules = [], requiredPermissions = [] } = {},
+  { modules = [], requiredPermissions = [], requireAnyPermission = false } = {},
 ) {
   const list = typeof users?.then === 'function' ? await users : users;
   const requiredModules = resolveAssignmentModules(modules);
   const mustHave = Array.isArray(requiredPermissions)
     ? requiredPermissions.map((name) => String(name || '').trim()).filter(Boolean)
     : [];
-  if (!requiredModules.length && !mustHave.length) return list;
+  if (!requiredModules.length && !mustHave.length && !requireAnyPermission) return list;
 
   const roleIds = list.map((user) => user.roleId || user.role?.id).filter(Boolean);
-  const accessByRole = await loadRoleAccessByRoleId(roleIds);
+  const [accessByRole, overridesByUser] = await Promise.all([
+    loadRoleAccessByRoleId(roleIds),
+    loadAssignmentOverridesByUserId(list.map((user) => user?.id)),
+  ]);
 
   return list.filter((user) => {
-    const access = assignmentAccessOf(user, accessByRole);
+    const roleName = assignmentRoleNameOf(user);
+    const access = applyAssignmentOverrides(
+      assignmentAccessOf(user, accessByRole),
+      overridesByUser.get(idStr(user?.id)) || [],
+      roleName,
+    );
+    if (requireAnyPermission && !requiredModules.length && !mustHave.length) {
+      return userHasAnyGrantedPermission({
+        permissionNames: access.names,
+        permissionModules: access.modules,
+        roleName,
+      });
+    }
     return userSatisfiesAssignmentAccess({
       permissionNames: access.names,
       permissionModules: access.modules,
-      roleName: assignmentRoleNameOf(user),
+      roleName,
       modules: requiredModules,
       requiredPermissions: mustHave,
     });
@@ -356,12 +459,20 @@ export async function assertUserHasAssignmentAccess(
     throw err;
   }
 
-  const accessByRole = await loadRoleAccessByRoleId([user.roleId].filter(Boolean));
-  const access = assignmentAccessOf(user, accessByRole);
+  const [accessByRole, overridesByUser] = await Promise.all([
+    loadRoleAccessByRoleId([user.roleId].filter(Boolean)),
+    loadAssignmentOverridesByUserId([id]),
+  ]);
+  const roleName = assignmentRoleNameOf(user);
+  const access = applyAssignmentOverrides(
+    assignmentAccessOf(user, accessByRole),
+    overridesByUser.get(id) || [],
+    roleName,
+  );
   const ok = userSatisfiesAssignmentAccess({
     permissionNames: access.names,
     permissionModules: access.modules,
-    roleName: assignmentRoleNameOf(user),
+    roleName,
     modules: requiredModules,
     requiredPermissions: mustHave,
   });
@@ -416,7 +527,6 @@ export function filterCompanyOptionsByEligibleUnits(
 
 export async function filterCompaniesWithEligibleAssignees(companies = [], { modules = [] } = {}) {
   const requiredModules = resolveAssignmentModules(modules);
-  if (!requiredModules.length) return companies || [];
   if (!companies?.length) return [];
 
   const emailExclude = hqPlatformUserEmailNotClause();
@@ -454,6 +564,7 @@ export async function filterCompaniesWithEligibleAssignees(companies = [], { mod
 
   const eligible = await filterUsersByAssignmentAccess(excludeHqPlatformUsers(users), {
     modules: requiredModules,
+    requireAnyPermission: !requiredModules.length,
   });
   return filterCompanyOptionsByEligibleUnits(
     companies,

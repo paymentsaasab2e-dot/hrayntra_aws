@@ -98,35 +98,18 @@ export function useAssignableMembers(
     void (async () => {
       const collected: AssignCompanyOption[] = [];
 
-      if (mayPickCompany) {
-        try {
-          const rows = await apiGetAssignCompanies(module);
-          for (const row of Array.isArray(rows) ? rows : []) {
-            if (row?.id) collected.push({ id: String(row.id), name: String(row.name || ''), kind: row.kind });
-          }
-        } catch {
-          /* fall through to workspace */
+      try {
+        const rows = await apiGetAssignCompanies(module);
+        for (const row of Array.isArray(rows) ? rows : []) {
+          if (row?.id) collected.push({ id: String(row.id), name: String(row.name || ''), kind: row.kind });
         }
+      } catch {
+        /* workspace is only used for home-company auto-select */
       }
 
       try {
         const org = await apiOrgWorkspace();
-        const fromWorkspace = [
-          ...(Array.isArray(org?.companiesRecruitment) ? org.companiesRecruitment : []),
-          ...(Array.isArray(org?.companies) ? org.companies : []),
-          ...(Array.isArray(org?.companiesCrm) ? org.companiesCrm : []),
-        ];
-        for (const row of fromWorkspace) {
-          const id = String(row?.id || '').trim();
-          const name = String(row?.name || '').trim();
-          if (id && name) collected.push({ id, name, kind: 'company' });
-        }
-        // Pinned / home company when switch list is empty
         const homeId = String(org?.homeOrgUnitId || org?.orgUnitId || '').trim();
-        const homeName = String(org?.homeOrgUnitName || '').trim();
-        if (homeId && homeName && !collected.some((c) => c.id === homeId)) {
-          collected.push({ id: homeId, name: homeName, kind: 'company' });
-        }
         if (!cancelled) setHomeCompanyId(homeId);
       } catch {
         if (!cancelled) setHomeCompanyId('');
@@ -140,7 +123,7 @@ export function useAssignableMembers(
     return () => {
       cancelled = true;
     };
-  }, [enabled, mayPickCompany, module]);
+  }, [enabled, module]);
 
   useEffect(() => {
     if (!companyId) return;

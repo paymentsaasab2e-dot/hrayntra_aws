@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { SummaryCard, SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
 import { PH2_KPI_ROW_CLASS, PH2_TABLE_BODY_SCROLL_CLASS } from '../../components/layout/Ph2ModulePageLayout';
+import { ShowSummaryCardsButton } from '../../components/layout/ShowSummaryCardsButton';
 import { toast } from 'sonner';
 import { CreatePlacementInvoiceModal } from '../../components/placements/modals/CreatePlacementInvoiceModal';
 import { InvoiceTemplateSettingsPanel } from '../../components/billing/InvoiceTemplateSettingsPanel';
@@ -546,6 +547,7 @@ export default function BillingPage() {
   const [savingSettings, setSavingSettings] = useState(false);
   const [exporting, setExporting] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [showSummaryCards, setShowSummaryCards] = useState(false);
   // ID of the invoice whose activity drawer is open, or null when closed.
   const [activeInvoiceId, setActiveInvoiceId] = useState<string | null>(null);
 
@@ -816,6 +818,10 @@ export default function BillingPage() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <ShowSummaryCardsButton
+              open={showSummaryCards}
+              onToggle={() => setShowSummaryCards((open) => !open)}
+            />
             {canCreateInvoice ? (
               <button
                 type="button"
@@ -867,6 +873,7 @@ export default function BillingPage() {
             <div className="mb-4 shrink-0 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
           ) : null}
 
+          {showSummaryCards ? (
           <div className={PH2_KPI_ROW_CLASS}>
             {loading ? (
               (['blue', 'green', 'indigo', 'purple'] as SummaryCardColor[]).map((c, i) => (
@@ -902,6 +909,7 @@ export default function BillingPage() {
               </>
             )}
           </div>
+          ) : null}
 
           <div className="mb-4 flex shrink-0 gap-4 overflow-x-auto border-b border-indigo-100/70">
             {TABS.map((tab) => {

@@ -10,7 +10,7 @@ import {
   saveAssignmentRules,
   type TeamMember,
 } from '../../../lib/api/teamApi';
-import { apiOrgTree } from '../../../lib/org/orgApi';
+import { apiGetAssignCompanies } from '../../../lib/org/orgApi';
 import { formatAssigneeDisplayName } from '../../../lib/assigneeDisplay';
 import { PH2_TABLE_CARD_CLASS } from '../../../components/layout/Ph2ModulePageLayout';
 import { getActiveOrgUnitId } from '../../../lib/org/orgWorkspaceStorage';
@@ -99,26 +99,40 @@ export const AssignmentRulesTab: React.FC = () => {
       // Full directory — not /team/assignable — so "Can assign to" lists everyone,
       // not only who the current admin can already assign to.
       const companyFilter = orgUnitId || getActiveOrgUnitId() || undefined;
-      const [teamMembers, tree] = await Promise.all([
+      const [teamMembers, assignCompanies] = await Promise.all([
         getAllTeamMembersForDirectory(companyFilter || undefined),
-        apiOrgTree().catch(() => ({ units: [] as Array<{ id: string; name?: string; parentId?: string | null }> })),
+        apiGetAssignCompanies(module).catch(() => [] as Array<{ id: string; name?: string }>),
       ]);
       setMembers(teamMembers || []);
-      const units = (tree.units || [])
-        .filter((u) => u.parentId)
-        .map((u) => ({ id: String(u.id), name: String(u.name || 'Unit') }));
+      const units = (Array.isArray(assignCompanies) ? assignCompanies : [])
+        .filter((row) => row?.id)
+        .map((row) => ({ id: String(row.id), name: String(row.name || 'Company') }));
       setCompanies(units);
     } catch (error: any) {
       toast.error(error?.message || 'Failed to load team members');
       setMembers([]);
+      setCompanies([]);
     } finally {
       setLoading(false);
     }
-  }, [orgUnitId]);
+  }, [orgUnitId, module]);
 
   useEffect(() => {
     void loadMembersAndCompanies();
   }, [loadMembersAndCompanies]);
+
+  useEffect(() => {
+    if (!orgUnitId) return;
+    if (companies.some((company) => company.id === orgUnitId)) return;
+    setOrgUnitId('');
+    setAssignorUserId('');
+    setSelectedIds([]);
+    setSuggestedIds([]);
+    setEligibleAssigneeIds(null);
+    setConfigured(false);
+    setUsingHierarchyDefault(true);
+    setSelectionTouched(false);
+  }, [companies, orgUnitId]);
 
   const loadRules = useCallback(async () => {
     if (!module || !assignorUserId) {

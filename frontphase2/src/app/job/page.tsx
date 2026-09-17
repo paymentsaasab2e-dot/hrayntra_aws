@@ -174,6 +174,7 @@ import {
   PH2_TOOLBAR_FILTERS_CLASS,
   PH2_TOOLBAR_ROW_CLASS,
 } from '../../components/layout/Ph2ModulePageLayout';
+import { ShowSummaryCardsButton } from '../../components/layout/ShowSummaryCardsButton';
 import { SearchableToolbarFilterSelect } from '../../components/forms/SearchableToolbarFilterSelect';
 import { dedupeByCompanyName } from '../../lib/companyNameKey';
 
@@ -1454,6 +1455,7 @@ export default function JobsPage() {
   const [jobAiWizardOpen, setJobAiWizardOpen] = useState(false);
   const [createJobMode, setCreateJobMode] = useState<'ai' | 'manual'>('manual');
   const [recycleBinDrawerOpen, setRecycleBinDrawerOpen] = useState(false);
+  const [showSummaryCards, setShowSummaryCards] = useState(false);
   const [duplicateFromJobId, setDuplicateFromJobId] = useState<string | null>(null);
   const [addCandidateDrawerOpen, setAddCandidateDrawerOpen] = useState(false);
   /** Chooser shown before the Add Candidate drawer asking the recruiter
@@ -2750,6 +2752,10 @@ export default function JobsPage() {
         icon={<Briefcase className="h-5 w-5" strokeWidth={2.2} />}
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            <ShowSummaryCardsButton
+              open={showSummaryCards}
+              onToggle={() => setShowSummaryCards((open) => !open)}
+            />
                   <button
                     type="button"
               onClick={() => void reloadMyJobsAndMetrics()}
@@ -2846,6 +2852,7 @@ export default function JobsPage() {
         }
       >
         <div className="mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col overflow-hidden">
+          {showSummaryCards ? (
           <div className={PH2_KPI_ROW_CLASS}>
             {loadingMetrics
               ? STATS_CONFIG.map((statConfig, i) => <SummaryCardSkeleton key={i} color={statConfig.color} />)
@@ -2863,6 +2870,7 @@ export default function JobsPage() {
                 );
               })}
             </div>
+          ) : null}
 
           {loading ? (
               <div className={PH2_TABLE_CARD_CLASS}>

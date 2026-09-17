@@ -72,6 +72,7 @@ import {
   PH2_TOOLBAR_ROW_CLASS,
   PH2_TOOLBAR_SELECT_CLASS,
 } from '../../components/layout/Ph2ModulePageLayout';
+import { ShowSummaryCardsButton } from '../../components/layout/ShowSummaryCardsButton';
 import { SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
 
 // --- Types ---
@@ -513,6 +514,7 @@ export default function App() {
   const [createTaskPrefill, setCreateTaskPrefill] = useState<Partial<TaskFormValues> | null>(null);
   const [deleteConfirmTask, setDeleteConfirmTask] = useState<Task | null>(null);
   const [slaDrawerOpen, setSlaDrawerOpen] = useState(false);
+  const [showSummaryCards, setShowSummaryCards] = useState(false);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [exportTasks, setExportTasks] = useState<Task[]>([]);
@@ -1269,6 +1271,10 @@ export default function App() {
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <ShowSummaryCardsButton
+                open={showSummaryCards}
+                onToggle={() => setShowSummaryCards((open) => !open)}
+              />
               <button
                 type="button"
                 onClick={async () => {
@@ -1323,6 +1329,7 @@ export default function App() {
 
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
             <div className="mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col overflow-hidden">
+              {showSummaryCards ? (
               <div className={PH2_KPI_ROW_CLASS}>
                 {loading && tasks.length === 0 ? (
                   (['blue', 'cyan', 'orange', 'purple', 'orange'] as SummaryCardColor[]).map((c, i) => <SummaryCardSkeleton key={i} color={c} />)
@@ -1336,6 +1343,7 @@ export default function App() {
                   </>
                 )}
               </div>
+              ) : null}
 
           {/* Main Content */}
           {view === 'list' ? (
