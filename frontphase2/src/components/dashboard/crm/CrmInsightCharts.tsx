@@ -17,7 +17,7 @@ import {
 } from 'recharts';
 import type { CrmOverview } from '@/lib/dashboard/api';
 import { HqInfoTip } from '@/components/hq/analytics/HqPhase2DashboardParts';
-import { buildKpiDrillDown } from './crmDrillDown';
+import { buildEngagementSliceDrillDown, buildFollowupDrillDown, buildLeadOwnershipDrillDown } from './crmDrillDown';
 import { dashCard, formatNum, useCrmDashboard } from './crmShared';
 import { CrmStatNumber, sparkDelta, sparkValues } from './crmStatNumber';
 
@@ -203,17 +203,13 @@ export function CrmInsightCharts({ overview }: Props) {
                         paddingAngle={3}
                         stroke="#fff"
                         strokeWidth={2}
-                        onClick={(entry: { name?: string }) => {
-                          openDrillDown({
-                            title: `${entry?.name || 'Follow-ups'}`,
-                            href: '/leads',
-                            rows: (fu?.upcoming || []).map((item) => ({
-                              Company: item.company,
-                              When: item.at ? new Date(item.at).toLocaleString() : '—',
-                              Assignee: item.assignee || '—',
-                              Status: item.status || '—',
-                            })),
-                          });
+                        onClick={(entry: { name?: string; payload?: { name?: string; key?: string } }) => {
+                          const slice =
+                            entry?.payload?.key ||
+                            entry?.payload?.name ||
+                            entry?.name ||
+                            'overdue';
+                          openDrillDown(buildFollowupDrillDown(overview, String(slice)));
                         }}
                         className="cursor-pointer"
                       >
@@ -232,7 +228,8 @@ export function CrmInsightCharts({ overview }: Props) {
                   {followupPie.map((d) => (
                     <li
                       key={d.key}
-                      className="flex items-center justify-between gap-1 rounded-xl bg-slate-50/90 px-2.5 py-1.5 text-[10px]"
+                      className="flex cursor-pointer items-center justify-between gap-1 rounded-xl bg-slate-50/90 px-2.5 py-1.5 text-[10px] hover:bg-slate-100"
+                      onClick={() => openDrillDown(buildFollowupDrillDown(overview, d.key, d.name))}
                     >
                       <span className="flex items-center gap-1.5 font-medium text-slate-600">
                         <span className="h-1.5 w-1.5 rounded-full" style={{ background: d.fill }} />
@@ -260,9 +257,7 @@ export function CrmInsightCharts({ overview }: Props) {
                 <button
                   type="button"
                   onClick={() =>
-                    openDrillDown(
-                      buildKpiDrillDown(overview, 'leadCoverage', 'Unassigned leads', '/leads'),
-                    )
+                    openDrillDown(buildLeadOwnershipDrillDown(overview, 'unassigned'))
                   }
                   className="relative h-[148px] w-[148px] shrink-0"
                 >
@@ -292,15 +287,21 @@ export function CrmInsightCharts({ overview }: Props) {
                 </button>
                 <ul className="min-w-0 flex-1 space-y-2">
                   {ownership.slices.map((d, i) => (
-                    <li key={d.name} className="flex items-center justify-between gap-2 text-[12px]">
-                      <span className="flex items-center gap-2 text-slate-600">
-                        <span
-                          className="h-2 w-2 rounded-full"
-                          style={{ background: d.fill || OWNER_COLORS[i % 2] }}
-                        />
-                        {d.name}
-                      </span>
-                      <span className="font-bold tabular-nums text-slate-800">{d.value}</span>
+                    <li key={d.name}>
+                      <button
+                        type="button"
+                        className="flex w-full cursor-pointer items-center justify-between gap-2 text-[12px]"
+                        onClick={() => openDrillDown(buildLeadOwnershipDrillDown(overview, d.name))}
+                      >
+                        <span className="flex items-center gap-2 text-slate-600">
+                          <span
+                            className="h-2 w-2 rounded-full"
+                            style={{ background: d.fill || OWNER_COLORS[i % 2] }}
+                          />
+                          {d.name}
+                        </span>
+                        <span className="font-bold tabular-nums text-slate-800">{d.value}</span>
+                      </button>
                     </li>
                   ))}
                 </ul>
@@ -373,14 +374,12 @@ export function CrmInsightCharts({ overview }: Props) {
             info="Share of leads with at least one logged call, meeting or email. Separate from ownership — this is outreach coverage."
           >
             {engagement.slices.length ? (
-              <button
-                type="button"
-                onClick={() =>
-                  openDrillDown(buildKpiDrillDown(overview, 'engagement', 'Engaged leads', '/leads'))
-                }
-                className="flex h-full w-full flex-col items-center justify-center gap-3 text-left sm:flex-row sm:items-center"
-              >
-                <div className="relative h-[148px] w-[148px] shrink-0">
+              <div className="flex h-full w-full flex-col items-center justify-center gap-3 sm:flex-row sm:items-center">
+                <button
+                  type="button"
+                  onClick={() => openDrillDown(buildEngagementSliceDrillDown(overview, 'cold'))}
+                  className="relative h-[148px] w-[148px] shrink-0"
+                >
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie
@@ -393,6 +392,10 @@ export function CrmInsightCharts({ overview }: Props) {
                         stroke="#fff"
                         strokeWidth={2}
                         className="cursor-pointer"
+                        onClick={(entry: { name?: string; payload?: { name?: string } }) => {
+                          const name = entry?.payload?.name || entry?.name || 'cold';
+                          openDrillDown(buildEngagementSliceDrillDown(overview, String(name)));
+                        }}
                       >
                         {engagement.slices.map((d, i) => (
                           <Cell key={d.name} fill={d.fill || ENGAGE_COLORS[i % 2]} />
@@ -404,28 +407,31 @@ export function CrmInsightCharts({ overview }: Props) {
                   <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
                     <CrmStatNumber value={`${engagement.pct}%`} label="touched" size="sm" align="center" />
                   </div>
-                </div>
+                </button>
                 <ul className="min-w-0 flex-1 space-y-2.5">
                   {engagement.slices.map((d, i) => {
                     const total = engagement.touched + engagement.zero || 1;
                     return (
-                      <li
-                        key={d.name}
-                        className="flex items-center justify-between gap-2 rounded-xl bg-slate-50 px-3 py-2 text-[12px] ring-1 ring-slate-100"
-                      >
-                        <span className="flex items-center gap-2 font-medium text-slate-700">
-                          <span
-                            className="h-2.5 w-2.5 rounded-full"
-                            style={{ background: d.fill || ENGAGE_COLORS[i % 2] }}
-                          />
-                          {d.name}
-                        </span>
-                        <span className="font-bold tabular-nums text-slate-900">
-                          {d.value}
-                          <span className="ml-1 text-[10px] font-medium text-slate-400">
-                            {Math.round((d.value / total) * 100)}%
+                      <li key={d.name}>
+                        <button
+                          type="button"
+                          className="flex w-full items-center justify-between gap-2 rounded-xl bg-slate-50 px-3 py-2 text-[12px] ring-1 ring-slate-100"
+                          onClick={() => openDrillDown(buildEngagementSliceDrillDown(overview, d.name))}
+                        >
+                          <span className="flex items-center gap-2 font-medium text-slate-700">
+                            <span
+                              className="h-2.5 w-2.5 rounded-full"
+                              style={{ background: d.fill || ENGAGE_COLORS[i % 2] }}
+                            />
+                            {d.name}
                           </span>
-                        </span>
+                          <span className="font-bold tabular-nums text-slate-900">
+                            {d.value}
+                            <span className="ml-1 text-[10px] font-medium text-slate-400">
+                              {Math.round((d.value / total) * 100)}%
+                            </span>
+                          </span>
+                        </button>
                       </li>
                     );
                   })}
@@ -435,7 +441,7 @@ export function CrmInsightCharts({ overview }: Props) {
                       : 'All leads have been touched'}
                   </li>
                 </ul>
-              </button>
+              </div>
             ) : (
               <EmptyChart label="No engagement data yet" />
             )}

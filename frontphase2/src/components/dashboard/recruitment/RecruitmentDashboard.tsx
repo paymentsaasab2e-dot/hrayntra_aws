@@ -10,6 +10,7 @@ import {
   normalizeRecruitmentOverview,
   type RecruitmentOverview,
 } from '@/lib/dashboard/api';
+import { flattenDrillRows } from '@/lib/dashboard/drillDown';
 import { useDashboardLayoutStore } from '@/lib/dashboard/DashboardLayoutProvider';
 import { HqDashCategoryTabs } from '@/components/hq/analytics/HqDashCategoryTabs';
 import { crmTextFont, dashFontVars } from '@/components/dashboard/crm/crmStatNumber';
@@ -53,7 +54,7 @@ function RecDrillDownModal() {
 
   if (!mounted || !drillDown) return null;
 
-  const rows = drillDown.rows || [];
+  const rows = flattenDrillRows(drillDown.rows || []);
   const columns = rows.length
     ? Array.from(
         rows.reduce((set, row) => {

@@ -1,4 +1,5 @@
 import { asList, type CrmOverview, type DrillDownPayload } from '@/lib/dashboard/api';
+import { filterByLabel, labelsMatch } from '@/lib/dashboard/drillDown';
 
 function leadRows(overview: CrmOverview | null | undefined) {
   return asList(overview?.leadsTable);
@@ -6,10 +7,6 @@ function leadRows(overview: CrmOverview | null | undefined) {
 
 function clientRows(overview: CrmOverview | null | undefined) {
   return asList(overview?.clientsTable);
-}
-
-function matchStatus(value: string | undefined, needle: string) {
-  return String(value || '').trim().toLowerCase() === needle.trim().toLowerCase();
 }
 
 function formatWhen(iso?: string | null) {
@@ -23,6 +20,150 @@ function formatWhen(iso?: string | null) {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+export type FollowupBucket = 'today' | 'tomorrow' | 'overdue' | 'completed' | 'all';
+
+export function parseFollowupBucket(label?: string | null): FollowupBucket {
+  const text = String(label || '').trim().toLowerCase();
+  if (text.includes('overdue')) return 'overdue';
+  if (text.includes('tomorrow')) return 'tomorrow';
+  if (text.includes('complete')) return 'completed';
+  if (text.includes('today')) return 'today';
+  return 'all';
+}
+
+function startOfLocalDayMs(from = new Date()) {
+  return new Date(from.getFullYear(), from.getMonth(), from.getDate()).getTime();
+}
+
+export function classifyFollowupAt(at?: string | null): FollowupBucket {
+  if (!at) return 'all';
+  const t = new Date(at).getTime();
+  if (!Number.isFinite(t)) return 'all';
+  const start = startOfLocalDayMs();
+  const endToday = start + 24 * 60 * 60 * 1000 - 1;
+  const endTomorrow = start + 2 * 24 * 60 * 60 * 1000 - 1;
+  if (t < start) return 'overdue';
+  if (t <= endToday) return 'today';
+  if (t <= endTomorrow) return 'tomorrow';
+  return 'all';
+}
+
+function mapFollowupDrillRows(
+  rows: Array<{
+    id?: string;
+    company?: string;
+    contact?: string;
+    type?: string;
+    at?: string | null;
+    status?: string;
+    priority?: string;
+    assignee?: string;
+    bucket?: string;
+  }>,
+) {
+  return rows.map((item) => ({
+    Type: item.type === 'client' ? 'Client' : 'Lead',
+    Company: item.company || '—',
+    Contact: item.contact || '—',
+    When: formatWhen(item.at),
+    Bucket: item.bucket || classifyFollowupAt(item.at),
+    Status: item.status || '—',
+    Priority: item.priority || '—',
+    Assignee: item.assignee || '—',
+  }));
+}
+
+function followupsFromTables(overview: CrmOverview | null | undefined) {
+  const leads = leadRows(overview).flatMap((row) => {
+    if (!row.nextFollowUp) return [];
+    return [
+      {
+        id: row.id,
+        company: row.name,
+        contact: row.contact,
+        type: 'lead',
+        at: row.nextFollowUp,
+        status: row.status,
+        priority: row.priority,
+        assignee: row.assignee,
+        bucket: classifyFollowupAt(row.nextFollowUp),
+      },
+    ];
+  });
+  const clients = clientRows(overview).flatMap((row) => {
+    if (!row.nextFollowUp) return [];
+    return [
+      {
+        id: row.id,
+        company: row.name,
+        contact: '',
+        type: 'client',
+        at: row.nextFollowUp,
+        status: row.status,
+        priority: '',
+        assignee: row.assignee,
+        bucket: classifyFollowupAt(row.nextFollowUp),
+      },
+    ];
+  });
+  return [...leads, ...clients];
+}
+
+export function buildFollowupDrillDown(
+  overview: CrmOverview | null | undefined,
+  bucketOrLabel: string,
+  title?: string,
+): DrillDownPayload {
+  const bucket = parseFollowupBucket(bucketOrLabel);
+  const listed = asList(overview?.followups?.upcoming).map((item) => ({
+    ...item,
+    bucket: item.bucket || classifyFollowupAt(item.at),
+  }));
+  const fallback = followupsFromTables(overview);
+  const seen = new Set<string>();
+  const merged = [...listed, ...fallback].filter((item) => {
+    const bucketKey = item.bucket || classifyFollowupAt(item.at);
+    const key = `${item.type || 'lead'}:${item.id || item.company}:${bucketKey}`;
+    if (!item.id && !item.company) return false;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  const matchesBucket = (item: { bucket?: string; at?: string | null }) => {
+    const stored = String(item.bucket || '').toLowerCase();
+    const dated = classifyFollowupAt(item.at);
+    if (bucket === 'all') return stored !== 'completed';
+    if (stored === bucket || dated === bucket) return true;
+    if (bucket === 'overdue' && item.at) {
+      const t = new Date(item.at).getTime();
+      return Number.isFinite(t) && t < startOfLocalDayMs() && stored !== 'completed';
+    }
+    return false;
+  };
+  const filtered = merged.filter(matchesBucket);
+  const href =
+    filtered.some((item) => item.type === 'client') && !filtered.some((item) => item.type !== 'client')
+      ? '/client'
+      : '/leads';
+  const count =
+    bucket === 'overdue'
+      ? overview?.followups?.overdue ?? overview?.kpis?.overdueFollowups
+      : bucket === 'today'
+        ? overview?.followups?.today
+        : bucket === 'tomorrow'
+          ? overview?.followups?.tomorrow
+          : bucket === 'completed'
+            ? overview?.followups?.completed
+            : filtered.length;
+
+  return {
+    title: title || (bucket === 'all' ? 'Follow-ups' : `${bucket[0].toUpperCase()}${bucket.slice(1)}`),
+    href,
+    subtitle: `${filtered.length || count || 0} record${(filtered.length || count || 0) === 1 ? '' : 's'}`,
+    rows: mapFollowupDrillRows(filtered),
+  };
 }
 
 export function mapLeadDrillRows(rows: ReturnType<typeof leadRows>) {
@@ -155,22 +296,7 @@ export function buildKpiDrillDown(
   }
 
   if (metricKey === 'overdueFollowups' || metricKey === 'followupRisk') {
-    const overdue = overview?.followups?.overdue ?? overview?.kpis?.overdueFollowups;
-    const upcoming = asList(overview?.followups?.upcoming);
-    return {
-      title: label,
-      href,
-      metricKey,
-      subtitle: `${overdue ?? 0} overdue in period`,
-      rows: upcoming.length
-        ? upcoming.map((item) => ({
-            Company: item.company || '—',
-            Contact: item.contact || '—',
-            When: formatWhen(item.at),
-            Assignee: item.assignee || '—',
-          }))
-        : [{ Overdue: overdue ?? '—', Today: overview?.followups?.today ?? '—' }],
-    };
+    return buildFollowupDrillDown(overview, 'overdue', label);
   }
 
   if (metricKey === 'newLeads') {
@@ -189,8 +315,8 @@ export function buildKpiDrillDown(
 
   if (metricKey === 'engagement' || metricKey === 'stale') {
     const filtered = leads.filter((row) => {
-      const noTouch = !Number(row.totalMeetings);
-      if (metricKey === 'engagement') return noTouch;
+      const touched = Number(row.totalMeetings) > 0;
+      if (metricKey === 'engagement') return !touched;
       if (!row.lastActivity) return true;
       const ts = new Date(row.lastActivity).getTime();
       return !Number.isFinite(ts) || ts < Date.now() - 30 * 24 * 60 * 60 * 1000;
@@ -199,7 +325,7 @@ export function buildKpiDrillDown(
       title: label,
       href,
       metricKey,
-      rows: mapLeadDrillRows(filtered),
+      rows: mapLeadDrillRows(filtered.length ? filtered : leads),
     };
   }
 
@@ -366,6 +492,82 @@ export function buildKpiDrillDown(
     };
   }
 
+  if (metricKey === 'proposal' || metricKey === 'negotiation' || metricKey === 'meeting') {
+    return buildLeadSliceDrillDown(overview, label || metricKey, 'status');
+  }
+
+  if (
+    metricKey === 'activeClients' ||
+    metricKey === 'inactiveClients' ||
+    metricKey === 'onHoldClients' ||
+    metricKey === 'prospectClients' ||
+    metricKey === 'hotClients' ||
+    metricKey === 'coldClients'
+  ) {
+    const slice =
+      metricKey === 'activeClients'
+        ? 'Active'
+        : metricKey === 'onHoldClients'
+          ? 'On Hold'
+          : metricKey === 'prospectClients' || metricKey === 'hotClients'
+            ? 'Prospect'
+            : 'Inactive';
+    return buildClientSliceDrillDown(overview, slice);
+  }
+
+  if (metricKey === 'meetingsToday' || metricKey === 'callsToday' || metricKey === 'emailsToday' || metricKey === 'whatsappToday') {
+    const calendar = asList(overview?.calendar);
+    const needle =
+      metricKey === 'meetingsToday'
+        ? 'meeting'
+        : metricKey === 'callsToday'
+          ? 'call'
+          : metricKey === 'emailsToday'
+            ? 'email'
+            : 'whatsapp';
+    const filtered = calendar.filter((row) => labelsMatch(row.type, needle) || labelsMatch(row.title, needle));
+    return {
+      title: label,
+      href: href || '/Task&Activites',
+      metricKey,
+      rows: (filtered.length ? filtered : calendar).map((row) => ({
+        Title: row.title || '—',
+        Type: row.type || '—',
+        When: formatWhen(row.at),
+        Status: row.status || '—',
+        Assignee: row.assignee || '—',
+      })),
+    };
+  }
+
+  if (metricKey === 'waitingOnYou') {
+    const approvals = asList(overview?.myWork?.approvals);
+    return {
+      title: label,
+      href,
+      metricKey,
+      rows: approvals.length
+        ? approvals.map((item) => ({
+            Title: item.title,
+            Kind: item.kind,
+            From: item.from || '—',
+            When: formatWhen(item.at),
+          }))
+        : [{ Waiting: overview?.kpis?.waitingOnYou ?? 0 }],
+    };
+  }
+
+  const leadHit = buildLeadSliceDrillDown(overview, label || metricKey, 'status');
+  if (leadHit.rows?.length) return { ...leadHit, title: label, href, metricKey };
+  const clientHit = buildClientSliceDrillDown(overview, label || metricKey);
+  if (clientHit.rows?.length) return { ...clientHit, title: label, href, metricKey };
+  if (leads.length) {
+    return { title: label, href, metricKey, rows: mapLeadDrillRows(leads) };
+  }
+  if (clients.length) {
+    return { title: label, href, metricKey, rows: mapClientDrillRows(clients) };
+  }
+
   return {
     title: label,
     href,
@@ -380,15 +582,18 @@ export function buildLeadSliceDrillDown(
   kind: 'status' | 'source' | 'stage' = 'status',
 ): DrillDownPayload {
   const leads = leadRows(overview);
-  const filtered =
-    kind === 'source'
-      ? leads.filter((row) => matchStatus(row.source, sliceName))
-      : leads.filter((row) => matchStatus(row.status, sliceName));
-
+  const getter = kind === 'source' ? (row: (typeof leads)[number]) => row.source : (row: (typeof leads)[number]) => row.status;
+  const filtered = filterByLabel(leads, getter, sliceName);
+  const rows = filtered.length ? filtered : leads;
   return {
     title: `${sliceName} leads`,
     href: `/leads?${kind === 'source' ? 'source' : 'status'}=${encodeURIComponent(sliceName)}`,
-    rows: mapLeadDrillRows(filtered.length ? filtered : leads.filter(() => false)),
+    subtitle: filtered.length
+      ? `${filtered.length} matching lead${filtered.length === 1 ? '' : 's'}`
+      : leads.length
+        ? `No exact “${sliceName}” match — showing current leads`
+        : 'No lead records in the current dashboard data',
+    rows: mapLeadDrillRows(rows),
   };
 }
 
@@ -397,14 +602,51 @@ export function buildClientSliceDrillDown(
   sliceName: string,
 ): DrillDownPayload {
   const clients = clientRows(overview);
-  const needle = sliceName.trim().toLowerCase();
-  const byStatus = clients.filter((row) => matchStatus(row.status, sliceName));
-  const filtered = byStatus.length
-    ? byStatus
-    : clients.filter((row) => String(row.industry || '').toLowerCase() === needle);
+  const byStatus = filterByLabel(clients, (row) => row.status, sliceName);
+  const byIndustry = filterByLabel(clients, (row) => row.industry, sliceName);
+  const byLocation = filterByLabel(clients, (row) => row.location, sliceName);
+  const filtered = byStatus.length ? byStatus : byIndustry.length ? byIndustry : byLocation;
+  const rows = filtered.length ? filtered : clients;
   return {
     title: `${sliceName} clients`,
     href: '/client',
-    rows: mapClientDrillRows(filtered),
+    subtitle: filtered.length
+      ? `${filtered.length} matching client${filtered.length === 1 ? '' : 's'}`
+      : clients.length
+        ? `No exact “${sliceName}” match — showing current clients`
+        : 'No client records in the current dashboard data',
+    rows: mapClientDrillRows(rows),
+  };
+}
+
+export function buildLeadOwnershipDrillDown(
+  overview: CrmOverview | null | undefined,
+  sliceName = 'unassigned',
+): DrillDownPayload {
+  const leads = leadRows(overview);
+  const unassigned = leads.filter((row) => !row.assignee || /unassigned/i.test(String(row.assignee)));
+  const assigned = leads.filter((row) => row.assignee && !/unassigned/i.test(String(row.assignee)));
+  const wantUnassigned = /unassign|open/i.test(sliceName);
+  const rows = wantUnassigned ? unassigned : assigned;
+  return {
+    title: wantUnassigned ? 'Unassigned leads' : 'Assigned leads',
+    href: '/leads',
+    rows: mapLeadDrillRows(rows.length ? rows : leads),
+  };
+}
+
+export function buildEngagementSliceDrillDown(
+  overview: CrmOverview | null | undefined,
+  sliceName = 'cold',
+): DrillDownPayload {
+  const leads = leadRows(overview);
+  const touched = leads.filter((row) => Number(row.totalMeetings) > 0);
+  const cold = leads.filter((row) => !Number(row.totalMeetings));
+  const wantTouched = /^(touch|engage)/i.test(String(sliceName || '').trim());
+  const rows = wantTouched ? touched : cold;
+  return {
+    title: wantTouched ? 'Touched leads' : 'Cold leads',
+    href: '/leads',
+    rows: mapLeadDrillRows(rows.length ? rows : leads),
   };
 }

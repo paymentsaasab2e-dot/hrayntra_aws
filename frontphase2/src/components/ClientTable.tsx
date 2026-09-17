@@ -48,6 +48,8 @@ interface ClientTableProps {
   onToggleClientNameSortOrder: () => void;
   showStatusColumn?: boolean;
   showRecruiterColumn?: boolean;
+  /** Hide on Recruitment Clients — every row there is already in recruitment. */
+  showInRecruitmentBadge?: boolean;
   /** Latest AI workspace brief alerts keyed by entity id (from Analyze). */
   workspaceAlertsByEntityId?: Record<string, AiWorkspaceBriefAlert[]>;
   /** @deprecated Use workspaceAlertsByEntityId */
@@ -97,6 +99,7 @@ export function ClientTable({
   onToggleClientNameSortOrder,
   showStatusColumn = false,
   showRecruiterColumn = false,
+  showInRecruitmentBadge = true,
   workspaceAlertsByEntityId,
   workspaceAlertsByClientId,
   fillScrollParent = false,
@@ -292,7 +295,7 @@ export function ClientTable({
                       >
                         {client.name}
                       </button>
-                      {client.recruitmentEnabled ? (
+                      {showInRecruitmentBadge && client.recruitmentEnabled ? (
                         <span className="mt-0.5 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800 ring-1 ring-amber-200/80">
                           In Recruitment
                         </span>

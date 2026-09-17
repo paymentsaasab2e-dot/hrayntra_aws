@@ -45,8 +45,8 @@ import {
   PH2_TABLE_BODY_SCROLL_CLASS,
   PH2_TABLE_CARD_CLASS,
   PH2_TABLE_CARD_FOOTER_CLASS,
+  PH2_TOOLBAR_FILTERS_CLASS,
   PH2_TOOLBAR_ROW_CLASS,
-  PH2_TOOLBAR_SELECT_CLASS,
 } from '../../components/layout/Ph2ModulePageLayout';
 import { ShowSummaryCardsButton } from '../../components/layout/ShowSummaryCardsButton';
 import { ALL_STATUS_LABEL } from '../../constants/filterLabels';
@@ -85,10 +85,9 @@ const INTERVIEW_STATUS_OPTIONS = [ALL_STATUS_LABEL, 'Scheduled', 'Accepted', 'Co
 const INTERVIEW_ROUND_OPTIONS = ['All Rounds', 'Screening', 'Technical', 'HR', 'Managerial', 'Client', 'Final'] as const;
 const INTERVIEW_MODE_OPTIONS = ['All Modes', 'Online', 'Offline', 'Video', 'Phone', 'In-Person', 'Technical Test', 'Assessment'] as const;
 
-/** Compact toolbar: wrap to at most two rows; never stretch a filter across the card. */
-const INTERVIEW_TOOLBAR_ROW_CLASS =
-  'no-scrollbar shrink-0 min-w-0 p-2.5 sm:p-4 flex flex-row flex-wrap items-center gap-2 sm:gap-2.5 overflow-x-hidden border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20';
-const INTERVIEW_COMPACT_SELECT_CLASS = `${PH2_TOOLBAR_SELECT_CLASS} !w-[7.5rem] min-w-0 !max-w-[7.5rem] overflow-hidden`;
+const INTERVIEW_FILTER_SM = 'w-[7rem] max-w-[7rem]';
+const INTERVIEW_FILTER_MD = 'w-[8rem] max-w-[8rem]';
+const INTERVIEW_FILTER_LG = 'w-[9rem] max-w-[9rem]';
 
 /** Loaded only when scheduling — keeps /interviews from crashing if the candidate drawer chunk fails in production. */
 const CandidateScheduleInterviewModal = dynamic(
@@ -864,7 +863,7 @@ export default function InterviewsPage() {
       <button
         type="button"
         onClick={() => setView('list')}
-        className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold whitespace-nowrap transition-all ${
+        className={`inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-xs font-semibold whitespace-nowrap transition-all ${
           view === 'list'
             ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-sm'
             : 'text-slate-600 hover:bg-indigo-50/50'
@@ -876,7 +875,7 @@ export default function InterviewsPage() {
       <button
         type="button"
         onClick={() => setView('calendar')}
-        className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold whitespace-nowrap transition-all ${
+        className={`inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-xs font-semibold whitespace-nowrap transition-all ${
           view === 'calendar'
             ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-sm'
             : 'text-slate-600 hover:bg-indigo-50/50'
@@ -1032,8 +1031,8 @@ export default function InterviewsPage() {
               {view === 'list' ? (
                 <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} className="flex min-h-0 flex-1 flex-col overflow-hidden">
                   <div className={PH2_TABLE_CARD_CLASS}>
-                    <div className={INTERVIEW_TOOLBAR_ROW_CLASS}>
-                        <div className="relative w-40 shrink-0 sm:w-48">
+                    <div className={PH2_TOOLBAR_ROW_CLASS}>
+                        <div className="relative w-36 shrink-0">
                           <Search
                             className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-indigo-400"
                             size={16}
@@ -1051,67 +1050,71 @@ export default function InterviewsPage() {
                             className="h-9 w-full rounded-xl border border-indigo-100/90 bg-white/95 pl-10 pr-3 text-xs text-slate-800 shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)] placeholder:text-slate-400 transition-all focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
                           />
                         </div>
-                        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                        <div className={PH2_TOOLBAR_FILTERS_CLASS}>
                           <SmartSearchToggleButton
                             open={interviewSmartSearch.open}
                             onToggle={() => interviewSmartSearch.setOpen((value) => !value)}
                           />
                           {viewSegmented}
-                          <select
-                            className={INTERVIEW_COMPACT_SELECT_CLASS}
-                            value={filters.date}
-                            onChange={(e) => patchFilter('date', e.target.value)}
-                            aria-label="Filter by date"
-                          >
-                            {INTERVIEW_DATE_OPTIONS.map((opt) => (
-                              <option key={opt} value={opt}>
-                                {opt}
-                              </option>
-                            ))}
-                          </select>
-                          <select
-                            className={INTERVIEW_COMPACT_SELECT_CLASS}
-                            value={filters.status}
-                            onChange={(e) => patchFilter('status', e.target.value)}
-                            aria-label="Filter by status"
-                          >
-                            {INTERVIEW_STATUS_OPTIONS.map((opt) => (
-                              <option key={opt} value={opt}>
-                                {opt}
-                              </option>
-                            ))}
-                          </select>
-                          <select
-                            className={INTERVIEW_COMPACT_SELECT_CLASS}
-                            value={filters.round}
-                            onChange={(e) => patchFilter('round', e.target.value)}
-                            aria-label="Filter by round"
-                          >
-                            {INTERVIEW_ROUND_OPTIONS.map((opt) => (
-                              <option key={opt} value={opt}>
-                                {opt}
-                              </option>
-                            ))}
-                          </select>
-                          <select
-                            className={INTERVIEW_COMPACT_SELECT_CLASS}
-                            value={filters.mode}
-                            onChange={(e) => patchFilter('mode', e.target.value)}
-                            aria-label="Filter by mode"
-                          >
-                            {INTERVIEW_MODE_OPTIONS.map((opt) => (
-                              <option key={opt} value={opt}>
-                                {opt}
-                              </option>
-                            ))}
-                          </select>
+                          <SearchableToolbarFilterSelect
+                            value={filters.date === 'This Week' ? '' : filters.date}
+                            onChange={(next) => patchFilter('date', next || 'This Week')}
+                            options={INTERVIEW_DATE_OPTIONS.filter((opt) => opt !== 'This Week').map((opt) => ({
+                              value: opt,
+                              label: opt,
+                            }))}
+                            placeholder="This Week"
+                            allLabel="This Week"
+                            className={INTERVIEW_FILTER_SM}
+                            ariaLabel="Filter by date"
+                            searchPlaceholder="Search dates…"
+                          />
+                          <SearchableToolbarFilterSelect
+                            value={filters.status === ALL_STATUS_LABEL ? '' : filters.status}
+                            onChange={(next) => patchFilter('status', next || ALL_STATUS_LABEL)}
+                            options={INTERVIEW_STATUS_OPTIONS.filter((opt) => opt !== ALL_STATUS_LABEL).map((opt) => ({
+                              value: opt,
+                              label: opt,
+                            }))}
+                            placeholder={ALL_STATUS_LABEL}
+                            allLabel={ALL_STATUS_LABEL}
+                            className={INTERVIEW_FILTER_SM}
+                            ariaLabel="Filter by status"
+                            searchPlaceholder="Search status…"
+                          />
+                          <SearchableToolbarFilterSelect
+                            value={filters.round === 'All Rounds' ? '' : filters.round}
+                            onChange={(next) => patchFilter('round', next || 'All Rounds')}
+                            options={INTERVIEW_ROUND_OPTIONS.filter((opt) => opt !== 'All Rounds').map((opt) => ({
+                              value: opt,
+                              label: opt,
+                            }))}
+                            placeholder="All Rounds"
+                            allLabel="All Rounds"
+                            className={INTERVIEW_FILTER_SM}
+                            ariaLabel="Filter by round"
+                            searchPlaceholder="Search rounds…"
+                          />
+                          <SearchableToolbarFilterSelect
+                            value={filters.mode === 'All Modes' ? '' : filters.mode}
+                            onChange={(next) => patchFilter('mode', next || 'All Modes')}
+                            options={INTERVIEW_MODE_OPTIONS.filter((opt) => opt !== 'All Modes').map((opt) => ({
+                              value: opt,
+                              label: opt,
+                            }))}
+                            placeholder="All Modes"
+                            allLabel="All Modes"
+                            className={INTERVIEW_FILTER_SM}
+                            ariaLabel="Filter by mode"
+                            searchPlaceholder="Search modes…"
+                          />
                           <SearchableToolbarFilterSelect
                             value={filters.interviewer === 'All Interviewers' ? '' : filters.interviewer}
                             onChange={(next) => patchFilter('interviewer', next || 'All Interviewers')}
                             options={interviewerFilterOptions}
                             placeholder="All interviewers"
                             allLabel="All interviewers"
-                            className="w-[8.5rem] max-w-[8.5rem]"
+                            className={INTERVIEW_FILTER_MD}
                             ariaLabel="Filter by interviewer"
                             searchPlaceholder="Search interviewers…"
                           />
@@ -1121,12 +1124,10 @@ export default function InterviewsPage() {
                             options={clientJobFilterOptions}
                             placeholder="All clients / jobs"
                             allLabel="All clients / jobs"
-                            className="w-[10rem] max-w-[10rem]"
+                            className={INTERVIEW_FILTER_LG}
                             ariaLabel="Filter by client or job"
                             searchPlaceholder="Search clients or jobs…"
                           />
-                        </div>
-                        <div className="flex shrink-0 items-center gap-2">
                           <TableColumnsMenu
                             columns={INTERVIEW_TABLE_COLUMNS}
                             isVisible={interviewColumnVisibility.isVisible}

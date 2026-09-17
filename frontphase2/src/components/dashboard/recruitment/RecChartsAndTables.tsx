@@ -6,6 +6,7 @@ import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import type { RecruitmentOverview } from '@/lib/dashboard/api';
 import { HqInfoTip } from '@/components/hq/analytics/HqPhase2DashboardParts';
 import { formatNum, recCard, relativeTime, useRecDashboard } from './recShared';
+import { buildRecPipelineDrillDown, buildRecSliceDrillDown } from './recDrillDown';
 
 const COLORS = ['#D97706', '#059669', '#2563EB', '#7C3AED', '#E11D48', '#0891B2', '#4F46E5', '#64748B'];
 
@@ -48,12 +49,14 @@ function PieBlock({
   info,
   data,
   center,
+  onSlice,
 }: {
   title: string;
   subtitle?: string;
   info: string;
   data: Array<{ name: string; value: number }>;
   center?: string;
+  onSlice?: (name: string) => void;
 }) {
   const total = data.reduce((s, d) => s + d.value, 0) || 1;
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
@@ -89,6 +92,11 @@ function PieBlock({
                   strokeWidth={2}
                   onMouseEnter={(_, index) => setActiveIndex(index)}
                   onMouseLeave={() => setActiveIndex(null)}
+                  onClick={(entry: { name?: string; payload?: { name?: string } }) => {
+                    const name = entry?.payload?.name || entry?.name;
+                    if (name && onSlice) onSlice(String(name));
+                  }}
+                  className={onSlice ? 'cursor-pointer' : undefined}
                 >
                   {data.map((_, i) => (
                     <Cell
@@ -127,11 +135,12 @@ function PieBlock({
             data.slice(0, 6).map((d, i) => (
               <li
                 key={d.name}
-                className={`flex items-center justify-between gap-2 rounded-md px-1 py-0.5 text-xs transition ${
+                className={`flex cursor-pointer items-center justify-between gap-2 rounded-md px-1 py-0.5 text-xs transition ${
                   activeIndex === i ? 'bg-slate-50' : ''
                 }`}
                 onMouseEnter={() => setActiveIndex(i)}
                 onMouseLeave={() => setActiveIndex(null)}
+                onClick={() => onSlice?.(d.name)}
               >
                 <span className="flex min-w-0 items-center gap-2 truncate text-slate-600">
                   <span
@@ -239,11 +248,9 @@ export function RecChartsAndTables({ overview, loading }: Props) {
                   key={stage.stage}
                   type="button"
                   onClick={() =>
-                    openDrillDown({
-                      title: `${stage.stage} stage`,
-                      href: stage.href || '/candidate',
-                      rows: [{ stage: stage.stage, count: stage.count }],
-                    })
+                    openDrillDown(
+                      buildRecPipelineDrillDown(overview, stage.stage, stage.href || '/candidate'),
+                    )
                   }
                   className="min-w-[72px] flex-1 rounded-xl px-2 py-2.5 text-center text-white transition hover:opacity-90"
                   style={{ background: COLORS[i % COLORS.length] }}
@@ -262,6 +269,7 @@ export function RecChartsAndTables({ overview, loading }: Props) {
               info="Mix of job statuses in the selected date range and team filter — open vs closed / filled roles."
               data={overview?.jobStatusPie || []}
               center={formatNum(overview?.kpis?.totalJobs)}
+              onSlice={(name) => openDrillDown(buildRecSliceDrillDown(overview, 'jobs', name))}
             />
             <PieBlock
               title="Candidates by Status"
@@ -269,6 +277,7 @@ export function RecChartsAndTables({ overview, loading }: Props) {
               info="How candidates are distributed across pipeline statuses (new, active, hired, etc.) for the current filters."
               data={overview?.candidateStatusPie || []}
               center={formatNum(overview?.kpis?.totalCandidates)}
+              onSlice={(name) => openDrillDown(buildRecSliceDrillDown(overview, 'candidates', name))}
             />
             <PieBlock
               title="Candidate Sources"
@@ -278,6 +287,7 @@ export function RecChartsAndTables({ overview, loading }: Props) {
               center={formatNum(
                 (overview?.candidateSources || []).reduce((s, d) => s + (d.value || 0), 0),
               )}
+              onSlice={(name) => openDrillDown(buildRecSliceDrillDown(overview, 'sources', name))}
             />
             <PieBlock
               title="Open Jobs by Dept"
@@ -285,6 +295,7 @@ export function RecChartsAndTables({ overview, loading }: Props) {
               info="Open requisitions grouped by department so you can see where hiring demand is concentrated."
               data={overview?.jobsByDepartment || []}
               center={formatNum(overview?.kpis?.openJobs)}
+              onSlice={(name) => openDrillDown(buildRecSliceDrillDown(overview, 'department', name))}
             />
           </div>
         </>

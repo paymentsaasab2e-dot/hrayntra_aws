@@ -12,6 +12,7 @@ import { useUser } from '@/hooks/useUser';
 import { CrmInsightCharts } from './CrmInsightCharts';
 import { CrmAlertsPanel, CrmFollowupActivity } from './CrmPanels';
 import { formatMoney, formatNum, useCrmDashboard } from './crmShared';
+import { buildFollowupDrillDown, buildKpiDrillDown } from './crmDrillDown';
 import { CrmStatNumber, sparkDelta } from './crmStatNumber';
 
 type Props = { overview: CrmOverview | null; loading?: boolean };
@@ -261,11 +262,19 @@ export function CrmDecisionInsights({ overview, loading }: Props) {
                       type="button"
                       onClick={() => {
                         if (!step) return;
-                        openDrillDown({
-                          title: step.title,
-                          href: step.href,
-                          rows: [{ Action: step.title, Why: step.why }],
-                        });
+                        openDrillDown(
+                          step.id === 'emp-overdue' || step.id === 'mgr-overdue'
+                            ? buildFollowupDrillDown(overview, 'overdue', step.title)
+                            : step.id === 'emp-today'
+                              ? buildFollowupDrillDown(overview, 'today', step.title)
+                              : step.id === 'mgr-assign'
+                                ? buildKpiDrillDown(overview, 'leadCoverage', step.title, '/leads')
+                                : step.id === 'emp-touch'
+                                  ? buildKpiDrillDown(overview, 'engagement', step.title, '/leads')
+                                  : step.id === 'approvals-waiting'
+                                    ? buildKpiDrillDown(overview, 'waitingOnYou', step.title, step.href)
+                                    : buildKpiDrillDown(overview, 'totalLeads', step.title, step.href || '/leads'),
+                        );
                       }}
                       className={`flex w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left transition ${
                         primary ? 'bg-white/18 hover:bg-white/25' : 'hover:bg-white/10'

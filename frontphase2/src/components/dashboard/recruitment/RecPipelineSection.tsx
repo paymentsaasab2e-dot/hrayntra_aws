@@ -6,7 +6,8 @@ import { ArrowUpRight, Filter, Search, X } from 'lucide-react';
 import type { RecruitmentOverview } from '@/lib/dashboard/api';
 import { HqInfoTip } from '@/components/hq/analytics/HqPhase2DashboardParts';
 import { CrmStatNumber, sparkDelta, sparkValues } from '@/components/dashboard/crm/crmStatNumber';
-import { recCard, formatNum, relativeTime } from './recShared';
+import { recCard, formatNum, relativeTime, useRecDashboard } from './recShared';
+import { buildRecFlagDrillDown, buildRecSliceDrillDown } from './recDrillDown';
 import {
   REC_CARD,
   REC_CARD_COMPACT,
@@ -96,6 +97,7 @@ function statusTone(status?: string) {
 
 export function RecPipelineSection({ overview }: { overview: RecruitmentOverview | null; loading?: boolean }) {
   const { modules } = useDashboardAccess();
+  const { openDrillDown } = useRecDashboard();
   const [section, setSection] = useState<Section>('jobs');
   const [q, setQ] = useState('');
   const [quick, setQuick] = useState<Quick>('all');
@@ -477,6 +479,7 @@ export function RecPipelineSection({ overview }: { overview: RecruitmentOverview
                 <RecDonut
                   data={jobStatus.map((d, i) => ({ name: d.name, value: d.value, color: STATUS_COLORS[i % STATUS_COLORS.length] }))}
                   center={{ value: formatNum(jobStatus.reduce((s, d) => s + d.value, 0)), label: 'jobs' }}
+                  onSlice={(name) => openDrillDown(buildRecSliceDrillDown(overview, 'jobs', name))}
                 />
               </section>
               <section className={`${REC_CARD_COMPACT} xl:col-span-6`}>
@@ -486,7 +489,11 @@ export function RecPipelineSection({ overview }: { overview: RecruitmentOverview
                   info="Offers sent, accepted, joined and still pending. Empty pie means no placements yet — counts still show from hiring KPIs."
                 />
                 {placementTotal > 0 ? (
-                  <RecDonut data={placementSlices} center={{ value: formatNum(placementTotal), label: 'placements' }} />
+                  <RecDonut
+                    data={placementSlices}
+                    center={{ value: formatNum(placementTotal), label: 'placements' }}
+                    onSlice={(name) => openDrillDown(buildRecSliceDrillDown(overview, 'placements', name))}
+                  />
                 ) : (
                   <div className="space-y-2 py-1">
                     <p className="text-center text-[13px] text-slate-400">No placements yet — stages stay at zero until an offer is logged.</p>
@@ -541,6 +548,7 @@ export function RecPipelineSection({ overview }: { overview: RecruitmentOverview
                     { name: 'Clear', value: Math.max(0, jobs.length - jobsHot - jobsSla - jobsUnassigned), color: REC_CHARCOAL },
                   ]}
                   center={{ value: formatNum(jobs.length), label: 'listed' }}
+                  onSlice={(name) => openDrillDown(buildRecFlagDrillDown(overview, name))}
                 />
               </section>
               <section className={`${REC_CARD_COMPACT} xl:col-span-7`}>
@@ -600,6 +608,7 @@ export function RecPipelineSection({ overview }: { overview: RecruitmentOverview
                 <RecDonut
                   data={candStatus.map((d, i) => ({ name: d.name, value: d.value, color: STATUS_COLORS[i % STATUS_COLORS.length] }))}
                   center={{ value: formatNum(candStatus.reduce((s, d) => s + d.value, 0)), label: 'candidates' }}
+                  onSlice={(name) => openDrillDown(buildRecSliceDrillDown(overview, 'candidates', name))}
                 />
               </section>
               <section className={`${REC_CARD_COMPACT} xl:col-span-6`}>
@@ -607,6 +616,7 @@ export function RecPipelineSection({ overview }: { overview: RecruitmentOverview
                 <RecDonut
                   data={interviewStatus.map((d, i) => ({ name: d.name, value: d.value, color: STATUS_COLORS[i % STATUS_COLORS.length] }))}
                   center={{ value: formatNum(interviewStatus.reduce((s, d) => s + d.value, 0)), label: 'interviews' }}
+                  onSlice={(name) => openDrillDown(buildRecSliceDrillDown(overview, 'interviews', name))}
                 />
               </section>
               <section className={`${REC_CARD_COMPACT} xl:col-span-7`}>
@@ -642,6 +652,7 @@ export function RecPipelineSection({ overview }: { overview: RecruitmentOverview
                     { name: 'Other', value: Math.max(0, cands.length - candActive - candParked), color: '#94A3B8' },
                   ]}
                   center={{ value: formatNum(cands.length), label: 'listed' }}
+                  onSlice={(name) => openDrillDown(buildRecFlagDrillDown(overview, name))}
                 />
               </section>
               <section className={`${REC_CARD_COMPACT} xl:col-span-12`}>

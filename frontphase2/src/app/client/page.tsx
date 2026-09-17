@@ -1542,6 +1542,7 @@ export default function App() {
                     canUpdateClientStatus={canUpdateClient && clientFieldVisibility.status}
                     showStatusColumn={clientFieldVisibility.status}
                     showRecruiterColumn={clientFieldVisibility.assignedTo}
+                    showInRecruitmentBadge={!isRecruitmentScope}
                     onClientStatusChange={(clientId, newStatus) => {
                       void handleInlineClientStatusChange(clientId, newStatus);
                     }}

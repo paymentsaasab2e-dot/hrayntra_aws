@@ -14,6 +14,7 @@ import {
 import type { RecruitmentOverview } from '@/lib/dashboard/api';
 import { formatInr, formatNum, recCard, useRecDashboard } from './recShared';
 import { useDashboardAccess } from '@/lib/dashboard/useDashboardAccess';
+import { buildRecKpiDrillDown } from './recDrillDown';
 
 type KpiDef = {
   key: string;
@@ -140,13 +141,7 @@ export function RecKpiGrid({ overview, loading }: Props) {
             transition={{ delay: Math.min(idx * 0.03, 0.18) }}
             whileTap={{ scale: 0.98 }}
             onClick={() =>
-              openDrillDown({
-                title: def.label,
-                href: def.href,
-                metricKey: def.key,
-                subtitle: def.subtitle?.(overview),
-                rows: [{ metric: def.label, value: value ?? 0 }],
-              })
+              openDrillDown(buildRecKpiDrillDown(overview, def.key, def.label, def.href))
             }
             className={`${recCard} group p-4 text-left transition hover:border-slate-300 hover:shadow-sm`}
           >
