@@ -342,84 +342,82 @@ const Tooltip = ({ children, content }: { children: React.ReactNode; content: st
 
 /**
  * Sidebar nav row tint — matches the reference HRMS sidebar:
- *   - idle: muted slate text + slate icon (no color)
- *   - active: a glass-bordered, slightly translucent icon container with the
- *     module's brand color showing inside.
+ *   - idle: colorful icon (per-item accent) so the rail stays colorful at rest
+ *   - active: tinted glass wrap + brighter icon with a soft glow
  *
- * The wrapper applies `bg-white/5 border border-white/10` plus a tinted ring
- * for the glass effect; the icon itself takes the brand color.
+ * The wrapper applies a tinted ring for the glass effect; the icon keeps its brand color.
  */
 const NAV_ICON_ACCENTS: Record<
   string,
   { idle: string; activeWrap: string; activeIcon: string }
 > = {
   sky: {
-    idle: 'text-slate-400',
-    activeWrap: 'bg-white/5 border border-white/15 ring-1 ring-sky-400/30 backdrop-blur',
+    idle: 'text-sky-400',
+    activeWrap: 'bg-sky-400/10 border border-sky-400/25 ring-1 ring-sky-400/30 backdrop-blur',
     activeIcon: 'text-sky-300 drop-shadow-[0_0_6px_rgba(56,189,248,0.55)]',
   },
   rose: {
-    idle: 'text-slate-400',
-    activeWrap: 'bg-white/5 border border-white/15 ring-1 ring-rose-400/30 backdrop-blur',
+    idle: 'text-rose-400',
+    activeWrap: 'bg-rose-400/10 border border-rose-400/25 ring-1 ring-rose-400/30 backdrop-blur',
     activeIcon: 'text-rose-300 drop-shadow-[0_0_6px_rgba(251,113,133,0.55)]',
   },
   blue: {
-    idle: 'text-slate-400',
-    activeWrap: 'bg-white/5 border border-white/15 ring-1 ring-blue-400/30 backdrop-blur',
+    idle: 'text-blue-400',
+    activeWrap: 'bg-blue-400/10 border border-blue-400/25 ring-1 ring-blue-400/30 backdrop-blur',
     activeIcon: 'text-blue-300 drop-shadow-[0_0_6px_rgba(96,165,250,0.55)]',
   },
   amber: {
-    idle: 'text-slate-400',
-    activeWrap: 'bg-white/5 border border-white/15 ring-1 ring-amber-400/30 backdrop-blur',
+    idle: 'text-amber-400',
+    activeWrap: 'bg-amber-400/10 border border-amber-400/25 ring-1 ring-amber-400/30 backdrop-blur',
     activeIcon: 'text-amber-300 drop-shadow-[0_0_6px_rgba(251,191,36,0.55)]',
   },
   violet: {
-    idle: 'text-slate-400',
-    activeWrap: 'bg-white/5 border border-white/15 ring-1 ring-violet-400/30 backdrop-blur',
+    idle: 'text-violet-400',
+    activeWrap: 'bg-violet-400/10 border border-violet-400/25 ring-1 ring-violet-400/30 backdrop-blur',
     activeIcon: 'text-violet-300 drop-shadow-[0_0_6px_rgba(167,139,250,0.55)]',
   },
   cyan: {
-    idle: 'text-slate-400',
-    activeWrap: 'bg-white/5 border border-white/15 ring-1 ring-cyan-400/30 backdrop-blur',
+    idle: 'text-cyan-400',
+    activeWrap: 'bg-cyan-400/10 border border-cyan-400/25 ring-1 ring-cyan-400/30 backdrop-blur',
     activeIcon: 'text-cyan-300 drop-shadow-[0_0_6px_rgba(34,211,238,0.55)]',
   },
   emerald: {
-    idle: 'text-slate-400',
-    activeWrap: 'bg-white/5 border border-white/15 ring-1 ring-emerald-400/30 backdrop-blur',
+    idle: 'text-emerald-400',
+    activeWrap: 'bg-emerald-400/10 border border-emerald-400/25 ring-1 ring-emerald-400/30 backdrop-blur',
     activeIcon: 'text-emerald-300 drop-shadow-[0_0_6px_rgba(52,211,153,0.55)]',
   },
   indigo: {
-    idle: 'text-slate-400',
-    activeWrap: 'bg-white/5 border border-white/15 ring-1 ring-indigo-400/30 backdrop-blur',
+    idle: 'text-indigo-400',
+    activeWrap: 'bg-indigo-400/10 border border-indigo-400/25 ring-1 ring-indigo-400/30 backdrop-blur',
     activeIcon: 'text-indigo-300 drop-shadow-[0_0_6px_rgba(129,140,248,0.55)]',
   },
   orange: {
-    idle: 'text-slate-400',
-    activeWrap: 'bg-white/5 border border-white/15 ring-1 ring-orange-400/30 backdrop-blur',
+    idle: 'text-orange-400',
+    activeWrap: 'bg-orange-400/10 border border-orange-400/25 ring-1 ring-orange-400/30 backdrop-blur',
     activeIcon: 'text-orange-300 drop-shadow-[0_0_6px_rgba(251,146,60,0.55)]',
   },
   fuchsia: {
-    idle: 'text-slate-400',
-    activeWrap: 'bg-white/5 border border-white/15 ring-1 ring-fuchsia-400/30 backdrop-blur',
+    idle: 'text-fuchsia-400',
+    activeWrap: 'bg-fuchsia-400/10 border border-fuchsia-400/25 ring-1 ring-fuchsia-400/30 backdrop-blur',
     activeIcon: 'text-fuchsia-300 drop-shadow-[0_0_6px_rgba(232,121,249,0.55)]',
   },
   lime: {
-    idle: 'text-slate-400',
-    activeWrap: 'bg-white/5 border border-white/15 ring-1 ring-lime-400/30 backdrop-blur',
+    idle: 'text-lime-400',
+    activeWrap: 'bg-lime-400/10 border border-lime-400/25 ring-1 ring-lime-400/30 backdrop-blur',
     activeIcon: 'text-lime-300 drop-shadow-[0_0_6px_rgba(190,242,100,0.55)]',
   },
   teal: {
-    idle: 'text-slate-400',
-    activeWrap: 'bg-white/5 border border-white/15 ring-1 ring-teal-400/30 backdrop-blur',
+    idle: 'text-teal-400',
+    activeWrap: 'bg-teal-400/10 border border-teal-400/25 ring-1 ring-teal-400/30 backdrop-blur',
     activeIcon: 'text-teal-300 drop-shadow-[0_0_6px_rgba(45,212,191,0.55)]',
   },
   pink: {
-    idle: 'text-slate-400',
-    activeWrap: 'bg-white/5 border border-white/15 ring-1 ring-pink-400/30 backdrop-blur',
+    idle: 'text-pink-400',
+    activeWrap: 'bg-pink-400/10 border border-pink-400/25 ring-1 ring-pink-400/30 backdrop-blur',
     activeIcon: 'text-pink-300 drop-shadow-[0_0_6px_rgba(244,114,182,0.55)]',
   },
   slate: {
-    idle: 'text-slate-400',
+    idle: 'text-slate-300',
     activeWrap: 'bg-white/5 border border-white/15 ring-1 ring-slate-300/25 backdrop-blur',
     activeIcon: 'text-slate-100',
   },
@@ -461,13 +459,13 @@ const NavItem = ({ icon: Icon, label, href, active, collapsed, badge, onNavigate
 
       <div
         className={`flex items-center justify-center shrink-0 rounded-lg transition-all duration-150 ${collapsed ? 'h-8 w-8' : 'mr-2.5 h-8 w-8'} ${
-          isActive ? tone.activeWrap : 'border border-white/[0.05] bg-white/[0.02]'
+          isActive ? tone.activeWrap : `${tone.activeWrap} opacity-70`
         }`}
       >
         <Icon
           size={17}
           strokeWidth={isActive ? 2 : 1.6}
-          className={isActive ? tone.activeIcon : `${tone.idle} group-hover:text-white`}
+          className={isActive ? tone.activeIcon : tone.idle}
         />
       </div>
 
@@ -659,7 +657,7 @@ const NavGroupFlyout = ({
                       className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-all duration-150 ${
                         isActive
                           ? itemTone.activeWrap
-                          : 'border border-white/[0.06] bg-white/[0.03] group-hover/item:border-white/10 group-hover/item:bg-white/[0.06]'
+                          : `${itemTone.activeWrap} opacity-70`
                       }`}
                     >
                       <ItemIcon
@@ -668,7 +666,7 @@ const NavGroupFlyout = ({
                         className={
                           isActive
                             ? itemTone.activeIcon
-                            : `${itemTone.idle} group-hover/item:text-white`
+                            : itemTone.idle
                         }
                       />
                     </span>
@@ -720,7 +718,7 @@ const NavGroupFlyout = ({
             className={`flex shrink-0 items-center justify-center rounded-lg transition-all duration-150 ${
               collapsed ? 'h-8 w-8' : 'mr-2.5 h-8 w-8'
             } ${
-              active || open ? tone.activeWrap : 'border border-white/[0.05] bg-white/[0.02]'
+              active || open ? tone.activeWrap : `${tone.activeWrap} opacity-70`
             }`}
           >
             {imageSrc ? (
@@ -728,17 +726,13 @@ const NavGroupFlyout = ({
                 src={imageSrc}
                 alt=""
                 aria-hidden
-                className={`h-[18px] w-[18px] object-contain transition-[filter] duration-150 ${
-                  active
-                    ? ''
-                    : 'grayscale brightness-0 invert-[0.55] group-hover:invert'
-                }`}
+                className="h-[18px] w-[18px] object-contain"
               />
             ) : (
               <Icon
                 size={17}
                 strokeWidth={active || open ? 2 : 1.6}
-                className={active || open ? tone.activeIcon : `${tone.idle} group-hover:text-white`}
+                className={active || open ? tone.activeIcon : tone.idle}
               />
             )}
           </div>
@@ -810,13 +804,13 @@ const NavGroup = ({ icon: Icon, label, collapsed, accent = 'sky', forceOpen = fa
         >
           <div
             className={`flex items-center justify-center shrink-0 rounded-lg transition-all duration-150 ${collapsed ? 'h-8 w-8' : 'mr-2.5 h-8 w-8'} ${
-              isOpen ? tone.activeWrap : 'border border-white/[0.05] bg-white/[0.02]'
+              isOpen ? tone.activeWrap : `${tone.activeWrap} opacity-70`
             }`}
           >
             <Icon
               size={17}
               strokeWidth={isOpen ? 2 : 1.6}
-              className={isOpen ? tone.activeIcon : `${tone.idle} group-hover:text-white`}
+              className={isOpen ? tone.activeIcon : tone.idle}
             />
           </div>
 

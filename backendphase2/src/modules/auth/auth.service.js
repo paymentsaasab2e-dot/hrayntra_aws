@@ -583,20 +583,26 @@ export const authService = {
       throw new Error('Invalid credentials');
     }
 
-    // Plain `/login` (no invite token, no cached `x-tenant-db-name`) carries no
-    // tenant context, so Prisma would fall back to the default DB and never see
-    // tenant-scoped team-member credentials. Resolve the user's tenant via the
-    // HQ directory and re-enter login inside the right tenant context once.
+    // Plain `/login` may carry a stale `x-tenant-db-name` from a previous account
+    // on the same browser. Always resolve the authoritative tenant for this
+    // identifier via HQ and switch context when it differs — otherwise Device 2+
+    // logins falsely fail with "Invalid credentials" instead of duplicate-session.
     const activeTenantDbName = String(getActiveTenantDbName() || '').trim();
-    if (!activeTenantDbName && loginIdOrEmail) {
+    if (loginIdOrEmail) {
       let resolvedTenantDbName = await headquartersAuthService.findTenantDbNameForUser(loginIdOrEmail);
       if (!resolvedTenantDbName) {
         resolvedTenantDbName = await headquartersAuthService.findTenantDbNameForUserByCredentialScan(
           loginIdOrEmail
         );
       }
-      if (resolvedTenantDbName) {
+      if (resolvedTenantDbName && resolvedTenantDbName !== activeTenantDbName) {
         return runWithTenantContext(resolvedTenantDbName, () =>
+          this.login(loginIdOrEmail, password, ipAddress, userAgent, deviceMeta)
+        );
+      }
+      // Stale header pointed at a tenant where this user does not exist — clear and retry HQ/default paths.
+      if (!resolvedTenantDbName && activeTenantDbName) {
+        return runWithTenantContext('', () =>
           this.login(loginIdOrEmail, password, ipAddress, userAgent, deviceMeta)
         );
       }

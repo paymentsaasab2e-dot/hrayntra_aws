@@ -1,7 +1,26 @@
 import { sendResponse, sendError } from '../../utils/response.js';
 import { buildDeviceMeta } from '../../utils/deviceFingerprint.js';
-import { runWithTenantContext } from '../../config/prisma.js';
+import { runWithTenantContext, getActiveTenantDbName } from '../../config/prisma.js';
 import { sessionService } from './session.service.js';
+import { headquartersAuthService } from '../auth/headquarters-auth.service.js';
+
+async function resolveTenantDbNameForLoginIdentifier(loginIdentifier, preferredTenant = '') {
+  const preferred = String(preferredTenant || '').trim();
+  const active = String(getActiveTenantDbName() || '').trim();
+  let resolved = await headquartersAuthService.findTenantDbNameForUser(loginIdentifier);
+  if (!resolved) {
+    resolved = await headquartersAuthService.findTenantDbNameForUserByCredentialScan(loginIdentifier);
+  }
+  return String(resolved || preferred || active || '').trim();
+}
+
+async function runWithResolvedTenant(loginIdentifier, preferredTenant, fn) {
+  const tenantDbName = await resolveTenantDbNameForLoginIdentifier(loginIdentifier, preferredTenant);
+  if (!tenantDbName) return fn();
+  if (tenantDbName === getActiveTenantDbName()) return fn();
+  return runWithTenantContext(tenantDbName, fn);
+}
+
 export const sessionController = {
   async heartbeat(req, res) {
     try {
@@ -33,14 +52,34 @@ export const sessionController = {
       const { email, loginId, password } = req.body;
       const loginIdentifier = loginId || email;
       const deviceMeta = buildDeviceMeta(req, req.body);
-      const result = await sessionService.requestSessionTransfer({
+      const preferredTenant = String(
+        req.headers['x-tenant-db-name'] || req.body.tenantDbName || '',
+      ).trim();
+      const { result, tenantDbName } = await runWithResolvedTenant(
         loginIdentifier,
-        password,
-        deviceMeta,
+        preferredTenant,
+        async () => {
+          const transferResult = await sessionService.requestSessionTransfer({
+            loginIdentifier,
+            password,
+            deviceMeta,
+          });
+          return {
+            result: transferResult,
+            tenantDbName: getActiveTenantDbName() || preferredTenant || undefined,
+          };
+        },
+      );
+      sendResponse(res, 200, 'Login request sent to active session', {
+        ...result,
+        tenantDbName,
       });
-      sendResponse(res, 200, 'Login request sent to active session', result);
     } catch (error) {
-      sendError(res, 400, error.message, error);
+      const message =
+        error?.message === 'Invalid credentials'
+          ? 'Invalid email or password'
+          : error.message;
+      sendError(res, 400, message, error);
     }
   },
 
@@ -67,7 +106,13 @@ export const sessionController = {
   async transferStatus(req, res) {
     try {
       const { requestId } = req.params;
-      const result = await sessionService.getTransferStatus(requestId);
+      const preferredTenant = String(
+        req.headers['x-tenant-db-name'] || req.query?.tenantDbName || '',
+      ).trim();
+      const run = () => sessionService.getTransferStatus(requestId);
+      const result = preferredTenant
+        ? await runWithTenantContext(preferredTenant, run)
+        : await run();
       sendResponse(res, 200, 'Transfer status', result);
     } catch (error) {
       sendError(res, 400, error.message, error);
@@ -79,26 +124,38 @@ export const sessionController = {
       const { requestId, email, loginId, password } = req.body;
       const loginIdentifier = loginId || email;
       const deviceMeta = buildDeviceMeta(req, req.body);
-      const tenantDbName = String(req.headers['x-tenant-db-name'] || req.body.tenantDbName || '').trim();
+      const preferredTenant = String(
+        req.headers['x-tenant-db-name'] || req.body.tenantDbName || '',
+      ).trim();
 
-      const tokens = await sessionService.completeTransferLogin({
-        requestId,
-        loginIdentifier,
-        password,
-        tokenPayload: {},
-        refreshPayload: { tenantDbName: tenantDbName || undefined },
-        deviceMeta,
+      const tokensPayload = await runWithResolvedTenant(loginIdentifier, preferredTenant, async () => {
+        const tokens = await sessionService.completeTransferLogin({
+          requestId,
+          loginIdentifier,
+          password,
+          tokenPayload: {},
+          refreshPayload: {},
+          deviceMeta,
+        });
+        return {
+          ...tokens,
+          tenantDbName: getActiveTenantDbName() || preferredTenant || undefined,
+        };
       });
 
       sendResponse(res, 200, 'Login successful', {
-        accessToken: tokens.accessToken,
-        token: tokens.accessToken,
-        refreshToken: tokens.refreshToken,
-        sessionId: tokens.sessionId,
-        tenantDbName: tenantDbName || undefined,
+        accessToken: tokensPayload.accessToken,
+        token: tokensPayload.accessToken,
+        refreshToken: tokensPayload.refreshToken,
+        sessionId: tokensPayload.sessionId,
+        tenantDbName: tokensPayload.tenantDbName || undefined,
       });
     } catch (error) {
-      sendError(res, 401, error.message, error);
+      const message =
+        error?.message === 'Invalid credentials'
+          ? 'Invalid email or password'
+          : error.message;
+      sendError(res, 401, message, error);
     }
   },
 

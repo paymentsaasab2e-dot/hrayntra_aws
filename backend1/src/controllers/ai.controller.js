@@ -1136,32 +1136,49 @@ async function generalChat(req, res) {
       });
     }
 
-    const systemPrompt = [
-      'You are a helpful and professional career assistant for HRYANTRA, an AI-powered recruitment platform.',
-      'Your goal is to help candidates with their career journey, job search, and profile optimization.',
-      'Be encouraging, providing actionable advice and clear answers.',
-      'If the user asks about jobs, you can mention that SAASA uses AI to match them with the best opportunities.',
-      'Keep your responses concise and professional.',
-    ].join(' ');
+    const {
+      getCareerAssistantPrefilterRefusal,
+      loadCareerAssistantProfileContext,
+      buildCareerAssistantSystemPrompt,
+    } = require('../utils/careerAssistantScope.util');
+
+    const prefilterRefusal = getCareerAssistantPrefilterRefusal(message);
+    if (prefilterRefusal) {
+      return res.json({
+        success: true,
+        data: {
+          message: prefilterRefusal,
+          scoped: true,
+          refused: true,
+        },
+      });
+    }
+
+    const sessionCandidateId = String(req.user?.candidateId || req.user?.id || '').trim();
+    const bodyCandidateId = String(candidateId || '').trim();
+    const resolvedCandidateId = sessionCandidateId || bodyCandidateId;
+
+    const profileContext = await loadCareerAssistantProfileContext(resolvedCandidateId);
+    const systemPrompt = buildCareerAssistantSystemPrompt(profileContext);
 
     const messages = [
       { role: 'system', content: systemPrompt },
       ...normalizeHistory(history),
-      { role: 'user', content: message }
+      { role: 'user', content: message },
     ];
 
     let response = '';
     if (process.env.OPENAI_API_KEY) {
       response = await runOpenAIChat(messages, {
         model: OPENAI_CHAT_MODEL,
-        temperature: 0.7,
-        maxTokens: 500,
+        temperature: 0.4,
+        maxTokens: 450,
       });
     } else if (process.env.MISTRAL_API_KEY) {
       response = await runMistralChat(messages, {
         model: process.env.MISTRAL_CHAT_MODEL || 'mistral-small-latest',
-        temperature: 0.7,
-        maxTokens: 500,
+        temperature: 0.4,
+        maxTokens: 450,
       });
     }
 
@@ -1176,6 +1193,8 @@ async function generalChat(req, res) {
       success: true,
       data: {
         message: response,
+        scoped: true,
+        personalised: Boolean(profileContext),
       },
     });
   } catch (error) {

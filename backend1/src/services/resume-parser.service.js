@@ -420,11 +420,14 @@ function validateData(structuredData) {
     });
   }
   
-  // Validate date of birth
+  // Validate / coerce date of birth (CVs often use DD/MM/YYYY)
   if (validated.personalInformation?.dateOfBirth) {
-    if (!isValidDate(validated.personalInformation.dateOfBirth)) {
+    const coerced = coerceDateOfBirthString(validated.personalInformation.dateOfBirth);
+    if (!coerced) {
       console.warn('  ⚠️  Invalid date of birth:', validated.personalInformation.dateOfBirth);
       validated.personalInformation.dateOfBirth = null;
+    } else {
+      validated.personalInformation.dateOfBirth = coerced;
     }
   }
   
@@ -453,19 +456,61 @@ function validateData(structuredData) {
  * Helper: Validate date format (YYYY-MM-DD or ISO format)
  */
 function isValidDate(dateString) {
-  if (!dateString) return false;
-  if (typeof dateString !== 'string') return false;
-  
-  // Check YYYY-MM-DD format
-  const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-  if (dateRegex.test(dateString)) {
-    const date = new Date(dateString);
-    return date instanceof Date && !isNaN(date);
+  return Boolean(coerceDateOfBirthString(dateString));
+}
+
+/** Coerce CV DOB strings into YYYY-MM-DD when possible. */
+function coerceDateOfBirthString(value) {
+  if (!value) return null;
+  const s = String(value).trim();
+  if (!s) return null;
+
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+    const date = new Date(s.slice(0, 10));
+    return date instanceof Date && !isNaN(date) ? s.slice(0, 10) : null;
   }
-  
-  // Check ISO format
-  const date = new Date(dateString);
-  return date instanceof Date && !isNaN(date);
+
+  const dmy = s.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})$/);
+  if (dmy) {
+    const day = Number(dmy[1]);
+    const month = Number(dmy[2]);
+    const year = Number(dmy[3]);
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31 && year >= 1900 && year <= 2100) {
+      const iso = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const date = new Date(iso);
+      if (date instanceof Date && !isNaN(date)) return iso;
+    }
+  }
+
+  const date = new Date(s);
+  if (date instanceof Date && !isNaN(date)) return date.toISOString().slice(0, 10);
+  return null;
+}
+
+function deriveCityCountryFromAddress(pi) {
+  if (!pi || typeof pi !== 'object') return pi;
+  let city = pi.city != null && String(pi.city).trim() ? String(pi.city).trim() : null;
+  let country = pi.country != null && String(pi.country).trim() ? String(pi.country).trim() : null;
+
+  const trySplit = (raw) => {
+    if (!raw || (city && country)) return;
+    const parts = String(raw)
+      .split(',')
+      .map((part) => part.trim())
+      .filter(Boolean);
+    if (parts.length >= 2) {
+      if (!country) country = parts[parts.length - 1];
+      if (!city) city = parts[parts.length - 2];
+    } else if (parts.length === 1 && !city) {
+      city = parts[0];
+    }
+  };
+
+  trySplit(pi.address);
+  trySplit(pi.location);
+  pi.city = city;
+  pi.country = country;
+  return pi;
 }
 
 /**
@@ -501,7 +546,7 @@ function normalizeData(validatedData) {
     });
 
     const enriched = enrichPersonalInformationFromResumeText(pi, normalized._resumeTextForNameFallback);
-    normalized.personalInformation = enriched;
+    normalized.personalInformation = deriveCityCountryFromAddress(enriched);
     delete normalized._resumeTextForNameFallback;
   }
   
