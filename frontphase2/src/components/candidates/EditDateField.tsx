@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarDays } from 'lucide-react';
 import { isoToDMYDate, maskDateDMYInput, parseDMYToYMD } from '@/utils/formatLeadDateTime';
 import { phase1FieldLabelClass, phase1FieldValueClass } from '@/lib/phase1Typography';
@@ -60,6 +60,7 @@ export function EditDateField({
   const displayFromValue = useMemo(() => toDisplayDmy(value), [value]);
   const [dateText, setDateText] = useState(displayFromValue);
   const [error, setError] = useState('');
+  const pickerRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setDateText(displayFromValue);
@@ -115,6 +116,21 @@ export function EditDateField({
     commit(nextDate);
   };
 
+  const openPicker = () => {
+    const el = pickerRef.current;
+    if (!el) return;
+    try {
+      if (typeof el.showPicker === 'function') {
+        el.showPicker();
+        return;
+      }
+    } catch {
+      // Fall through to focus/click for browsers that block showPicker.
+    }
+    el.focus();
+    el.click();
+  };
+
   return (
     <div className="block">
       {hideLabel ? null : <span className={`mb-1.5 block ${labelClass}`}>{label}</span>}
@@ -134,20 +150,26 @@ export function EditDateField({
           } ${inputClass} ${error ? 'border-red-300 focus:border-red-400 focus:ring-red-100' : ''}`}
         />
         <input
+          ref={pickerRef}
           type="date"
           value={pickerDateValue}
           min={min}
           max={max}
+          tabIndex={-1}
           onChange={(e) => handleCalendarChange(e.target.value)}
-          aria-label={`${label} calendar picker`}
-          className="absolute right-2 top-1/2 z-10 h-8 w-8 -translate-y-1/2 cursor-pointer opacity-0"
-        />
-        <span
-          className="pointer-events-none absolute right-2 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-slate-400"
           aria-hidden="true"
+          className="pointer-events-none absolute h-0 w-0 opacity-0"
+        />
+        <button
+          type="button"
+          onClick={openPicker}
+          aria-label={`${label} calendar picker`}
+          className={`absolute right-1.5 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 ${
+            variant === 'ats' ? 'focus:ring-blue-100' : 'focus:ring-violet-100'
+          } focus:outline-none focus:ring-2`}
         >
-          <CalendarDays size={16} />
-        </span>
+          <CalendarDays size={16} aria-hidden="true" />
+        </button>
       </div>
       {error ? <p className="mt-1 text-xs font-medium text-red-600">{error}</p> : null}
     </div>

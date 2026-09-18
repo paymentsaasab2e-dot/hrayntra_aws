@@ -106,7 +106,16 @@ function withDownloadExtension(filename: string, extension: string): string {
 }
 
 async function downloadBlob(blob: Blob, filename: string) {
-  const objectUrl = URL.createObjectURL(blob);
+  let stamped = blob;
+  try {
+    const { fetchAndCacheOrgWatermark } = await import('../lib/useOrgExportWatermark');
+    const { stampDownloadBlob } = await import('../lib/exportWatermark');
+    await fetchAndCacheOrgWatermark();
+    stamped = await stampDownloadBlob(blob, filename);
+  } catch {
+    stamped = blob;
+  }
+  const objectUrl = URL.createObjectURL(stamped);
   const link = document.createElement('a');
   link.href = objectUrl;
   link.download = filename;

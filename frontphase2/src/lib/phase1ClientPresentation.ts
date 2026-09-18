@@ -317,7 +317,10 @@ export function buildUpdatePayloadFromPhase1EditSnapshot(
 
   const mergedExtra: Record<string, unknown> = {
     ...prev,
-    phase1ProfileSnapshot: cloneSnapshot(snapshotForSave),
+    phase1ProfileSnapshot: {
+      ...cloneSnapshot(snapshotForSave),
+      _phase1SnapshotSavedAt: new Date().toISOString(),
+    },
     phase1GapExplanations: snapshot.gapExplanations || [],
     phase1Internships: snapshot.internships || [],
     phase1Accomplishments: snapshot.accomplishments || [],
@@ -363,6 +366,7 @@ export function buildUpdatePayloadFromPhase1EditSnapshot(
 
   return {
     ...payload,
+    gender: String(snapshot.personalInfo?.gender || '').trim() || payload.gender,
     currentTitle: (normalizedCareer?.currentRole as string) || payload.currentTitle,
     designation: (normalizedCareer?.currentRole as string) || payload.designation,
     location: (normalizedCareer?.currentLocation as string) || payload.location,

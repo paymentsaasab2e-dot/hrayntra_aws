@@ -817,7 +817,15 @@ export function TaskDetailsDrawer({
 
   const handleDownloadAttachment = async () => {
     try {
-      const blob = await fetchAttachmentBlob();
+      let blob = await fetchAttachmentBlob();
+      try {
+        const { fetchAndCacheOrgWatermark } = await import('../../lib/useOrgExportWatermark');
+        const { stampDownloadBlob } = await import('../../lib/exportWatermark');
+        await fetchAndCacheOrgWatermark();
+        blob = await stampDownloadBlob(blob, selectedAttachment || 'attachment');
+      } catch {
+        /* watermark optional */
+      }
       const objectUrl = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = objectUrl;

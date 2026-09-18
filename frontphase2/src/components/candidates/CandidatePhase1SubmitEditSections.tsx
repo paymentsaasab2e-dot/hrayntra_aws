@@ -123,6 +123,47 @@ function EditField({
   );
 }
 
+const GENDER_OPTIONS = [
+  { label: 'Male', value: 'Male' },
+  { label: 'Female', value: 'Female' },
+  { label: 'Other', value: 'Other' },
+  { label: 'Prefer not to say', value: 'Prefer not to say' },
+];
+
+function EditSelect({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: Array<{ label: string; value: string }>;
+  onChange: (value: string) => void;
+}) {
+  const selectOptions =
+    value && !options.some((option) => option.value === value)
+      ? [...options, { label: value, value }]
+      : options;
+  return (
+    <label className="block">
+      <span className={`mb-1.5 block ${phase1FieldLabelClass}`}>{label}</span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className={`w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 ${phase1FieldValueClass}`}
+      >
+        <option value="">Select</option>
+        {selectOptions.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 function Phase1EditSection({
   id,
   title,
@@ -520,7 +561,12 @@ export function CandidatePhase1SubmitEditSections({
             />
           ) : null}
           {showField('gender') ? (
-            <EditField label="Gender" value={str(pi.gender)} onChange={(v) => patchPersonal({ gender: v })} />
+            <EditSelect
+              label="Gender"
+              value={str(pi.gender)}
+              options={GENDER_OPTIONS}
+              onChange={(v) => patchPersonal({ gender: v })}
+            />
           ) : null}
           {showField('nationality') ? (
             <EditField label="Nationality" value={str(pi.nationality)} onChange={(v) => patchPersonal({ nationality: v })} />

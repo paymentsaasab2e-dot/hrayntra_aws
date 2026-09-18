@@ -1028,8 +1028,45 @@ export default function CVEditorModal({
 
   const handleExport = (type: "PDF" | "DOCX") => {
     showStatus(`Preparing ${type}…`);
-    // Integrate with your export logic here
-    console.log(`Export as ${type}:`, getCVText());
+    try {
+      const snapshot = buildEditorSnapshot(
+        name,
+        jobTitle,
+        email,
+        phone,
+        location,
+        linkedin,
+        summary,
+        experiences,
+        education,
+        skills,
+        candidatePhoto,
+        initialCandidatePhotoRef.current,
+        companyLogo,
+        initialCompanyLogoRef.current,
+        candidatePhotoPos,
+        companyLogoPos,
+        candidatePhotoSize,
+        companyLogoSize,
+        showCandidatePhotoSlot,
+        showCompanyLogoSlot,
+        sectionOrder,
+        wm,
+        templateId
+      );
+      // Prefer shared Updated-CV exporters (org watermark applied there).
+      void import("../lib/cvEditorExport").then((mod) => {
+        if (type === "PDF") {
+          mod.printCvEditorAsPdf(snapshot as any, name || "candidate");
+          showStatus("PDF ready — use the print dialog to save");
+        } else {
+          mod.downloadCvEditorPlainText(snapshot as any, name || "candidate");
+          showStatus("Downloaded as text (DOCX uses TXT with watermark)");
+        }
+      });
+    } catch {
+      showStatus(`Could not export ${type}`);
+    }
   };
 
   const handleSubmit = async () => {

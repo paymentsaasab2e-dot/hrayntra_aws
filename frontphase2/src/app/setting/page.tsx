@@ -18,6 +18,7 @@ import { isOrgBillingNavEnabled, ORG_RECRUITMENT_CACHE_EVENT, getCachedOrgRecrui
 import { CommissionSlabSettings } from '../../components/settings/CommissionSlabSettings';
 import { usePermissions } from '../../hooks/usePermissions';
 import { ActivityLogSettings } from '../../components/settings/ActivityLogSettings';
+import { WatermarkSettings } from '../../components/settings/WatermarkSettings';
 import { confirmDiscardUnsavedChanges } from '../../hooks/useDrawerUnsavedGuard';
 import { useUnsavedPageGuard } from '../../hooks/useUnsavedPageGuard';
 
@@ -72,6 +73,8 @@ export default function SettingsPage() {
           );
         case 'activity-log':
           return isSuperAdmin();
+        case 'watermark':
+          return isSuperAdmin();
         default:
           return true;
       }
@@ -105,6 +108,8 @@ export default function SettingsPage() {
       'security',
       'customization',
       'activity-log',
+      'watermark',
+      'invoice-template',
     ];
     if (section && allowedSections.includes(section)) {
       setActiveSection(section);
@@ -159,6 +164,8 @@ export default function SettingsPage() {
         return <CustomizationSettings />;
       case 'activity-log':
         return <ActivityLogSettings />;
+      case 'watermark':
+        return <WatermarkSettings />;
       default:
         return <ProfileSettings onDirtyChange={setProfileDirty} />;
     }
@@ -176,6 +183,7 @@ export default function SettingsPage() {
     'invoice-template': 'Invoice template',
     security: 'Data & Security',
     'activity-log': 'Activity Log',
+    watermark: 'Watermark',
     customization: 'Customization',
   };
 

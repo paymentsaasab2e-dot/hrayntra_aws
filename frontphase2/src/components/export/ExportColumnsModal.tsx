@@ -54,6 +54,13 @@ export function ExportColumnsModal<T>({
   isLoading = false,
   onExport,
 }: ExportColumnsModalProps<T>) {
+  useEffect(() => {
+    if (!isOpen) return;
+    void import('../../lib/useOrgExportWatermark')
+      .then((m) => m.fetchAndCacheOrgWatermark())
+      .catch(() => undefined);
+  }, [isOpen]);
+
   const allIds = useMemo(() => columns.map((c) => c.id), [columns]);
   const [selectedIds, setSelectedIds] = useState<string[]>(allIds);
   const [mounted, setMounted] = useState(false);

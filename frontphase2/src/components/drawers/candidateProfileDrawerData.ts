@@ -147,6 +147,7 @@ export interface CandidateProfileDrawerData {
   extraData?: Record<string, unknown> | null;
   cvPreferredLocation?: string | null;
   cvSkills?: string[];
+  gender?: string | null;
   tags?: CandidateTagItem[];
   notes?: Array<{
     id: string;

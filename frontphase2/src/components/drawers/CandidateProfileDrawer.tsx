@@ -4966,13 +4966,28 @@ export function CandidateProfileDrawer({
 
   const overviewContentKey = useMemo(() => {
     if (!candidate) return 'overview-empty';
+    const extra = candidate.extraData ?? null;
+    const snap =
+      extra && typeof extra === 'object' && !Array.isArray(extra)
+        ? (extra as Record<string, unknown>).phase1ProfileSnapshot
+        : null;
+    const snapMeta =
+      snap && typeof snap === 'object' && !Array.isArray(snap)
+        ? String(
+            (snap as Record<string, unknown>)._phase1SnapshotSavedAt ||
+              (snap as Record<string, unknown>)._savedAt ||
+              '',
+          )
+        : '';
     return [
       candidate.id,
       candidate.currentTitle,
       candidate.currentCompany,
       candidate.phone,
       candidate.email,
-      JSON.stringify(candidate.extraData ?? null),
+      candidate.location,
+      snapMeta,
+      JSON.stringify(extra),
     ].join('|');
   }, [candidate]);
 
@@ -4994,6 +5009,8 @@ export function CandidateProfileDrawer({
       setPhase1EditSnapshot(null);
       return;
     }
+    // Never clobber in-progress Overview edits when parent refreshes the candidate.
+    if (showEditModal || isSavingEdit) return;
     setEditForm(buildCandidateEditForm(candidate));
     if (isPhase1PortalCandidate(candidate)) {
       setPhase1EditSnapshot(initPhase1EditSnapshotFromProfile(candidate));
@@ -5001,7 +5018,7 @@ export function CandidateProfileDrawer({
       setPhase1EditSnapshot(null);
     }
     setEditError('');
-  }, [candidate]);
+  }, [candidate, showEditModal, isSavingEdit]);
 
   useEffect(() => {
     if (!candidate || !editModalOpenToken || loadingCandidateProfile) return;
@@ -5094,6 +5111,8 @@ export function CandidateProfileDrawer({
         editAvatarPreviewRef.current = '';
       }
       setEditAvatarFile(null);
+      setEditAvatarPreview('');
+      setPhase1EditSnapshot(null);
       if (openEditDirectly) {
         onClose();
       } else {

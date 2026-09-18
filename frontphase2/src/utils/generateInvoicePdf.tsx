@@ -4,6 +4,11 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
+import {
+  applyOrgWatermarkToJsPdf,
+  readCachedOrgWatermark,
+} from '../lib/exportWatermark';
+import { fetchAndCacheOrgWatermark } from '../lib/useOrgExportWatermark';
 
 async function renderInvoicePdfBlob(element: HTMLElement): Promise<Blob> {
   const canvas = await html2canvas(element, {
@@ -31,6 +36,15 @@ async function renderInvoicePdfBlob(element: HTMLElement): Promise<Blob> {
     pdf.addPage();
     pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
     heightLeft -= pageHeight;
+  }
+
+  try {
+    await fetchAndCacheOrgWatermark();
+    if (readCachedOrgWatermark().enabled) {
+      await applyOrgWatermarkToJsPdf(pdf as any);
+    }
+  } catch {
+    /* watermark optional */
   }
 
   return pdf.output('blob');

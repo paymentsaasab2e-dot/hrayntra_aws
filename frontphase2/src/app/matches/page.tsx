@@ -794,12 +794,20 @@ export default function MatchesPage() {
   const handleExport = (candidateId: string) => {
     const candidate = candidates.find((item) => item.id === candidateId);
     if (!candidate) return;
-    const blob = new Blob(
-      [
-        `Candidate: ${candidate.name}\nTitle: ${candidate.currentTitle}\nCompany: ${candidate.currentCompany}\nSkills: ${candidate.skills.join(', ')}`,
-      ],
-      { type: 'text/plain;charset=utf-8' }
-    );
+    let body = `Candidate: ${candidate.name}\nTitle: ${candidate.currentTitle}\nCompany: ${candidate.currentCompany}\nSkills: ${candidate.skills.join(', ')}`;
+    try {
+      const {
+        readCachedOrgWatermark,
+        watermarkTextForFormat,
+        prependTextWatermark,
+      } = require('../../lib/exportWatermark') as typeof import('../../lib/exportWatermark');
+      void import('../../lib/useOrgExportWatermark').then((m) => m.fetchAndCacheOrgWatermark());
+      const stamp = watermarkTextForFormat(readCachedOrgWatermark(), 'text');
+      if (stamp) body = prependTextWatermark(body, stamp, 'text');
+    } catch {
+      /* optional */
+    }
+    const blob = new Blob([body], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;

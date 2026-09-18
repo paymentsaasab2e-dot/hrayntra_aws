@@ -12,6 +12,12 @@ import {
   buildPlacementsModuleExport,
   limitDataset,
 } from './reportModuleFormats.js';
+import {
+  getExportWatermark,
+  watermarkTextForFormat,
+  prependWatermarkRows,
+  prependWatermarkCsv,
+} from '../setting/exportWatermark.service.js';
 
 const EXPORT_DIR = path.join(process.cwd(), 'uploads', 'reports');
 const OBJECT_ID_REGEX = /^[a-f\d]{24}$/i;
@@ -97,13 +103,14 @@ function estimateColumnWidths(columns, rows, availableWidth) {
   return weights.map((weight) => Math.max(46, Math.floor((weight / total) * availableWidth)));
 }
 
-function createTablePdfBuffer(title, columns, rows, summary) {
+function createTablePdfBuffer(title, columns, rows, summary, watermarkText = '') {
   const pageWidth = 842;
   const pageHeight = 595;
   const marginLeft = 24;
   const marginRight = 24;
   const marginTop = 24;
   const marginBottom = 22;
+  const stamp = String(watermarkText || '').trim();
   const safeColumns = Array.isArray(columns) && columns.length ? columns.map((column) => String(column)) : ['Label', 'Value'];
   const safeRows = Array.isArray(rows) ? rows : [];
   const usableWidth = pageWidth - marginLeft - marginRight;
@@ -118,6 +125,9 @@ function createTablePdfBuffer(title, columns, rows, summary) {
       y -= 14;
     } else {
       y -= 6;
+    }
+    if (stamp) {
+      contentLines.push(makePdfText(`Watermark: ${stamp}`, marginLeft, 16, 8, 'F1'));
     }
     return y;
   };
@@ -1736,7 +1746,7 @@ function tabToDatasetRows(tabKey, summary) {
   }
 }
 
-function buildFileFromDataset(dataset, entity, format) {
+async function buildFileFromDataset(dataset, entity, format) {
   const normalizedEntity = normalizeEntity(entity);
   const normalizedFormat = normalizeFormat(format);
 
@@ -1749,11 +1759,23 @@ function buildFileFromDataset(dataset, entity, format) {
     };
   }
 
+  let watermarkCfg = null;
+  try {
+    watermarkCfg = await getExportWatermark();
+  } catch {
+    watermarkCfg = null;
+  }
+  const stamp = watermarkTextForFormat(watermarkCfg, normalizedFormat);
+  const rowsForSheet =
+    stamp && (normalizedFormat === 'excel' || normalizedFormat === 'csv')
+      ? prependWatermarkRows(dataset.rows, stamp)
+      : dataset.rows;
+
   ensureExportDir();
   const fileBase = `${fileSlug(normalizedEntity)}-${normalizedFormat}-${Date.now()}`;
 
   if (normalizedFormat === 'excel') {
-    const worksheet = XLSX.utils.json_to_sheet(dataset.rows);
+    const worksheet = XLSX.utils.json_to_sheet(rowsForSheet);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Report');
     const filePath = path.join(EXPORT_DIR, `${fileBase}.xlsx`);
@@ -1774,13 +1796,16 @@ function buildFileFromDataset(dataset, entity, format) {
   }
 
   if (normalizedFormat === 'csv') {
-    const headers = Object.keys(dataset.rows[0] || {});
-    const csv = [
+    const headers = Object.keys(rowsForSheet[0] || {});
+    let csv = [
       headers.join(','),
-      ...dataset.rows.map((row) =>
+      ...rowsForSheet.map((row) =>
         headers.map((header) => `"${String(row?.[header] ?? '').replace(/"/g, '""')}"`).join(',')
       ),
     ].join('\n');
+    if (stamp && !String(rowsForSheet[0]?.[headers[0]] || '').startsWith('WATERMARK:')) {
+      csv = prependWatermarkCsv(csv, stamp);
+    }
     const filePath = path.join(EXPORT_DIR, `${fileBase}.csv`);
     fs.writeFileSync(filePath, csv, 'utf8');
     return {
@@ -1803,7 +1828,8 @@ function buildFileFromDataset(dataset, entity, format) {
       dataset.title,
       dataset.columns.length ? dataset.columns : Object.keys(dataset.rows[0] || {}),
       dataset.rows.slice(0, 100),
-      `Summary: Total records ${dataset.rows.length}`
+      `Summary: Total records ${dataset.rows.length}`,
+      stamp,
     );
     const filePath = path.join(EXPORT_DIR, `${fileBase}.pdf`);
     fs.writeFileSync(filePath, buffer);
@@ -2485,7 +2511,7 @@ export async function fetchReportDataset(entity, query = {}, user = null) {
 export async function buildReportFile(entity, format, query = {}, user = null) {
   const normalizedEntity = normalizeEntity(entity);
   const dataset = await fetchReportDataset(normalizedEntity, query, user);
-  return buildFileFromDataset(dataset, normalizedEntity, format);
+  return await buildFileFromDataset(dataset, normalizedEntity, format);
 }
 
 export const reportService = {
@@ -2522,7 +2548,7 @@ export const reportService = {
 
   async exportSummaryTab(tab, format, query, user) {
     const dataset = await buildModuleTabExportDataset(tab, query, user);
-    return buildFileFromDataset(dataset, `summary-${tab}`, format);
+    return await buildFileFromDataset(dataset, `summary-${tab}`, format);
   },
 
   async getAll(req) {

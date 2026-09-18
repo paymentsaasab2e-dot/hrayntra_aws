@@ -1425,12 +1425,29 @@ export default function InboxPage() {
   };
 
   const handleDownload = (email: GmailInboxMessage) => {
-    const content = email.htmlBody || `<pre>${email.body || email.preview || ''}</pre>`;
-    const blob = new Blob([content], { type: email.htmlBody ? 'text/html;charset=utf-8' : 'text/plain;charset=utf-8' });
+    const isHtml = Boolean(email.htmlBody);
+    let content = email.htmlBody || email.body || email.preview || '';
+    if (!isHtml) content = String(content);
+    else if (!email.htmlBody) content = `<pre>${content}</pre>`;
+    try {
+      const {
+        readCachedOrgWatermark,
+        watermarkTextForFormat,
+        prependTextWatermark,
+      } = require('../../lib/exportWatermark') as typeof import('../../lib/exportWatermark');
+      void import('../../lib/useOrgExportWatermark').then((m) => m.fetchAndCacheOrgWatermark());
+      const stamp = watermarkTextForFormat(readCachedOrgWatermark(), 'text');
+      if (stamp) content = prependTextWatermark(content, stamp, isHtml ? 'html' : 'text');
+    } catch {
+      /* optional */
+    }
+    const blob = new Blob([content], {
+      type: isHtml ? 'text/html;charset=utf-8' : 'text/plain;charset=utf-8',
+    });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = `${(email.subject || 'mail-message').replace(/[^\w.-]+/g, '_')}.${email.htmlBody ? 'html' : 'txt'}`;
+    anchor.download = `${(email.subject || 'mail-message').replace(/[^\w.-]+/g, '_')}.${isHtml ? 'html' : 'txt'}`;
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();

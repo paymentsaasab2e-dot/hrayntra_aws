@@ -400,6 +400,17 @@ export async function canvasToSaasaCvPdfBlob(
     );
   }
 
+  try {
+    const { fetchAndCacheOrgWatermark } = await import('./useOrgExportWatermark');
+    const { applyOrgWatermarkToJsPdf, readCachedOrgWatermark } = await import('./exportWatermark');
+    await fetchAndCacheOrgWatermark();
+    if (pdf && readCachedOrgWatermark().enabled) {
+      await applyOrgWatermarkToJsPdf(pdf as any);
+    }
+  } catch {
+    /* watermark optional */
+  }
+
   return pdf.output('blob');
 }
 

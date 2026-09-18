@@ -83,11 +83,65 @@ function triggerCsvDownload(filename: string, text: string) {
 /**
  * Export an arbitrary list of objects to a downloadable CSV.
  * Columns are emitted in the order provided so the sheet is stable.
+ * When org watermark has a logo, downloads a real .xlsx with the image embedded
+ * (CSV cannot carry images). Text-only watermark still uses CSV.
  */
 export function downloadCsv<T>(filename: string, columns: CsvColumn<T>[], rows: T[]) {
+  try {
+    const {
+      readCachedOrgWatermark,
+      watermarkImageForFormat,
+      watermarkTextForFormat,
+      downloadRowsAsWatermarkedXlsx,
+    } = require('../lib/exportWatermark') as typeof import('../lib/exportWatermark');
+
+    const run = async () => {
+      try {
+        const { fetchAndCacheOrgWatermark } = require('../lib/useOrgExportWatermark') as typeof import('../lib/useOrgExportWatermark');
+        await fetchAndCacheOrgWatermark();
+      } catch {
+        /* cache optional */
+      }
+
+      const cfg = readCachedOrgWatermark();
+      const imageUrl = watermarkImageForFormat(cfg, 'excel');
+      // Logo watermark → real Excel with embedded image (not "WATERMARK: [logo watermark]").
+      if (cfg.enabled && imageUrl) {
+        try {
+          await downloadRowsAsWatermarkedXlsx(filename, columns, rows);
+        } catch (err) {
+          console.warn('[downloadCsv] watermarked xlsx failed', err);
+          downloadCsvAsText(filename, columns, rows);
+        }
+        return;
+      }
+
+      const headerIds = columns.map((column) => column.id);
+      const rowMatrix = rows.map((row) => columns.map((column) => column.accessor(row)));
+      let text = buildCsvText(headerIds, rowMatrix);
+      const stamp = watermarkTextForFormat(cfg, 'csv');
+      if (stamp) {
+        // Keep BOM at the very start so Excel does not show ï»¿ on the header row.
+        text = `\ufeff"WATERMARK: ${stamp.replace(/"/g, '""')}"\r\n${text.replace(/^\ufeff/, '')}`;
+      }
+      triggerCsvDownload(filename, text);
+    };
+
+    void run().catch(() => {
+      downloadCsvAsText(filename, columns, rows);
+    });
+    return;
+  } catch {
+    /* watermark optional */
+  }
+  downloadCsvAsText(filename, columns, rows);
+}
+
+function downloadCsvAsText<T>(filename: string, columns: CsvColumn<T>[], rows: T[]) {
   const headerIds = columns.map((column) => column.id);
   const rowMatrix = rows.map((row) => columns.map((column) => column.accessor(row)));
-  triggerCsvDownload(filename, buildCsvText(headerIds, rowMatrix));
+  const text = buildCsvText(headerIds, rowMatrix);
+  triggerCsvDownload(filename, text);
 }
 
 /**
@@ -121,7 +175,19 @@ export function downloadSampleCsv(
   const matrix: unknown[][] = [sampleRow];
   for (let i = 0; i < blanks; i += 1) matrix.push(blankRow);
 
-  triggerCsvDownload(filename, buildCsvText(ids, matrix));
+  let text = buildCsvText(ids, matrix);
+  try {
+    const {
+      readCachedOrgWatermark,
+      watermarkTextForFormat,
+      prependTextWatermark,
+    } = require('../lib/exportWatermark') as typeof import('../lib/exportWatermark');
+    const stamp = watermarkTextForFormat(readCachedOrgWatermark(), 'csv');
+    if (stamp) text = prependTextWatermark(text, stamp, 'csv');
+  } catch {
+    /* watermark optional */
+  }
+  triggerCsvDownload(filename, text);
 }
 
 import { formatDateDMY, formatDateTimeDMY } from './dateDisplay';
