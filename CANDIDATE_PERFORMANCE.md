@@ -258,7 +258,18 @@ No PII.
 
 ---
 
-## 12. Key files
+## My candidates (`?tab=mine`) — same speed model
+
+`GET /api/v1/candidates?mine=true&page=1&limit=50` now:
+
+1. Builds mine scope **without** nested `applications.some` / `pipelineEntries.some` (prefetch linked ids by `jobId`)
+2. Loads a **lean** page (`select` index fields + `skip/take`) — not heavy `include`
+3. Hydrates **only** the ~50 page ids
+4. Uses **cached count** when warm
+5. Optionally merges a **bounded** portal window on page 1
+
+Production (`employers.hryantra.com`) only gets this after backend deploy.
+
 
 - `backendphase2/prisma/schema.prisma` — `nameNormalized`, `nameSearchGrams`, indexes  
 - `backendphase2/src/modules/candidate/candidate.service.js` — classifier, grams, K clamp, count cache, perf logs  

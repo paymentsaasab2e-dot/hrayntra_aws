@@ -74,16 +74,24 @@ export function useAssignableMembers(
     if (!enabled || !canSelectCompany || !companiesReady || companyId) return;
     if (!preferredCompanyId) {
       // Single org: auto-select so Manager/Team can load immediately.
-      if (companies.length === 1 && companies[0]?.id) {
+      // Multi-org with no preference: pick first so existing assignments can hydrate.
+      if (companies[0]?.id) {
         seededCompanyRef.current = companies[0].id;
         setCompanyId(companies[0].id);
       }
       return;
     }
-    if (!companies.some((row) => row.id === preferredCompanyId)) return;
-    if (seededCompanyRef.current === preferredCompanyId) return;
-    seededCompanyRef.current = preferredCompanyId;
-    setCompanyId(preferredCompanyId);
+    if (companies.some((row) => row.id === preferredCompanyId)) {
+      if (seededCompanyRef.current === preferredCompanyId) return;
+      seededCompanyRef.current = preferredCompanyId;
+      setCompanyId(preferredCompanyId);
+      return;
+    }
+    // Preferred org not in assignable list — fall back so the picker is not stuck empty.
+    if (companies[0]?.id) {
+      seededCompanyRef.current = companies[0].id;
+      setCompanyId(companies[0].id);
+    }
   }, [enabled, canSelectCompany, companiesReady, companies, companyId, preferredCompanyId]);
 
   useEffect(() => {

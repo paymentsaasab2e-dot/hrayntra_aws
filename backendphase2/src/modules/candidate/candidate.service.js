@@ -3344,11 +3344,52 @@ async function buildMineCandidatesScope(userId, knownJobIds) {
   const myJobIds = Array.isArray(knownJobIds) ? knownJobIds : await getMyJobIds(userId, { take: 400 });
   const orClause = buildAssigneeVisibilityOr(userId);
   if (myJobIds.length > 0) {
-    // Keep this OR small. Nested matches/interviews `some` scans on every list load
-    // and stalls My candidates for minutes once the tenant has a large pipeline.
+    // Prefer assignedJobs (array / multikey) over nested relation scans.
     orClause.push({ assignedJobs: { hasSome: myJobIds } });
-    orClause.push({ applications: { some: { jobId: { in: myJobIds } } } });
-    orClause.push({ pipelineEntries: { some: { jobId: { in: myJobIds } } } });
+
+    // Prefetch linked candidate ids from Application / PipelineEntry by jobId.
+    // Nested `applications: { some }` / `pipelineEntries: { some }` on count/list
+    // forces expensive plans once the tenant has tens of thousands of candidates.
+    const linkedIds = new Set();
+    try {
+      const [appRows, pipeRows] = await Promise.all([
+        prisma.application.findMany({
+          where: { jobId: { in: myJobIds } },
+          select: { candidateId: true },
+          take: 25_000,
+        }),
+        prisma.pipelineEntry.findMany({
+          where: { jobId: { in: myJobIds } },
+          select: { candidateId: true },
+          take: 25_000,
+        }),
+      ]);
+      for (const row of appRows) {
+        const id = String(row?.candidateId || '').trim();
+        if (id) linkedIds.add(id);
+      }
+      for (const row of pipeRows) {
+        const id = String(row?.candidateId || '').trim();
+        if (id) linkedIds.add(id);
+      }
+    } catch (err) {
+      console.warn(
+        '[candidate.service] mine linked-id prefetch failed; falling back to relation some:',
+        err?.message || err,
+      );
+      orClause.push({ applications: { some: { jobId: { in: myJobIds } } } });
+      orClause.push({ pipelineEntries: { some: { jobId: { in: myJobIds } } } });
+      return { OR: orClause };
+    }
+
+    const linked = Array.from(linkedIds);
+    if (linked.length) {
+      // Chunk $in to keep Mongo filters bounded.
+      const chunkSize = 5_000;
+      for (let i = 0; i < linked.length; i += chunkSize) {
+        orClause.push({ id: { in: linked.slice(i, i + chunkSize) } });
+      }
+    }
   }
   return { OR: orClause };
 }
@@ -4037,22 +4078,100 @@ export const candidateService = {
     };
 
     if (mine && !loadCommonPool && !ids) {
-      // My candidates: page in the tenant DB.
+      // My candidates — same performance model as All:
+      // lean index page (skip/take) → hydrate only ~limit rows → cached count.
+      // Do NOT use heavy `include` on the full page query (that was the main stall at ~19k).
+      const countKey = buildCandidateCountCacheKey(req, {
+        loadCommonPool: false,
+        mine: true,
+        tenantWhere: where,
+      });
+      const cachedTotal = readCandidateCountCache(countKey);
+
       const tQ = candidatePerfNow();
-      const [rowTotal, pageRows] = await Promise.all([
-        prisma.candidate.count({ where }),
-        prisma.candidate.findMany({
-          where,
-          include: candidateListInclude,
-          orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
-          skip,
-          take: limit,
-        }),
+      const pageLeanPromise = prisma.candidate.findMany({
+        where,
+        select: candidateListIndexSelect,
+        orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+        skip,
+        take: limit,
+      });
+
+      // Portal applicants on my jobs (bounded) — merge only a small window, never full portal.
+      const portalPromise = isTenantScopedRequest()
+        ? fetchPortalCandidatesForTenant(req, {
+            status,
+            assignedToId,
+            search,
+            mine: true,
+            listFilters,
+            indexOnly: true,
+            take: Math.min(CANDIDATE_LIST_MAX_K, Math.max(limit * 2, skip + limit)),
+          }).catch((err) => {
+            console.warn('[candidate.service] mine portal fetch failed:', err?.message || err);
+            return [];
+          })
+        : Promise.resolve([]);
+
+      const countPromise =
+        cachedTotal != null
+          ? Promise.resolve(cachedTotal)
+          : prisma.candidate.count({ where }).then((value) => {
+              writeCandidateCountCache(countKey, value);
+              return value;
+            });
+
+      const [pageLean, portalIndex, rowTotal] = await Promise.all([
+        pageLeanPromise,
+        portalPromise,
+        countPromise,
       ]);
       perfMarks.tenantQuery = Math.round(candidatePerfNow() - tQ);
+      perfMarks.portalQuery = perfMarks.tenantQuery;
       perfMarks.count = perfMarks.tenantQuery;
+      perfMarks.K = pageLean.length;
+      perfMarks.sourceCounts = `t=${pageLean.length},p=${portalIndex.length}`;
+
+      // Merge portal-only rows that are newer / missing from the tenant page window.
+      const tenantIds = new Set(pageLean.map((row) => String(row.id)));
+      const softDeletedTenantIds = portalIndex.length
+        ? await collectSoftDeletedTenantCandidateIds(portalIndex.map((c) => c.id))
+        : new Set();
+      const merged = mergeBoundedCandidateIndexes(
+        {
+          tenant: pageLean,
+          portal: portalIndex,
+          common: [],
+          softDeletedTenantIds,
+        },
+        {
+          loadCommonPool: false,
+          tenantCandidateIds: tenantIds,
+          search,
+          listFilters,
+          tenantJobIdSet,
+          mine: true,
+          userId: req.user?.id,
+          myJobIds,
+        },
+      );
+      // Prefer accurate tenant skip/take for page 2+. On page 1, allow portal-only
+      // applicants on my jobs to surface in the first window.
+      const pageIndex =
+        skip === 0 && portalIndex.length
+          ? merged.slice(0, limit)
+          : pageLean.map((row) => toLeanCandidateIndex(row)).filter(Boolean);
+
       total = rowTotal;
-      candidates = await attachPlacementsToCandidates(pageRows);
+      // If portal contributed unique rows beyond tenant count, surface a floor total (never fake down).
+      if (portalIndex.length) {
+        const portalOnlyApprox = portalIndex.filter((row) => !tenantIds.has(String(row.id))).length;
+        if (portalOnlyApprox > 0 && cachedTotal == null) {
+          total = rowTotal + portalOnlyApprox;
+          writeCandidateCountCache(countKey, total);
+        }
+      }
+      candidates = await hydratePageFromIndex(pageIndex);
     } else if (isTenantScopedRequest() || loadCommonPool) {
       // Bounded k-way merge: each source contributes at most K lean rows.
       // Global top-K ⊆ union(top-K per source). Node never loads the full tenant table.

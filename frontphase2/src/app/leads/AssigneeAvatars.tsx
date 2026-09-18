@@ -176,14 +176,24 @@ function AssigneeChip({ name, avatar, colorKey, isPrimary, email, onHover, onLea
   );
 }
 
+interface AssigneeUserLike {
+  id?: string;
+  name: string;
+  avatar?: string;
+  email?: string;
+}
+
 interface AssigneeAvatarsProps {
-  lead: Lead;
+  /** Leads table: resolve assignees from lead.assignedToUsers / assignedTo. */
+  lead?: Lead;
+  /** Generic list (jobs Recruiter column, etc.). Takes precedence when non-empty. */
+  assignees?: AssigneeUserLike[];
   /** Max avatars shown before the "+N" overflow chip. Default 3. */
   maxVisible?: number;
 }
 
 /**
- * Avatar-only renderer for the leads table "Assigned To" cell.
+ * Avatar-only renderer for table "Assigned To" / "Recruiter" cells.
  *
  * - Up to `maxVisible` overlapping avatar chips, then a `+N` chip.
  * - Hovering any chip shows a single portal-based tooltip with that member's
@@ -191,7 +201,7 @@ interface AssigneeAvatarsProps {
  *   atomically — only one tooltip is ever visible.
  * - Portal rendering escapes the table's `overflow-hidden` clipping.
  */
-export function AssigneeAvatars({ lead, maxVisible = 3 }: AssigneeAvatarsProps) {
+export function AssigneeAvatars({ lead, assignees: assigneesProp, maxVisible = 3 }: AssigneeAvatarsProps) {
   const [tooltip, setTooltip] = useState<TooltipContent | null>(null);
 
   const showTooltip = useCallback((rect: DOMRect, content: Omit<TooltipContent, 'rect'>) => {
@@ -203,12 +213,24 @@ export function AssigneeAvatars({ lead, maxVisible = 3 }: AssigneeAvatarsProps) 
   const overflowRef = useRef<HTMLDivElement>(null);
   const unassignedRef = useRef<HTMLDivElement>(null);
 
-  const assignees =
-    Array.isArray(lead.assignedToUsers) && lead.assignedToUsers.length > 0
+  const assigneesFromLead =
+    lead && Array.isArray(lead.assignedToUsers) && lead.assignedToUsers.length > 0
       ? lead.assignedToUsers
-      : lead.assignedTo?.name && lead.assignedTo.name !== 'Unassigned'
-        ? [{ id: lead.assignedToId, name: lead.assignedTo.name, avatar: lead.assignedTo.avatar || '', email: undefined as string | undefined }]
+      : lead?.assignedTo?.name && lead.assignedTo.name !== 'Unassigned'
+        ? [
+            {
+              id: lead.assignedToId,
+              name: lead.assignedTo.name,
+              avatar: lead.assignedTo.avatar || '',
+              email: undefined as string | undefined,
+            },
+          ]
         : [];
+
+  const assignees =
+    Array.isArray(assigneesProp) && assigneesProp.length > 0
+      ? assigneesProp.filter((u) => u?.name && String(u.name).trim() && u.name !== 'Unassigned')
+      : assigneesFromLead;
 
   if (assignees.length === 0) {
     return (

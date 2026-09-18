@@ -149,6 +149,7 @@ import {
 import type { InterviewPanelMember } from '../../types/interview.types';
 import { getAllTeamMembersForAssign, getAllTeamMembersForDirectory, teamMembersToBackendUsers } from '../../lib/api/teamApi';
 import { formatAssigneeDisplayName, stripAssigneeCompanySuffix } from '../../lib/assigneeDisplay';
+import { AssigneeAvatars } from '../leads/AssigneeAvatars';
 import { getActiveOrgUnitId } from '../../lib/org/orgWorkspaceStorage';
 import { formatJobSalaryDisplay } from '../../constants/jobSalary';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -261,7 +262,12 @@ interface Job {
   joined: number;
   openings: number;
   owner: string;
+  ownerAvatar?: string | null;
+  ownerEmail?: string | null;
   recruiterId?: string;
+  supportingRecruiters?: string[];
+  /** Resolved recruiter chips for avatar stack (primary + supporting). */
+  recruiterAssignees?: Array<{ id?: string; name: string; avatar?: string; email?: string }>;
   createdDate: string;
   hot: boolean;
   aiMatch: boolean;
@@ -291,7 +297,6 @@ interface Job {
   candidateRequirements?: string[];
   benefits?: string[];
   languages?: Array<{ language?: string; proficiency?: string }>;
-  supportingRecruiters?: string[];
 }
 
 /** Map list Job to drawer JobForDrawer — never invent placeholder assignment names. */
@@ -360,7 +365,12 @@ function mapBackendJobToJobForDrawer(backendJob: Record<string, any>, fallbackJo
     joined: backendJob._count?.placements || job?.joined || 0,
     openings: backendJob.openings || job?.openings || 0,
     owner: formatAssigneeDisplayName(backendJob.assignedTo) || backendJob.assignedTo?.name || job?.owner || '',
-    orgUnitId: backendJob.orgUnitId || undefined,
+    orgUnitId:
+      backendJob.orgUnitId ||
+      backendJob.assignedTo?.assignCompanyId ||
+      backendJob.assignedTo?.orgUnitId ||
+      backendJob.assignedTo?.orgUnit?.id ||
+      undefined,
     createdDate: backendJob.createdAt
       ? formatDateDMY(backendJob.createdAt) || String(backendJob.createdAt).slice?.(0, 10) || job?.createdDate || ''
       : job?.createdDate || '',
@@ -974,9 +984,9 @@ const JobsListView = ({
                 ) : null}
                 {show('details') ? (
                 <td className="px-3 py-2 sm:px-4">
-                  <div className="flex flex-col gap-0.5">
+                  <div className="flex flex-col gap-1.5">
                     <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Recruiter</span>
-                    <span className="text-xs text-slate-700">{job.owner || '—'}</span>
+                    <AssigneeAvatars assignees={job.recruiterAssignees || []} />
                     <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Manager</span>
                     <span className="text-xs text-slate-700">{job.managerName || '—'}</span>
                     <span className="text-[10px] text-slate-500">{formatDateDMY(job.createdDate)}</span>
@@ -997,7 +1007,7 @@ const JobsListView = ({
                 ) : null}
                 {show('owner') ? (
                   <td className="px-3 py-2 sm:px-4">
-                    <span className="max-w-[100px] truncate text-xs text-slate-700">{job.owner || '—'}</span>
+                    <AssigneeAvatars assignees={job.recruiterAssignees || []} />
                   </td>
                 ) : null}
                 {show('manager') ? (
@@ -1162,12 +1172,49 @@ function emptyMappedJob(id = ''): Job {
     joined: 0,
     openings: 0,
     owner: 'Unassigned',
+    ownerAvatar: null,
+    ownerEmail: null,
+    recruiterAssignees: [],
     createdDate: '-',
     hot: false,
     aiMatch: false,
     noCandidates: false,
     slaRisk: false,
   };
+}
+
+function buildJobRecruiterAssignees(
+  job: Pick<Job, 'owner' | 'ownerAvatar' | 'ownerEmail' | 'recruiterId' | 'supportingRecruiters'>,
+  teamMembers: Array<{ id: string; name: string; avatar?: string; email?: string }> = [],
+): Array<{ id?: string; name: string; avatar?: string; email?: string }> {
+  const byId = new Map(teamMembers.map((m) => [String(m.id), m]));
+  const out: Array<{ id?: string; name: string; avatar?: string; email?: string }> = [];
+  const ownerName = String(job.owner || '').trim();
+  if (ownerName && !/^(-|—|unassigned)$/i.test(ownerName)) {
+    const primary = job.recruiterId ? byId.get(String(job.recruiterId)) : undefined;
+    out.push({
+      id: job.recruiterId || primary?.id,
+      name: ownerName,
+      avatar: job.ownerAvatar || primary?.avatar || undefined,
+      email: job.ownerEmail || primary?.email || undefined,
+    });
+  }
+  for (const rawId of job.supportingRecruiters || []) {
+    const id = String(rawId || '').trim();
+    if (!id) continue;
+    if (job.recruiterId && id === String(job.recruiterId)) continue;
+    if (out.some((u) => u.id && String(u.id) === id)) continue;
+    const member = byId.get(id);
+    if (member?.name) {
+      out.push({
+        id: member.id,
+        name: member.name,
+        avatar: member.avatar,
+        email: member.email,
+      });
+    }
+  }
+  return out;
 }
 
 function asStringList(value: unknown): string[] | undefined {
@@ -1230,6 +1277,8 @@ function mapBackendJob(job: BackendJob): Job {
     joined,
     openings: job.openings,
     owner: formatAssigneeDisplayName(job.assignedTo) || job.assignedTo?.name || 'Unassigned',
+    ownerAvatar: job.assignedTo?.avatar || null,
+    ownerEmail: job.assignedTo?.email || null,
     recruiterId: job.assignedToId || job.assignedTo?.id,
     createdDate: job.createdAt ? formatDateDMY(job.createdAt) : '-',
     hot: (job as any).hot ?? false,
@@ -1267,6 +1316,18 @@ function mapBackendJob(job: BackendJob): Job {
     supportingRecruiters: Array.isArray((job as { supportingRecruiters?: string[] }).supportingRecruiters)
       ? (job as { supportingRecruiters?: string[] }).supportingRecruiters!.map(String)
       : undefined,
+    recruiterAssignees: buildJobRecruiterAssignees(
+      {
+        owner: formatAssigneeDisplayName(job.assignedTo) || job.assignedTo?.name || 'Unassigned',
+        ownerAvatar: job.assignedTo?.avatar || null,
+        ownerEmail: job.assignedTo?.email || null,
+        recruiterId: job.assignedToId || job.assignedTo?.id,
+        supportingRecruiters: Array.isArray((job as { supportingRecruiters?: string[] }).supportingRecruiters)
+          ? (job as { supportingRecruiters?: string[] }).supportingRecruiters!.map(String)
+          : undefined,
+      },
+      [],
+    ),
   };
   } catch (error) {
     console.error('[jobs] mapBackendJob failed', error);
@@ -1469,7 +1530,9 @@ export default function JobsPage() {
   const [workspaceClientId, setWorkspaceClientId] = useState('');
   const [smartSearchJobIds, setSmartSearchJobIds] = useState<string[]>([]);
   const [clientOptions, setClientOptions] = useState<Array<{ id: string; name: string }>>([]);
-  const [recruiterOptions, setRecruiterOptions] = useState<Array<{ id: string; name: string }>>([]);
+  const [recruiterOptions, setRecruiterOptions] = useState<
+    Array<{ id: string; name: string; avatar?: string; email?: string }>
+  >([]);
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
   const [createJobDrawerOpen, setCreateJobDrawerOpen] = useState(false);
   const [jobAiWizardOpen, setJobAiWizardOpen] = useState(false);
@@ -1592,9 +1655,13 @@ export default function JobsPage() {
 
   const displayJobs = useMemo(() => {
     const list = Array.isArray(jobs) ? jobs.filter((job) => job && job.id) : [];
-    if (jobSmartSearch.activeKeywords.length === 0) return list;
-    return list.filter((job) => jobMatchesSmartKeywordChips(job, jobSmartSearch.activeKeywords));
-  }, [jobs, jobSmartSearch.activeKeywords]);
+    const enriched = list.map((job) => ({
+      ...job,
+      recruiterAssignees: buildJobRecruiterAssignees(job, recruiterOptions),
+    }));
+    if (jobSmartSearch.activeKeywords.length === 0) return enriched;
+    return enriched.filter((job) => jobMatchesSmartKeywordChips(job, jobSmartSearch.activeKeywords));
+  }, [jobs, jobSmartSearch.activeKeywords, recruiterOptions]);
 
   const hasActiveFilters = Boolean(
     smartSearchJobIds.length > 0 ||
@@ -1822,7 +1889,12 @@ export default function JobsPage() {
           if (cancelled) return;
           const usersList = teamMembersToBackendUsers(members);
           const nextRecruiters = usersList
-            .map((user) => ({ id: String(user.id), name: user.name || user.email || 'Unnamed member' }))
+            .map((user) => ({
+              id: String(user.id),
+              name: user.name || user.email || 'Unnamed member',
+              avatar: user.avatar || undefined,
+              email: user.email || undefined,
+            }))
             .sort((a, b) => a.name.localeCompare(b.name));
           setRecruiterOptions(nextRecruiters);
           return;
@@ -1864,7 +1936,12 @@ export default function JobsPage() {
           (client) => client.name,
         );
         const nextRecruiters = usersList
-          .map((user) => ({ id: String(user.id), name: user.name || user.email || 'Unnamed member' }))
+          .map((user) => ({
+            id: String(user.id),
+            name: user.name || user.email || 'Unnamed member',
+            avatar: user.avatar || undefined,
+            email: user.email || undefined,
+          }))
           .sort((a, b) => a.name.localeCompare(b.name));
 
         setClientOptions(nextClients);

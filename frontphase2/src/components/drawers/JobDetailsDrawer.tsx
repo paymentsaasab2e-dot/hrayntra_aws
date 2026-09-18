@@ -124,6 +124,7 @@ import { toast } from 'sonner';
 import { useAssignableMembers } from '../../hooks/useAssignableMembers';
 import { AssignCompanySelect } from '../assign/AssignCompanySelect';
 import { getCurrentUserRequestIdentity } from '../../lib/api/teamApi';
+import { getActiveOrgUnitId } from '../../lib/org/orgWorkspaceStorage';
 import {
   formatAssigneeDisplayName,
   formatAssigneeOptionLabel,
@@ -2474,8 +2475,13 @@ export function JobDetailsDrawer({
   );
 
   const assignmentTabActive = isOpen && activeTab === 'assignment';
+  const assignmentSeedOrgId = useMemo(() => {
+    const fromJob = String(job?.orgUnitId || '').trim();
+    if (fromJob) return fromJob;
+    return getActiveOrgUnitId();
+  }, [job?.orgUnitId]);
   const assignable = useAssignableMembers(assignmentTabActive, 'Jobs', {
-    initialCompanyId: String(job?.orgUnitId || '').trim(),
+    initialCompanyId: assignmentSeedOrgId,
   });
   const assignmentCurrentUserId = getStoredCurrentUserId();
   const assignmentRecruiterUsers = assignable.users;
@@ -2495,11 +2501,18 @@ export function JobDetailsDrawer({
   }, [assignmentCurrentUserId, assignmentRecruiterUsers]);
 
   const needsAssignmentOrganizationFirst =
-    assignable.canSelectCompany && !assignable.companyId;
+    assignable.canSelectCompany && !assignable.companyId && assignable.companiesReady;
   const needsAssignmentManagerFirst = !assignmentManagerId;
 
   const filteredAssignmentRecruiters = useMemo(() => {
-    if (!assignmentManagerId) return [];
+    // Keep existing assignees visible even before a manager is chosen.
+    if (!assignmentManagerId) {
+      if (!assignmentMemberIds.length) return [];
+      const byId = new Map(assignmentRecruiterUsers.map((user) => [user.id, user]));
+      return assignmentMemberIds
+        .map((id) => byId.get(id))
+        .filter(Boolean) as BackendUser[];
+    }
     const managerId = String(assignmentManagerId).trim();
     const byId = new Map(assignmentRecruiterUsers.map((user) => [user.id, user]));
     const managerUser =
@@ -2516,18 +2529,71 @@ export function JobDetailsDrawer({
     assignmentCurrentUserId,
     assignmentManagerId,
     assignmentManagerUsers,
+    assignmentMemberIds,
     assignmentRecruiterUsers,
   ]);
 
   const selectedAssignmentAssignees = useMemo(() => {
-    return assignmentMemberIds
-      .map((id) => {
-        const fromFiltered = filteredAssignmentRecruiters.find((u) => u.id === id);
-        if (fromFiltered) return fromFiltered;
-        return assignmentRecruiterUsers.find((u) => u.id === id) || null;
-      })
-      .filter(Boolean) as BackendUser[];
-  }, [assignmentMemberIds, assignmentRecruiterUsers, filteredAssignmentRecruiters]);
+    const leadLabel = String(job?.recruiter || job?.owner || '').trim();
+    return assignmentMemberIds.map((id, index) => {
+      const fromFiltered = filteredAssignmentRecruiters.find((u) => u.id === id);
+      if (fromFiltered) return fromFiltered;
+      const fromAll = assignmentRecruiterUsers.find((u) => u.id === id);
+      if (fromAll) return fromAll;
+      const fallbackName =
+        index === 0 && leadLabel && !/^(-|—|unassigned)$/i.test(leadLabel)
+          ? leadLabel
+          : 'Assigned member';
+      return {
+        id,
+        name: fallbackName,
+        email: '',
+        role: '',
+        isActive: true,
+        createdAt: '',
+      } as BackendUser;
+    });
+  }, [
+    assignmentMemberIds,
+    assignmentRecruiterUsers,
+    filteredAssignmentRecruiters,
+    job?.owner,
+    job?.recruiter,
+  ]);
+
+  // Once assignable members load, fill missing manager / org from the primary assignee.
+  useEffect(() => {
+    if (!assignmentTabActive || loadingAssignmentRecruiters) return;
+    if (!assignmentMemberIds.length) return;
+
+    const primaryId = assignmentMemberIds[0];
+    const primaryMember = assignable.members.find((row) => row.id === primaryId);
+    if (!primaryMember) return;
+
+    if (!assignmentManagerId) {
+      const inferred =
+        String(primaryMember.manager?.id || primaryMember.managerId || '').trim();
+      if (inferred) setAssignmentManagerId(inferred);
+    }
+
+    if (!assignable.companyId) {
+      const memberOrg = String(
+        (primaryMember as { assignCompanyId?: string | null }).assignCompanyId ||
+          primaryMember.orgUnitId ||
+          primaryMember.orgUnit?.id ||
+          '',
+      ).trim();
+      if (memberOrg) assignable.setCompanyId(memberOrg);
+    }
+  }, [
+    assignmentTabActive,
+    assignmentManagerId,
+    assignmentMemberIds,
+    assignable.companyId,
+    assignable.members,
+    assignable.setCompanyId,
+    loadingAssignmentRecruiters,
+  ]);
 
   const applyAssignmentMemberIds = useCallback(
     (ids: string[]) => {
@@ -2901,8 +2967,11 @@ export function JobDetailsDrawer({
     );
     setAssignmentDirty(false);
 
-    const orgId = String(job.orgUnitId || '').trim();
-    if (orgId && assignable.canSelectCompany && orgId !== assignable.companyId) {
+    const orgId =
+      String(job.orgUnitId || '').trim() ||
+      assignmentSeedOrgId ||
+      '';
+    if (orgId && orgId !== assignable.companyId) {
       assignable.setCompanyId(orgId);
     }
 
@@ -2933,6 +3002,14 @@ export function JobDetailsDrawer({
         if (hiringId && !hiringLabel) {
           const fromContact = contactOptions.find((c) => c.id === hiringId)?.name;
           if (fromContact) setAssignmentHiringManagerName(fromContact);
+        } else if (!hiringId && hiringLabel) {
+          const matched = contactOptions.find(
+            (c) => c.name.toLowerCase() === hiringLabel.toLowerCase(),
+          );
+          if (matched) {
+            setAssignmentHiringManagerId(matched.id);
+            setAssignmentHiringManagerName(matched.name);
+          }
         }
       } catch {
         if (load.isActive()) setAssignmentContacts([]);
@@ -2944,7 +3021,6 @@ export function JobDetailsDrawer({
     return () => {
       load.abort();
     };
-    // assignable.setCompanyId is stable enough; omit full assignable object to avoid reset loops
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     activeTab,
@@ -2956,6 +3032,7 @@ export function JobDetailsDrawer({
     job?.managerId,
     job?.hiringManager,
     job?.hiringManagerId,
+    assignmentSeedOrgId,
     Array.isArray(job?.supportingRecruiters) ? job.supportingRecruiters.join(',') : '',
   ]);
 
@@ -4281,10 +4358,18 @@ export function JobDetailsDrawer({
                           className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 disabled:bg-slate-50 disabled:text-slate-400"
                         >
                           <option value="">
-                            {needsAssignmentOrganizationFirst
-                              ? 'Select an organization first'
-                              : 'Select manager'}
+                            {!assignable.companiesReady || loadingAssignmentRecruiters
+                              ? 'Loading…'
+                              : needsAssignmentOrganizationFirst
+                                ? 'Select an organization first'
+                                : 'Select manager'}
                           </option>
+                          {assignmentManagerId &&
+                          !assignmentManagerUsers.some((u) => u.id === assignmentManagerId) ? (
+                            <option value={assignmentManagerId}>
+                              {String(job?.managerName || '').trim() || 'Current manager'}
+                            </option>
+                          ) : null}
                           {assignmentManagerUsers.map((user) => (
                             <option key={user.id} value={user.id}>
                               {formatAssigneeOptionLabel(user, assignmentCurrentUserId)}
@@ -4345,16 +4430,16 @@ export function JobDetailsDrawer({
                                 selectedAssignmentAssignees.length ? 'text-slate-700' : 'text-slate-400'
                               }
                             >
-                              {needsAssignmentOrganizationFirst
-                                ? 'Select an organization first'
-                                : needsAssignmentManagerFirst
-                                  ? 'Select a manager first'
-                                  : loadingAssignmentRecruiters
-                                    ? 'Loading team…'
-                                    : filteredAssignmentRecruiters.length === 0
-                                      ? 'No people in Assignment Rules for Jobs'
-                                      : selectedAssignmentAssignees.length
-                                        ? `${selectedAssignmentAssignees.length} selected — add more`
+                              {selectedAssignmentAssignees.length
+                                ? `${selectedAssignmentAssignees.length} selected — add more`
+                                : !assignable.companiesReady || loadingAssignmentRecruiters
+                                  ? 'Loading team…'
+                                  : needsAssignmentOrganizationFirst
+                                    ? 'Select an organization first'
+                                    : needsAssignmentManagerFirst
+                                      ? 'Select a manager first'
+                                      : filteredAssignmentRecruiters.length === 0
+                                        ? 'No people in Assignment Rules for Jobs'
                                         : 'Select people Assignment Rules allow'}
                             </span>
                             <ChevronDown size={16} className="text-slate-400 shrink-0" />
@@ -4485,7 +4570,11 @@ export function JobDetailsDrawer({
                           }}
                           className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 disabled:bg-slate-50 disabled:text-slate-400"
                         >
-                          <option value="">None</option>
+                          <option value="">
+                            {assignmentHiringManagerName && !assignmentHiringManagerId
+                              ? assignmentHiringManagerName
+                              : 'None'}
+                          </option>
                           {assignmentHiringManagerId &&
                           !assignmentContacts.some((c) => c.id === assignmentHiringManagerId) ? (
                             <option value={assignmentHiringManagerId}>
@@ -4498,6 +4587,11 @@ export function JobDetailsDrawer({
                             </option>
                           ))}
                         </select>
+                        {assignmentHiringManagerName && !assignmentHiringManagerId ? (
+                          <p className="text-[11px] text-slate-500 mt-1">
+                            Saved as “{assignmentHiringManagerName}”. Pick a contact to link an ID.
+                          </p>
+                        ) : null}
                         {!job?.clientId ? (
                           <p className="text-[11px] text-amber-600 mt-1">
                             Link a client to this job to choose from client contacts.
