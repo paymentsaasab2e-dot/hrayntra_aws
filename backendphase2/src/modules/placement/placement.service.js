@@ -1941,7 +1941,19 @@ export const placementService = {
       placement.billing?.[0]?.paymentStatus || 'PENDING',
     ]);
 
-    return [headers, ...rows].map((row) => row.map(csvEscape).join(',')).join('\n');
+    let csv = [headers, ...rows].map((row) => row.map(csvEscape).join(',')).join('\n');
+    try {
+      const {
+        getExportWatermark,
+        watermarkTextForFormat,
+        prependWatermarkCsv,
+      } = await import('../setting/exportWatermark.service.js');
+      const stamp = watermarkTextForFormat(await getExportWatermark(), 'csv');
+      if (stamp) csv = prependWatermarkCsv(csv, stamp);
+    } catch {
+      /* watermark optional */
+    }
+    return csv;
   },
 
   async createInvoice(id, data = {}, userId) {

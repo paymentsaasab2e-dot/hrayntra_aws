@@ -20,5 +20,7 @@ router.get(
 );
 /** GET /api/v1/public/uploads/email-signatures/:filename — email compose signature logos */
 router.get('/email-signatures/:filename', withUploadSubdir('email-signatures'), getPublicUpload);
+/** GET /api/v1/public/uploads/export-watermarks/:filename — org export watermark logos */
+router.get('/export-watermarks/:filename', withUploadSubdir('export-watermarks'), getPublicUpload);
 
 export default router;

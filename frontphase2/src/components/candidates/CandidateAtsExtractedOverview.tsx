@@ -339,7 +339,7 @@ function buildOverviewModel(candidate: CandidateProfileDrawerData) {
       maritalStatus: display(personal.maritalStatus),
       birthDate: display(personal.birthDate) || display(phase1Pi.dob),
       passport: display(personal.passportNumber),
-      gender: display(phase1Pi.gender),
+      gender: display(personal.gender) || display(phase1Pi.gender) || display(candidate.gender),
     },
     education: {
       entries: eduEntries,

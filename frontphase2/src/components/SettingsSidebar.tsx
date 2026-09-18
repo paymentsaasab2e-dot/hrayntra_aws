@@ -16,6 +16,7 @@ import {
   Percent,
   FileText,
   Eye,
+  Droplets,
 } from 'lucide-react';
 import { usePermissions } from '../hooks/usePermissions';
 import { MODULE_ACCESS_MAP } from '../lib/rbac/moduleAccess';
@@ -100,6 +101,12 @@ const baseSettingsNav: SettingsNavItem[] = [
     id: 'activity-log',
     label: 'Activity Log',
     icon: History,
+    superAdminOnly: true,
+  },
+  {
+    id: 'watermark',
+    label: 'Watermark',
+    icon: Droplets,
     superAdminOnly: true,
   },
   { id: 'customization', label: 'Customization', icon: Sliders },

@@ -1,7 +1,15 @@
 import express from 'express';
+import multer from 'multer';
 import { authMiddleware } from '../../middleware/auth.middleware.js';
-import { requireAnyPermission } from '../../middleware/permission.middleware.js';
+import { requireAnyPermission, loadUserAuthz } from '../../middleware/permission.middleware.js';
 import { sendResponse, sendError } from '../../utils/response.js';
+import { isSuperAdminUser } from '../../utils/superAdminScope.js';
+import {
+  getExportWatermark,
+  setExportWatermark,
+  DEFAULT_EXPORT_WATERMARK,
+} from './exportWatermark.service.js';
+import { storeExportWatermarkLogoFile } from './exportWatermarkLogo.service.js';
 import {
   getRecruitmentMode,
   setRecruitmentMode,
@@ -374,6 +382,77 @@ router.get('/commission-slabs/resolve', async (req, res) => {
     sendResponse(res, 200, 'OK', resolved);
   } catch (error) {
     sendError(res, 400, error.message || 'Failed to resolve commission slab', error);
+  }
+});
+
+/** Any authenticated member — used when stamping exports. */
+router.get('/watermark', async (req, res) => {
+  try {
+    const watermark = await getExportWatermark();
+    sendResponse(res, 200, 'OK', { watermark, defaults: DEFAULT_EXPORT_WATERMARK });
+  } catch (error) {
+    sendError(res, 500, error.message || 'Failed to load watermark', error);
+  }
+});
+
+/** Super Admin only — org-wide export watermark for the whole team. */
+router.put('/watermark', async (req, res) => {
+  try {
+    // Use JWT-backed req.user from authMiddleware — avoid loadUserAuthz tenant DB miss ("User not found").
+    if (!req.user?.id) {
+      return sendError(res, 401, 'Authentication required');
+    }
+    if (!isSuperAdminUser(req)) {
+      return sendError(res, 403, 'Only Super Admin can update the export watermark');
+    }
+    const payload = req.body?.watermark ?? req.body ?? {};
+    const watermark = await setExportWatermark(payload);
+    sendResponse(res, 200, 'Watermark saved', { watermark });
+  } catch (error) {
+    sendError(res, 400, error.message || 'Failed to save watermark', error);
+  }
+});
+
+const watermarkLogoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 4 * 1024 * 1024 },
+});
+
+/** Super Admin only — upload logo image for export watermark. */
+router.post('/watermark/logo', watermarkLogoUpload.single('file'), async (req, res) => {
+  try {
+    if (!req.user?.id) {
+      return sendError(res, 401, 'Authentication required');
+    }
+    if (!isSuperAdminUser(req)) {
+      return sendError(res, 403, 'Only Super Admin can upload the export watermark logo');
+    }
+    if (!req.file) {
+      return sendError(res, 400, 'No file uploaded');
+    }
+    const tenantDbName =
+      getActiveTenantDbName() ||
+      req.user?.tenantDbName ||
+      req.headers['x-tenant-db-name'];
+    const uploaded = await storeExportWatermarkLogoFile(req.file, {
+      tenantDbName,
+      userId: req.user?.id,
+    });
+    // Persist imageUrl into org watermark so the logo is not lost if Save is skipped.
+    const current = await getExportWatermark();
+    const watermark = await setExportWatermark({
+      ...current,
+      enabled: current.enabled || true,
+      imageUrl: uploaded.fileUrl,
+    });
+    sendResponse(res, 201, 'Watermark logo uploaded', {
+      fileUrl: uploaded.fileUrl,
+      fileName: uploaded.fileName,
+      watermark,
+    });
+  } catch (error) {
+    const status = error?.code === 'VALIDATION' ? 400 : 500;
+    sendError(res, status, error.message || 'Failed to upload watermark logo', error);
   }
 });
 

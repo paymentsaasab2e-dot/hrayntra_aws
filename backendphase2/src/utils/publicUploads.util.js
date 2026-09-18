@@ -16,7 +16,12 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, '../..');
 
-const ALLOWED_SUBDIRS = new Set(['placements', 'interview-client-review', 'email-signatures']);
+const ALLOWED_SUBDIRS = new Set([
+  'placements',
+  'interview-client-review',
+  'email-signatures',
+  'export-watermarks',
+]);
 
 function sanitizeFilename(name) {
   const base = path.basename(String(name || '').trim());

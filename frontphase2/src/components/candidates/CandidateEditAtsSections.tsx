@@ -93,7 +93,7 @@ export type CandidateEditFormState = {
   avatar: string;
   middleName?: string;
   phoneCode?: string;
-  gender?: string;
+  gender: string;
   employment?: string;
   p1CurrentRole?: string;
   p1PreferredJobTitles?: string;
@@ -110,6 +110,13 @@ function str(value: unknown): string {
   if (value === undefined || value === null) return '';
   return String(value).trim();
 }
+
+const GENDER_OPTIONS = [
+  { label: 'Male', value: 'Male' },
+  { label: 'Female', value: 'Female' },
+  { label: 'Other', value: 'Other' },
+  { label: 'Prefer not to say', value: 'Prefer not to say' },
+];
 
 function joinSemicolonList(value: unknown): string {
   if (Array.isArray(value)) return value.map((item) => str(item)).filter(Boolean).join('; ');
@@ -322,7 +329,12 @@ export function buildCandidateEditForm(candidate: CandidateProfileDrawerData): C
       '',
     currentCompanyWebsite: str(personal.currentCompanyWebsite),
     maritalStatus: str(personal.maritalStatus),
-    birthDate: str(personal.birthDate),
+    birthDate: str(personal.birthDate) || str(resolvedPersonal.dob) || '',
+    gender:
+      str(personal.gender) ||
+      str(resolvedPersonal.gender) ||
+      str(candidate.gender) ||
+      '',
     passportNumber: str(personal.passportNumber),
     educationCourses:
       joinSemicolonList(educationPipe.courses) || joinSemicolonList(extra.courses),
@@ -487,6 +499,7 @@ export function buildExtraDataFromEditForm(
           /^\d{4}-\d{2}-\d{2}$/.test(editForm.birthDate.trim())
             ? editForm.birthDate.trim()
             : parseDMYToYMD(editForm.birthDate.trim()) || editForm.birthDate.trim() || null,
+        gender: editForm.gender.trim() || null,
         passportNumber: editForm.passportNumber.trim() || null,
       },
       education: {
@@ -587,6 +600,7 @@ export function buildUpdatePayloadFromEditForm(
     address: editForm.address.trim() || undefined,
     city: editForm.city.trim() || undefined,
     country: editForm.country.trim() || undefined,
+    gender: editForm.gender.trim() || undefined,
     preferredLocation: editForm.preferredLocation.trim() || undefined,
     education: education || undefined,
     portfolio: editForm.portfolio.trim() || undefined,
@@ -648,6 +662,10 @@ function EditSelect({
   options: Array<{ label: string; value: string }>;
   onChange: (value: string) => void;
 }) {
+  const selectOptions =
+    value && !options.some((option) => option.value === value)
+      ? [...options, { label: value, value }]
+      : options;
   return (
     <label className="block">
       <span className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-500">
@@ -659,7 +677,7 @@ function EditSelect({
         className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
       >
         <option value="">Select</option>
-        {options.map((option) => (
+        {selectOptions.map((option) => (
           <option key={option.value} value={option.value}>
             {option.label}
           </option>
@@ -881,6 +899,14 @@ export function CandidateEditAtsSections({
         ) : null}
         {showField('maritalStatus') ? (
           <EditField label="Marital Status" value={form.maritalStatus} onChange={(v) => onChange('maritalStatus', v)} />
+        ) : null}
+        {showField('gender') ? (
+          <EditSelect
+            label="Gender"
+            value={form.gender}
+            options={GENDER_OPTIONS}
+            onChange={(v) => onChange('gender', v)}
+          />
         ) : null}
         {showField('birthDate') ? (
           <EditDateField

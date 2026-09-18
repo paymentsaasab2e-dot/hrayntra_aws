@@ -1152,6 +1152,76 @@ function buildMyJobsWhereClause(userId) {
   };
 }
 
+/** Score Phase 1 overview richness so sparse `{}` snaps never beat a full recruiter edit. */
+function scorePhase1ProfileSnapshot(snap) {
+  if (!snap || typeof snap !== 'object' || Array.isArray(snap)) return -1;
+  let score = 0;
+  const addArr = (value, weight = 3) => {
+    if (Array.isArray(value)) score += value.length * weight;
+  };
+  addArr(snap.workExperience, 8);
+  addArr(snap.education, 5);
+  addArr(snap.skills, 2);
+  addArr(snap.languages, 2);
+  addArr(snap.certifications, 3);
+  addArr(snap.portfolioLinks, 2);
+  addArr(snap.projects, 3);
+  addArr(snap.internships, 3);
+  addArr(snap.gapExplanations, 2);
+  addArr(snap.accomplishments, 2);
+  addArr(snap.academicAchievements, 2);
+  addArr(snap.competitiveExams, 2);
+  if (String(snap.summaryText || '').trim()) score += 6;
+  if (snap.careerPreferences && typeof snap.careerPreferences === 'object') {
+    for (const value of Object.values(snap.careerPreferences)) {
+      if (value == null || value === '') continue;
+      if (Array.isArray(value) && !value.length) continue;
+      score += 2;
+    }
+  }
+  const personalInfo = snap.personalInfo;
+  if (personalInfo && typeof personalInfo === 'object' && !Array.isArray(personalInfo)) {
+    for (const value of Object.values(personalInfo)) {
+      if (value != null && String(value).trim()) score += 1;
+    }
+  }
+  if (snap.vaccination && typeof snap.vaccination === 'object') score += 2;
+  if (snap.visaWorkAuthorization && typeof snap.visaWorkAuthorization === 'object') score += 2;
+  return score;
+}
+
+function phase1SnapshotSavedAtMs(snap) {
+  if (!snap || typeof snap !== 'object' || Array.isArray(snap)) return 0;
+  const raw = snap._phase1SnapshotSavedAt || snap._savedAt;
+  const ms = Date.parse(String(raw || ''));
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+/**
+ * Prefer newer recruiter-stamped snaps, then richer content.
+ * Never let an empty portal/common object wipe a tenant Overview save.
+ */
+function pickPreferredPhase1ProfileSnapshot(portalSnap, tenantSnap) {
+  const portalOk = portalSnap && typeof portalSnap === 'object' && !Array.isArray(portalSnap);
+  const tenantOk = tenantSnap && typeof tenantSnap === 'object' && !Array.isArray(tenantSnap);
+  if (!portalOk) return tenantOk ? tenantSnap : null;
+  if (!tenantOk) return portalSnap;
+
+  const portalAt = phase1SnapshotSavedAtMs(portalSnap);
+  const tenantAt = phase1SnapshotSavedAtMs(tenantSnap);
+  if (portalAt || tenantAt) {
+    if (tenantAt !== portalAt) return tenantAt > portalAt ? tenantSnap : portalSnap;
+  }
+
+  const portalScore = scorePhase1ProfileSnapshot(portalSnap);
+  const tenantScore = scorePhase1ProfileSnapshot(tenantSnap);
+  if (tenantScore !== portalScore) {
+    return tenantScore > portalScore ? tenantSnap : portalSnap;
+  }
+
+  return tenantAt ? tenantSnap : portalSnap;
+}
+
 /** Prefer non-empty portal/common Phase 1 fields over sparse tenant CRM stubs (same Mongo id). */
 function mergePortalAndTenantCandidateRow(portalRow, tenantRow) {
   if (!tenantRow) return portalRow;
@@ -1206,6 +1276,9 @@ function mergePortalAndTenantCandidateRow(portalRow, tenantRow) {
       ? tenantRow.extraData
       : {};
   const tenantEditorCvSaved = tenantExtraForCv.cvEditorContentSaved === true;
+  const tenantOverviewSaved =
+    phase1SnapshotSavedAtMs(tenantExtraForCv.phase1ProfileSnapshot) > 0;
+  const preferTenantProfileFields = tenantEditorCvSaved || tenantOverviewSaved;
   const editorCvScalarKeys = new Set([
     'firstName',
     'lastName',
@@ -1251,9 +1324,9 @@ function mergePortalAndTenantCandidateRow(portalRow, tenantRow) {
   };
   for (const key of scalarKeys) {
     if (key === 'stage') continue;
-    if (tenantEditorCvSaved && editorCvScalarKeys.has(key)) {
+    if (preferTenantProfileFields && editorCvScalarKeys.has(key)) {
       if (Object.prototype.hasOwnProperty.call(tenantRow, key)) {
-        merged[key] = tenantRow[key] ?? null;
+        merged[key] = pickFirstNonEmpty(tenantRow[key], portalRow[key]);
       }
       continue;
     }
@@ -1261,26 +1334,33 @@ function mergePortalAndTenantCandidateRow(portalRow, tenantRow) {
   }
   merged.stage = mergeCandidateWorkflowStages(portalRow?.stage, tenantRow?.stage);
   for (const key of arrayKeys) {
-    if (tenantEditorCvSaved && key === 'skills') {
-      merged.skills = Array.isArray(tenantRow.skills) ? tenantRow.skills : [];
+    if (preferTenantProfileFields && key === 'skills') {
+      merged.skills = pickFirstNonEmpty(tenantRow.skills, portalRow.skills);
       continue;
     }
-    if (tenantEditorCvSaved && key === 'recruiterSkills') {
-      merged.recruiterSkills = Array.isArray(tenantRow.recruiterSkills)
-        ? tenantRow.recruiterSkills
-        : [];
+    if (preferTenantProfileFields && key === 'recruiterSkills') {
+      merged.recruiterSkills = pickFirstNonEmpty(
+        tenantRow.recruiterSkills,
+        portalRow.recruiterSkills,
+      );
       continue;
     }
     merged[key] = pickFirstNonEmpty(portalRow[key], tenantRow[key]);
   }
 
-  if (tenantEditorCvSaved) {
-    merged.cvWorkExperienceEntries = Array.isArray(tenantRow.cvWorkExperienceEntries)
-      ? tenantRow.cvWorkExperienceEntries
-      : [];
-    merged.cvEducationEntries = Array.isArray(tenantRow.cvEducationEntries)
-      ? tenantRow.cvEducationEntries
-      : [];
+  if (preferTenantProfileFields) {
+    merged.cvWorkExperienceEntries = pickFirstNonEmpty(
+      tenantRow.cvWorkExperienceEntries,
+      portalRow.cvWorkExperienceEntries,
+    );
+    merged.cvEducationEntries = pickFirstNonEmpty(
+      tenantRow.cvEducationEntries,
+      portalRow.cvEducationEntries,
+    );
+    merged.cvPortfolioLinks = pickFirstNonEmpty(
+      tenantRow.cvPortfolioLinks,
+      portalRow.cvPortfolioLinks,
+    );
   } else {
     for (const key of richKeys) {
       merged[key] = pickFirstNonEmpty(portalRow[key], tenantRow[key]);
@@ -1301,12 +1381,10 @@ function mergePortalAndTenantCandidateRow(portalRow, tenantRow) {
     tenantRow?.extraData && typeof tenantRow.extraData === 'object' && !Array.isArray(tenantRow.extraData)
       ? tenantRow.extraData
       : {};
-  const phase1Snap =
-    portalExtra.phase1ProfileSnapshot && typeof portalExtra.phase1ProfileSnapshot === 'object'
-      ? portalExtra.phase1ProfileSnapshot
-      : tenantExtra.phase1ProfileSnapshot && typeof tenantExtra.phase1ProfileSnapshot === 'object'
-        ? tenantExtra.phase1ProfileSnapshot
-        : null;
+  const phase1Snap = pickPreferredPhase1ProfileSnapshot(
+    portalExtra.phase1ProfileSnapshot,
+    tenantExtra.phase1ProfileSnapshot,
+  );
   merged.extraData = mergeCandidateRecruiterExtraData(
     { ...portalExtra, ...(phase1Snap ? { phase1ProfileSnapshot: phase1Snap } : {}) },
     {
@@ -1316,8 +1394,8 @@ function mergePortalAndTenantCandidateRow(portalRow, tenantRow) {
       workHistoryText: pickFirstNonEmpty(portalExtra.workHistoryText, tenantExtra.workHistoryText),
     },
   );
-  if (tenantEditorCvSaved) {
-    merged.avatar = tenantRow.avatar ?? null;
+  if (preferTenantProfileFields) {
+    merged.avatar = pickFirstNonEmpty(tenantRow.avatar, portalRow.avatar);
   } else {
     merged.avatar = pickFirstNonEmpty(portalRow.avatar, tenantRow.avatar);
   }
@@ -4767,7 +4845,26 @@ export const candidateService = {
         !Array.isArray(existingExtraRow.extraData)
           ? existingExtraRow.extraData
           : {};
-      updateData.extraData = mergeCandidateRecruiterExtraData(existingExtra, updateData.extraData);
+      const incomingExtra =
+        updateData.extraData &&
+        typeof updateData.extraData === 'object' &&
+        !Array.isArray(updateData.extraData)
+          ? { ...updateData.extraData }
+          : {};
+      // Stamp Overview saves so merge prefers tenant over stale portal/common snaps.
+      if (
+        incomingExtra.phase1ProfileSnapshot &&
+        typeof incomingExtra.phase1ProfileSnapshot === 'object' &&
+        !Array.isArray(incomingExtra.phase1ProfileSnapshot)
+      ) {
+        incomingExtra.phase1ProfileSnapshot = {
+          ...incomingExtra.phase1ProfileSnapshot,
+          _phase1SnapshotSavedAt:
+            incomingExtra.phase1ProfileSnapshot._phase1SnapshotSavedAt ||
+            new Date().toISOString(),
+        };
+      }
+      updateData.extraData = mergeCandidateRecruiterExtraData(existingExtra, incomingExtra);
     }
 
     if (
@@ -4844,6 +4941,61 @@ export const candidateService = {
       try { portalPrisma = getJobPortalPrismaClient(); } catch { portalPrisma = null; }
       if (portalPrisma) {
         updated = await writeOnClient(portalPrisma);
+      }
+    }
+
+    // Hybrid Phase 1 candidates: tenant Overview save must also land on portal so
+    // later portal-preferring hydrations do not resurrect a stale empty snapshot.
+    if (
+      updated &&
+      isTenantScopedRequest() &&
+      updateData.extraData?.phase1ProfileSnapshot &&
+      typeof updateData.extraData.phase1ProfileSnapshot === 'object'
+    ) {
+      let portalPrisma = null;
+      try {
+        portalPrisma = getJobPortalPrismaClient();
+      } catch {
+        portalPrisma = null;
+      }
+      if (portalPrisma) {
+        try {
+          const portalRow = await portalPrisma.candidate.findUnique({
+            where: { id },
+            select: { id: true, extraData: true },
+          });
+          if (portalRow) {
+            const portalExtra =
+              portalRow.extraData &&
+              typeof portalRow.extraData === 'object' &&
+              !Array.isArray(portalRow.extraData)
+                ? portalRow.extraData
+                : {};
+            await portalPrisma.candidate.update({
+              where: { id },
+              data: {
+                extraData: mergeCandidateRecruiterExtraData(portalExtra, {
+                  phase1ProfileSnapshot: updateData.extraData.phase1ProfileSnapshot,
+                  ...(Array.isArray(updateData.extraData.phase1GapExplanations)
+                    ? { phase1GapExplanations: updateData.extraData.phase1GapExplanations }
+                    : {}),
+                  ...(Array.isArray(updateData.extraData.phase1Internships)
+                    ? { phase1Internships: updateData.extraData.phase1Internships }
+                    : {}),
+                  ...(Array.isArray(updateData.extraData.phase1Accomplishments)
+                    ? { phase1Accomplishments: updateData.extraData.phase1Accomplishments }
+                    : {}),
+                }),
+              },
+            });
+          }
+        } catch (syncErr) {
+          console.warn(
+            '[candidate.service] portal phase1 snapshot sync failed:',
+            id,
+            syncErr?.message || syncErr,
+          );
+        }
       }
     }
 

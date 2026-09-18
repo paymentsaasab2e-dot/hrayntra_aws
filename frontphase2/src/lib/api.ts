@@ -1152,6 +1152,36 @@ export async function apiSetOrgCommissionSlabs(
   );
 }
 
+export async function apiGetOrgWatermark() {
+  return apiFetch<{
+    watermark: import('./exportWatermark').ExportWatermarkSettings;
+    defaults: import('./exportWatermark').ExportWatermarkSettings;
+  }>('/settings/org/watermark', { auth: true });
+}
+
+export async function apiSetOrgWatermark(
+  watermark: import('./exportWatermark').ExportWatermarkSettings,
+) {
+  return apiFetch<{ watermark: import('./exportWatermark').ExportWatermarkSettings }>(
+    '/settings/org/watermark',
+    { method: 'PUT', auth: true, body: { watermark } },
+  );
+}
+
+/** Super Admin — upload logo image used as org export watermark. */
+export async function apiUploadOrgWatermarkLogo(file: File) {
+  const formData = new FormData();
+  formData.append('file', file);
+  return apiFetchFormData<{
+    fileUrl: string;
+    fileName?: string;
+    watermark?: import('./exportWatermark').ExportWatermarkSettings;
+  }>('/settings/org/watermark/logo', formData, {
+    method: 'POST',
+    auth: true,
+  });
+}
+
 export async function apiSetOrgDefaultCurrency(code: string) {
   const res = await apiFetch<{ code: string }>('/settings/org/default-currency', {
     method: 'PUT',
@@ -6224,6 +6254,7 @@ export interface BackendCandidate {
   address?: string | null;
   city?: string | null;
   country?: string | null;
+  gender?: string | null;
   availability?: string | null;
   noticePeriod?: string | null;
   stage?: string | null;
@@ -6547,10 +6578,11 @@ export interface UpdateCandidatePayload {
     type?: string;
     url?: string;
   }>;
-  preferredLocation?: string;
+  preferredLocation?: string | null;
   address?: string;
   city?: string;
   country?: string;
+  gender?: string;
   stage?: string;
   assignedJobs?: string[];
   avatar?: string | null;

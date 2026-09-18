@@ -15,6 +15,12 @@ import {
   notifyInvoiceSent,
 } from '../setting/alert-notify.helpers.js';
 import { enrichBillingRecordsWithAudit } from '../../utils/listAuditMeta.js';
+import {
+  getExportWatermark,
+  watermarkTextForFormat,
+  prependWatermarkRows,
+  prependWatermarkCsv,
+} from '../setting/exportWatermark.service.js';
 
 const EXPORT_DIR = path.join(process.cwd(), 'uploads', 'reports');
 const DEFAULT_SETTINGS = {
@@ -144,7 +150,7 @@ function estimateColumnWidths(headers, rows, availableWidth) {
   return weights.map((weight) => Math.max(46, Math.floor((weight / total) * availableWidth)));
 }
 
-function createSimplePdfBuffer(title, rows) {
+function createSimplePdfBuffer(title, rows, watermarkText = '') {
   const printableRows = Array.isArray(rows) ? rows.slice(0, 48) : [];
   const headers = printableRows.length ? Object.keys(printableRows[0]) : [];
   const pageWidth = 842;
@@ -152,6 +158,7 @@ function createSimplePdfBuffer(title, rows) {
   const marginX = 24;
   const marginTop = 26;
   const marginBottom = 24;
+  const stamp = String(watermarkText || '').trim();
   const tableWidth = pageWidth - marginX * 2;
   const availableRowWidth = tableWidth;
   const columnWidths = headers.length ? estimateColumnWidths(headers, printableRows, availableRowWidth) : [];
@@ -164,6 +171,9 @@ function createSimplePdfBuffer(title, rows) {
     y -= 16;
     contentLines.push(makePdfLine(`Summary: Total records ${printableRows.length}`, marginX, y, 9, 'F1'));
     y -= 16;
+    if (stamp) {
+      contentLines.push(makePdfLine(`Watermark: ${stamp}`, marginX, 16, 8, 'F1'));
+    }
     return { y, isFirstPage };
   };
 
@@ -586,9 +596,21 @@ async function buildExportFile(tab, format, summary) {
   const timestamp = Date.now();
   ensureExportDir();
 
+  let watermarkCfg = null;
+  try {
+    watermarkCfg = await getExportWatermark();
+  } catch {
+    watermarkCfg = null;
+  }
+  const stamp = watermarkTextForFormat(
+    watermarkCfg,
+    normalizedFormat === 'xlsx' ? 'excel' : normalizedFormat,
+  );
+  const stampedRows = stamp ? prependWatermarkRows(rows, stamp) : rows;
+
   if (normalizedFormat === 'excel' || normalizedFormat === 'xlsx') {
     const workbook = XLSX.utils.book_new();
-    const worksheet = XLSX.utils.json_to_sheet(rows);
+    const worksheet = XLSX.utils.json_to_sheet(stampedRows);
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Billing');
     const filePath = path.join(EXPORT_DIR, `billing-${tab}-${timestamp}.xlsx`);
     XLSX.writeFile(workbook, filePath);
@@ -597,12 +619,16 @@ async function buildExportFile(tab, format, summary) {
 
   if (normalizedFormat === 'pdf') {
     const filePath = path.join(EXPORT_DIR, `billing-${tab}-${timestamp}.pdf`);
-    fs.writeFileSync(filePath, createSimplePdfBuffer(`Billing ${tab}`, rows));
+    fs.writeFileSync(filePath, createSimplePdfBuffer(`Billing ${tab}`, rows, stamp));
     return { fileName: path.basename(filePath), fileUrl: toPublicUploadUrl(filePath), format: 'pdf' };
   }
 
+  let csv = createCsvBuffer(stampedRows);
+  if (stamp && !String(csv || '').includes('WATERMARK:')) {
+    csv = prependWatermarkCsv(csv, stamp);
+  }
   const filePath = path.join(EXPORT_DIR, `billing-${tab}-${timestamp}.csv`);
-  fs.writeFileSync(filePath, createCsvBuffer(rows));
+  fs.writeFileSync(filePath, csv);
   return { fileName: path.basename(filePath), fileUrl: toPublicUploadUrl(filePath), format: 'csv' };
 }
 

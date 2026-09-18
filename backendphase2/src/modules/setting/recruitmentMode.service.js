@@ -1,6 +1,9 @@
 import { prisma } from '../../config/prisma.js';
+import {
+  findOrgSettingRow,
+  upsertOrgSettingJson,
+} from './orgSettingStore.util.js';
 
-const ORG_SCOPE = 'ORG';
 const KEY_RECRUITMENT_MODE = 'recruitmentMode';
 const KEY_PIPELINE_TEMPLATE = 'defaultPipelineTemplate';
 const KEY_SUBSCRIPTION_PLAN = 'subscriptionPlan';
@@ -262,38 +265,6 @@ function parseModeFromSettingValue(value) {
     return normalizeMode(value.mode);
   }
   return 'agency';
-}
-
-async function findOrgSettingRow(key) {
-  return prisma.setting.findFirst({
-    where: {
-      key,
-      scope: ORG_SCOPE,
-    },
-    orderBy: { updatedAt: 'desc' },
-  });
-}
-
-/**
- * Prisma MongoDB rejects `userId: null` on `upsert`/`create` for compound unique `userId_key_scope`
- * ("Argument `userId` must not be null"). Org-wide rows use `userId` omitted / null in DB via findFirst + update/create.
- */
-async function upsertOrgSettingJson(key, value) {
-  const existing = await findOrgSettingRow(key);
-  if (existing) {
-    await prisma.setting.update({
-      where: { id: existing.id },
-      data: { value },
-    });
-    return;
-  }
-  await prisma.setting.create({
-    data: {
-      key,
-      scope: ORG_SCOPE,
-      value,
-    },
-  });
 }
 
 export async function getRecruitmentMode() {

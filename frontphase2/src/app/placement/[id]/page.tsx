@@ -15,6 +15,8 @@ import {
   getStatusBadgeStyle,
 } from '../../../utils/placements';
 import { EntityAuditSummary } from '../../../components/table/TableAuditCell';
+import { triggerFileDownload } from '../../../utils/triggerFileDownload';
+import { toast } from 'sonner';
 
 export default function PlacementDetailPage() {
   const params = useParams<{ id: string }>();
@@ -218,13 +220,19 @@ export default function PlacementDetailPage() {
                           >
                             <Eye className="h-4 w-4" />
                           </a>
-                          <a
-                            href={hasFile ? href : undefined}
-                            download={document.fileName || undefined}
-                            target={hasFile ? '_blank' : undefined}
-                            rel={hasFile ? 'noreferrer' : undefined}
-                            aria-disabled={!hasFile}
+                          <button
+                            type="button"
+                            disabled={!hasFile}
                             title="Download"
+                            onClick={() => {
+                              if (!document.fileUrl) return;
+                              void triggerFileDownload(document.fileUrl, {
+                                uploadsBase,
+                                filename: document.fileName || 'placement-document',
+                              }).catch((err) => {
+                                toast.error(err instanceof Error ? err.message : 'Download failed');
+                              });
+                            }}
                             className={`rounded-lg p-2 ${
                               hasFile
                                 ? 'text-slate-500 hover:bg-blue-50 hover:text-[#2563EB]'
@@ -232,7 +240,7 @@ export default function PlacementDetailPage() {
                             }`}
                           >
                             <Download className="h-4 w-4" />
-                          </a>
+                          </button>
                         </div>
                       </div>
                     );

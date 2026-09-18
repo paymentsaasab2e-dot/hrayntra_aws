@@ -714,6 +714,7 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
     cvAddress: c.address || null,
     cvCity: c.city || null,
     cvCountry: c.country || null,
+    gender: c.gender || null,
     cvAvailability: c.availability || mergedCareerPrefs?.availabilityToStart || null,
     cvExpectedSalary:
       formatCandidateSalaryDisplay(

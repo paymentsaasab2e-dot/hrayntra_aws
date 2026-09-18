@@ -1102,6 +1102,16 @@ async function downloadCompareExcel(model: ReturnType<typeof buildCompareExportM
     }
   }
 
+  try {
+    const { fetchAndCacheOrgWatermark } = await import('../../lib/useOrgExportWatermark');
+    const { readCachedOrgWatermark, stampExcelJsWorkbook } = await import('../../lib/exportWatermark');
+    await fetchAndCacheOrgWatermark();
+    // Always stamp — logo-only configs have empty text but still need the image.
+    await stampExcelJsWorkbook(workbook as any, readCachedOrgWatermark().text);
+  } catch {
+    /* watermark optional */
+  }
+
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([buffer as ArrayBuffer], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -1170,6 +1180,19 @@ async function downloadComparePdf(model: ReturnType<typeof buildCompareExportMod
       pdf.addImage(pageData, 'JPEG', margin, margin, imgWidth, sliceMm);
       rendered += sliceHeight;
       pageIndex += 1;
+    }
+
+    try {
+      const { fetchAndCacheOrgWatermark } = await import('../../lib/useOrgExportWatermark');
+      const { applyOrgWatermarkToJsPdf, readCachedOrgWatermark } = await import(
+        '../../lib/exportWatermark'
+      );
+      await fetchAndCacheOrgWatermark();
+      if (readCachedOrgWatermark().enabled) {
+        await applyOrgWatermarkToJsPdf(pdf as any);
+      }
+    } catch {
+      /* watermark optional */
     }
 
     pdf.save(`${safeFileSlug(model.title)}.pdf`);

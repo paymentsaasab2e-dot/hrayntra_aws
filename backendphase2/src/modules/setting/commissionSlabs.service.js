@@ -1,7 +1,10 @@
 import { prisma } from '../../config/prisma.js';
 import { DEFAULT_ORG_CURRENCY, SUPPORTED_CURRENCIES, getDefaultCurrency } from './recruitmentMode.service.js';
+import {
+  findOrgSettingRow,
+  upsertOrgSettingJson,
+} from './orgSettingStore.util.js';
 
-const ORG_SCOPE = 'ORG';
 const KEY_COMMISSION_SLABS = 'commissionSlabs';
 
 /** Units of each currency per 1 USD — same approach as the employer UI preview table. */
@@ -225,27 +228,6 @@ export function resolveCommissionPercent(config, { offerSalary, offerCurrency, j
     commissionCurrency: settings.commissionCurrency,
     fxRate: settings.fxRate,
   };
-}
-
-async function findOrgSettingRow(key) {
-  return prisma.setting.findFirst({
-    where: { key, scope: ORG_SCOPE },
-    orderBy: { updatedAt: 'desc' },
-  });
-}
-
-async function upsertOrgSettingJson(key, value) {
-  const existing = await findOrgSettingRow(key);
-  if (existing) {
-    await prisma.setting.update({
-      where: { id: existing.id },
-      data: { value },
-    });
-    return;
-  }
-  await prisma.setting.create({
-    data: { key, scope: ORG_SCOPE, value },
-  });
 }
 
 export async function getCommissionSlabs() {

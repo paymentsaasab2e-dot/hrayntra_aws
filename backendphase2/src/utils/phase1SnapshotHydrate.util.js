@@ -326,6 +326,7 @@ function resolveSnapshotFromCandidate(candidate) {
 /**
  * Overlay the live job-portal CandidateProfile onto CRM drawer data.
  * Fixes production lag when candidatecommon has not been re-synced yet.
+ * Recruiter Overview saves (`_phase1SnapshotSavedAt`) win over portal for filled fields.
  */
 export async function overlayLivePortalProfileOnCandidate(candidate, portalClient) {
   if (!candidate?.id || !portalClient) return candidate;
@@ -335,18 +336,61 @@ export async function overlayLivePortalProfileOnCandidate(candidate, portalClien
     const profile = await fetchPortalCandidateProfileRaw(portalClient, candidate.id);
     if (!profile) return candidate;
 
-    applyPortalScalarsToCandidate(candidate, profile);
-
     const resolved = resolveSnapshotFromCandidate(candidate);
+    const recruiterOwned =
+      Boolean(resolved?.snapshot?._phase1SnapshotSavedAt) ||
+      Boolean(resolved?.snapshot?._savedAt);
+
+    if (!recruiterOwned) {
+      applyPortalScalarsToCandidate(candidate, profile);
+    } else {
+      // Only backfill empty CRM scalars after a recruiter Overview save.
+      const fromName = splitFullName(profile.fullName);
+      if (!String(candidate.firstName || '').trim() && fromName.firstName) {
+        candidate.firstName = fromName.firstName;
+      }
+      if (!String(candidate.middleName || '').trim() && fromName.middleName) {
+        candidate.middleName = fromName.middleName;
+      }
+      if (!String(candidate.lastName || '').trim() && fromName.lastName) {
+        candidate.lastName = fromName.lastName;
+      }
+      if (!String(candidate.email || '').trim() && profile.email) {
+        candidate.email = String(profile.email).trim();
+      }
+      if (!String(candidate.phone || '').trim() && profile.phoneNumber) {
+        candidate.phone = String(profile.phoneNumber).trim();
+      }
+      if (!String(candidate.city || '').trim() && profile.city) {
+        candidate.city = String(profile.city).trim();
+      }
+      if (!String(candidate.country || '').trim() && profile.country) {
+        candidate.country = String(profile.country).trim();
+      }
+      if (!String(candidate.linkedIn || '').trim() && profile.linkedinUrl) {
+        candidate.linkedIn = String(profile.linkedinUrl).trim();
+      }
+      if (
+        !String(candidate.address || candidate.addressLine || '').trim() &&
+        profile.address
+      ) {
+        const address = String(profile.address).trim();
+        candidate.address = address;
+        candidate.addressLine = address;
+      }
+    }
+
     const baseSnapshot = resolved?.snapshot || { personalInfo: {} };
-    let patchedSnapshot = mergeLivePortalProfileIntoSnapshot(baseSnapshot, profile);
+    let patchedSnapshot = patchPhase1SnapshotPersonalInfo(baseSnapshot, profile, {
+      preferPortal: !recruiterOwned,
+    });
 
     const address = patchSnapshotAddressFromCandidate(
       candidate,
       profile,
       patchedSnapshot.personalInfo || {},
     );
-    if (address) {
+    if (address && (!recruiterOwned || !String(patchedSnapshot.personalInfo?.address || '').trim())) {
       patchedSnapshot = {
         ...patchedSnapshot,
         personalInfo: {
@@ -360,7 +404,7 @@ export async function overlayLivePortalProfileOnCandidate(candidate, portalClien
     const livePortfolioLinks = normalizePortfolioLinksForCommon(
       Array.isArray(livePortfolioRaw) ? livePortfolioRaw : [],
     );
-    if (livePortfolioLinks?.length) {
+    if (livePortfolioLinks?.length && !recruiterOwned) {
       patchedSnapshot = {
         ...patchedSnapshot,
         portfolioLinks: livePortfolioLinks,
@@ -389,6 +433,15 @@ export async function overlayLivePortalProfileOnCandidate(candidate, portalClien
       };
     }
 
+    // Preserve recruiter stamp across hydration merges.
+    if (recruiterOwned) {
+      patchedSnapshot = {
+        ...patchedSnapshot,
+        _phase1SnapshotSavedAt:
+          baseSnapshot._phase1SnapshotSavedAt || baseSnapshot._savedAt || patchedSnapshot._phase1SnapshotSavedAt,
+      };
+    }
+
     const extra =
       resolved?.extra ||
       (candidate.extraData && typeof candidate.extraData === 'object' && !Array.isArray(candidate.extraData)
@@ -399,9 +452,15 @@ export async function overlayLivePortalProfileOnCandidate(candidate, portalClien
     candidate.extraData = {
       ...extra,
       phase1ProfileSnapshot: patchedSnapshot,
-      ...(profile.employmentStatus ? { employmentStatus: profile.employmentStatus } : {}),
-      ...(profile.passportNumber ? { passportNumber: String(profile.passportNumber).trim() } : {}),
-      ...(profile.nationality ? { nationality: String(profile.nationality).trim() } : {}),
+      ...(profile.employmentStatus && !recruiterOwned
+        ? { employmentStatus: profile.employmentStatus }
+        : {}),
+      ...(profile.passportNumber && !recruiterOwned
+        ? { passportNumber: String(profile.passportNumber).trim() }
+        : {}),
+      ...(profile.nationality && !recruiterOwned
+        ? { nationality: String(profile.nationality).trim() }
+        : {}),
       ...recruiterCvExtra,
     };
     candidate.profileSnapshot = patchedSnapshot;

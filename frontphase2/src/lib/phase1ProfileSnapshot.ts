@@ -56,6 +56,9 @@ export type Phase1ProfileSnapshot = {
   competitiveExams?: Array<Record<string, unknown>>;
   visaWorkAuthorization?: Record<string, unknown> | null;
   vaccination?: Record<string, unknown> | null;
+  /** Set when CRM Overview edit is saved so merge prefers this snap over stale portal/common. */
+  _phase1SnapshotSavedAt?: string;
+  _savedAt?: string;
 };
 
 export const PHASE1_CANDIDATE_TAG_LABEL = 'Phase 1';
@@ -422,6 +425,7 @@ export function enrichBackendCandidateFromPhase1Snapshot(c: BackendCandidate): B
         c.linkedIn,
     city: editorCvSaved ? (c.city ?? null) : c.city || mergedPi.city || c.city,
     country: editorCvSaved ? (c.country ?? null) : c.country || mergedPi.country || c.country,
+    gender: editorCvSaved ? (c.gender ?? null) : c.gender || mergedPi.gender || c.gender || null,
     location: editorCvSaved
       ? (c.location ?? null)
       : c.location || [mergedPi.city, mergedPi.country].filter(Boolean).join(', ') || c.location || null,

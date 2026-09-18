@@ -58,7 +58,20 @@ function sanitizeFilename(name: string): string {
 }
 
 function downloadTextBlob(text: string, filename: string): void {
-  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+  let body = text;
+  try {
+    const {
+      readCachedOrgWatermark,
+      watermarkTextForFormat,
+      prependTextWatermark,
+    } = require('./exportWatermark') as typeof import('./exportWatermark');
+    void import('./useOrgExportWatermark').then((m) => m.fetchAndCacheOrgWatermark());
+    const stamp = watermarkTextForFormat(readCachedOrgWatermark(), 'text');
+    if (stamp) body = prependTextWatermark(body, stamp, 'text');
+  } catch {
+    /* optional */
+  }
+  const blob = new Blob([body], { type: 'text/plain;charset=utf-8' });
   const objectUrl = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = objectUrl;
@@ -112,6 +125,37 @@ export function printCvEditorAsPdf(data: CVEditorData, candidateName?: string): 
 
   const skillsHtml = (data.skills || []).map((s) => escapeHtml(s)).filter(Boolean).join(', ');
 
+  let watermarkCss = '';
+  let watermarkHtml = '';
+  try {
+    const {
+      readCachedOrgWatermark,
+      resolveWatermarkImageSrc,
+      watermarkTextForFormat,
+    } = require('./exportWatermark') as typeof import('./exportWatermark');
+    const cfg = readCachedOrgWatermark();
+    const stamp = watermarkTextForFormat(cfg, 'pdf');
+    const logoSrc = resolveWatermarkImageSrc(cfg.imageUrl);
+    if (cfg.enabled && (stamp || logoSrc) && cfg.applyToPdf !== false) {
+      const opacity = cfg.opacity;
+      watermarkCss = `
+    .wm-wrap {
+      position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      pointer-events: none; z-index: 50; opacity: ${opacity};
+      transform: rotate(-28deg); gap: 16px;
+    }
+    .wm-wrap img { max-width: 220px; max-height: 90px; object-fit: contain; }
+    .wm-text {
+      font: 700 42px/1.1 system-ui, sans-serif; color: #64748b; white-space: nowrap;
+    }`;
+      watermarkHtml = `<div class="wm-wrap">${
+        logoSrc ? `<img src="${escapeHtml(logoSrc)}" alt="" />` : ''
+      }${stamp ? `<div class="wm-text">${escapeHtml(stamp)}</div>` : ''}</div>`;
+    }
+  } catch {
+    /* optional */
+  }
+
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -130,9 +174,11 @@ export function printCvEditorAsPdf(data: CVEditorData, candidateName?: string): 
     .block { margin-bottom: 12px; }
     .skills { font-size: 13px; }
     footer { margin-top: 28px; font-size: 10px; color: #9ca3af; }
+    ${watermarkCss}
   </style>
 </head>
 <body>
+  ${watermarkHtml}
   <h1>${escapeHtml(data.name || title)}</h1>
   ${data.jobTitle ? `<p class="subtitle">${escapeHtml(data.jobTitle)}</p>` : ''}
   ${contact ? `<p class="contact">${contact}</p>` : ''}
