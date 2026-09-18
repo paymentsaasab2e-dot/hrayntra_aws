@@ -442,8 +442,11 @@ export function resolveDefaultResumeCvViewMode(
   ) {
     if (modes.includes(stored)) return stored;
   }
-  if (modes.includes('ai')) return 'ai';
+  // Prefer the real uploaded file over AI/studio HTML when opening the Resume tab.
+  if (modes.includes('original')) return 'original';
+  if (modes.includes('saasa')) return 'saasa';
   if (modes.includes('updated')) return 'updated';
+  if (modes.includes('ai')) return 'ai';
   return modes[0];
 }
 

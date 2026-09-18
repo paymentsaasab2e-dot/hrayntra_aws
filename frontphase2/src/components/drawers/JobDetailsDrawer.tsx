@@ -121,7 +121,14 @@ import {
 import { useDrawerPortalDropdownPosition } from './drawerFormUi';
 import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
-import { getAllTeamMembersForAssign } from '../../lib/api/teamApi';
+import { useAssignableMembers } from '../../hooks/useAssignableMembers';
+import { AssignCompanySelect } from '../assign/AssignCompanySelect';
+import { getCurrentUserRequestIdentity } from '../../lib/api/teamApi';
+import {
+  formatAssigneeDisplayName,
+  formatAssigneeOptionLabel,
+  getStoredCurrentUserId,
+} from '../../lib/assigneeDisplay';
 import type { Placement } from '../../types/placement';
 import {
   extractApplicationsJobCandidateItems,
@@ -145,11 +152,13 @@ import { ResumePreviewModal } from '../candidates/ResumePreviewModal';
 import { ImageWithFallback } from '../ImageWithFallback';
 import { NotesService } from '../NotesService';
 import {
+  apiGetContacts,
   apiGetJobActivities,
   apiGetJobClientRemarks,
   apiUpdateJob,
   apiResetJobPipelineToOrgTemplate,
   type BackendActivity,
+  type BackendUser,
   type JobClientRemarkCandidate,
   type JobClientRemarksPayload,
   getCachedOrgRecruitmentMode,
@@ -332,7 +341,12 @@ export interface JobForDrawer {
   salaryRange?: string;
   postedDate?: string;
   recruiter?: string;
+  /** Lead assignee user id */
+  assignedToId?: string | null;
   hiringManager?: string;
+  hiringManagerId?: string | null;
+  /** Reporting manager for Assignment Rules (Jobs) */
+  managerId?: string | null;
   applied: number;
   interviewed: number;
   offered: number;
@@ -394,6 +408,26 @@ export interface JobForDrawer {
   showClientNamePublicly?: boolean;
   supportingRecruiters?: string[];
   auditMeta?: AuditMeta;
+}
+
+function currentUserAsBackendUser(): BackendUser | null {
+  const me = getCurrentUserRequestIdentity();
+  if (!me.id) return null;
+  return {
+    id: me.id,
+    name: me.name || 'You',
+    email: me.email || '',
+    role: '',
+    isActive: true,
+    createdAt: '',
+  };
+}
+
+function withCurrentUserFirst(users: BackendUser[], currentUserId: string): BackendUser[] {
+  if (!currentUserId) return users;
+  const self = users.find((user) => user.id === currentUserId);
+  if (!self) return users;
+  return [self, ...users.filter((user) => user.id !== currentUserId)];
 }
 
 function unwrapApiList<T>(payload: unknown): T[] {
@@ -679,6 +713,8 @@ export interface JobDetailsDrawerProps {
   onJobCandidatesChange?: (candidates: JobCandidateItem[]) => void;
   /** Called after status is changed from the drawer header */
   onStatusUpdated?: (jobId: string, status: string) => void;
+  /** Called after assignment fields are saved from the Assignment tab */
+  onAssignmentUpdated?: (jobId: string) => void | Promise<void>;
   /** When true, show Upload CV on the Candidates tab */
   canAddCandidate?: boolean;
   /** `main` fills the page beside the sidenav. `modal` is a centered overlay. */
@@ -1160,6 +1196,7 @@ export function JobDetailsDrawer({
   onEditCandidate,
   onJobCandidatesChange,
   onStatusUpdated,
+  onAssignmentUpdated,
   canAddCandidate = false,
   layout = 'main',
 }: JobDetailsDrawerProps) {
@@ -2414,8 +2451,114 @@ export function JobDetailsDrawer({
   const [jobPlacements, setJobPlacements] = useState<Placement[]>([]);
   const [loadingJobInterviews, setLoadingJobInterviews] = useState(false);
   const [loadingJobPlacements, setLoadingJobPlacements] = useState(false);
-  const [supportingRecruiterNames, setSupportingRecruiterNames] = useState<string>('—');
+  const [assignmentMemberIds, setAssignmentMemberIds] = useState<string[]>([]);
+  const [assignmentManagerId, setAssignmentManagerId] = useState('');
+  const [assignmentContacts, setAssignmentContacts] = useState<
+    Array<{ id: string; name: string }>
+  >([]);
+  const [assignmentHiringManagerId, setAssignmentHiringManagerId] = useState('');
+  const [assignmentHiringManagerName, setAssignmentHiringManagerName] = useState('');
   const [loadingAssignmentMeta, setLoadingAssignmentMeta] = useState(false);
+  const [savingAssignment, setSavingAssignment] = useState(false);
+  const [assignmentDirty, setAssignmentDirty] = useState(false);
+  const [assignmentRecruiterOpen, setAssignmentRecruiterOpen] = useState(false);
+  const closeAssignmentRecruiterMenu = useCallback(() => setAssignmentRecruiterOpen(false), []);
+  const {
+    triggerRef: assignmentRecruiterTriggerRef,
+    menuRef: assignmentRecruiterMenuRef,
+    menuPosition: assignmentRecruiterMenuPosition,
+  } = useDrawerPortalDropdownPosition(
+    assignmentRecruiterOpen,
+    true,
+    closeAssignmentRecruiterMenu,
+  );
+
+  const assignmentTabActive = isOpen && activeTab === 'assignment';
+  const assignable = useAssignableMembers(assignmentTabActive, 'Jobs', {
+    initialCompanyId: String(job?.orgUnitId || '').trim(),
+  });
+  const assignmentCurrentUserId = getStoredCurrentUserId();
+  const assignmentRecruiterUsers = assignable.users;
+  const loadingAssignmentRecruiters = assignable.loading;
+
+  const assignmentManagerUsers = useMemo(() => {
+    const byId = new Map<string, BackendUser>();
+    for (const user of assignmentRecruiterUsers) byId.set(user.id, user);
+    const me =
+      assignmentRecruiterUsers.find((user) => user.id === assignmentCurrentUserId) ||
+      currentUserAsBackendUser();
+    if (me) byId.set(me.id, me);
+    const sorted = Array.from(byId.values()).sort((a, b) =>
+      String(a.name || '').localeCompare(String(b.name || '')),
+    );
+    return withCurrentUserFirst(sorted, assignmentCurrentUserId);
+  }, [assignmentCurrentUserId, assignmentRecruiterUsers]);
+
+  const needsAssignmentOrganizationFirst =
+    assignable.canSelectCompany && !assignable.companyId;
+  const needsAssignmentManagerFirst = !assignmentManagerId;
+
+  const filteredAssignmentRecruiters = useMemo(() => {
+    if (!assignmentManagerId) return [];
+    const managerId = String(assignmentManagerId).trim();
+    const byId = new Map(assignmentRecruiterUsers.map((user) => [user.id, user]));
+    const managerUser =
+      assignmentManagerUsers.find((user) => user.id === managerId) ||
+      assignmentRecruiterUsers.find((user) => user.id === managerId);
+    if (managerUser && !byId.has(managerUser.id)) byId.set(managerUser.id, managerUser);
+    const me =
+      assignmentRecruiterUsers.find((user) => user.id === assignmentCurrentUserId) ||
+      assignmentManagerUsers.find((user) => user.id === assignmentCurrentUserId) ||
+      currentUserAsBackendUser();
+    if (me && !byId.has(me.id)) byId.set(me.id, me);
+    return withCurrentUserFirst(Array.from(byId.values()), assignmentCurrentUserId);
+  }, [
+    assignmentCurrentUserId,
+    assignmentManagerId,
+    assignmentManagerUsers,
+    assignmentRecruiterUsers,
+  ]);
+
+  const selectedAssignmentAssignees = useMemo(() => {
+    return assignmentMemberIds
+      .map((id) => {
+        const fromFiltered = filteredAssignmentRecruiters.find((u) => u.id === id);
+        if (fromFiltered) return fromFiltered;
+        return assignmentRecruiterUsers.find((u) => u.id === id) || null;
+      })
+      .filter(Boolean) as BackendUser[];
+  }, [assignmentMemberIds, assignmentRecruiterUsers, filteredAssignmentRecruiters]);
+
+  const applyAssignmentMemberIds = useCallback(
+    (ids: string[]) => {
+      const unique = [...new Set(ids.map((id) => String(id || '').trim()).filter(Boolean))];
+      const primary = unique[0] || '';
+      const primaryMember = assignable.members.find((row) => row.id === primary);
+      const inferredManagerId =
+        primaryMember?.manager?.id || primaryMember?.managerId || '';
+      setAssignmentMemberIds(unique);
+      if (inferredManagerId && !assignmentManagerId) {
+        setAssignmentManagerId(inferredManagerId);
+      }
+      setAssignmentDirty(true);
+    },
+    [assignable.members, assignmentManagerId],
+  );
+
+  const selectAssignmentManager = (userId: string) => {
+    setAssignmentManagerId(userId);
+    if (assignmentMemberIds.length) {
+      const allowedIds = new Set(assignmentRecruiterUsers.map((user) => user.id));
+      if (assignmentCurrentUserId) allowedIds.add(assignmentCurrentUserId);
+      if (userId) allowedIds.add(userId);
+      const kept = assignmentMemberIds.filter((id) => allowedIds.has(id));
+      if (kept.length !== assignmentMemberIds.length) {
+        setAssignmentMemberIds(kept);
+      }
+    }
+    setAssignmentDirty(true);
+  };
+
   const [showStatusChange, setShowStatusChange] = useState(false);
   const [jobStatusCatalog, setJobStatusCatalog] = useState<string[]>([...DEFAULT_JOB_STATUS_OPTIONS]);
   const [localJobStatus, setLocalJobStatus] = useState<string>('Active');
@@ -2722,7 +2865,12 @@ export function JobDetailsDrawer({
   useEffect(() => {
     setJobInterviews([]);
     setJobPlacements([]);
-    setSupportingRecruiterNames('—');
+    setAssignmentMemberIds([]);
+    setAssignmentManagerId('');
+    setAssignmentHiringManagerId('');
+    setAssignmentHiringManagerName('');
+    setAssignmentDirty(false);
+    setAssignmentRecruiterOpen(false);
     setSelectedJobInterview(null);
     setJobInterviewDetailOpen(false);
     setSelectedInterviewRound(1);
@@ -2734,37 +2882,111 @@ export function JobDetailsDrawer({
   useEffect(() => {
     if (!isOpen || !job?.id || activeTab !== 'assignment') return;
 
-    const ids = Array.isArray(job.supportingRecruiters)
+    const supportingIds = Array.isArray(job.supportingRecruiters)
       ? job.supportingRecruiters.map((id) => String(id || '').trim()).filter(Boolean)
       : [];
-    if (!ids.length) {
-      setSupportingRecruiterNames('—');
-      setLoadingAssignmentMeta(false);
-      return;
+    const leadId = String(job.assignedToId || '').trim();
+    const memberIds = leadId
+      ? [leadId, ...supportingIds.filter((id) => id !== leadId)]
+      : supportingIds;
+    const hiringId = String(job.hiringManagerId || '').trim();
+    const hiringLabel = String(job.hiringManager || '').trim();
+    const managerId = String(job.managerId || '').trim();
+
+    setAssignmentMemberIds(memberIds);
+    setAssignmentManagerId(managerId);
+    setAssignmentHiringManagerId(hiringId);
+    setAssignmentHiringManagerName(
+      hiringLabel && !/^(-|—)$/i.test(hiringLabel) ? hiringLabel : '',
+    );
+    setAssignmentDirty(false);
+
+    const orgId = String(job.orgUnitId || '').trim();
+    if (orgId && assignable.canSelectCompany && orgId !== assignable.companyId) {
+      assignable.setCompanyId(orgId);
     }
 
     const load = startAsyncLoad(setLoadingAssignmentMeta);
-    void getAllTeamMembersForAssign()
-      .then((members) => {
+    void (async () => {
+      try {
+        const contactsRes = await apiGetContacts(
+          job.clientId ? { companyId: job.clientId } : undefined,
+        ).catch(() => null);
         if (!load.isActive()) return;
-        const names = ids
-          .map((id) => members.find((member) => member.id === id))
-          .filter(Boolean)
-          .map((member) => `${member!.firstName} ${member!.lastName}`.trim())
-          .filter(Boolean);
-        setSupportingRecruiterNames(names.length ? names.join(', ') : '—');
-      })
-      .catch(() => {
-        if (load.isActive()) setSupportingRecruiterNames('—');
-      })
-      .finally(() => {
+
+        const contacts = Array.isArray(contactsRes?.data) ? contactsRes.data : [];
+        const contactOptions = contacts
+          .map((row: { id?: string; firstName?: string; lastName?: string; name?: string; email?: string }) => {
+            const id = String(row?.id || '').trim();
+            if (!id) return null;
+            const name =
+              formatAssigneeDisplayName(row) ||
+              `${row?.firstName || ''} ${row?.lastName || ''}`.trim() ||
+              String(row?.name || '').trim() ||
+              String(row?.email || '').trim() ||
+              id;
+            return { id, name };
+          })
+          .filter((row): row is { id: string; name: string } => Boolean(row));
+        setAssignmentContacts(contactOptions);
+
+        if (hiringId && !hiringLabel) {
+          const fromContact = contactOptions.find((c) => c.id === hiringId)?.name;
+          if (fromContact) setAssignmentHiringManagerName(fromContact);
+        }
+      } catch {
+        if (load.isActive()) setAssignmentContacts([]);
+      } finally {
         load.finish();
-      });
+      }
+    })();
 
     return () => {
       load.abort();
     };
-  }, [activeTab, isOpen, job?.id, Array.isArray(job?.supportingRecruiters) ? job.supportingRecruiters.join(',') : '']);
+    // assignable.setCompanyId is stable enough; omit full assignable object to avoid reset loops
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    activeTab,
+    isOpen,
+    job?.id,
+    job?.clientId,
+    job?.orgUnitId,
+    job?.assignedToId,
+    job?.managerId,
+    job?.hiringManager,
+    job?.hiringManagerId,
+    Array.isArray(job?.supportingRecruiters) ? job.supportingRecruiters.join(',') : '',
+  ]);
+
+  const saveAssignment = async () => {
+    if (!job?.id) return;
+    const ids = assignmentMemberIds.map((id) => String(id || '').trim()).filter(Boolean);
+    const primaryId = ids[0] || null;
+    const supporting = ids.slice(1);
+    const hiringId = String(assignmentHiringManagerId || '').trim();
+    const hiringName = String(assignmentHiringManagerName || '').trim();
+    const managerId = String(assignmentManagerId || '').trim();
+
+    setSavingAssignment(true);
+    try {
+      await apiUpdateJob(job.id, {
+        assignedToId: primaryId,
+        supportingRecruiters: supporting,
+        managerId: managerId || null,
+        orgUnitId: assignable.companyId || job.orgUnitId || undefined,
+        hiringManagerId: hiringId || undefined,
+        hiringManager: hiringName || undefined,
+      } as any);
+      setAssignmentDirty(false);
+      toast.success('Assignment updated.');
+      await Promise.resolve(onAssignmentUpdated?.(job.id));
+    } catch (error: any) {
+      void requestError(error?.message || 'Failed to update assignment');
+    } finally {
+      setSavingAssignment(false);
+    }
+  };
 
   useEffect(() => {
     if (!isOpen || !job?.id || activeTab !== 'interviews') {
@@ -3995,36 +4217,292 @@ export function JobDetailsDrawer({
               {activeTab === 'assignment' && (
                 <DrawerSectionCard
                   title="Job Assignment"
-                  subtitle="Team members and hiring manager ownership"
+                  subtitle="Assignment Rules for Jobs — organization, manager, and team ownership"
                   icon={UserCog}
                   accent="sky"
+                  headerRight={
+                    <button
+                      type="button"
+                      onClick={() => void saveAssignment()}
+                      disabled={
+                        !assignmentDirty ||
+                        savingAssignment ||
+                        loadingAssignmentMeta ||
+                        loadingAssignmentRecruiters
+                      }
+                      className={`inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-semibold shadow-sm transition ${
+                        assignmentDirty &&
+                        !savingAssignment &&
+                        !loadingAssignmentMeta &&
+                        !loadingAssignmentRecruiters
+                          ? 'border border-sky-200 bg-sky-600 text-white hover:bg-sky-700'
+                          : 'border border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed'
+                      }`}
+                    >
+                      {savingAssignment ? <Loader2 size={14} className="animate-spin" /> : null}
+                      Save assignment
+                    </button>
+                  }
                 >
                     <div className="space-y-4">
-                      <div>
-                        <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Lead team member</label>
-                        <div className="rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-900">
-                          {job.recruiter ?? job.owner ?? '—'}
+                      {assignable.canSelectCompany ? (
+                        <div>
+                          <AssignCompanySelect
+                            companies={assignable.companies}
+                            value={assignable.companyId}
+                            label="Organization"
+                            onChange={(id) => {
+                              assignable.setCompanyId(id);
+                              if (id !== assignable.companyId) {
+                                setAssignmentMemberIds([]);
+                                setAssignmentManagerId('');
+                                setAssignmentDirty(true);
+                              }
+                            }}
+                          />
+                          <p className="mt-1 text-[11px] text-slate-400">
+                            Assignment organization (who owns this job).
+                          </p>
                         </div>
-                      </div>
+                      ) : null}
+
                       <div>
-                        <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Supporting team members</label>
-                        <div className="rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-700">
-                          {loadingAssignmentMeta ? (
-                            <span className="inline-flex items-center gap-2 text-slate-500">
-                              <Loader2 size={14} className="animate-spin" />
-                              Loading…
+                        <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                          Manager
+                        </label>
+                        <select
+                          value={assignmentManagerId}
+                          disabled={
+                            savingAssignment ||
+                            loadingAssignmentRecruiters ||
+                            needsAssignmentOrganizationFirst
+                          }
+                          onChange={(e) => selectAssignmentManager(e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 disabled:bg-slate-50 disabled:text-slate-400"
+                        >
+                          <option value="">
+                            {needsAssignmentOrganizationFirst
+                              ? 'Select an organization first'
+                              : 'Select manager'}
+                          </option>
+                          {assignmentManagerUsers.map((user) => (
+                            <option key={user.id} value={user.id}>
+                              {formatAssigneeOptionLabel(user, assignmentCurrentUserId)}
+                            </option>
+                          ))}
+                        </select>
+                        <p className="mt-1 text-[11px] text-slate-400">
+                          You can assign this job to anyone Assignment Rules allow, including yourself.
+                        </p>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                          Recruiters / Team members
+                        </label>
+                        {selectedAssignmentAssignees.length > 0 ? (
+                          <div className="mb-2 flex flex-wrap gap-1.5">
+                            {selectedAssignmentAssignees.map((user, index) => (
+                              <span
+                                key={user.id}
+                                className="inline-flex items-center gap-1 rounded-full border border-sky-100 bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-800"
+                              >
+                                <span className="max-w-[180px] truncate">
+                                  {formatAssigneeOptionLabel(user, assignmentCurrentUserId)}
+                                </span>
+                                {index === 0 ? (
+                                  <span className="rounded bg-sky-100 px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-sky-600">
+                                    Primary
+                                  </span>
+                                ) : null}
+                                <button
+                                  type="button"
+                                  aria-label={`Remove ${formatAssigneeOptionLabel(user, assignmentCurrentUserId)}`}
+                                  disabled={savingAssignment}
+                                  onClick={() =>
+                                    applyAssignmentMemberIds(
+                                      assignmentMemberIds.filter((id) => id !== user.id),
+                                    )
+                                  }
+                                  className="rounded-full p-0.5 text-sky-500 hover:bg-sky-100 hover:text-sky-700"
+                                >
+                                  <X size={12} />
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
+                        <div className="relative">
+                          <button
+                            ref={assignmentRecruiterTriggerRef}
+                            type="button"
+                            disabled={savingAssignment}
+                            onClick={() => setAssignmentRecruiterOpen((open) => !open)}
+                            className="w-full flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-left text-slate-700 hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 disabled:bg-slate-50"
+                          >
+                            <span
+                              className={
+                                selectedAssignmentAssignees.length ? 'text-slate-700' : 'text-slate-400'
+                              }
+                            >
+                              {needsAssignmentOrganizationFirst
+                                ? 'Select an organization first'
+                                : needsAssignmentManagerFirst
+                                  ? 'Select a manager first'
+                                  : loadingAssignmentRecruiters
+                                    ? 'Loading team…'
+                                    : filteredAssignmentRecruiters.length === 0
+                                      ? 'No people in Assignment Rules for Jobs'
+                                      : selectedAssignmentAssignees.length
+                                        ? `${selectedAssignmentAssignees.length} selected — add more`
+                                        : 'Select people Assignment Rules allow'}
                             </span>
-                          ) : (
-                            supportingRecruiterNames
-                          )}
+                            <ChevronDown size={16} className="text-slate-400 shrink-0" />
+                          </button>
+                          {assignmentRecruiterOpen &&
+                          assignmentRecruiterMenuPosition &&
+                          typeof document !== 'undefined'
+                            ? createPortal(
+                                <div
+                                  ref={assignmentRecruiterMenuRef}
+                                  className="fixed z-[1200] max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-2xl"
+                                  style={{
+                                    left: assignmentRecruiterMenuPosition.left,
+                                    width: assignmentRecruiterMenuPosition.width,
+                                    ...(assignmentRecruiterMenuPosition.placement === 'top'
+                                      ? { bottom: assignmentRecruiterMenuPosition.bottom }
+                                      : { top: assignmentRecruiterMenuPosition.top }),
+                                  }}
+                                >
+                                  <ul>
+                                    {loadingAssignmentRecruiters ? (
+                                      <li className="px-4 py-2 text-sm text-slate-500">Loading team…</li>
+                                    ) : needsAssignmentOrganizationFirst ? (
+                                      <li className="px-4 py-2 text-sm text-slate-500">
+                                        Select an organization to see members
+                                      </li>
+                                    ) : needsAssignmentManagerFirst ? (
+                                      <li className="px-4 py-2 text-sm text-slate-500">
+                                        Select a manager to see their team
+                                      </li>
+                                    ) : filteredAssignmentRecruiters.length === 0 ? (
+                                      <li className="px-4 py-2 text-sm text-slate-500">
+                                        No people in Assignment Rules for Jobs
+                                      </li>
+                                    ) : (
+                                      <>
+                                        <li>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              applyAssignmentMemberIds([]);
+                                              closeAssignmentRecruiterMenu();
+                                            }}
+                                            className="w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 text-slate-700"
+                                          >
+                                            Clear all
+                                          </button>
+                                        </li>
+                                        {filteredAssignmentRecruiters.map((user) => {
+                                          const checked = assignmentMemberIds.includes(user.id);
+                                          const isPrimary = assignmentMemberIds[0] === user.id;
+                                          return (
+                                            <li key={user.id}>
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  const next = checked
+                                                    ? assignmentMemberIds.filter((id) => id !== user.id)
+                                                    : [...assignmentMemberIds, user.id];
+                                                  applyAssignmentMemberIds(next);
+                                                }}
+                                                className={`w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 ${
+                                                  checked
+                                                    ? 'bg-sky-50 text-sky-700 font-medium'
+                                                    : 'text-slate-700'
+                                                }`}
+                                              >
+                                                <span className="flex items-start gap-2">
+                                                  <span
+                                                    className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                                                      checked
+                                                        ? 'border-sky-500 bg-sky-500 text-white'
+                                                        : 'border-slate-300 bg-white'
+                                                    }`}
+                                                  >
+                                                    {checked ? '✓' : ''}
+                                                  </span>
+                                                  <span className="min-w-0 flex-1">
+                                                    <span className="block font-medium">
+                                                      {formatAssigneeOptionLabel(
+                                                        user,
+                                                        assignmentCurrentUserId,
+                                                      )}
+                                                      {isPrimary ? (
+                                                        <span className="ml-1 text-[10px] font-bold uppercase text-sky-500">
+                                                          Primary
+                                                        </span>
+                                                      ) : null}
+                                                    </span>
+                                                    {user.email ? (
+                                                      <span className="block text-xs text-slate-500 truncate">
+                                                        {user.email}
+                                                      </span>
+                                                    ) : null}
+                                                  </span>
+                                                </span>
+                                              </button>
+                                            </li>
+                                          );
+                                        })}
+                                      </>
+                                    )}
+                                  </ul>
+                                </div>,
+                                document.body,
+                              )
+                            : null}
                         </div>
-                        <p className="text-[11px] text-slate-400 mt-1">Additional team members helping with this job</p>
+                        <p className="mt-1 text-[11px] text-slate-400">
+                          Assign to anyone Assignment Rules allow for Jobs. First selected is the
+                          primary recruiter; others are supporting.
+                        </p>
                       </div>
+
                       <div>
-                        <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Hiring manager</label>
-                        <div className="rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-900">
-                          {job.hiringManager ?? '—'}
-                        </div>
+                        <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                          Hiring manager
+                        </label>
+                        <select
+                          value={assignmentHiringManagerId}
+                          disabled={loadingAssignmentMeta || savingAssignment}
+                          onChange={(e) => {
+                            const nextId = e.target.value;
+                            const contact = assignmentContacts.find((c) => c.id === nextId);
+                            setAssignmentHiringManagerId(nextId);
+                            setAssignmentHiringManagerName(contact?.name || '');
+                            setAssignmentDirty(true);
+                          }}
+                          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 disabled:bg-slate-50 disabled:text-slate-400"
+                        >
+                          <option value="">None</option>
+                          {assignmentHiringManagerId &&
+                          !assignmentContacts.some((c) => c.id === assignmentHiringManagerId) ? (
+                            <option value={assignmentHiringManagerId}>
+                              {assignmentHiringManagerName || 'Current hiring manager'}
+                            </option>
+                          ) : null}
+                          {assignmentContacts.map((contact) => (
+                            <option key={contact.id} value={contact.id}>
+                              {contact.name}
+                            </option>
+                          ))}
+                        </select>
+                        {!job?.clientId ? (
+                          <p className="text-[11px] text-amber-600 mt-1">
+                            Link a client to this job to choose from client contacts.
+                          </p>
+                        ) : null}
                       </div>
                     </div>
                 </DrawerSectionCard>

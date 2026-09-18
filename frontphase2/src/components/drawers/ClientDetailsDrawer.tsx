@@ -2172,7 +2172,7 @@ export function ClientDetailsDrawer({
     // Fetch full job details from API (to get candidates, pipeline, etc.)
     try {
       const res = await apiGetJob(String(job.id));
-      const full = res.data;
+      const full = (res as any)?.data?.data || (res as any)?.data || res;
       if (full) {
         // map matches -> JobCandidateItem
         const candidates = (full.matches || []).map((m: any) => ({
@@ -2185,11 +2185,29 @@ export function ClientDetailsDrawer({
           lastActivity: m.updatedAt || m.createdAt || '',
         }));
 
+        const assigneeName =
+          formatAssigneeDisplayName(full.assignedTo) ||
+          full.assignedTo?.name ||
+          mapped.recruiter;
+        const enriched: JobForDrawer = {
+          ...mapped,
+          clientId: full.clientId || full.client?.id || client?.id || undefined,
+          assignedToId: full.assignedToId || full.assignedTo?.id || null,
+          recruiter: assigneeName,
+          owner: assigneeName || mapped.owner,
+          hiringManager: full.hiringManager || mapped.hiringManager,
+          hiringManagerId: full.hiringManagerId || null,
+          managerId: full.managerId || full.manager?.id || null,
+          supportingRecruiters: Array.isArray(full.supportingRecruiters)
+            ? full.supportingRecruiters.map(String)
+            : [],
+        };
+
         setJobCandidatesForDrawer(candidates);
         setJobPipelineStagesForDrawer(full.pipelineStages ?? undefined);
-        setSelectedJobForDrawer(mapped);
+        setSelectedJobForDrawer(enriched);
         // eslint-disable-next-line no-console
-        console.log('opening JobDetailsDrawer for', mapped?.id, 'candidates', candidates.length);
+        console.log('opening JobDetailsDrawer for', enriched?.id, 'candidates', candidates.length);
         setJobDetailsOpen(true);
         return;
       }
@@ -2199,7 +2217,10 @@ export function ClientDetailsDrawer({
       console.warn('Failed to fetch full job details', err);
     }
 
-    setSelectedJobForDrawer(mapped);
+    setSelectedJobForDrawer({
+      ...mapped,
+      clientId: client?.id || undefined,
+    });
     // eslint-disable-next-line no-console
     console.log('opening JobDetailsDrawer for', mapped?.id);
     setJobDetailsOpen(true);
@@ -8244,6 +8265,35 @@ export function ClientDetailsDrawer({
       jobCandidates={jobCandidatesForDrawer}
       onJobCandidatesChange={setJobCandidatesForDrawer}
       pipelineStages={jobPipelineStagesForDrawer}
+      onAssignmentUpdated={async (jobId) => {
+        try {
+          const res = await apiGetJob(jobId);
+          const full = (res as any)?.data?.data || (res as any)?.data || res;
+          if (!full) return;
+          const assigneeName =
+            formatAssigneeDisplayName(full.assignedTo) || full.assignedTo?.name || '';
+          setSelectedJobForDrawer((prev) =>
+            prev && prev.id === jobId
+              ? {
+                  ...prev,
+                  clientId: full.clientId || full.client?.id || prev.clientId,
+                  assignedToId: full.assignedToId || full.assignedTo?.id || null,
+                  recruiter: assigneeName || prev.recruiter,
+                  owner: assigneeName || prev.owner,
+                  hiringManager: full.hiringManager || undefined,
+                  hiringManagerId: full.hiringManagerId || null,
+                  managerId: full.managerId || full.manager?.id || null,
+                  supportingRecruiters: Array.isArray(full.supportingRecruiters)
+                    ? full.supportingRecruiters.map(String)
+                    : [],
+                }
+              : prev,
+          );
+          void refreshClientJobs();
+        } catch (error) {
+          console.warn('Failed to refresh job after assignment update', error);
+        }
+      }}
     />
     </>
   );

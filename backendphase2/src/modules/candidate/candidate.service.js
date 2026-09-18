@@ -578,37 +578,176 @@ function candidateListSortTimestamp(candidate) {
   return Number.isFinite(t) ? t : 0;
 }
 
-function buildCandidateSearchWhereClause(search) {
+function buildCandidateNameNormalized(firstName, lastName) {
+  return [firstName, lastName]
+    .map((part) => String(part || '').trim().toLowerCase())
+    .filter(Boolean)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** 2–3 char n-grams per name token — enables mid-string match via multikey index (e.g. "man" → Himanshu). */
+function buildCandidateNameSearchGrams(nameNormalized) {
+  const normalized = String(nameNormalized || '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!normalized) return [];
+  const grams = new Set();
+  for (const token of normalized.split(' ')) {
+    if (!token) continue;
+    for (const n of [2, 3]) {
+      if (token.length < n) continue;
+      for (let i = 0; i <= token.length - n; i += 1) {
+        grams.add(token.slice(i, i + n));
+      }
+    }
+  }
+  return Array.from(grams);
+}
+
+function buildCandidateNameSearchFields(firstName, lastName) {
+  const nameNormalized = buildCandidateNameNormalized(firstName, lastName) || null;
+  return {
+    nameNormalized,
+    nameSearchGrams: nameNormalized ? buildCandidateNameSearchGrams(nameNormalized) : [],
+  };
+}
+
+/** Grams derived from a search term for indexed mid-string lookup. */
+function buildQueryNameSearchGrams(normalizedTerm) {
+  const token = String(normalizedTerm || '')
+    .toLowerCase()
+    .replace(/\s+/g, '')
+    .trim();
+  if (token.length < 2) return [];
+  if (token.length <= 3) return [token];
+  const grams = [];
+  for (let i = 0; i <= token.length - 3; i += 1) {
+    grams.push(token.slice(i, i + 3));
+  }
+  // Keep AND selective: ends + middle cover the string without huge conjunctions.
+  if (grams.length <= 5) return grams;
+  return [grams[0], grams[Math.floor(grams.length / 2)], grams[grams.length - 1]];
+}
+
+/**
+ * Classify free-text search so we never run a giant multi-field regex OR.
+ * @returns {{ kind: 'empty'|'id'|'email'|'phone'|'name'|'general', term: string, normalized: string }}
+ */
+function classifyCandidateSearch(search) {
   const term = String(search || '').trim();
-  if (!term) return null;
-  const escaped = escapePrismaRegex(term);
+  if (!term) return { kind: 'empty', term: '', normalized: '' };
+  const normalized = term.toLowerCase().replace(/\s+/g, ' ').trim();
+
+  if (/^[a-fA-F0-9]{24}$/.test(term)) {
+    return { kind: 'id', term, normalized };
+  }
+  if (term.includes('@') || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(term)) {
+    return { kind: 'email', term, normalized: normalized.toLowerCase() };
+  }
+  const digitsOnly = term.replace(/\D/g, '');
+  const nonDigitStripped = term.replace(/[\s()+.-]/g, '');
+  if (digitsOnly.length >= 7 && digitsOnly.length === nonDigitStripped.replace(/\D/g, '').length) {
+    return { kind: 'phone', term, normalized: digitsOnly };
+  }
+  // Letters / name-like (including multi-word). Short tokens stay "name".
+  if (/^[\p{L}\p{M}\s.'.-]+$/u.test(term)) {
+    return { kind: 'name', term, normalized };
+  }
+  return { kind: 'general', term, normalized };
+}
+
+function buildCandidateSearchWhereClause(search) {
+  const classified = classifyCandidateSearch(search);
+  if (classified.kind === 'empty') return null;
+
+  const escaped = escapePrismaRegex(classified.term);
+  const escapedNorm = escapePrismaRegex(classified.normalized);
+
+  if (classified.kind === 'id') {
+    return { id: classified.term };
+  }
+
+  if (classified.kind === 'email') {
+    return {
+      OR: [
+        { email: { contains: escaped, mode: 'insensitive' } },
+        { linkedIn: { contains: escaped, mode: 'insensitive' } },
+      ],
+    };
+  }
+
+  if (classified.kind === 'phone') {
+    return {
+      OR: [
+        { phone: { contains: escaped, mode: 'insensitive' } },
+        { phone: { contains: classified.normalized, mode: 'insensitive' } },
+      ],
+    };
+  }
+
+  if (classified.kind === 'name') {
+    const tokens = classified.normalized.split(/\s+/).filter(Boolean);
+    const queryGrams = buildQueryNameSearchGrams(classified.normalized);
+
+    // Mid-string via n-gram multikey index (avoids leading-wildcard COLLSCAN when grams exist).
+    // Prefix via startsWith for IXSCAN on nameNormalized / firstName when indexes exist.
+    const nameOr = [
+      { nameNormalized: { startsWith: escapedNorm, mode: 'insensitive' } },
+      { firstName: { startsWith: escaped, mode: 'insensitive' } },
+      { lastName: { startsWith: escaped, mode: 'insensitive' } },
+    ];
+    if (queryGrams.length === 1) {
+      nameOr.push({ nameSearchGrams: { has: queryGrams[0] } });
+    } else if (queryGrams.length > 1) {
+      nameOr.push({
+        AND: queryGrams.map((gram) => ({ nameSearchGrams: { has: gram } })),
+      });
+    }
+    // Legacy rows without grams: bounded contains fallback (still auth-scoped + take K).
+    nameOr.push(
+      { nameNormalized: { contains: escapedNorm, mode: 'insensitive' } },
+      { firstName: { contains: escaped, mode: 'insensitive' } },
+      { lastName: { contains: escaped, mode: 'insensitive' } },
+    );
+
+    if (tokens.length > 1) {
+      return {
+        AND: tokens.map((token) => {
+          const tokenGrams = buildQueryNameSearchGrams(token);
+          const orParts = [
+            { nameNormalized: { contains: escapePrismaRegex(token), mode: 'insensitive' } },
+            { firstName: { contains: escapePrismaRegex(token), mode: 'insensitive' } },
+            { lastName: { contains: escapePrismaRegex(token), mode: 'insensitive' } },
+          ];
+          if (tokenGrams.length === 1) {
+            orParts.unshift({ nameSearchGrams: { has: tokenGrams[0] } });
+          } else if (tokenGrams.length > 1) {
+            orParts.unshift({
+              AND: tokenGrams.map((gram) => ({ nameSearchGrams: { has: gram } })),
+            });
+          }
+          return { OR: orParts };
+        }),
+      };
+    }
+    return { OR: nameOr };
+  }
+
+  // General (mixed symbols): identity + role fields only — never cvSummary/notes in list search.
   return {
     OR: [
+      { nameNormalized: { contains: escapedNorm, mode: 'insensitive' } },
       { firstName: { contains: escaped, mode: 'insensitive' } },
       { lastName: { contains: escaped, mode: 'insensitive' } },
       { email: { contains: escaped, mode: 'insensitive' } },
       { phone: { contains: escaped, mode: 'insensitive' } },
-      { linkedIn: { contains: escaped, mode: 'insensitive' } },
       { currentTitle: { contains: escaped, mode: 'insensitive' } },
       { currentCompany: { contains: escaped, mode: 'insensitive' } },
       { designation: { contains: escaped, mode: 'insensitive' } },
-      { location: { contains: escaped, mode: 'insensitive' } },
-      { address: { contains: escaped, mode: 'insensitive' } },
-      { city: { contains: escaped, mode: 'insensitive' } },
-      { country: { contains: escaped, mode: 'insensitive' } },
-      { preferredLocation: { contains: escaped, mode: 'insensitive' } },
-      { education: { contains: escaped, mode: 'insensitive' } },
-      { recruiterEducation: { contains: escaped, mode: 'insensitive' } },
-      { cvSummary: { contains: escaped, mode: 'insensitive' } },
-      { notes: { contains: escaped, mode: 'insensitive' } },
-      { recruiterNotes: { contains: escaped, mode: 'insensitive' } },
-      { source: { contains: escaped, mode: 'insensitive' } },
-      { availability: { contains: escaped, mode: 'insensitive' } },
-      { stage: { contains: escaped, mode: 'insensitive' } },
-      { skills: { hasSome: [term] } },
-      { recruiterSkills: { hasSome: [term] } },
-      { certifications: { hasSome: [term] } },
-      { languages: { hasSome: [term] } },
+      { skills: { hasSome: [classified.term] } },
     ],
   };
 }
@@ -822,6 +961,7 @@ const candidateListInclude = {
   createdBy: {
     select: USER_BRIEF_SELECT,
   },
+  // List table only needs enough relation rows for stage / job chips — not full history.
   applications: {
     select: {
       id: true,
@@ -829,11 +969,11 @@ const candidateListInclude = {
       status: true,
       job: { select: { id: true, title: true } },
     },
-    take: 30,
+    take: 8,
   },
   pipelineEntries: {
     select: { id: true, jobId: true, stage: { select: { name: true } } },
-    take: 30,
+    take: 8,
   },
   matches: {
     select: {
@@ -842,7 +982,6 @@ const candidateListInclude = {
       score: true,
       status: true,
       createdById: true,
-      evaluation: true,
       job: {
         select: {
           id: true,
@@ -852,12 +991,12 @@ const candidateListInclude = {
       },
     },
     orderBy: { createdAt: 'desc' },
-    take: 40,
+    take: 10,
   },
   interviews: {
     select: { id: true, jobId: true, status: true, scheduledAt: true },
     orderBy: { scheduledAt: 'desc' },
-    take: 15,
+    take: 5,
   },
   placements: {
     select: { id: true, jobId: true, status: true, updatedAt: true, createdAt: true, deletedAt: true },
@@ -1949,9 +2088,12 @@ async function materializePortalCandidateIntoTenant(portalRow) {
 
 /** Profile fields synced when AI match materializes a pool row — never workflow fields on update. */
 function buildMatchMaterializeProfileFields(poolRow, skills, languages, recruiterLanguages) {
+  const firstName = poolRow.firstName ?? null;
+  const lastName = poolRow.lastName ?? null;
   return {
-    firstName: poolRow.firstName ?? null,
-    lastName: poolRow.lastName ?? null,
+    firstName,
+    lastName,
+    ...buildCandidateNameSearchFields(firstName, lastName),
     email: poolRow.email ?? null,
     phone: poolRow.phone ?? null,
     linkedIn: poolRow.linkedIn ?? null,
@@ -3482,7 +3624,7 @@ function candidateMatchesListFilters(candidate, filters, tenantJobIdSet = null) 
 
 async function fetchPortalCandidatesForTenant(
   req,
-  { status, assignedToId, search, mine, listFilters, indexOnly = false },
+  { status, assignedToId, search, mine, listFilters, indexOnly = false, take = null, skip = 0 },
 ) {
   if (!isTenantScopedRequest()) return [];
 
@@ -3545,21 +3687,92 @@ async function fetchPortalCandidatesForTenant(
     where.AND = andParts;
   }
 
-  return portalPrisma.candidate.findMany({
+  const query = {
     where,
     ...(indexOnly
       ? { select: candidateListIndexSelect }
       : { include: candidateListInclude }),
     orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
-  });
+  };
+  if (Number.isFinite(Number(skip)) && Number(skip) > 0) query.skip = Number(skip);
+  if (Number.isFinite(Number(take)) && Number(take) > 0) query.take = Number(take);
+
+  return portalPrisma.candidate.findMany(query);
 }
 
-/** Short-lived merged list cache so page 2+ / batch prefetch stay fast after the first merge. */
-const CANDIDATE_LIST_MERGE_CACHE = new Map();
-const CANDIDATE_LIST_MERGE_CACHE_TTL_MS = 60_000;
-const CANDIDATE_LIST_MERGE_CACHE_MAX = 6;
+/**
+ * Global top-K across sorted sources lives in union of each source's top-K.
+ * K = skip + limit → Node never holds more than ~3K lean rows for normal pages.
+ */
+function mergeBoundedCandidateIndexes(sources, { loadCommonPool, tenantCandidateIds, search, listFilters, tenantJobIdSet, mine, userId, myJobIds }) {
+  const mergedById = new Map();
+  for (const row of sources.common || []) mergeLeanCandidateIndex(mergedById, row);
+  for (const row of sources.portal || []) {
+    if (sources.softDeletedTenantIds?.has(row.id) && !mergedById.has(String(row.id))) continue;
+    mergeLeanCandidateIndex(mergedById, row);
+  }
+  for (const row of sources.tenant || []) mergeLeanCandidateIndex(mergedById, row);
 
-function buildCandidateListMergeCacheKey(req, { loadCommonPool, mine }) {
+  let merged = Array.from(mergedById.values())
+    .filter((original) =>
+      shouldIncludeCandidateAfterTenantScope(original, original, {
+        includeCommonPool: loadCommonPool,
+        inTenantDb: tenantCandidateIds.has(String(original.id)),
+      }),
+    )
+    .filter((candidate) =>
+      shouldShowOnCrmCandidatesList(candidate, { includeCommonPool: loadCommonPool }),
+    )
+    .filter((candidate) => candidateMatchesSearch(candidate, search))
+    .filter((candidate) => candidateMatchesListFilters(candidate, listFilters, tenantJobIdSet));
+
+  if (mine && userId) {
+    merged = merged.filter((candidate) => candidateMatchesMineScope(candidate, userId, myJobIds));
+  }
+
+  merged.sort((a, b) => {
+    const delta = candidateListSortTimestamp(b) - candidateListSortTimestamp(a);
+    if (delta !== 0) return delta;
+    return String(b.id || '').localeCompare(String(a.id || ''));
+  });
+  return merged;
+}
+
+const PORTAL_ID_COUNT_CAP = 100_000;
+/** Hard ceiling for k-way merge window — prevents K→100k on extreme deep pages. */
+const CANDIDATE_LIST_MAX_K = Math.min(
+  10_000,
+  Math.max(200, Number(process.env.CANDIDATE_LIST_MAX_K || 2500) || 2500),
+);
+const CANDIDATE_COUNT_CACHE_TTL_MS = Math.min(
+  120_000,
+  Math.max(5_000, Number(process.env.CANDIDATE_COUNT_CACHE_TTL_MS || 45_000) || 45_000),
+);
+const CANDIDATE_COUNT_CACHE = new Map();
+const CANDIDATE_COUNT_CACHE_MAX = 64;
+
+function isCandidatePerfLogEnabled() {
+  return (
+    process.env.CANDIDATE_PERF_LOG === '1' ||
+    process.env.CANDIDATE_PERF_LOG === 'true' ||
+    process.env.NODE_ENV === 'development'
+  );
+}
+
+function candidatePerfNow() {
+  return typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
+}
+
+function logCandidatePerf(parts) {
+  if (!isCandidatePerfLogEnabled()) return;
+  const body = Object.entries(parts)
+    .filter(([, v]) => v != null && v !== '')
+    .map(([k, v]) => `${k}=${v}`)
+    .join(' ');
+  console.info(`[CandidatePerformance] ${body}`);
+}
+
+function buildCandidateCountCacheKey(req, { loadCommonPool, mine, tenantWhere }) {
   const q = req.query || {};
   let tenant = '';
   try {
@@ -3567,9 +3780,12 @@ function buildCandidateListMergeCacheKey(req, { loadCommonPool, mine }) {
   } catch {
     tenant = '';
   }
+  // Include filter/search/RBAC identity — never share counts across tenants/users/scopes.
   return [
+    'count',
     tenant,
     String(req.user?.id || ''),
+    String(req.headers?.['x-org-unit-id'] || req.query?.orgUnitId || ''),
     mine ? '1' : '0',
     loadCommonPool ? '1' : '0',
     String(q.status || ''),
@@ -3583,25 +3799,131 @@ function buildCandidateListMergeCacheKey(req, { loadCommonPool, mine }) {
     String(q.stage || ''),
     String(q.minExperience || ''),
     String(q.maxExperience || ''),
+    // Cheap fingerprint of the auth-scoped where (stable JSON keys from Prisma).
+    JSON.stringify(tenantWhere || {}),
   ].join('\u0001');
 }
 
-function readCandidateListMergeCache(key) {
-  const hit = CANDIDATE_LIST_MERGE_CACHE.get(key);
+function readCandidateCountCache(key) {
+  const hit = CANDIDATE_COUNT_CACHE.get(key);
   if (!hit) return null;
-  if (Date.now() - hit.at > CANDIDATE_LIST_MERGE_CACHE_TTL_MS) {
-    CANDIDATE_LIST_MERGE_CACHE.delete(key);
+  if (Date.now() - hit.at > CANDIDATE_COUNT_CACHE_TTL_MS) {
+    CANDIDATE_COUNT_CACHE.delete(key);
     return null;
   }
-  return hit.merged;
+  return hit.total;
 }
 
-function writeCandidateListMergeCache(key, merged) {
-  CANDIDATE_LIST_MERGE_CACHE.set(key, { at: Date.now(), merged });
-  while (CANDIDATE_LIST_MERGE_CACHE.size > CANDIDATE_LIST_MERGE_CACHE_MAX) {
-    const oldest = CANDIDATE_LIST_MERGE_CACHE.keys().next().value;
-    CANDIDATE_LIST_MERGE_CACHE.delete(oldest);
+function writeCandidateCountCache(key, total) {
+  CANDIDATE_COUNT_CACHE.set(key, { at: Date.now(), total });
+  while (CANDIDATE_COUNT_CACHE.size > CANDIDATE_COUNT_CACHE_MAX) {
+    const oldest = CANDIDATE_COUNT_CACHE.keys().next().value;
+    CANDIDATE_COUNT_CACHE.delete(oldest);
   }
+}
+
+/**
+ * Resolve bounded K for multi-source list merge.
+ * Search keeps a small window; deep offset pages are capped (not full-table).
+ */
+function resolveCandidateListK({ skip, limit, search }) {
+  const pageWindow = Math.max(1, Number(skip) + Number(limit));
+  const searchActive = Boolean(String(search || '').trim());
+  // Search: stay near the requested page; do not grow toward MAX just because N is huge.
+  const inflated = searchActive
+    ? Math.min(Math.max(pageWindow, Math.min(pageWindow * 3, 750)), CANDIDATE_LIST_MAX_K)
+    : Math.min(Math.max(pageWindow, pageWindow * 2), CANDIDATE_LIST_MAX_K);
+  const deepClamped = pageWindow > CANDIDATE_LIST_MAX_K;
+  return { K: inflated, deepClamped, maxK: CANDIDATE_LIST_MAX_K, pageWindow };
+}
+
+async function countMergedCandidateListTotal({
+  tenantWhere,
+  req,
+  status,
+  assignedToId,
+  search,
+  mine,
+  listFilters,
+  loadCommonPool,
+}) {
+  const cacheKey = buildCandidateCountCacheKey(req, { loadCommonPool, mine, tenantWhere });
+  const cached = readCandidateCountCache(cacheKey);
+  if (cached != null) return cached;
+
+  const t0 = candidatePerfNow();
+  const tenantTotal = await prisma.candidate.count({ where: tenantWhere });
+
+  let portalOnly = 0;
+  try {
+    if (isTenantScopedRequest()) {
+      const portalRows = await fetchPortalCandidatesForTenant(req, {
+        status,
+        assignedToId,
+        search,
+        mine,
+        listFilters,
+        indexOnly: true,
+        take: PORTAL_ID_COUNT_CAP,
+      });
+      const portalIds = [...new Set(portalRows.map((row) => String(row.id || '').trim()).filter(Boolean))];
+      if (portalIds.length) {
+        // Batch existence checks to avoid huge `$in` payloads.
+        const existingSet = new Set();
+        const chunkSize = 2000;
+        for (let i = 0; i < portalIds.length; i += chunkSize) {
+          const chunk = portalIds.slice(i, i + chunkSize);
+          const existing = await prisma.candidate.findMany({
+            where: { id: { in: chunk } },
+            select: { id: true },
+          });
+          for (const row of existing) existingSet.add(String(row.id));
+        }
+        portalOnly = portalIds.filter((id) => !existingSet.has(id)).length;
+        if (portalIds.length >= PORTAL_ID_COUNT_CAP) {
+          console.warn(
+            '[candidate.service] portal id scan capped; unique total may undercount portal-only rows beyond',
+            PORTAL_ID_COUNT_CAP,
+          );
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[candidate.service] portal total count failed:', err?.message || err);
+  }
+
+  let commonOnly = 0;
+  if (loadCommonPool) {
+    try {
+      // Bound count scan — never pull the entire common pool into Node.
+      const commonIndex = await fetchCandidateCommonListIndex(req, {
+        take: Math.min(CANDIDATE_LIST_MAX_K, 5000),
+        search,
+      });
+      const commonIds = [...new Set(commonIndex.map((row) => String(row.id || '').trim()).filter(Boolean))];
+      if (commonIds.length) {
+        const existing = await prisma.candidate.findMany({
+          where: { id: { in: commonIds } },
+          select: { id: true },
+        });
+        const existingSet = new Set(existing.map((row) => String(row.id)));
+        commonOnly = commonIds.filter((id) => !existingSet.has(id)).length;
+      }
+    } catch (err) {
+      console.warn('[candidate.service] common total count failed:', err?.message || err);
+    }
+  }
+
+  const total = tenantTotal + portalOnly + commonOnly;
+  writeCandidateCountCache(cacheKey, total);
+  logCandidatePerf({
+    count: `${Math.round(candidatePerfNow() - t0)}ms`,
+    tenantTotal,
+    portalOnly,
+    commonOnly,
+    total,
+  });
+  return total;
 }
 
 export const candidateService = {
@@ -3687,23 +4009,36 @@ export const candidateService = {
 
     let candidates = [];
     let total = 0;
-    const mergeCacheKey = buildCandidateListMergeCacheKey(req, { loadCommonPool, mine });
-    const cachedMerged = readCandidateListMergeCache(mergeCacheKey);
+    const perfT0 = candidatePerfNow();
+    const memT0 =
+      isCandidatePerfLogEnabled() && typeof process !== 'undefined' && process.memoryUsage
+        ? process.memoryUsage().heapUsed
+        : null;
+    const perfMarks = {
+      tenantQuery: null,
+      portalQuery: null,
+      commonQuery: null,
+      merge: null,
+      hydrate: null,
+      count: null,
+      K: null,
+      sourceCounts: null,
+    };
 
-    const sliceMerged = async (mergedIndex) => {
-      total = mergedIndex.length;
-      const pageRows = await hydrateMergedCandidatePage(mergedIndex, skip, limit, {
+    const hydratePageFromIndex = async (pageIndex) => {
+      const tHydrate = candidatePerfNow();
+      const pageRows = await hydrateMergedCandidatePage(pageIndex, 0, pageIndex.length, {
         req,
         loadCommonPool,
       });
-      return attachPlacementsToCandidates(pageRows);
+      const attached = await attachPlacementsToCandidates(pageRows);
+      perfMarks.hydrate = Math.round(candidatePerfNow() - tHydrate);
+      return attached;
     };
 
-    if (cachedMerged) {
-      candidates = await sliceMerged(cachedMerged);
-    } else if (mine && !loadCommonPool && !ids) {
-      // My candidates: page in the tenant DB. The All-candidates merge loads every
-      // tenant + portal + Phase 1 row into memory and can stall for minutes.
+    if (mine && !loadCommonPool && !ids) {
+      // My candidates: page in the tenant DB.
+      const tQ = candidatePerfNow();
       const [rowTotal, pageRows] = await Promise.all([
         prisma.candidate.count({ where }),
         prisma.candidate.findMany({
@@ -3714,25 +4049,73 @@ export const candidateService = {
           take: limit,
         }),
       ]);
+      perfMarks.tenantQuery = Math.round(candidatePerfNow() - tQ);
+      perfMarks.count = perfMarks.tenantQuery;
       total = rowTotal;
       candidates = await attachPlacementsToCandidates(pageRows);
-    } else if (isTenantScopedRequest()) {
-      const [tenantIndex, portalIndex, commonIndex] = await Promise.all([
-        prisma.candidate.findMany({
+    } else if (isTenantScopedRequest() || loadCommonPool) {
+      // Bounded k-way merge: each source contributes at most K lean rows.
+      // Global top-K ⊆ union(top-K per source). Node never loads the full tenant table.
+      const { K, deepClamped, maxK } = resolveCandidateListK({ skip, limit, search });
+      perfMarks.K = K;
+
+      const tSources = candidatePerfNow();
+      const countPromise = countMergedCandidateListTotal({
+        tenantWhere: where,
+        req,
+        status,
+        assignedToId,
+        search,
+        mine,
+        listFilters,
+        loadCommonPool,
+      }).then((value) => {
+        perfMarks.count = Math.round(candidatePerfNow() - tSources);
+        return value;
+      });
+
+      const tenantPromise = prisma.candidate
+        .findMany({
           where,
           select: candidateListIndexSelect,
           orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
-        }),
-        fetchPortalCandidatesForTenant(req, {
-          status,
-          assignedToId,
-          search,
-          mine,
-          listFilters,
-          indexOnly: true,
-        }),
-        loadCommonPool ? fetchCandidateCommonListIndex(req) : Promise.resolve([]),
+          take: K,
+        })
+        .then((rows) => {
+          perfMarks.tenantQuery = Math.round(candidatePerfNow() - tSources);
+          return rows;
+        });
+
+      const portalPromise = isTenantScopedRequest()
+        ? fetchPortalCandidatesForTenant(req, {
+            status,
+            assignedToId,
+            search,
+            mine,
+            listFilters,
+            indexOnly: true,
+            take: K,
+          }).then((rows) => {
+            perfMarks.portalQuery = Math.round(candidatePerfNow() - tSources);
+            return rows;
+          })
+        : Promise.resolve([]);
+
+      const commonPromise = loadCommonPool
+        ? fetchCandidateCommonListIndex(req, { take: K, search }).then((rows) => {
+            perfMarks.commonQuery = Math.round(candidatePerfNow() - tSources);
+            return rows;
+          })
+        : Promise.resolve([]);
+
+      const [tenantIndex, portalIndex, commonIndex, mergedTotal] = await Promise.all([
+        tenantPromise,
+        portalPromise,
+        commonPromise,
+        countPromise,
       ]);
+
+      perfMarks.sourceCounts = `t=${tenantIndex.length},p=${portalIndex.length},c=${commonIndex.length}`;
 
       const tombstoneIds = [
         ...portalIndex.map((c) => c.id),
@@ -3741,82 +4124,47 @@ export const candidateService = {
       const softDeletedTenantIds = tombstoneIds.length
         ? await collectSoftDeletedTenantCandidateIds(tombstoneIds)
         : new Set();
-
-      const mergedById = new Map();
-      for (const row of commonIndex) mergeLeanCandidateIndex(mergedById, row);
-      for (const row of portalIndex) {
-        if (softDeletedTenantIds.has(row.id) && !mergedById.has(String(row.id))) continue;
-        mergeLeanCandidateIndex(mergedById, row);
-      }
       const tenantCandidateIds = new Set(tenantIndex.map((row) => String(row.id)));
-      for (const row of tenantIndex) mergeLeanCandidateIndex(mergedById, row);
 
-      let merged = Array.from(mergedById.values())
-        .filter((original) =>
-          shouldIncludeCandidateAfterTenantScope(original, original, {
-            includeCommonPool: loadCommonPool,
-            inTenantDb: tenantCandidateIds.has(String(original.id)),
-          }),
-        )
-        .filter((candidate) =>
-          shouldShowOnCrmCandidatesList(candidate, { includeCommonPool: loadCommonPool }),
-        )
-        .filter((candidate) => candidateMatchesSearch(candidate, search))
-        .filter((candidate) => candidateMatchesListFilters(candidate, listFilters, tenantJobIdSet));
+      const tMerge = candidatePerfNow();
+      const merged = mergeBoundedCandidateIndexes(
+        {
+          tenant: tenantIndex,
+          portal: portalIndex,
+          common: commonIndex,
+          softDeletedTenantIds,
+        },
+        {
+          loadCommonPool,
+          tenantCandidateIds,
+          search,
+          listFilters,
+          tenantJobIdSet,
+          mine,
+          userId: req.user?.id,
+          myJobIds,
+        },
+      );
+      perfMarks.merge = Math.round(candidatePerfNow() - tMerge);
 
-      if (mine && req.user?.id) {
-        merged = merged.filter((candidate) =>
-          candidateMatchesMineScope(candidate, req.user.id, myJobIds),
-        );
+      total = mergedTotal;
+      // Extreme deep pages: clamp to the last safe window inside MAX_K (never grow K to 100k+).
+      // Users still get rows; totals remain exact/cached for numbered UX.
+      const sliceSkip = deepClamped ? Math.max(0, Math.min(skip, merged.length - limit)) : skip;
+      const pageIndex = merged.slice(Math.max(0, sliceSkip), Math.max(0, sliceSkip) + limit);
+      if (deepClamped) {
+        logCandidatePerf({
+          deepPage: 1,
+          requestedSkip: skip,
+          effectiveSkip: Math.max(0, sliceSkip),
+          maxK,
+          note: 'clamped-to-safe-window',
+        });
       }
-
-      merged.sort((a, b) => candidateListSortTimestamp(b) - candidateListSortTimestamp(a));
-      writeCandidateListMergeCache(mergeCacheKey, merged);
-      candidates = await sliceMerged(merged);
-    } else if (loadCommonPool) {
-      const [tenantIndex, commonIndex] = await Promise.all([
-        prisma.candidate.findMany({
-          where,
-          select: candidateListIndexSelect,
-          orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
-        }),
-        fetchCandidateCommonListIndex(req),
-      ]);
-      const softDeletedTenantIds = commonIndex.length
-        ? await collectSoftDeletedTenantCandidateIds(commonIndex.map((c) => c.id))
-        : new Set();
-      const mergedById = new Map();
-      for (const row of commonIndex) mergeLeanCandidateIndex(mergedById, row);
-      const tenantCandidateIds = new Set(tenantIndex.map((row) => String(row.id)));
-      for (const row of tenantIndex) {
-        if (softDeletedTenantIds.has(row.id) && !mergedById.has(String(row.id))) continue;
-        mergeLeanCandidateIndex(mergedById, row);
-      }
-
-      let merged = Array.from(mergedById.values())
-        .filter((original) =>
-          shouldIncludeCandidateAfterTenantScope(original, original, {
-            includeCommonPool: loadCommonPool,
-            inTenantDb: tenantCandidateIds.has(String(original.id)),
-          }),
-        )
-        .filter((candidate) =>
-          shouldShowOnCrmCandidatesList(candidate, { includeCommonPool: loadCommonPool }),
-        )
-        .filter((candidate) => candidateMatchesSearch(candidate, search))
-        .filter((candidate) => candidateMatchesListFilters(candidate, listFilters, tenantJobIdSet));
-
-      if (mine && req.user?.id) {
-        merged = merged.filter((candidate) =>
-          candidateMatchesMineScope(candidate, req.user.id, myJobIds),
-        );
-      }
-
-      merged.sort((a, b) => candidateListSortTimestamp(b) - candidateListSortTimestamp(a));
-      writeCandidateListMergeCache(mergeCacheKey, merged);
-      candidates = await sliceMerged(merged);
+      candidates = await hydratePageFromIndex(pageIndex);
     } else {
       // Fast path: tenant CRM only — true DB pagination (no full-table load).
+      const tQ = candidatePerfNow();
       const [rowTotal, pageRows] = await Promise.all([
         prisma.candidate.count({ where }),
         prisma.candidate.findMany({
@@ -3827,6 +4175,8 @@ export const candidateService = {
           take: limit,
         }),
       ]);
+      perfMarks.tenantQuery = Math.round(candidatePerfNow() - tQ);
+      perfMarks.count = perfMarks.tenantQuery;
       total = rowTotal;
       candidates = await attachPlacementsToCandidates(pageRows);
     }
@@ -3944,6 +4294,25 @@ export const candidateService = {
     });
 
     const withAudit = await prepareListWithAuditMeta(enriched, ENTITY_TYPES.CANDIDATE);
+    const memDelta =
+      memT0 != null && typeof process !== 'undefined' && process.memoryUsage
+        ? Math.round((process.memoryUsage().heapUsed - memT0) / 1024)
+        : null;
+    logCandidatePerf({
+      searchKind: classifyCandidateSearch(search).kind,
+      K: perfMarks.K,
+      sourceCounts: perfMarks.sourceCounts,
+      tenantQuery: perfMarks.tenantQuery != null ? `${perfMarks.tenantQuery}ms` : undefined,
+      portalQuery: perfMarks.portalQuery != null ? `${perfMarks.portalQuery}ms` : undefined,
+      commonQuery: perfMarks.commonQuery != null ? `${perfMarks.commonQuery}ms` : undefined,
+      merge: perfMarks.merge != null ? `${perfMarks.merge}ms` : undefined,
+      hydrate: perfMarks.hydrate != null ? `${perfMarks.hydrate}ms` : undefined,
+      count: perfMarks.count != null ? `${perfMarks.count}ms` : undefined,
+      fetched: candidates.length,
+      total,
+      memoryDeltaKb: memDelta,
+      totalMs: `${Math.round(candidatePerfNow() - perfT0)}ms`,
+    });
     return formatPaginationResponse(withAudit, page, limit, total);
   },
 
@@ -4077,6 +4446,7 @@ export const candidateService = {
     const candidateData = {
       firstName: data.firstName,
       lastName: data.lastName,
+      ...buildCandidateNameSearchFields(data.firstName, data.lastName),
       email: data.email,
       phone: data.phone,
       linkedIn: data.linkedIn,
@@ -4279,6 +4649,23 @@ export const candidateService = {
           ? existingExtraRow.extraData
           : {};
       updateData.extraData = mergeCandidateRecruiterExtraData(existingExtra, updateData.extraData);
+    }
+
+    if (
+      Object.prototype.hasOwnProperty.call(updateData, 'firstName') ||
+      Object.prototype.hasOwnProperty.call(updateData, 'lastName')
+    ) {
+      const nameSource = await prisma.candidate.findUnique({
+        where: { id },
+        select: { firstName: true, lastName: true },
+      });
+      const nextFirst = Object.prototype.hasOwnProperty.call(updateData, 'firstName')
+        ? updateData.firstName
+        : nameSource?.firstName;
+      const nextLast = Object.prototype.hasOwnProperty.call(updateData, 'lastName')
+        ? updateData.lastName
+        : nameSource?.lastName;
+      Object.assign(updateData, buildCandidateNameSearchFields(nextFirst, nextLast));
     }
 
     dbLogger.logUpdate('CANDIDATE', id, updateData);

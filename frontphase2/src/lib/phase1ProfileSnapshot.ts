@@ -120,20 +120,23 @@ export function resolveCandidateResumeUrlFromSources(
   candidate?: ResumeSourceLike | null,
   options?: { filesResumeUrl?: string | null }
 ): string {
+  if (!candidate && !options?.filesResumeUrl) return '';
+
+  const extra =
+    candidate?.extraData && typeof candidate.extraData === 'object' && !Array.isArray(candidate.extraData)
+      ? (candidate.extraData as Record<string, unknown>)
+      : null;
+  const pinned = String(extra?.originalResumeUrl || '').trim();
+  if (pinned) return pinned;
+
   const fromFiles = String(options?.filesResumeUrl || '').trim();
   if (fromFiles) return fromFiles;
 
   if (!candidate) return '';
-  const snap = getPhase1ProfileSnapshot(
-    candidate.extraData && typeof candidate.extraData === 'object' && !Array.isArray(candidate.extraData)
-      ? candidate.extraData
-      : null
-  );
-  const candidates = [
-    candidate.resumeUrl,
-    candidate.resume,
-    snap?.resume?.fileUrl,
-  ];
+
+  const snap = getPhase1ProfileSnapshot(extra);
+  // CRM upload first; Phase 1 snapshot last (can be a regenerated/studio file).
+  const candidates = [candidate.resumeUrl, candidate.resume, snap?.resume?.fileUrl];
   for (const value of candidates) {
     const trimmed = String(value || '').trim();
     if (trimmed) return trimmed;
@@ -319,7 +322,7 @@ export function enrichBackendCandidateFromPhase1Snapshot(c: BackendCandidate): B
     ? snap.certifications.map((cert) => String(cert.certificationName || '').trim()).filter(Boolean)
     : [];
 
-  const resumeUrl = snap.resume?.fileUrl || c.resume || c.resumeUrl || null;
+  const resumeUrl = c.resume || c.resumeUrl || snap.resume?.fileUrl || null;
   const latestWork = Array.isArray(snap.workExperience) ? snap.workExperience[0] : null;
 
   const snapNarrative = (snap as Phase1ProfileSnapshot & { cvWorkHistoryNarrative?: string })

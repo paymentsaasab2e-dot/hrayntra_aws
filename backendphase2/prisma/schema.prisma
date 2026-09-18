@@ -525,6 +525,10 @@ model Candidate {
   // Legacy Mongo rows may contain nulls; make nullable to prevent Prisma conversion crashes.
   firstName               String?
   lastName                String?
+  /// Lowercase "first last" for indexed prefix / contains search (maintained on write).
+  nameNormalized          String?
+  /// 2–3 character n-grams of the normalized name for mid-string search without Atlas (multikey IXSCAN).
+  nameSearchGrams         String[]        @default([])
   // Not @unique: MongoDB unique indexes treat many `null` emails as duplicates (E11000).
   // Enforce unique non-null emails in application code (e.g. candidate create/import).
   email                   String?
@@ -613,6 +617,15 @@ model Candidate {
   @@index([createdById])
   @@index([orgUnitId])
   @@index([isDeleted])
+  @@index([email])
+  @@index([phone])
+  @@index([stage])
+  @@index([source])
+  @@index([nameNormalized])
+  @@index([nameSearchGrams])
+  @@index([firstName, lastName])
+  @@index([isDeleted, updatedAt])
+  @@index([isDeleted, createdAt])
   @@map("candidates")
 }
 

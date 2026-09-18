@@ -291,26 +291,38 @@ interface Job {
   candidateRequirements?: string[];
   benefits?: string[];
   languages?: Array<{ language?: string; proficiency?: string }>;
+  supportingRecruiters?: string[];
 }
 
-/** Map list Job to drawer JobForDrawer - uses only backend data, no mock data */
+/** Map list Job to drawer JobForDrawer — never invent placeholder assignment names. */
 function toJobForDrawer(j: Job): JobForDrawer {
   const status = j.status as JobForDrawer['status'];
+  const ownerLabel = String(j.owner || '').trim();
+  const lead =
+    ownerLabel && !/^(-|—|unassigned)$/i.test(ownerLabel) ? ownerLabel : undefined;
+  const hiring = String(j.hiringManager || '').trim();
   return {
     ...j,
     status,
-    employmentType: 'Full-time',
-    salaryRange: undefined, // Will be populated from backend
+    employmentType: j.employmentType || undefined,
+    salaryRange: undefined,
     postedDate: j.createdDate,
-    recruiter: j.owner,
-    hiringManager: '-',
-    overview: undefined, // Will be populated from backend
-    keyResponsibilities: undefined, // Will be populated from backend
-    requiredSkills: undefined, // Will be populated from backend
-    preferredSkills: undefined, // Will be populated from backend
-    experienceRequired: undefined, // Will be populated from backend
-    education: undefined, // Will be populated from backend
-    benefits: undefined, // Will be populated from backend
+    recruiter: lead,
+    owner: lead || 'Unassigned',
+    hiringManager:
+      hiring && !/^(-|—)$/i.test(hiring) ? hiring : undefined,
+    hiringManagerId: (j as { hiringManagerId?: string | null }).hiringManagerId || null,
+    supportingRecruiters: Array.isArray((j as { supportingRecruiters?: string[] }).supportingRecruiters)
+      ? (j as { supportingRecruiters?: string[] }).supportingRecruiters
+      : [],
+    assignedToId: j.recruiterId || undefined,
+    overview: undefined,
+    keyResponsibilities: undefined,
+    requiredSkills: undefined,
+    preferredSkills: undefined,
+    experienceRequired: undefined,
+    education: undefined,
+    benefits: undefined,
   };
 }
 
@@ -335,7 +347,10 @@ function mapBackendJobToJobForDrawer(backendJob: Record<string, any>, fallbackJo
         ? formatDateDMY(backendJob.createdAt) || String(backendJob.createdAt).slice(0, 10)
         : job?.createdDate,
     recruiter: formatAssigneeDisplayName(backendJob.assignedTo) || backendJob.assignedTo?.name || job?.owner,
+    assignedToId: backendJob.assignedToId || backendJob.assignedTo?.id || job?.recruiterId || null,
     hiringManager: backendJob.hiringManager || undefined,
+    hiringManagerId: backendJob.hiringManagerId || null,
+    managerId: backendJob.managerId || backendJob.manager?.id || null,
     applied:
       typeof backendJob.appliedCount === 'number'
         ? backendJob.appliedCount
@@ -415,6 +430,7 @@ function mapBackendJobToJobForDrawer(backendJob: Record<string, any>, fallbackJo
     noCandidates: Boolean(backendJob.noCandidates),
     slaRisk: Boolean(backendJob.slaRisk),
     managerName: backendJob.manager?.name || undefined,
+    managerId: backendJob.managerId || backendJob.manager?.id || null,
     visibility: backendJob.visibility || undefined,
     showClientNamePublicly: backendJob.showClientNamePublicly !== false,
     publicFieldVisibility: backendJob.publicFieldVisibility || undefined,
@@ -1238,6 +1254,7 @@ function mapBackendJob(job: BackendJob): Job {
     experienceRequired: job.experienceRequired || undefined,
     education: job.education || undefined,
     hiringManager: job.hiringManager || undefined,
+    hiringManagerId: (job as { hiringManagerId?: string | null }).hiringManagerId || null,
     managerName: job.manager?.name || undefined,
     workMode: job.workMode || undefined,
     skills: asStringList(job.skills),
@@ -1247,6 +1264,9 @@ function mapBackendJob(job: BackendJob): Job {
     candidateRequirements: asStringList(job.candidateRequirements),
     benefits: asStringList(job.benefits),
     languages: Array.isArray(job.languages) ? job.languages : undefined,
+    supportingRecruiters: Array.isArray((job as { supportingRecruiters?: string[] }).supportingRecruiters)
+      ? (job as { supportingRecruiters?: string[] }).supportingRecruiters!.map(String)
+      : undefined,
   };
   } catch (error) {
     console.error('[jobs] mapBackendJob failed', error);
@@ -3181,6 +3201,10 @@ export default function JobsPage() {
           setJobs((prev) => prev.map((j) => (j.id === jobId ? { ...j, status } : j)));
           setJobDetails((prev) => (prev && prev.id === jobId ? { ...prev, status } : prev));
           setSelectedJob((prev) => (prev && prev.id === jobId ? { ...prev, status } : prev));
+        }}
+        onAssignmentUpdated={async (jobId) => {
+          await refreshJobDetails(jobId);
+          void reloadMyJobsAndMetrics();
         }}
       />
       ) : null}

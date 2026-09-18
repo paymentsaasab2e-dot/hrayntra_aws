@@ -358,19 +358,50 @@ async function getAllTenantJobIdSet() {
  * Verified Phase 1 snapshots for CRM "All candidates" (tenant uploads + portal pool).
  * Job links on candidatecommon are global — keep only rows for this tenant or pure discovery.
  */
-export async function fetchCandidateCommonListIndex(req) {
+export async function fetchCandidateCommonListIndex(req, options = {}) {
   const commonPrisma = getCandidateCommonPrismaClient();
   if (!commonPrisma) return [];
   if (!(await tenantAllowsPhase1CommonPool())) return [];
 
-  const limit = Math.min(
+  const envMax = Math.min(
     10000,
     Math.max(1, Number(process.env.CANDIDATES_COMMON_POOL_MAX || 5000) || 5000),
   );
+  const limit = Number.isFinite(Number(options.take)) && Number(options.take) > 0
+    ? Math.min(envMax, Number(options.take))
+    : envMax;
+
+  const where = { isVerified: true };
+  const search = String(options.search || req?.query?.search || '').trim();
+  if (search) {
+    // Mirror tenant classifier — avoid scanning unrelated snapshot fields.
+    const looksLikeId = /^[a-fA-F0-9]{24}$/.test(search);
+    const looksLikeEmail = search.includes('@');
+    const digitsOnly = search.replace(/\D/g, '');
+    const looksLikePhone =
+      digitsOnly.length >= 7 &&
+      digitsOnly.length === search.replace(/[\s()+.-]/g, '').replace(/\D/g, '').length;
+    if (looksLikeId) {
+      where.OR = [{ candidateId: search }, { id: search }];
+    } else if (looksLikeEmail) {
+      where.email = { contains: search, mode: 'insensitive' };
+    } else if (looksLikePhone) {
+      where.OR = [
+        { phone: { contains: search, mode: 'insensitive' } },
+        { phone: { contains: digitsOnly, mode: 'insensitive' } },
+      ];
+    } else {
+      where.OR = [
+        { firstName: { contains: search, mode: 'insensitive' } },
+        { lastName: { contains: search, mode: 'insensitive' } },
+        { email: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+  }
 
   const rows = await commonPrisma.candidateCommon.findMany({
-    where: { isVerified: true },
-    orderBy: { syncedAt: 'desc' },
+    where,
+    orderBy: [{ updatedAt: 'desc' }, { syncedAt: 'desc' }],
     take: limit,
     select: {
       id: true,

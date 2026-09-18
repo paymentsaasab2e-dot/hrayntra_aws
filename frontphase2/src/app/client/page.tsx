@@ -373,7 +373,7 @@ function extractBackendClients(responseData: unknown): BackendClient[] {
 }
 
 export default function App() {
-  const FETCH_LIMIT = 500;
+  const FETCH_LIMIT = 100; // Prefer server pages; avoid pulling 500+ into the browser
   const SEARCH_DEBOUNCE_MS = 350;
   const router = useRouter();
   const pathname = usePathname();

@@ -20,6 +20,8 @@ export type EmployerCandidatesSnapshot = {
   page: number;
   pageSize: number;
   search: string;
+  /** Extra identity for filters/mine/common-pool — prevents cross-filter cache reuse. */
+  filterSig?: string;
   totalEntries: number;
   candidates: unknown[];
 };
@@ -111,17 +113,35 @@ export function writeJobsMetricsCache(metrics: Record<string, unknown>) {
   jobsMetricsCache.write(scopeId(), metrics);
 }
 
-export function candidatesListCacheKey(tab: string, page: number, pageSize: number, search = '') {
-  return `${scopeId()}::${tab}::${page}::${pageSize}::${search || ''}`;
+export function candidatesListCacheKey(
+  tab: string,
+  page: number,
+  pageSize: number,
+  search = '',
+  filterSig = '',
+) {
+  return `${scopeId()}::${tab}::${page}::${pageSize}::${search || ''}::${filterSig || 'default'}`;
 }
 
-export function readCandidatesListCache(tab: string, page: number, pageSize: number, search = '') {
-  return candidatesCache.read(candidatesListCacheKey(tab, page, pageSize, search));
+export function readCandidatesListCache(
+  tab: string,
+  page: number,
+  pageSize: number,
+  search = '',
+  filterSig = '',
+) {
+  return candidatesCache.read(candidatesListCacheKey(tab, page, pageSize, search, filterSig));
 }
 
 export function writeCandidatesListCache(snap: EmployerCandidatesSnapshot) {
   candidatesCache.write(
-    candidatesListCacheKey(snap.tab, snap.page, snap.pageSize, snap.search),
+    candidatesListCacheKey(
+      snap.tab,
+      snap.page,
+      snap.pageSize,
+      snap.search,
+      snap.filterSig || '',
+    ),
     snap,
   );
 }

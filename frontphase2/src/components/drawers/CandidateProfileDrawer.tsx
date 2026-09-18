@@ -22,7 +22,7 @@ import {
 import { useCandidateCvEditor } from '../../hooks/useCandidateCvEditor';
 import { useSaasaCvAnnotations } from '../../hooks/useSaasaCvAnnotations';
 import type { ResumeCvViewMode } from '../../lib/cvEditorMapping';
-import { pickLatestResumeFileUrl } from '../../lib/phase1ProfileSnapshot';
+import { pickLatestResumeFileUrl, resolveCandidateResumeUrlFromSources } from '../../lib/phase1ProfileSnapshot';
 import { hasSaasaCvSaved, readSaasaCvAnnotations, SAASA_CV_FILE_TYPE } from '../../lib/saasaCvAnnotations';
 import { formatDateDMY, formatDateTimeDMY } from '../../utils/dateDisplay';
 import type { AuditMeta } from '../../types/audit';
@@ -4732,10 +4732,17 @@ export function CandidateProfileDrawer({
   }, [saasaCvStored, candidateFiles, candidate?.name]);
 
   const originalResumeFileUrl = useMemo(() => {
-    const profile = String(candidate?.resumeUrl || '').trim();
-    if (profile) return profile;
-    return pickLatestResumeFileUrl(candidateFiles) || null;
-  }, [candidate?.resumeUrl, candidateFiles]);
+    return (
+      resolveCandidateResumeUrlFromSources(
+        {
+          resumeUrl: candidate?.resumeUrl,
+          resume: candidate?.resumeUrl,
+          extraData: (candidate as { extraData?: Record<string, unknown> | null } | null)?.extraData ?? null,
+        },
+        { filesResumeUrl: pickLatestResumeFileUrl(candidateFiles) },
+      ) || null
+    );
+  }, [candidate, candidateFiles]);
 
   const candidateFilesOther = useMemo(() => {
     const cvUrls = new Set(

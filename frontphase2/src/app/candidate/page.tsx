@@ -138,6 +138,7 @@ import {
   writeCandidatesListCache,
   invalidateEmployerCandidatesCache,
 } from '../../lib/employerPageCache';
+import { effectiveCandidateSearchQuery } from '../../lib/candidateSearchGate';
 import { useWorkspaceEntityAlerts } from '../../hooks/useWorkspaceEntityAlerts';
 import { TableSkeleton } from '../../components/ui/Skeleton';
 import { AiCoinLockBadge, useAiCoinGate } from '../../components/coins/AiCoinGate';
@@ -393,7 +394,7 @@ function CandidatesPageContent() {
   });
   const [candidates, setCandidates] = useState<Candidate[]>(() => {
     const tab = searchParams.get('tab') === 'mine' ? 'mine' : 'all';
-    const cached = readCandidatesListCache(tab, 1, 100, searchParams.get('search') || '');
+    const cached = readCandidatesListCache(tab, 1, 50, searchParams.get('search') || '');
     return Array.isArray(cached?.data?.candidates) ? (cached.data.candidates as Candidate[]) : [];
   });
   const [exportModalOpen, setExportModalOpen] = useState(false);
@@ -401,7 +402,7 @@ function CandidatesPageContent() {
   const [exportCandidatesLoading, setExportCandidatesLoading] = useState(false);
   const [loading, setLoading] = useState(() => {
     const tab = searchParams.get('tab') === 'mine' ? 'mine' : 'all';
-    const cached = readCandidatesListCache(tab, 1, 100, searchParams.get('search') || '');
+    const cached = readCandidatesListCache(tab, 1, 50, searchParams.get('search') || '');
     return !cached?.data?.candidates?.length;
   });
   const [tableLoading, setTableLoading] = useState(false);
@@ -409,7 +410,7 @@ function CandidatesPageContent() {
   const hasLoadedCandidatesOnceRef = useRef(
     (() => {
       const tab = searchParams.get('tab') === 'mine' ? 'mine' : 'all';
-      const cached = readCandidatesListCache(tab, 1, 100, searchParams.get('search') || '');
+      const cached = readCandidatesListCache(tab, 1, 50, searchParams.get('search') || '');
       return Boolean(cached?.data?.candidates?.length);
     })(),
   );
@@ -428,6 +429,16 @@ function CandidatesPageContent() {
     const timer = window.setTimeout(() => setDebouncedColumnFilters(columnFilters), 400);
     return () => window.clearTimeout(timer);
   }, [columnFilters]);
+
+  const [debouncedSearch, setDebouncedSearch] = useState(
+    () => effectiveCandidateSearchQuery(searchParams.get('search') || ''),
+  );
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedSearch(effectiveCandidateSearchQuery(filters.search));
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [filters.search]);
 
   useEffect(() => {
     const syncPhase1Access = () => {
@@ -528,12 +539,37 @@ function CandidatesPageContent() {
   const [bulkAssignJobSaving, setBulkAssignJobSaving] = useState(false);
   const [deletingCandidateId, setDeletingCandidateId] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState<TablePageSize>(100);
+  const [pageSize, setPageSize] = useState<TablePageSize>(50);
   const [totalEntries, setTotalEntries] = useState(() => {
     const tab = searchParams.get('tab') === 'mine' ? 'mine' : 'all';
-    const cached = readCandidatesListCache(tab, 1, 100, searchParams.get('search') || '');
+    const cached = readCandidatesListCache(tab, 1, 50, searchParams.get('search') || '');
     return typeof cached?.data?.totalEntries === 'number' ? cached.data.totalEntries : 0;
   });
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedSearch]);
+
+  const candidatesFilterSig = useMemo(() => {
+    const stageKey = debouncedColumnFilters.stage
+      ? debouncedColumnFilters.stage.toLowerCase()
+      : '';
+    return [
+      `company=${debouncedColumnFilters.company || ''}`,
+      `location=${debouncedColumnFilters.location || ''}`,
+      `jobId=${debouncedColumnFilters.jobId || ''}`,
+      `experience=${debouncedColumnFilters.experienceRange || ''}`,
+      `stage=${stageKey || ''}`,
+      `status=${!debouncedColumnFilters.stage && filters.status ? filters.status : ''}`,
+      `common=${listTab === 'all' && shouldIncludePhase1CommonPool() ? '1' : '0'}`,
+      `smart=${(smartSearchCandidateIds || []).join(',')}`,
+    ].join('&');
+  }, [
+    debouncedColumnFilters,
+    filters.status,
+    listTab,
+    smartSearchCandidateIds,
+  ]);
   const [inlineStageOptionsByJobId, setInlineStageOptionsByJobId] = useState<
     Record<string, Array<{ id: string; name: string }>>
   >({});
@@ -768,7 +804,7 @@ function CandidatesPageContent() {
         ? debouncedColumnFilters.stage.toLowerCase()
         : '';
       const listFilterBits = {
-        search: filters.search || undefined,
+        search: debouncedSearch || undefined,
         company: debouncedColumnFilters.company || undefined,
         location: debouncedColumnFilters.location || undefined,
         jobId: debouncedColumnFilters.jobId || undefined,
@@ -834,7 +870,8 @@ function CandidatesPageContent() {
         tab: activeListTab,
         page: activePage,
         pageSize,
-        search: filters.search || '',
+        search: debouncedSearch || '',
+        filterSig: candidatesFilterSig,
         totalEntries: total,
         candidates: mapped,
       });
@@ -866,7 +903,7 @@ function CandidatesPageContent() {
       setLoading(false);
       setTableLoading(false);
     }
-  }, [filters, debouncedColumnFilters, currentPage, pageSize, listTab, smartSearchCandidateIds]);
+  }, [debouncedSearch, filters.status, debouncedColumnFilters, currentPage, pageSize, listTab, smartSearchCandidateIds, candidatesFilterSig]);
 
   const handleRepairBadNames = useCallback(() => {
     setRepairNamesDrawerOpen(true);
@@ -879,7 +916,13 @@ function CandidatesPageContent() {
 
       // Show cached rows immediately so the tab feels instant; the loadCandidates
       // effect (driven by listTab/currentPage) performs a single network refresh.
-      const cached = readCandidatesListCache(nextTab, 1, pageSize, filters.search || '');
+      const cached = readCandidatesListCache(
+        nextTab,
+        1,
+        pageSize,
+        debouncedSearch || '',
+        candidatesFilterSig,
+      );
       const cachedRows = cached?.data?.candidates;
       if (Array.isArray(cachedRows) && cachedRows.length > 0) {
         setCandidates(cachedRows as Candidate[]);
@@ -893,7 +936,7 @@ function CandidatesPageContent() {
       setListTab(nextTab);
       setCurrentPage(1);
     },
-    [listTab, currentPage, pageSize, filters.search],
+    [listTab, currentPage, pageSize, debouncedSearch, candidatesFilterSig],
   );
 
   useEffect(() => {
@@ -916,7 +959,13 @@ function CandidatesPageContent() {
   }, []);
 
   useEffect(() => {
-    const cached = readCandidatesListCache(listTab, currentPage, pageSize, filters.search || '');
+    const cached = readCandidatesListCache(
+      listTab,
+      currentPage,
+      pageSize,
+      debouncedSearch || '',
+      candidatesFilterSig,
+    );
     const cachedRows = cached?.data?.candidates;
     if (Array.isArray(cachedRows) && cachedRows.length > 0) {
       setCandidates(cachedRows as Candidate[]);
@@ -940,7 +989,13 @@ function CandidatesPageContent() {
     intervalMs: 45_000,
     shouldSkip: () =>
       isCandidatesListCacheFresh(
-        readCandidatesListCache(listTab, currentPage, pageSize, filters.search || ''),
+        readCandidatesListCache(
+          listTab,
+          currentPage,
+          pageSize,
+          debouncedSearch || '',
+          candidatesFilterSig,
+        ),
       ),
   });
 
@@ -1184,7 +1239,7 @@ function CandidatesPageContent() {
   const buildCandidatesExportQueryParams = useCallback(
     (page: number, limit: number): Record<string, string | number | boolean> => {
       const queryParams: Record<string, string | number | boolean> = { page, limit };
-      if (filters.search) queryParams.search = filters.search;
+      if (debouncedSearch) queryParams.search = debouncedSearch;
       if (debouncedColumnFilters.company) queryParams.company = debouncedColumnFilters.company;
       if (debouncedColumnFilters.location) queryParams.location = debouncedColumnFilters.location;
       if (debouncedColumnFilters.jobId) queryParams.jobId = debouncedColumnFilters.jobId;
