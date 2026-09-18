@@ -153,17 +153,6 @@ export function CandidateResumeTabPanel({
   );
 
   const originalResumeRaw = useMemo(() => {
-    const fromRow = String(
-      backendCandidate?.resumeUrl ||
-        backendCandidate?.resume ||
-        candidate.resumeUrl ||
-        ''
-    ).trim();
-    if (fromRow) return fromRow;
-
-    const fromSaasaSource = String(saasaStored?.resumeUrl || '').trim();
-    if (fromSaasaSource) return fromSaasaSource;
-
     return (
       resolveCandidateResumeUrlFromSources(backendCandidate, { filesResumeUrl }) ||
       resolveCandidateResumeUrlFromSources(
@@ -172,7 +161,7 @@ export function CandidateResumeTabPanel({
           resume: candidate.resumeUrl,
           extraData: candidate.extraData ?? null,
         },
-        { filesResumeUrl }
+        { filesResumeUrl },
       ) ||
       resumeHref ||
       ''
@@ -181,7 +170,6 @@ export function CandidateResumeTabPanel({
     backendCandidate,
     candidate.resumeUrl,
     candidate.extraData,
-    saasaStored?.resumeUrl,
     filesResumeUrl,
     resumeHref,
   ]);

@@ -768,12 +768,12 @@ export default function App() {
       const poolParams = shouldIncludePhase1CommonPool() ? { includeCommonPool: true as const } : {};
       const candidateParams =
         selectedOwnerId === '__me__'
-          ? { page: 1, limit: 500, mine: true, ...poolParams }
+          ? { page: 1, limit: 100, mine: true, ...poolParams }
           : selectedOwnerId
-            ? { page: 1, limit: 500, assignedToId: selectedOwnerId, ...poolParams }
+            ? { page: 1, limit: 100, assignedToId: selectedOwnerId, ...poolParams }
             : selectedJobId
-              ? { page: 1, limit: 500, jobId: selectedJobId, ...poolParams }
-              : { page: 1, limit: 500, ...poolParams };
+              ? { page: 1, limit: 100, jobId: selectedJobId, ...poolParams }
+              : { page: 1, limit: 100, ...poolParams };
 
       const candidatesRes = await apiGetCandidates(candidateParams);
       const backendCandidates = parseCandidatesResponse(candidatesRes);

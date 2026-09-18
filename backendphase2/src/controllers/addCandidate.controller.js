@@ -1689,12 +1689,23 @@ export const addCandidateController = {
         tenantDbName,
       });
       const resumeUrl = upload?.secure_url || upload?.url;
+      const existingExtra =
+        candidate.extraData && typeof candidate.extraData === 'object' && !Array.isArray(candidate.extraData)
+          ? candidate.extraData
+          : {};
       const updatedCandidate = await prisma.candidate.update({
         where: { id: candidateId },
         data: {
           resume: resumeUrl,
           resumeUrl,
           lastActivity: new Date(),
+          // Pin the uploaded binary so Original CV never falls back to Phase 1 studio HTML.
+          extraData: {
+            ...existingExtra,
+            originalResumeUrl: resumeUrl,
+            originalResumeFileName: file.originalname || existingExtra.originalResumeFileName || null,
+            resumeCvViewMode: 'original',
+          },
         },
       });
 
