@@ -2,6 +2,8 @@ import type { BackendCandidate } from './api';
 import { mapBackendStage } from './mapCandidateProfile';
 import { isSubmittedToClientStage } from '../utils/candidateStage';
 import { resolveSubmitJobIdFromBackend } from './candidateSubmitToClient';
+import { formatTableLocation } from './formatTableLocation';
+import { readTableLocationDisplayMode } from './tableLocationDisplayStorage';
 
 function displayPipelineStageName(currentStage?: string | null): string {
   const normalized = String(currentStage || '').trim();
@@ -246,25 +248,22 @@ export function resolveCandidateExperienceYears(c: {
   return 0;
 }
 
-/** Location label for list / job drawer — uses city/country when location is empty. */
+/** Location label for list / match tables — respects shared Country/State/City/Full mode. */
 export function resolveCandidateLocationLabel(c: {
   location?: string | null;
   city?: string | null;
   country?: string | null;
+  state?: string | null;
 }): string {
-  const direct = String(c.location || '').trim();
-  if (
-    direct &&
-    direct !== '—' &&
-    direct !== '-' &&
-    direct.toLowerCase() !== 'location unavailable' &&
-    direct.toLowerCase() !== 'not shared'
-  ) {
-    return direct;
-  }
-  const parts = [c.city, c.country].map((part) => String(part || '').trim()).filter(Boolean);
-  if (parts.length) return parts.join(', ');
-  return '—';
+  return formatTableLocation(
+    {
+      location: c.location,
+      country: c.country,
+      city: c.city,
+      state: c.state,
+    },
+    readTableLocationDisplayMode(),
+  );
 }
 
 function isBlankOwnerLabel(value?: string | null): boolean {

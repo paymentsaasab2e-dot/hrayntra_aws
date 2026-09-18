@@ -1,0 +1,56 @@
+{
+  "description": "Synthetic CV golden set for regression (no real customer data).",
+  "resumes": [
+    {
+      "id": "synth-alex-frontend",
+      "file": "alex-rivera.txt",
+      "mimeType": "text/plain",
+      "expected": {
+        "name": "Alex Rivera",
+        "email": "alex.rivera@example.com",
+        "phone": "+1-555-0101",
+        "dob": "1994-03-12",
+        "gender": "Male",
+        "city": "Austin",
+        "country": "USA",
+        "skills": ["React", "TypeScript", "Node.js"],
+        "latestJob": "Frontend Engineer",
+        "education": "B.S. Computer Science"
+      }
+    },
+    {
+      "id": "synth-priya-fullstack",
+      "file": "priya-sharma.txt",
+      "mimeType": "text/plain",
+      "expected": {
+        "name": "Priya Sharma",
+        "email": "priya.sharma@example.com",
+        "phone": "+91-98765-43210",
+        "dob": "1992-07-21",
+        "gender": "Female",
+        "city": "Bengaluru",
+        "country": "India",
+        "skills": ["Python", "Django", "PostgreSQL"],
+        "latestJob": "Full Stack Developer",
+        "education": "M.Tech Information Technology"
+      }
+    },
+    {
+      "id": "synth-jordan-data",
+      "file": "jordan-lee.txt",
+      "mimeType": "text/plain",
+      "expected": {
+        "name": "Jordan Lee",
+        "email": "jordan.lee@example.com",
+        "phone": "+44-7700-900123",
+        "dob": "1990-11-05",
+        "gender": "",
+        "city": "London",
+        "country": "UK",
+        "skills": ["SQL", "Tableau", "Python"],
+        "latestJob": "Data Analyst",
+        "education": "BSc Mathematics"
+      }
+    }
+  ]
+}

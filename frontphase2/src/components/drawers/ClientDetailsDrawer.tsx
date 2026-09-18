@@ -2195,9 +2195,16 @@ export function ClientDetailsDrawer({
           assignedToId: full.assignedToId || full.assignedTo?.id || null,
           recruiter: assigneeName,
           owner: assigneeName || mapped.owner,
+          orgUnitId:
+            full.orgUnitId ||
+            full.assignedTo?.assignCompanyId ||
+            full.assignedTo?.orgUnitId ||
+            full.assignedTo?.orgUnit?.id ||
+            undefined,
           hiringManager: full.hiringManager || mapped.hiringManager,
           hiringManagerId: full.hiringManagerId || null,
           managerId: full.managerId || full.manager?.id || null,
+          managerName: full.manager?.name || undefined,
           supportingRecruiters: Array.isArray(full.supportingRecruiters)
             ? full.supportingRecruiters.map(String)
             : [],

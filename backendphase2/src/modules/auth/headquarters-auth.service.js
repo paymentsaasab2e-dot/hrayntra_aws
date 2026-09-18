@@ -1184,36 +1184,94 @@ export const headquartersAuthService = {
   },
 
   /**
-   * Distinct tenant DB names registered in HQ (workspace users).
+   * Distinct tenant DB names from HQ registries (workspace users + user directory).
    */
   async listDistinctTenantDbNames() {
+    const names = new Set();
     try {
       const collection = await getCollection();
-      if (!collection) return [];
-      const names = await collection.distinct('tenantDbName', {
-        tenantDbName: { $exists: true, $nin: [null, ''] },
-        isDeleted: { $ne: true },
-      });
-      return [...new Set(names.map((n) => normalizeLookupValue(n)).filter(Boolean))];
-    } catch (error) {
+      if (collection) {
+        const fromWorkspace = await collection.distinct('tenantDbName', {
+          tenantDbName: { $exists: true, $nin: [null, ''] },
+          isDeleted: { $ne: true },
+        });
+        for (const n of fromWorkspace) {
+          const v = normalizeLookupValue(n);
+          if (v) names.add(v);
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+    try {
+      const directory = await getTenantUserDirectoryCollection();
+      if (directory) {
+        const fromDirectory = await directory.distinct('tenantDbName', {
+          tenantDbName: { $exists: true, $nin: [null, ''] },
+          isDeleted: { $ne: true },
+        });
+        for (const n of fromDirectory) {
+          const v = normalizeLookupValue(n);
+          if (v) names.add(v);
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+    return [...names];
+  },
+
+  /**
+   * Full Mongo listDatabases fallback — catches tenant DBs that never made it
+   * into HQ registry rows (legacy / partial provisioning).
+   */
+  async listTenantDbNamesFromMongo() {
+    try {
+      const client = await getHeadquartersClient();
+      if (!client) return [];
+      const SYSTEM = new Set(['admin', 'local', 'config']);
+      let hqDbName = '';
+      try {
+        if (env.HEADQUARTERS_DATABASE_URL) {
+          hqDbName = normalizeLookupValue(new URL(env.HEADQUARTERS_DATABASE_URL).pathname.replace(/^\//, ''));
+        }
+      } catch {
+        hqDbName = '';
+      }
+      const { databases } = await client.db().admin().listDatabases({ nameOnly: true });
+      const out = [];
+      for (const row of databases || []) {
+        const name = normalizeLookupValue(row?.name);
+        if (!name || SYSTEM.has(name)) continue;
+        // Keep HQ DB itself only if it also hosts tenant UserCredential rows.
+        out.push(name);
+      }
+      // Prefer real tenants: put HQ db last so workspace DBs are tried first.
+      if (hqDbName) {
+        out.sort((a, b) => {
+          if (a === hqDbName) return 1;
+          if (b === hqDbName) return -1;
+          return a.localeCompare(b);
+        });
+      }
+      return out;
+    } catch {
       return [];
     }
   },
 
-  /**
-   * When `_tenant_user_directory` has no row yet (users created before that
-   * feature), scan each known tenant for a matching `UserCredential` so plain
-   * `/login` can still route to the correct workspace.
-   */
-  async findTenantDbNameForUserByCredentialScan(identifier) {
-    try {
-      const normalizedLogin = normalizeLookupValue(identifier);
-      const normalizedEmail = normalizeEmail(identifier);
-      if (!normalizedLogin && !normalizedEmail) return '';
-
-      const tenants = await this.listDistinctTenantDbNames();
-      for (const tenantDbName of tenants) {
-        const found = await runWithTenantContext(tenantDbName, async () => {
+  async scanTenantsForCredential(identifier, tenants) {
+    const normalizedLogin = normalizeLookupValue(identifier);
+    const normalizedEmail = normalizeEmail(identifier);
+    if (!normalizedLogin && !normalizedEmail) return '';
+    const seen = new Set();
+    for (const raw of tenants || []) {
+      const tenantDbName = normalizeLookupValue(raw);
+      if (!tenantDbName || seen.has(tenantDbName)) continue;
+      seen.add(tenantDbName);
+      let found = false;
+      try {
+        found = await runWithTenantContext(tenantDbName, async () => {
           const or = [];
           if (normalizedLogin) {
             or.push({ loginId: normalizedLogin });
@@ -1229,16 +1287,40 @@ export const headquartersAuthService = {
           });
           return Boolean(cred);
         });
-        if (found) {
-          await this.upsertTenantUserDirectoryEntry({
-            email: normalizedEmail || undefined,
-            loginId: normalizedLogin || undefined,
-            tenantDbName,
-          });
-          return tenantDbName;
-        }
+      } catch {
+        // Missing DB / schema — skip and continue scanning.
+        found = false;
       }
-      return '';
+      if (found) {
+        await this.upsertTenantUserDirectoryEntry({
+          email: normalizedEmail || undefined,
+          loginId: normalizedLogin || undefined,
+          tenantDbName,
+        });
+        return tenantDbName;
+      }
+    }
+    return '';
+  },
+
+  /**
+   * When `_tenant_user_directory` has no row (or HQ map is stale), scan known
+   * tenants then every Mongo DB for a matching `UserCredential` so plain
+   * `/login` still routes to the correct workspace.
+   */
+  async findTenantDbNameForUserByCredentialScan(identifier) {
+    try {
+      const normalizedLogin = normalizeLookupValue(identifier);
+      const normalizedEmail = normalizeEmail(identifier);
+      if (!normalizedLogin && !normalizedEmail) return '';
+
+      const registryTenants = await this.listDistinctTenantDbNames();
+      const fromRegistry = await this.scanTenantsForCredential(identifier, registryTenants);
+      if (fromRegistry) return fromRegistry;
+
+      const mongoTenants = await this.listTenantDbNamesFromMongo();
+      const remaining = mongoTenants.filter((n) => !registryTenants.includes(n));
+      return this.scanTenantsForCredential(identifier, remaining);
     } catch (error) {
       return '';
     }

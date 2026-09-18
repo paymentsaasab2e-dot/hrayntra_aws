@@ -51,6 +51,7 @@ import type {
 import { ALL_STATUS_LABEL } from '../constants/filterLabels';
 import { fetchAllPaginated } from '../lib/export/fetchAllPaginated';
 import { buildInterviewsListApiParams } from '../lib/smart-search/entitySmartSearch';
+import { useDebouncedValue } from './useListRequestGate';
 import { extractAuditMeta } from '../utils/auditMeta';
 import type { AuditMeta } from '../types/audit';
 import { resolveCandidateDisplayName } from '../lib/mapCandidateProfile';
@@ -462,6 +463,7 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [totalEntries, setTotalEntries] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
+  const debouncedSearchQuery = useDebouncedValue(searchQuery, 350);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -501,7 +503,7 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
           module: 'Interviews',
           companyId: getActiveOrgUnitId() || undefined,
         }),
-        apiGetInterviews({ limit: 500 }),
+        apiGetInterviews({ limit: 100 }),
       ]);
 
       const [candidatesRes, jobsRes, usersRes, allInterviewsRes] = settled;
@@ -580,7 +582,7 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
             filters.clientJob !== 'All Clients'
               ? jobOptionsRef.current.find((job) => `${job.client} • ${job.title}` === filters.clientJob)?.id
               : undefined,
-          search: searchQuery || undefined,
+          search: debouncedSearchQuery || undefined,
           matchingInterviewIds: smartSearchInterviewIds,
         }),
       );
@@ -615,7 +617,7 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
     filters.status,
     pagination.page,
     pagination.pageSize,
-    searchQuery,
+    debouncedSearchQuery,
     smartSearchInterviewIds,
   ]);
 
@@ -668,7 +670,7 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
       return;
     }
     try {
-      const response = await apiGetInterviews({ jobId, limit: 500 });
+      const response = await apiGetInterviews({ jobId, limit: 100 });
       const snapshot = normalizeInterviewListResponse(response.data);
       setJobScopedInterviews(snapshot.interviews);
       setOverviewInterviews((current) => {
@@ -928,7 +930,7 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
             filters.clientJob !== 'All Clients'
               ? jobOptions.find((job) => `${job.client} • ${job.title}` === filters.clientJob)?.id
               : undefined,
-          search: searchQuery || undefined,
+          search: debouncedSearchQuery || undefined,
         });
         const snapshot = normalizeInterviewListResponse(updated.data);
         setInterviews(snapshot.interviews);
@@ -964,7 +966,7 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
       jobOptions,
       pagination.page,
       pagination.pageSize,
-      searchQuery,
+      debouncedSearchQuery,
     ]
   );
 
@@ -1062,7 +1064,7 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
         filters.clientJob !== 'All Clients'
           ? jobOptions.find((job) => `${job.client} • ${job.title}` === filters.clientJob)?.id
           : undefined,
-      search: searchQuery || undefined,
+      search: debouncedSearchQuery || undefined,
     });
 
     const all = await fetchAllPaginated({

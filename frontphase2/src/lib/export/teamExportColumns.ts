@@ -1,5 +1,7 @@
 import type { TeamMember } from '../../types/team';
 import { csvDateTime } from '../../utils/csv';
+import { formatTableLocation } from '../formatTableLocation';
+import { readTableLocationDisplayMode } from '../tableLocationDisplayStorage';
 import { buildExportCsvColumns, type ExportColumnDef } from './buildExportCsvColumns';
 
 export const TEAM_EXPORT_COLUMNS: ExportColumnDef<TeamMember>[] = [
@@ -8,7 +10,14 @@ export const TEAM_EXPORT_COLUMNS: ExportColumnDef<TeamMember>[] = [
   { id: 'email', label: 'Email', accessor: (m) => m.email || '' },
   { id: 'phone', label: 'Phone', accessor: (m) => m.phone || '' },
   { id: 'designation', label: 'Designation', accessor: (m) => m.designation || '' },
-  { id: 'location', label: 'Location', accessor: (m) => m.location || '' },
+  {
+    id: 'location',
+    label: 'Location',
+    accessor: (m) => {
+      const value = formatTableLocation(m.location, readTableLocationDisplayMode());
+      return value === '—' ? '' : value;
+    },
+  },
   { id: 'department', label: 'Department', accessor: (m) => m.department?.name || '' },
   { id: 'departmentRank', label: 'Rank', accessor: (m) => (m.departmentRank != null ? String(m.departmentRank) : '') },
   { id: 'role', label: 'Role', accessor: (m) => m.role?.roleName || '' },

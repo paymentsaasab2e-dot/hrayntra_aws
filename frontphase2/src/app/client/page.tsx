@@ -373,7 +373,9 @@ function extractBackendClients(responseData: unknown): BackendClient[] {
 }
 
 export default function App() {
-  const FETCH_LIMIT = 100; // Prefer server pages; avoid pulling 500+ into the browser
+  const FETCH_LIMIT = 100; // hard cap for any single clients list request
+  const [clients, setClients] = useState<Client[]>([]);
+  const [totalEntries, setTotalEntries] = useState(0);
   const SEARCH_DEBOUNCE_MS = 350;
   const router = useRouter();
   const pathname = usePathname();
@@ -429,7 +431,6 @@ export default function App() {
   const [showImportDrawer, setShowImportDrawer] = useState(false);
   const [showSummaryCards, setShowSummaryCards] = useState(false);
   const [recycleBinDrawerOpen, setRecycleBinDrawerOpen] = useState(false);
-  const [clients, setClients] = useState<Client[]>([]);
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [exportClients, setExportClients] = useState<Client[]>([]);
   const [exportClientsLoading, setExportClientsLoading] = useState(false);
@@ -577,9 +578,9 @@ export default function App() {
     return list;
   }, [filteredClients, clientSortBy, clientNameSortOrder, clientSmartSearch.activeKeywords, currentUserName]);
   const pagedClients = useMemo(() => {
-    const start = (currentPage - 1) * pageSize;
-    return sortedClients.slice(start, start + pageSize);
-  }, [sortedClients, currentPage, pageSize]);
+    // Server already returns the requested page — do not slice again in the browser.
+    return sortedClients;
+  }, [sortedClients]);
   const { alertsByEntityId: workspaceAlertsByEntityId } = useWorkspaceEntityAlerts(
     'CLIENT',
     pagedClients.map((client) => client.id),
@@ -610,11 +611,11 @@ export default function App() {
   }, [activeTab]);
 
   useEffect(() => {
-    const totalPages = Math.max(1, Math.ceil(sortedClients.length / pageSize));
+    const totalPages = Math.max(1, Math.ceil(totalEntries / pageSize));
     if (currentPage > totalPages) {
       setCurrentPage(totalPages);
     }
-  }, [currentPage, sortedClients.length, pageSize]);
+  }, [currentPage, totalEntries, pageSize]);
 
   useEffect(() => {
     const timeout = setTimeout(() => {
@@ -691,6 +692,7 @@ export default function App() {
 
   const fetchClients = useCallback(async (overrides?: {
     page?: number;
+    limit?: number;
     search?: string;
     matchingClientIds?: string[];
     silent?: boolean;
@@ -715,8 +717,8 @@ export default function App() {
       const response = await apiGetClients(
         buildClientsListApiParams({
           search: effectiveSearch,
-          page: 1,
-          limit: FETCH_LIMIT,
+          page: Math.min(Math.max(1, overrides?.page ?? currentPage), 10_000),
+          limit: Math.min(FETCH_LIMIT, Math.max(1, overrides?.limit ?? pageSize)),
           matchingClientIds: overrides?.matchingClientIds ?? smartSearchClientIds,
           includeContacts: false,
           includeLeadFields: false,
@@ -726,6 +728,15 @@ export default function App() {
       if (requestId !== fetchRequestIdRef.current) return;
 
       const backendClients = response.data ? extractBackendClients(response.data) : [];
+      const pagination =
+        response.data && typeof response.data === 'object' && !Array.isArray(response.data)
+          ? (response.data as { pagination?: { total?: number } }).pagination
+          : undefined;
+      if (typeof pagination?.total === 'number') {
+        setTotalEntries(pagination.total);
+      } else {
+        setTotalEntries(backendClients.length);
+      }
 
       if (!Array.isArray(backendClients)) {
         if (!silent) setError('Unexpected API response format.');
@@ -758,12 +769,15 @@ export default function App() {
         setLoading(false);
       }
     }
-  }, [debouncedSearchQuery, smartSearchClientIds, isRecruitmentScope]);
+  }, [debouncedSearchQuery, smartSearchClientIds, isRecruitmentScope, currentPage, pageSize]);
+
+  useEffect(() => {
+    void fetchClients();
+  }, [fetchClients]);
 
   useEffect(() => {
     setCurrentPage(1);
-    void fetchClients();
-  }, [fetchClients]);
+  }, [debouncedSearchQuery, smartSearchClientIds, isRecruitmentScope, activeTab]);
 
   const fetchClientStatusCatalog = useCallback(async () => {
     try {
@@ -1573,7 +1587,7 @@ export default function App() {
               <div className="mt-0 w-full shrink-0 border-t border-indigo-100/50 bg-gradient-to-r from-slate-50/40 via-white to-indigo-50/25 px-3 py-2 sm:px-4">
                 <PaginationAll
                   initialPage={currentPage}
-                  totalPages={Math.max(1, Math.ceil(sortedClients.length / pageSize))}
+                  totalPages={Math.max(1, Math.ceil(totalEntries / pageSize))}
                   totalCount={sortedClients.length}
                   pageSize={pageSize}
                   pageSizeOptions={[...TABLE_PAGE_SIZE_OPTIONS]}

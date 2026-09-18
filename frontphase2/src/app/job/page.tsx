@@ -29,8 +29,47 @@ import { downloadCsv } from '../../utils/csv';
 import { ExportColumnsModal } from '../../components/export/ExportColumnsModal';
 import { buildJobsCsvColumns, JOBS_EXPORT_COLUMNS } from '../../lib/export/jobsExportColumns';
 import { TableColumnsMenu } from '../../components/table/TableColumnsMenu';
-import { usePersistedColumnVisibility } from '../../hooks/usePersistedColumnVisibility';
-import { JOB_TABLE_COLUMNS } from '../../lib/tableColumns/moduleTableColumns';
+import { useFormatTableLocationCell } from '../../components/table/LocationColumnHeader';
+import {
+  usePersistedColumnVisibility,
+  useTenantScopedStringArray,
+  flattenTableColumns,
+  tenantScopedStorageKey,
+  readTenantColumnScope,
+} from '../../hooks/usePersistedColumnVisibility';
+import {
+  JOB_PIPELINE_STAGE_COLUMNS,
+  JOB_PIPELINE_STAGE_COLUMN_PREFIX,
+  JOB_TABLE_COLUMNS,
+  LOCATION_DISPLAY_COLUMN_PREFIX,
+} from '../../lib/tableColumns/moduleTableColumns';
+
+const JOBS_PIPELINE_STAGE_STORAGE_KEY = 'jobs.pipelineStageColumns';
+/** All nested Pipeline stage ids (Columns → Pipeline ▾). */
+const ALL_JOB_PIPELINE_STAGE_IDS = JOB_PIPELINE_STAGE_COLUMNS.map((col) => col.id);
+const DEFAULT_JOB_PIPELINE_STAGE_IDS = ALL_JOB_PIPELINE_STAGE_IDS;
+
+function readLocalColumnIds(moduleKey: string): string[] | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(tenantScopedStorageKey(moduleKey, readTenantColumnScope()));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return null;
+    return parsed.map((item) => String(item)).filter(Boolean);
+  } catch {
+    return null;
+  }
+}
+
+function hasLocalColumnPrefs(moduleKey: string): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return localStorage.getItem(tenantScopedStorageKey(moduleKey, readTenantColumnScope())) != null;
+  } catch {
+    return false;
+  }
+}
 import { fetchAllPaginated, totalPagesFromPagination } from '../../lib/export/fetchAllPaginated';
 import { formatDateDMY, formatDateTimeDMY } from '../../utils/dateDisplay';
 import { extractAuditMeta } from '../../utils/auditMeta';
@@ -149,6 +188,8 @@ import {
 import type { InterviewPanelMember } from '../../types/interview.types';
 import { getAllTeamMembersForAssign, getAllTeamMembersForDirectory, teamMembersToBackendUsers } from '../../lib/api/teamApi';
 import { formatAssigneeDisplayName, stripAssigneeCompanySuffix } from '../../lib/assigneeDisplay';
+import { AssigneeAvatars } from '../leads/AssigneeAvatars';
+import { useDebouncedValue } from '../../hooks/useListRequestGate';
 import { getActiveOrgUnitId } from '../../lib/org/orgWorkspaceStorage';
 import { formatJobSalaryDisplay } from '../../constants/jobSalary';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -261,7 +302,12 @@ interface Job {
   joined: number;
   openings: number;
   owner: string;
+  ownerAvatar?: string | null;
+  ownerEmail?: string | null;
   recruiterId?: string;
+  supportingRecruiters?: string[];
+  /** Resolved recruiter chips for avatar stack (primary + supporting). */
+  recruiterAssignees?: Array<{ id?: string; name: string; avatar?: string; email?: string }>;
   createdDate: string;
   hot: boolean;
   aiMatch: boolean;
@@ -291,7 +337,6 @@ interface Job {
   candidateRequirements?: string[];
   benefits?: string[];
   languages?: Array<{ language?: string; proficiency?: string }>;
-  supportingRecruiters?: string[];
 }
 
 /** Map list Job to drawer JobForDrawer — never invent placeholder assignment names. */
@@ -360,7 +405,12 @@ function mapBackendJobToJobForDrawer(backendJob: Record<string, any>, fallbackJo
     joined: backendJob._count?.placements || job?.joined || 0,
     openings: backendJob.openings || job?.openings || 0,
     owner: formatAssigneeDisplayName(backendJob.assignedTo) || backendJob.assignedTo?.name || job?.owner || '',
-    orgUnitId: backendJob.orgUnitId || undefined,
+    orgUnitId:
+      backendJob.orgUnitId ||
+      backendJob.assignedTo?.assignCompanyId ||
+      backendJob.assignedTo?.orgUnitId ||
+      backendJob.assignedTo?.orgUnit?.id ||
+      undefined,
     createdDate: backendJob.createdAt
       ? formatDateDMY(backendJob.createdAt) || String(backendJob.createdAt).slice?.(0, 10) || job?.createdDate || ''
       : job?.createdDate || '',
@@ -464,7 +514,81 @@ interface PipelineSnapshotProps {
   joined: number;
   /** Per-stage breakdown when the job has a configured pipeline. Falls back to APP/INT/OFF/JOI buckets when absent. */
   stages?: JobPipelineStageSummary[];
+  /** When set, only these pipeline stage chips are shown (from Columns → Pipeline stages). */
+  visibleStageKeys?: string[] | null;
 }
+
+function normalizePipelineStageKey(value: string): string {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, '');
+}
+
+function pipelineStageMatchesKey(stage: JobPipelineStageSummary, stageKey: string): boolean {
+  const key = normalizePipelineStageKey(stageKey);
+  if (!key) return false;
+  const nameKey = normalizePipelineStageKey(stage.name);
+  const roleKey = normalizePipelineStageKey(String(stage.systemRole || ''));
+
+  if (nameKey === key || roleKey === key) return true;
+
+  if (key === 'applied') {
+    return (
+      roleKey === 'applied' ||
+      nameKey === 'applied' ||
+      nameKey === 'apply' ||
+      (nameKey.includes('appli') && !nameKey.includes('client'))
+    );
+  }
+  if (key === 'screening') {
+    return roleKey === 'screening' || /screen|short|long/.test(nameKey);
+  }
+  if (key === 'submittoclient' || key === 'submit-to-client') {
+    return (
+      (nameKey.includes('submit') && nameKey.includes('client')) ||
+      nameKey.includes('submittedtoclient')
+    );
+  }
+  if (key === 'interviewing') {
+    return roleKey === 'interview' || nameKey.includes('interview');
+  }
+  if (key === 'offer') {
+    return roleKey === 'offer' || nameKey.includes('offer');
+  }
+  if (key === 'hired') {
+    return roleKey === 'hired' || /hire|join|placed/.test(nameKey);
+  }
+  if (key === 'rejected') {
+    return nameKey.includes('reject');
+  }
+
+  return nameKey.includes(key) || key.includes(nameKey);
+}
+
+function filterPipelineStagesForColumns(
+  stages: JobPipelineStageSummary[] | undefined,
+  visibleStageKeys: string[] | null | undefined,
+): JobPipelineStageSummary[] {
+  const list = Array.isArray(stages) ? stages : [];
+  // null/undefined = no Columns filter yet → show all. Empty array = user hid every stage.
+  if (visibleStageKeys == null) return list;
+  if (visibleStageKeys.length === 0) return [];
+  return list.filter((stage) =>
+    visibleStageKeys.some((key) => pipelineStageMatchesKey(stage, key)),
+  );
+}
+
+const LEGACY_PIPELINE_BUCKETS: Array<{
+  key: 'applied' | 'interviewed' | 'offered' | 'joined';
+  label: string;
+  stageKeys: string[];
+}> = [
+  { key: 'applied', label: 'APP', stageKeys: ['applied', 'screening'] },
+  { key: 'interviewed', label: 'INT', stageKeys: ['interviewing'] },
+  { key: 'offered', label: 'OFF', stageKeys: ['offer'] },
+  { key: 'joined', label: 'JOI', stageKeys: ['hired'] },
+];
 
 const SYSTEM_ROLE_TO_LEGACY_KEY: Record<string, 'applied' | 'interviewed' | 'offered' | 'joined'> = {
   APPLIED: 'applied',
@@ -515,6 +639,8 @@ interface JobsListViewProps {
   onRemoveStatusOption: (status: string) => Promise<string[] | void>;
   workspaceAlertsByEntityId?: Record<string, AiWorkspaceBriefAlert[]>;
   isColumnVisible?: (columnId: string) => boolean;
+  /** Selected Pipeline stage keys from Columns menu (without prefix). */
+  visiblePipelineStageKeys?: string[] | null;
 }
 
 // No fallback mock data - use empty array if API fails
@@ -722,28 +848,50 @@ const JobStatusTableDropdown = ({
   );
 };
 
-const PipelineSnapshot = ({ applied, interviewed, offered, joined, stages }: PipelineSnapshotProps) => {
-  const visibleStages = Array.isArray(stages) && stages.length > 0 ? stages.slice(0, 6) : [];
+const PipelineSnapshot = ({
+  applied,
+  interviewed,
+  offered,
+  joined,
+  stages,
+  visibleStageKeys,
+}: PipelineSnapshotProps) => {
+  const filteredStages = filterPipelineStagesForColumns(stages, visibleStageKeys);
+  const visibleStages =
+    Array.isArray(filteredStages) && filteredStages.length > 0 ? filteredStages.slice(0, 8) : [];
 
   if (visibleStages.length === 0) {
+    const legacyCounts = { applied, interviewed, offered, joined };
+    // Empty visibleStageKeys = user hid every stage chip — show a dash, not all buckets.
+    if (Array.isArray(visibleStageKeys) && visibleStageKeys.length === 0) {
+      return <span className="text-xs text-slate-400">—</span>;
+    }
+    const legacyBuckets =
+      visibleStageKeys && visibleStageKeys.length > 0
+        ? LEGACY_PIPELINE_BUCKETS.filter((bucket) =>
+            bucket.stageKeys.some((key) =>
+              visibleStageKeys.some(
+                (selected) => normalizePipelineStageKey(selected) === normalizePipelineStageKey(key),
+              ),
+            ),
+          )
+        : LEGACY_PIPELINE_BUCKETS;
+
+    const bucketsToShow = legacyBuckets.length > 0 ? legacyBuckets : LEGACY_PIPELINE_BUCKETS;
+
     return (
       <div className="flex items-center gap-0 bg-gray-50 rounded-lg border border-gray-100 p-1">
-        <div className="px-2 py-1 flex flex-col items-center border-r border-gray-200 last:border-0 min-w-[40px]">
-          <span className="text-[10px] text-gray-400 font-medium">APP</span>
-          <span className="text-xs font-bold text-gray-700">{applied}</span>
-        </div>
-        <div className="px-2 py-1 flex flex-col items-center border-r border-gray-200 last:border-0 min-w-[40px]">
-          <span className="text-[10px] text-gray-400 font-medium">INT</span>
-          <span className="text-xs font-bold text-gray-700">{interviewed}</span>
-        </div>
-        <div className="px-2 py-1 flex flex-col items-center border-r border-gray-200 last:border-0 min-w-[40px]">
-          <span className="text-[10px] text-gray-400 font-medium">OFF</span>
-          <span className="text-xs font-bold text-gray-700">{offered}</span>
-        </div>
-        <div className="px-2 py-1 flex flex-col items-center last:border-0 min-w-[40px]">
-          <span className="text-[10px] text-gray-400 font-medium">JOI</span>
-          <span className="text-xs font-bold text-gray-700">{joined}</span>
-        </div>
+        {bucketsToShow.map((bucket, index) => (
+          <div
+            key={bucket.key}
+            className={`px-2 py-1 flex flex-col items-center min-w-[40px] ${
+              index === bucketsToShow.length - 1 ? '' : 'border-r border-gray-200'
+            }`}
+          >
+            <span className="text-[10px] text-gray-400 font-medium">{bucket.label}</span>
+            <span className="text-xs font-bold text-gray-700">{legacyCounts[bucket.key]}</span>
+          </div>
+        ))}
       </div>
     );
   }
@@ -810,6 +958,7 @@ const JobsListView = ({
   onRemoveStatusOption,
   workspaceAlertsByEntityId,
   isColumnVisible = () => true,
+  visiblePipelineStageKeys = null,
 }: JobsListViewProps) => {
   const rows = Array.isArray(jobs) ? jobs.filter((job) => job && job.id) : [];
   const statusList = Array.isArray(statusOptions) ? statusOptions : [];
@@ -820,6 +969,7 @@ const JobsListView = ({
       ),
   );
   const show = isColumnVisible;
+  const { format: formatLocationCell } = useFormatTableLocationCell();
   const visibleColCount =
     2 + // title + actions always
     (show('select') ? 1 : 0) +
@@ -853,7 +1003,12 @@ const JobsListView = ({
                 <input type="checkbox" className="rounded border-slate-300" aria-label="Select all" />
               </th>
             ) : null}
-            <th className="min-w-[12rem] px-3 py-2 align-middle sm:min-w-[14rem] sm:px-4">Job title</th>
+            <th
+              className="px-3 py-2 align-middle sm:px-4"
+              style={{ width: '16rem', maxWidth: '20rem' }}
+            >
+              Job title
+            </th>
             {show('client') ? <th className="px-3 py-2 sm:px-4">Client</th> : null}
             {show('status') ? <th className="px-3 py-2 sm:px-4">Status</th> : null}
             {show('pipeline') ? <th className="px-3 py-2 sm:px-4">Pipeline</th> : null}
@@ -895,18 +1050,18 @@ const JobsListView = ({
                     <input type="checkbox" className="rounded border-slate-300" aria-label={`Select ${job.title}`} />
                   </td>
                 ) : null}
-                <td className="min-w-[12rem] align-middle px-3 py-2 sm:min-w-[14rem] sm:px-4">
-              <div className="flex flex-col justify-center">
-                <div className="flex items-center gap-2">
+                <td className="align-middle px-3 py-2 sm:px-4" style={{ width: '16rem', maxWidth: '20rem' }}>
+              <div className="flex w-full max-w-[20rem] flex-col justify-center">
+                <div className="flex w-full items-start gap-2">
                   <button
                     type="button"
                     onClick={() => onJobClick?.(job)}
-                        className="min-w-0 flex-1 text-left text-xs font-semibold leading-snug text-slate-900 whitespace-normal break-words hover:text-indigo-700 transition-colors"
+                        className="min-w-0 flex-1 text-left text-xs font-semibold leading-snug text-slate-900 line-clamp-3 whitespace-normal break-words [overflow-wrap:anywhere] hover:text-indigo-700 transition-colors"
                     title={job.title}
                   >
                     {job.title}
                   </button>
-                  <div className="flex shrink-0 items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="flex shrink-0 items-center gap-1 pt-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                         <FileText size={14} className="text-slate-400 cursor-default" />
                         <BrainCircuit size={14} className="text-violet-500 hover:text-violet-700 cursor-pointer" />
                   </div>
@@ -969,14 +1124,15 @@ const JobsListView = ({
                 offered={job.offered}
                 joined={job.joined}
                 stages={job.pipelineStages}
+                visibleStageKeys={visiblePipelineStageKeys}
               />
             </td>
                 ) : null}
                 {show('details') ? (
                 <td className="px-3 py-2 sm:px-4">
-                  <div className="flex flex-col gap-0.5">
+                  <div className="flex flex-col gap-1.5">
                     <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Recruiter</span>
-                    <span className="text-xs text-slate-700">{job.owner || '—'}</span>
+                    <AssigneeAvatars assignees={job.recruiterAssignees || []} />
                     <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Manager</span>
                     <span className="text-xs text-slate-700">{job.managerName || '—'}</span>
                     <span className="text-[10px] text-slate-500">{formatDateDMY(job.createdDate)}</span>
@@ -985,7 +1141,14 @@ const JobsListView = ({
                 ) : null}
                 {show('location') ? (
                   <td className="px-3 py-2 sm:px-4">
-                    <span className="max-w-[120px] truncate text-xs text-slate-700">{job.location || '—'}</span>
+                    <span className="max-w-[120px] truncate text-xs text-slate-700">
+                      {formatLocationCell({
+                        location: job.location,
+                        country: job.country,
+                        city: job.city,
+                        state: (job as { state?: string }).state,
+                      })}
+                    </span>
                   </td>
                 ) : null}
                 {show('openings') ? (
@@ -997,7 +1160,7 @@ const JobsListView = ({
                 ) : null}
                 {show('owner') ? (
                   <td className="px-3 py-2 sm:px-4">
-                    <span className="max-w-[100px] truncate text-xs text-slate-700">{job.owner || '—'}</span>
+                    <AssigneeAvatars assignees={job.recruiterAssignees || []} />
                   </td>
                 ) : null}
                 {show('manager') ? (
@@ -1162,12 +1325,49 @@ function emptyMappedJob(id = ''): Job {
     joined: 0,
     openings: 0,
     owner: 'Unassigned',
+    ownerAvatar: null,
+    ownerEmail: null,
+    recruiterAssignees: [],
     createdDate: '-',
     hot: false,
     aiMatch: false,
     noCandidates: false,
     slaRisk: false,
   };
+}
+
+function buildJobRecruiterAssignees(
+  job: Pick<Job, 'owner' | 'ownerAvatar' | 'ownerEmail' | 'recruiterId' | 'supportingRecruiters'>,
+  teamMembers: Array<{ id: string; name: string; avatar?: string; email?: string }> = [],
+): Array<{ id?: string; name: string; avatar?: string; email?: string }> {
+  const byId = new Map(teamMembers.map((m) => [String(m.id), m]));
+  const out: Array<{ id?: string; name: string; avatar?: string; email?: string }> = [];
+  const ownerName = String(job.owner || '').trim();
+  if (ownerName && !/^(-|—|unassigned)$/i.test(ownerName)) {
+    const primary = job.recruiterId ? byId.get(String(job.recruiterId)) : undefined;
+    out.push({
+      id: job.recruiterId || primary?.id,
+      name: ownerName,
+      avatar: job.ownerAvatar || primary?.avatar || undefined,
+      email: job.ownerEmail || primary?.email || undefined,
+    });
+  }
+  for (const rawId of job.supportingRecruiters || []) {
+    const id = String(rawId || '').trim();
+    if (!id) continue;
+    if (job.recruiterId && id === String(job.recruiterId)) continue;
+    if (out.some((u) => u.id && String(u.id) === id)) continue;
+    const member = byId.get(id);
+    if (member?.name) {
+      out.push({
+        id: member.id,
+        name: member.name,
+        avatar: member.avatar,
+        email: member.email,
+      });
+    }
+  }
+  return out;
 }
 
 function asStringList(value: unknown): string[] | undefined {
@@ -1230,6 +1430,8 @@ function mapBackendJob(job: BackendJob): Job {
     joined,
     openings: job.openings,
     owner: formatAssigneeDisplayName(job.assignedTo) || job.assignedTo?.name || 'Unassigned',
+    ownerAvatar: job.assignedTo?.avatar || null,
+    ownerEmail: job.assignedTo?.email || null,
     recruiterId: job.assignedToId || job.assignedTo?.id,
     createdDate: job.createdAt ? formatDateDMY(job.createdAt) : '-',
     hot: (job as any).hot ?? false,
@@ -1267,6 +1469,18 @@ function mapBackendJob(job: BackendJob): Job {
     supportingRecruiters: Array.isArray((job as { supportingRecruiters?: string[] }).supportingRecruiters)
       ? (job as { supportingRecruiters?: string[] }).supportingRecruiters!.map(String)
       : undefined,
+    recruiterAssignees: buildJobRecruiterAssignees(
+      {
+        owner: formatAssigneeDisplayName(job.assignedTo) || job.assignedTo?.name || 'Unassigned',
+        ownerAvatar: job.assignedTo?.avatar || null,
+        ownerEmail: job.assignedTo?.email || null,
+        recruiterId: job.assignedToId || job.assignedTo?.id,
+        supportingRecruiters: Array.isArray((job as { supportingRecruiters?: string[] }).supportingRecruiters)
+          ? (job as { supportingRecruiters?: string[] }).supportingRecruiters!.map(String)
+          : undefined,
+      },
+      [],
+    ),
   };
   } catch (error) {
     console.error('[jobs] mapBackendJob failed', error);
@@ -1375,7 +1589,7 @@ function toJobCandidateItemFromAssigned(candidate: BackendCandidate): JobCandida
     designation: candidate.currentTitle ? String(candidate.currentTitle).trim() : '',
     company: candidate.currentCompany ? String(candidate.currentCompany).trim() : '',
     experience: candidate.experience ?? 0,
-    location: candidate.location ? String(candidate.location).trim() : '—',
+    location: resolveCandidateLocationLabel(candidate),
     phone: candidate.phone ? String(candidate.phone).trim() : '',
     currentStage: resolveJobCandidateDisplayStage(candidate.stage),
     isJobAppliedCandidate: isJobAppliedDisplayStage(candidate.stage),
@@ -1459,7 +1673,109 @@ export default function JobsPage() {
   ]);
   const jobAiGate = useAiCoinGate('ai.job_from_prompt');
   const [searchFilter, setSearchFilter] = useState('');
-  const jobColumnVisibility = usePersistedColumnVisibility('jobs.visibleColumns', JOB_TABLE_COLUMNS);
+  const debouncedSearchFilter = useDebouncedValue(searchFilter, 350);
+  const jobTableColumnsFlat = useMemo(
+    () => flattenTableColumns(JOB_TABLE_COLUMNS, { includeChildren: false }),
+    [],
+  );
+  const jobColumnVisibility = usePersistedColumnVisibility('jobs.visibleColumns', jobTableColumnsFlat);
+  const [storedPipelineStageIds, setStoredPipelineStageIds] = useTenantScopedStringArray(
+    JOBS_PIPELINE_STAGE_STORAGE_KEY,
+  );
+  const [pipelineStagePrefsSaved, setPipelineStagePrefsSaved] = useState(() =>
+    hasLocalColumnPrefs(JOBS_PIPELINE_STAGE_STORAGE_KEY),
+  );
+
+  // One-time migration: earlier builds stored pipelineStage:* inside jobs.visibleColumns.
+  useEffect(() => {
+    const mainIds = readLocalColumnIds('jobs.visibleColumns');
+    if (!mainIds?.length) return;
+    const leaked = mainIds.filter((id) => id.startsWith(JOB_PIPELINE_STAGE_COLUMN_PREFIX));
+    if (!leaked.length) return;
+    const stageStored = readLocalColumnIds(JOBS_PIPELINE_STAGE_STORAGE_KEY);
+    if (stageStored === null) {
+      setStoredPipelineStageIds(leaked);
+      setPipelineStagePrefsSaved(true);
+    }
+    jobColumnVisibility.setVisibleIds((prev) =>
+      prev.filter((id) => !id.startsWith(JOB_PIPELINE_STAGE_COLUMN_PREFIX)),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const effectivePipelineStageIds =
+    pipelineStagePrefsSaved || storedPipelineStageIds.length > 0
+      ? storedPipelineStageIds.length > 0
+        ? storedPipelineStageIds
+        : ALL_JOB_PIPELINE_STAGE_IDS
+      : DEFAULT_JOB_PIPELINE_STAGE_IDS;
+
+  // Empty [] was treated as "show all" in the table but "none checked" in Columns —
+  // heal that so Pipeline ▾ ticks match what's on screen.
+  useEffect(() => {
+    if (!pipelineStagePrefsSaved) return;
+    if (storedPipelineStageIds.length > 0) return;
+    if (!jobColumnVisibility.isVisible('pipeline')) return;
+    setStoredPipelineStageIds(ALL_JOB_PIPELINE_STAGE_IDS);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pipelineStagePrefsSaved, storedPipelineStageIds.length]);
+
+  const visiblePipelineStageKeys = useMemo(
+    () =>
+      effectivePipelineStageIds
+        .filter((id) => id.startsWith(JOB_PIPELINE_STAGE_COLUMN_PREFIX))
+        .map((id) => id.slice(JOB_PIPELINE_STAGE_COLUMN_PREFIX.length)),
+    [effectivePipelineStageIds],
+  );
+
+  const isJobColumnVisible = useCallback(
+    (id: string) => {
+      if (id.startsWith(JOB_PIPELINE_STAGE_COLUMN_PREFIX)) {
+        return effectivePipelineStageIds.includes(id);
+      }
+      return jobColumnVisibility.isVisible(id);
+    },
+    [effectivePipelineStageIds, jobColumnVisibility.isVisible],
+  );
+
+  const toggleJobColumn = useCallback(
+    (id: string) => {
+      // Location display modes use radios + shared storage — never toggle as column ids.
+      if (id.startsWith(LOCATION_DISPLAY_COLUMN_PREFIX)) return;
+      if (id.startsWith(JOB_PIPELINE_STAGE_COLUMN_PREFIX)) {
+        setStoredPipelineStageIds((prev) => {
+          const base =
+            pipelineStagePrefsSaved || prev.length > 0 ? prev : DEFAULT_JOB_PIPELINE_STAGE_IDS;
+          return base.includes(id) ? base.filter((item) => item !== id) : [...base, id];
+        });
+        setPipelineStagePrefsSaved(true);
+        return;
+      }
+      // Turning Pipeline on → select every nested stage so Columns shows ticks.
+      if (id === 'pipeline') {
+        const turningOn = !jobColumnVisibility.isVisible('pipeline');
+        jobColumnVisibility.toggle('pipeline');
+        if (turningOn) {
+          setStoredPipelineStageIds(ALL_JOB_PIPELINE_STAGE_IDS);
+          setPipelineStagePrefsSaved(true);
+        }
+        return;
+      }
+      jobColumnVisibility.toggle(id);
+    },
+    [
+      jobColumnVisibility.isVisible,
+      jobColumnVisibility.toggle,
+      pipelineStagePrefsSaved,
+      setStoredPipelineStageIds,
+    ],
+  );
+
+  const resetJobColumns = useCallback(() => {
+    jobColumnVisibility.resetToDefault();
+    setStoredPipelineStageIds(DEFAULT_JOB_PIPELINE_STAGE_IDS);
+    setPipelineStagePrefsSaved(true);
+  }, [jobColumnVisibility.resetToDefault, setStoredPipelineStageIds]);
   const [statusFilter, setStatusFilter] = useState('');
   const [clientFilterId, setClientFilterId] = useState('');
   const [recruiterFilterId, setRecruiterFilterId] = useState('');
@@ -1469,7 +1785,9 @@ export default function JobsPage() {
   const [workspaceClientId, setWorkspaceClientId] = useState('');
   const [smartSearchJobIds, setSmartSearchJobIds] = useState<string[]>([]);
   const [clientOptions, setClientOptions] = useState<Array<{ id: string; name: string }>>([]);
-  const [recruiterOptions, setRecruiterOptions] = useState<Array<{ id: string; name: string }>>([]);
+  const [recruiterOptions, setRecruiterOptions] = useState<
+    Array<{ id: string; name: string; avatar?: string; email?: string }>
+  >([]);
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
   const [createJobDrawerOpen, setCreateJobDrawerOpen] = useState(false);
   const [jobAiWizardOpen, setJobAiWizardOpen] = useState(false);
@@ -1592,9 +1910,13 @@ export default function JobsPage() {
 
   const displayJobs = useMemo(() => {
     const list = Array.isArray(jobs) ? jobs.filter((job) => job && job.id) : [];
-    if (jobSmartSearch.activeKeywords.length === 0) return list;
-    return list.filter((job) => jobMatchesSmartKeywordChips(job, jobSmartSearch.activeKeywords));
-  }, [jobs, jobSmartSearch.activeKeywords]);
+    const enriched = list.map((job) => ({
+      ...job,
+      recruiterAssignees: buildJobRecruiterAssignees(job, recruiterOptions),
+    }));
+    if (jobSmartSearch.activeKeywords.length === 0) return enriched;
+    return enriched.filter((job) => jobMatchesSmartKeywordChips(job, jobSmartSearch.activeKeywords));
+  }, [jobs, jobSmartSearch.activeKeywords, recruiterOptions]);
 
   const hasActiveFilters = Boolean(
     smartSearchJobIds.length > 0 ||
@@ -1624,7 +1946,7 @@ export default function JobsPage() {
         const jobsRes = await apiGetJobs({
           page,
           limit,
-          search: searchFilter || undefined,
+          search: debouncedSearchFilter || undefined,
           status: statusFilter || undefined,
           clientId: clientFilterId || undefined,
           assignedToId: recruiterFilterId || undefined,
@@ -1642,7 +1964,7 @@ export default function JobsPage() {
       },
     });
     return Promise.all(allJobs.map((job) => enrichJobExportRow(job)));
-  }, [clientFilterId, recruiterFilterId, searchFilter, statusFilter]);
+  }, [clientFilterId, recruiterFilterId, debouncedSearchFilter, statusFilter]);
 
   const openExportModal = async () => {
     setExportJobsLoading(true);
@@ -1694,13 +2016,13 @@ export default function JobsPage() {
       buildJobsListApiParams({
         currentPage,
         pageSize,
-        searchFilter,
+        searchFilter: debouncedSearchFilter,
         statusFilter,
         clientFilterId,
         recruiterFilterId,
         matchingJobIds: smartSearchJobIds,
       }),
-    [currentPage, pageSize, searchFilter, statusFilter, clientFilterId, recruiterFilterId, smartSearchJobIds],
+    [currentPage, pageSize, debouncedSearchFilter, statusFilter, clientFilterId, recruiterFilterId, smartSearchJobIds],
   );
 
   useEffect(() => {
@@ -1822,7 +2144,12 @@ export default function JobsPage() {
           if (cancelled) return;
           const usersList = teamMembersToBackendUsers(members);
           const nextRecruiters = usersList
-            .map((user) => ({ id: String(user.id), name: user.name || user.email || 'Unnamed member' }))
+            .map((user) => ({
+              id: String(user.id),
+              name: user.name || user.email || 'Unnamed member',
+              avatar: user.avatar || undefined,
+              email: user.email || undefined,
+            }))
             .sort((a, b) => a.name.localeCompare(b.name));
           setRecruiterOptions(nextRecruiters);
           return;
@@ -1864,7 +2191,12 @@ export default function JobsPage() {
           (client) => client.name,
         );
         const nextRecruiters = usersList
-          .map((user) => ({ id: String(user.id), name: user.name || user.email || 'Unnamed member' }))
+          .map((user) => ({
+            id: String(user.id),
+            name: user.name || user.email || 'Unnamed member',
+            avatar: user.avatar || undefined,
+            email: user.email || undefined,
+          }))
           .sort((a, b) => a.name.localeCompare(b.name));
 
         setClientOptions(nextClients);
@@ -2985,9 +3317,9 @@ export default function JobsPage() {
                   />
                   <TableColumnsMenu
                     columns={JOB_TABLE_COLUMNS}
-                    isVisible={jobColumnVisibility.isVisible}
-                    onToggle={jobColumnVisibility.toggle}
-                    onReset={jobColumnVisibility.resetToDefault}
+                    isVisible={isJobColumnVisible}
+                    onToggle={toggleJobColumn}
+                    onReset={resetJobColumns}
                     unlockedVisibleCount={jobColumnVisibility.unlockedVisibleCount}
                   />
                   <button
@@ -3059,6 +3391,7 @@ export default function JobsPage() {
                       onRemoveStatusOption={handleRemoveJobStatusOption}
                       workspaceAlertsByEntityId={workspaceAlertsByEntityId}
                       isColumnVisible={jobColumnVisibility.isVisible}
+                      visiblePipelineStageKeys={visiblePipelineStageKeys}
                     />
                     </PageErrorBoundary>
                   <div className={PH2_TABLE_CARD_FOOTER_CLASS}>

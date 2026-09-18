@@ -62,7 +62,9 @@ export function useDashboardAccess() {
 
     const crmAssigned = hasAnyPermission(Object.values(DASH_CRM_TAB_PERMS));
     const recAssigned = hasAnyPermission(Object.values(DASH_REC_TAB_PERMS));
-    const canOpenDash = sa || hasPermission('view_dashboard');
+    // CRM Dashboard master key. Recruitment Dashboard uses dash_rec_* only.
+    const canOpenCrmDash = sa || hasPermission('view_dashboard') || crmAssigned;
+    const canOpenRecDash = sa || recAssigned;
     const showMineApprovals =
       rankAccess.showMineApprovals || sa || hasPermission('dash_mine_approvals');
     const showMineTab = rankAccess.showMineTab || sa || showMineApprovals;
@@ -73,22 +75,22 @@ export function useDashboardAccess() {
     const crmTab = (id: Exclude<CrmCategoryTabId, 'mine'>, fallback: boolean) => {
       if (sa) return true;
       if (crmAssigned) return hasPermission(DASH_CRM_TAB_PERMS[id]);
-      return canOpenDash && fallback;
+      return canOpenCrmDash && fallback;
     };
 
-    const recTab = (id: Exclude<RecCategoryTabId, 'mine'>, fallback: boolean) => {
+    const recTab = (id: Exclude<RecCategoryTabId, 'mine'>) => {
       if (sa) return true;
-      if (recAssigned) return hasPermission(DASH_REC_TAB_PERMS[id]);
-      return canOpenDash && fallback;
+      if (!canOpenRecDash) return false;
+      return hasPermission(DASH_REC_TAB_PERMS[id]);
     };
 
     const crmTeam = crmTab('team', modules.team);
-    const recTeam = recTab('team', modules.team);
+    const recTeam = recTab('team');
 
     // Hours & scores (4th tab) follows Team tab — paid unlock still applies inside the panel.
     // People listed there follow dashboard level (self / department / company / tenant).
     const crmTabs: Record<CrmCategoryTabId, boolean> = {
-      mine: showMineTab && (sa || crmAssigned || canOpenDash),
+      mine: showMineTab && (sa || crmAssigned || canOpenCrmDash),
       insights: crmTab('insights', modules.leads || modules.clients || modules.tasks),
       portfolio: crmTab('portfolio', modules.leads || modules.clients),
       team: crmTeam,
@@ -96,9 +98,9 @@ export function useDashboardAccess() {
     };
 
     const recTabs: Record<RecCategoryTabId, boolean> = {
-      mine: showMineTab && (sa || recAssigned || canOpenDash),
-      insights: recTab('insights', modules.jobs || modules.candidates || modules.interviews),
-      pipeline: recTab('pipeline', modules.jobs || modules.candidates),
+      mine: showMineTab && canOpenRecDash,
+      insights: recTab('insights'),
+      pipeline: recTab('pipeline'),
       team: recTeam,
       people: recTeam,
     };

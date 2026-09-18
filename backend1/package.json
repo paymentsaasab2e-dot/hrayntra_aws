@@ -21,6 +21,8 @@
     "test:adzuna": "node --test src/services/adzuna/feed.test.js",
     "test:careerjet": "node --test src/services/careerjet/feed.test.js",
     "test:phase1-match": "node --test src/services/job-matching-pipeline-phase1.test.js",
+    "test:cv-golden": "node --test src/services/cv-golden-set.test.js",
+    "test:cv-concurrency": "node --test src/services/cv-parse-job.concurrency.test.js",
     "test:job-feeds": "node --test src/services/adzuna/feed.test.js src/services/careerjet/feed.test.js src/services/job-feeds/publicPortalUrl.test.js src/services/job-feeds/fetchPortalJobs.test.js"
   },
   "keywords": [

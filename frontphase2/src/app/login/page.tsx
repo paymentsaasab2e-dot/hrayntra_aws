@@ -87,9 +87,9 @@ export default function LoginPage() {
       return;
     }
     const tenant = params.get('tenantDbName');
-    if (tenant) {
-      syncTenantDbName(tenant);
-    }
+    // Clear stale tenant from a previous account unless this is an invite link.
+    // Stale x-tenant-db-name makes login look up the wrong DB → "Invalid email or password".
+    syncTenantDbName(tenant || null);
     const sessionMsg = params.get('session');
     if (sessionMsg) {
       setMessage(sessionMsg);

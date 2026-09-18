@@ -202,6 +202,7 @@ export function teamMembersToBackendUsers(members: TeamMember[]): BackendUser[] 
       department: m.department?.name,
       isActive: m.status === 'ACTIVE',
       createdAt: m.createdAt,
+      avatar: (m as { avatar?: string | null }).avatar || null,
       managerId: m.manager?.id || (m as { managerId?: string | null }).managerId || null,
     };
   });

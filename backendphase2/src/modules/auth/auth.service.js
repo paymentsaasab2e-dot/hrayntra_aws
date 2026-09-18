@@ -181,6 +181,34 @@ async function rerunLoginInResolvedTenant(loginIdOrEmail, user, credential, reru
   return runWithTenantContext(resolved, rerun);
 }
 
+/**
+ * HQ map missed or pointed at the wrong tenant (user/credential not found).
+ * Scan all known + Mongo tenant DBs for this identity, cache the mapping, retry login once.
+ * Does NOT run when the password was wrong in the correct tenant.
+ */
+async function retryLoginAfterTenantCredentialScan(
+  loginIdOrEmail,
+  password,
+  ipAddress,
+  userAgent,
+  deviceMeta,
+  loginFn
+) {
+  if (deviceMeta?._tenantCredentialScanDone) return null;
+  const scanned = await headquartersAuthService.findTenantDbNameForUserByCredentialScan(
+    loginIdOrEmail
+  );
+  if (!scanned) return null;
+  const active = String(getActiveTenantDbName() || '').trim();
+  if (scanned === active) return null;
+  return runWithTenantContext(scanned, () =>
+    loginFn(loginIdOrEmail, password, ipAddress, userAgent, {
+      ...deviceMeta,
+      _tenantCredentialScanDone: true,
+    })
+  );
+}
+
 function workspaceLabelFromHqUser(hqUser) {
   return String(hqUser?.organizationName || hqUser?.name || '').trim();
 }
@@ -968,6 +996,15 @@ export const authService = {
         if (hqTeamResult) {
           return hqTeamResult;
         }
+        const scannedRetry = await retryLoginAfterTenantCredentialScan(
+          loginIdOrEmail,
+          password,
+          ipAddress,
+          userAgent,
+          deviceMeta,
+          (a, b, c, d, e) => this.login(a, b, c, d, e)
+        );
+        if (scannedRetry) return scannedRetry;
         throw new Error('Invalid credentials');
       }
 
@@ -1148,7 +1185,27 @@ export const authService = {
     }
 
     // Check if user is active (for email-based login)
-    if (!user || !user.isActive || (user.status && user.status !== 'ACTIVE')) {
+    if (!user) {
+      const headquartersResult = await safeTryHeadquartersSuperAdminLogin();
+      if (headquartersResult) {
+        return headquartersResult;
+      }
+      const hqTeamResult = await safeTryHqTeamMemberLogin();
+      if (hqTeamResult) {
+        return hqTeamResult;
+      }
+      const scannedRetry = await retryLoginAfterTenantCredentialScan(
+        loginIdOrEmail,
+        password,
+        ipAddress,
+        userAgent,
+        deviceMeta,
+        (a, b, c, d, e) => this.login(a, b, c, d, e)
+      );
+      if (scannedRetry) return scannedRetry;
+      throw new Error('Invalid credentials');
+    }
+    if (!user.isActive || (user.status && user.status !== 'ACTIVE')) {
       const headquartersResult = await safeTryHeadquartersSuperAdminLogin();
       if (headquartersResult) {
         return headquartersResult;

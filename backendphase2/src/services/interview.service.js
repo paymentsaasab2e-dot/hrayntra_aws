@@ -1834,22 +1834,29 @@ export const interviewService = {
     let scopedWhere = assignmentScope ? { AND: [where, assignmentScope] } : where;
     scopedWhere = await applyInterviewOrgScope(scopedWhere, req);
 
-    const skip = (page - 1) * limit;
+    const skip = Math.max(0, (Math.max(1, Number(page) || 1) - 1) * Math.min(100, Math.max(1, Number(limit) || 10)));
+    const takeLimit = Math.min(100, Math.max(1, Number(limit) || 10));
 
-    // Defensive: legacy tenants can have orphan Interview rows whose jobId/clientId/candidateId
-    // point to deleted records. Prisma errors with "Inconsistent query result: Field job is
-    // required to return data, got null instead" when including required relations for orphans.
-    // We pre-fetch matching IDs and validate the FK targets so the include never sees an orphan.
-    const allMatchingIds = await prisma.interview.findMany({
+    // Orphan safety without unbounded ID scan: validate FKs only inside a bounded window,
+    // then page from that window. Exact total uses DB count on the scoped where.
+    const ORPHAN_SCAN_MAX = Math.min(
+      5000,
+      Math.max(200, Number(process.env.INTERVIEW_LIST_ORPHAN_SCAN_MAX || 2500) || 2500),
+    );
+    const scanTake = Math.min(ORPHAN_SCAN_MAX, Math.max(skip + takeLimit, (skip + takeLimit) * 2));
+
+    const leanMatches = await prisma.interview.findMany({
       where: scopedWhere,
       select: { id: true, jobId: true, clientId: true, candidateId: true },
+      orderBy: [{ updatedAt: 'desc' }, { scheduledAt: 'desc' }],
+      take: scanTake,
     });
 
-    const requestedJobIds = [...new Set(allMatchingIds.map((row) => row.jobId).filter(Boolean))];
-    const requestedClientIds = [...new Set(allMatchingIds.map((row) => row.clientId).filter(Boolean))];
-    const requestedCandidateIds = [...new Set(allMatchingIds.map((row) => row.candidateId).filter(Boolean))];
+    const requestedJobIds = [...new Set(leanMatches.map((row) => row.jobId).filter(Boolean))];
+    const requestedClientIds = [...new Set(leanMatches.map((row) => row.clientId).filter(Boolean))];
+    const requestedCandidateIds = [...new Set(leanMatches.map((row) => row.candidateId).filter(Boolean))];
 
-    const [existingJobs, existingClients, existingCandidates] = await Promise.all([
+    const [existingJobs, existingClients, existingCandidates, totalRaw] = await Promise.all([
       requestedJobIds.length
         ? prisma.job.findMany({ where: { id: { in: requestedJobIds } }, select: { id: true } })
         : Promise.resolve([]),
@@ -1859,13 +1866,14 @@ export const interviewService = {
       requestedCandidateIds.length
         ? prisma.candidate.findMany({ where: { id: { in: requestedCandidateIds } }, select: { id: true } })
         : Promise.resolve([]),
+      prisma.interview.count({ where: scopedWhere }),
     ]);
 
     const validJobIds = new Set(existingJobs.map((row) => row.id));
     const validClientIds = new Set(existingClients.map((row) => row.id));
     const validCandidateIds = new Set(existingCandidates.map((row) => row.id));
 
-    const validInterviewIds = allMatchingIds
+    const validInterviewIds = leanMatches
       .filter(
         (row) =>
           (!row.jobId || validJobIds.has(row.jobId)) &&
@@ -1874,14 +1882,17 @@ export const interviewService = {
       )
       .map((row) => row.id);
 
-    const finalWhere = { id: { in: validInterviewIds } };
+    const pageIds =
+      skip < validInterviewIds.length
+        ? validInterviewIds.slice(skip, skip + takeLimit)
+        : [];
+    const finalWhere = pageIds.length ? { id: { in: pageIds } } : { id: { in: [] } };
+    const total = totalRaw;
 
-    const [data, total, kpis] = await Promise.all([
-      validInterviewIds.length
+    const [data, kpis] = await Promise.all([
+      pageIds.length
         ? prisma.interview.findMany({
             where: finalWhere,
-            skip,
-            take: limit,
             include: interviewInclude,
             orderBy: [{ updatedAt: 'desc' }, { scheduledAt: 'desc' }],
           }).catch(async (err) => {
@@ -1889,8 +1900,6 @@ export const interviewService = {
             console.warn('[interview.list] include failed, retrying without nested people', err?.message || err);
             return prisma.interview.findMany({
               where: finalWhere,
-              skip,
-              take: limit,
               include: {
                 candidate: interviewInclude.candidate,
                 job: interviewInclude.job,
@@ -1902,9 +1911,8 @@ export const interviewService = {
             });
           })
         : Promise.resolve([]),
-      Promise.resolve(validInterviewIds.length),
       validInterviewIds.length
-        ? countKpis(finalWhere)
+        ? countKpis({ id: { in: validInterviewIds } })
         : Promise.resolve({
             todayCount: 0,
             upcomingCount: 0,
@@ -1913,13 +1921,19 @@ export const interviewService = {
           }),
     ]);
 
+    // Preserve page order from validated window.
+    if (pageIds.length && Array.isArray(data) && data.length) {
+      const order = new Map(pageIds.map((id, index) => [id, index]));
+      data.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+    }
+
     const withAudit = await prepareListWithAuditMeta(data, ENTITY_TYPES.INTERVIEW);
 
     return {
       data: withAudit,
       total,
-      page,
-      totalPages: Math.ceil(total / limit),
+      page: Math.max(1, Number(page) || 1),
+      totalPages: Math.ceil(total / takeLimit) || 1,
       kpis,
     };
   },

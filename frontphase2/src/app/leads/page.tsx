@@ -43,6 +43,7 @@ import { downloadCsv } from '../../utils/csv';
 import { buildLeadsCsvColumns, LEADS_EXPORT_COLUMNS } from '../../lib/leadsExportColumns';
 import { ExportColumnsModal } from '../../components/export/ExportColumnsModal';
 import { formatDateDMY } from '../../utils/dateDisplay';
+import { useFormatTableLocationCell } from '../../components/table/LocationColumnHeader';
 import { extractAuditMeta } from '../../utils/auditMeta';
 import { TableAuditColumnHeader, TableAuditCell } from '../../components/table/TableAuditCell';
 import { formatDirectorDisplay } from '../../constants/salutations';
@@ -562,6 +563,7 @@ export default function RecruitmentAgencyDashboard() {
     LEADS_DYNAMIC_COLUMNS_STORAGE_KEY,
   );
   const leadColumnVisibility = usePersistedColumnVisibility('leads.visibleColumns', LEAD_TABLE_COLUMNS);
+  const { format: formatLocationCell } = useFormatTableLocationCell();
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null); // null = not checked yet
   const [teamMembers, setTeamMembers] = useState<BackendUser[]>([]);
   const [bulkStatus, setBulkStatus] = useState('');
@@ -780,28 +782,13 @@ export default function RecruitmentAgencyDashboard() {
         return;
       }
 
-      const pageSize = 500;
-      let page = 1;
-      let totalPages = 1;
-      let collected: Lead[] = [];
-
-      while (page <= totalPages) {
-        const response = await apiGetLeads({
-          page,
-          limit: pageSize,
-        });
-
-        const backendLeads = response.data ? extractBackendLeads(response.data) : [];
-        collected = [...collected, ...backendLeads.map(mapBackendLeadToFrontend)];
-
-        const pagination = !Array.isArray(response.data) ? response.data?.pagination : undefined;
-        totalPages = pagination?.totalPages || Math.max(1, Math.ceil((pagination?.total || collected.length) / pageSize));
-
-        if (backendLeads.length < pageSize) break;
-        page += 1;
-      }
-
-      setMetrics(buildLeadMetrics(collected));
+      // Bounded sample only — never page through the entire leads table for cards.
+      const response = await apiGetLeads({
+        page: 1,
+        limit: 100,
+      });
+      const backendLeads = response.data ? extractBackendLeads(response.data) : [];
+      setMetrics(buildLeadMetrics(backendLeads.map(mapBackendLeadToFrontend)));
     } catch (err) {
       console.error('Failed to load lead metrics:', err);
       setMetrics(buildLeadMetrics(INITIAL_LEADS));
@@ -2538,9 +2525,12 @@ export default function RecruitmentAgencyDashboard() {
                             ) : null}
                             {leadColumnVisibility.isVisible('location') ? (
                               <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
-                                {lead.location ||
-                                  [lead.city, lead.state].filter(Boolean).join(', ') ||
-                                  '—'}
+                                {formatLocationCell({
+                                  location: lead.location,
+                                  country: lead.country,
+                                  city: lead.city,
+                                  state: lead.state,
+                                })}
                               </td>
                             ) : null}
                             {leadColumnVisibility.isVisible('website') ? (

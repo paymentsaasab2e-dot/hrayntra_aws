@@ -1,0 +1,24 @@
+Alex Rivera
+Frontend Engineer
+Austin, USA
+Email: alex.rivera@example.com
+Phone: +1-555-0101
+Date of Birth: 1994-03-12
+Gender: Male
+
+SUMMARY
+Frontend engineer with 6 years building React applications.
+
+EXPERIENCE
+Frontend Engineer — QuantumByte Security (2021–Present)
+- Built React + TypeScript dashboards
+- Improved Core Web Vitals
+
+Software Engineer — Northwind Labs (2018–2021)
+- Node.js APIs and React SPAs
+
+EDUCATION
+B.S. Computer Science — University of Texas at Austin (2018)
+
+SKILLS
+React, TypeScript, Node.js, CSS, Git

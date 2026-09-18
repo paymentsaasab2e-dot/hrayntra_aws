@@ -19,7 +19,33 @@ export type TableColumnDef = {
    * Defaults to true.
    */
   defaultVisible?: boolean;
+  /** Nested toggles shown under this column (e.g. Pipeline → Applied / Screening). */
+  children?: TableColumnDef[];
+  /** Omit from the Columns(N) badge (nested stage chips). */
+  excludeFromBadgeCount?: boolean;
 };
+
+/** Flatten nested column defs for persistence / visibility lookups. */
+export function flattenTableColumns(
+  columns: TableColumnDef[],
+  options?: { includeChildren?: boolean },
+): TableColumnDef[] {
+  const includeChildren = options?.includeChildren !== false;
+  const out: TableColumnDef[] = [];
+  for (const col of columns) {
+    const { children, ...rest } = col;
+    out.push(rest);
+    if (includeChildren && Array.isArray(children) && children.length > 0) {
+      for (const child of children) {
+        out.push({
+          ...child,
+          excludeFromBadgeCount: child.excludeFromBadgeCount ?? true,
+        });
+      }
+    }
+  }
+  return out;
+}
 
 /** Active workspace DB name — column prefs must not leak across tenants. */
 export function readTenantColumnScope(): string {
@@ -157,12 +183,22 @@ export function useTenantScopedStringArray(moduleKey: string) {
       const serverIds = Object.prototype.hasOwnProperty.call(map, moduleKey)
         ? (Array.isArray(map[moduleKey]) ? map[moduleKey] : [])
         : null;
-      const legacy = readStoredIds(resolvedKey) ?? [];
-      const next = legacy.length > 0 ? legacy : serverIds ?? [];
-      valuesRef.current = next;
-      setValuesState(next);
-      writeStoredIds(resolvedKey, next);
-      if (legacy.length > 0 && (!serverIds || !sameIdList(legacy, serverIds))) {
+      const legacy = readStoredIds(resolvedKey);
+      // Prefer non-empty local mirror so saved dynamic choices are not replaced by a stale server [].
+      const next =
+        legacy !== null
+          ? legacy
+          : serverIds ?? [];
+      if (!sameIdList(next, valuesRef.current)) {
+        valuesRef.current = next;
+        setValuesState(next);
+      }
+      if (legacy === null && next.length > 0) {
+        writeStoredIds(resolvedKey, next);
+      } else if (legacy !== null && !sameIdList(legacy, next)) {
+        writeStoredIds(resolvedKey, next);
+      }
+      if (legacy !== null && legacy.length > 0 && (!serverIds || !sameIdList(legacy, serverIds))) {
         persistTenantTableColumnModule(moduleKey, legacy);
       }
     });
@@ -172,9 +208,19 @@ export function useTenantScopedStringArray(moduleKey: string) {
         | { tenantScope?: string; columns?: Record<string, string[]> }
         | undefined;
       if (detail?.tenantScope && detail.tenantScope !== tenantScope) return;
+      if (userTouchedRef.current) return;
       const next = detail?.columns?.[moduleKey];
       if (!Array.isArray(next)) return;
-      if (userTouchedRef.current && !sameIdList(next, valuesRef.current)) return;
+      const legacy = readStoredIds(resolvedKey);
+      if (legacy !== null && !sameIdList(legacy, next)) {
+        // Keep local saved choice when cache differs.
+        if (!sameIdList(legacy, valuesRef.current)) {
+          valuesRef.current = legacy;
+          setValuesState(legacy);
+        }
+        return;
+      }
+      if (sameIdList(next, valuesRef.current)) return;
       valuesRef.current = next;
       setValuesState(next);
       writeStoredIds(resolvedKey, next);
@@ -258,12 +304,19 @@ export function usePersistedColumnVisibility(
       const legacyIsCustom = Boolean(
         legacyNormalized && !sameIdList(legacyNormalized, defaultIds),
       );
+      // Prefer local custom prefs over server so a reload / cache event cannot silently
+      // replace the recruiter's saved Columns menu choices.
       const next = legacyIsCustom
         ? legacyNormalized!
         : serverNormalized ?? legacyNormalized ?? defaultIds;
-      visibleIdsRef.current = next;
-      setVisibleIdsState(next);
-      writeStoredIds(resolvedStorageKey, next);
+      if (!sameIdList(next, visibleIdsRef.current)) {
+        visibleIdsRef.current = next;
+        setVisibleIdsState(next);
+      }
+      const existingMirror = readStoredIds(resolvedStorageKey);
+      if (!existingMirror || !sameIdList(existingMirror, next)) {
+        writeStoredIds(resolvedStorageKey, next);
+      }
       if (legacyIsCustom && (!serverNormalized || !sameIdList(legacyNormalized!, serverNormalized))) {
         persistTenantTableColumnModule(storageKey, next);
       } else if (!serverIds && legacy && legacy.length > 0) {
@@ -279,8 +332,20 @@ export function usePersistedColumnVisibility(
       if (!detail?.columns || !Object.prototype.hasOwnProperty.call(detail.columns, storageKey)) {
         return;
       }
+      // Never let a background cache refresh overwrite in-session user toggles.
+      if (userTouchedRef.current) return;
       const next = normalizeVisibleIds(columns, detail.columns[storageKey] ?? null);
-      if (userTouchedRef.current && !sameIdList(next, visibleIdsRef.current)) return;
+      if (sameIdList(next, visibleIdsRef.current)) return;
+      // If local mirror is custom vs defaults, keep local — cache may be stale.
+      const legacy = readStoredIds(resolvedStorageKey);
+      const legacyNormalized = legacy ? normalizeVisibleIds(columns, legacy) : null;
+      if (legacyNormalized && !sameIdList(legacyNormalized, defaultIds)) {
+        if (!sameIdList(legacyNormalized, visibleIdsRef.current)) {
+          visibleIdsRef.current = legacyNormalized;
+          setVisibleIdsState(legacyNormalized);
+        }
+        return;
+      }
       visibleIdsRef.current = next;
       setVisibleIdsState(next);
       writeStoredIds(resolvedStorageKey, next);
@@ -338,7 +403,7 @@ export function usePersistedColumnVisibility(
     () =>
       visibleIds.filter((id) => {
         const col = columns.find((item) => item.id === id);
-        return col && !col.locked;
+        return col && !col.locked && !col.excludeFromBadgeCount;
       }).length,
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [registryKey, visibleIds],

@@ -1484,31 +1484,89 @@ async function listSessions(req, res) {
     }
 
     const limit = Math.min(100, Math.max(1, Number(req.query?.limit) || 40));
-    const sessions = await retryQuery(async () =>
-      prisma.session.findMany({
-        where: { candidateId },
-        orderBy: { loginAt: 'desc' },
-        take: limit,
-        select: {
-          id: true,
-          loginAt: true,
-          logoutAt: true,
-          durationMs: true,
-          ipAddress: true,
-          deviceType: true,
-          browser: true,
-          operatingSystem: true,
-          country: true,
-          state: true,
-          city: true,
-          timezone: true,
-          isActive: true,
-          createdAt: true,
-          lastUsedAt: true,
-          expiresAt: true,
+    let sessions = [];
+    try {
+      sessions = await retryQuery(async () =>
+        prisma.session.findMany({
+          where: { candidateId },
+          orderBy: [{ loginAt: 'desc' }, { createdAt: 'desc' }],
+          take: limit,
+          select: {
+            id: true,
+            loginAt: true,
+            logoutAt: true,
+            durationMs: true,
+            ipAddress: true,
+            deviceType: true,
+            browser: true,
+            operatingSystem: true,
+            country: true,
+            state: true,
+            city: true,
+            timezone: true,
+            isActive: true,
+            createdAt: true,
+            lastUsedAt: true,
+            expiresAt: true,
+          },
+        }),
+      );
+    } catch (sessionErr) {
+      // Legacy Mongo rows may have null loginAt while the client still treats it as required.
+      // Bypass Prisma validation with a raw find and coerce loginAt.
+      console.warn(
+        'listSessions Prisma query failed, using raw fallback:',
+        sessionErr?.code || sessionErr?.message,
+      );
+      const raw = await prisma.$runCommandRaw({
+        find: 'sessions',
+        filter: { candidateId: { $oid: String(candidateId) } },
+        sort: { createdAt: -1 },
+        limit,
+        projection: {
+          token: 0,
+          userAgent: 0,
         },
-      }),
-    );
+      });
+      const docs = Array.isArray(raw?.cursor?.firstBatch) ? raw.cursor.firstBatch : [];
+      sessions = docs.map((doc) => {
+        const id =
+          typeof doc._id === 'string'
+            ? doc._id
+            : doc._id?.$oid || (doc._id ? String(doc._id) : '');
+        const toDate = (v) => {
+          if (!v) return null;
+          if (v instanceof Date) return v;
+          if (typeof v === 'string' || typeof v === 'number') return new Date(v);
+          if (v.$date) return new Date(v.$date);
+          return null;
+        };
+        const createdAt = toDate(doc.createdAt);
+        return {
+          id,
+          loginAt: toDate(doc.loginAt) || createdAt,
+          logoutAt: toDate(doc.logoutAt),
+          durationMs: doc.durationMs ?? null,
+          ipAddress: doc.ipAddress ?? null,
+          deviceType: doc.deviceType ?? null,
+          browser: doc.browser ?? null,
+          operatingSystem: doc.operatingSystem ?? null,
+          country: doc.country ?? null,
+          state: doc.state ?? null,
+          city: doc.city ?? null,
+          timezone: doc.timezone ?? null,
+          isActive: doc.isActive !== false,
+          createdAt,
+          lastUsedAt: toDate(doc.lastUsedAt),
+          expiresAt: toDate(doc.expiresAt),
+        };
+      });
+    }
+
+    sessions = (sessions || []).map((s) => ({
+      ...s,
+      loginAt: s.loginAt || s.createdAt || null,
+    }));
 
     const activeCount = sessions.filter((s) => s.isActive !== false).length;
     const uniqueIps = new Set(
@@ -1777,6 +1835,81 @@ async function resetPassword(req, res) {
   }
 }
 
+async function getMe(req, res) {
+  try {
+    const candidateId = req.user?.candidateId;
+    if (!candidateId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Unauthorized',
+      });
+    }
+
+    const { splitPersonName } = require('../utils/person-name.util');
+
+    // CandidateProfile stores `fullName` (not firstName/middleName/lastName columns).
+    const candidate = await retryQuery(async () =>
+      prisma.candidate.findUnique({
+        where: { id: candidateId },
+        select: {
+          id: true,
+          whatsappNumber: true,
+          email: true,
+          isVerified: true,
+          profile: {
+            select: {
+              fullName: true,
+              email: true,
+              profilePhotoUrl: true,
+            },
+          },
+        },
+      })
+    );
+
+    if (!candidate) {
+      return res.status(404).json({
+        success: false,
+        message: 'Candidate not found',
+      });
+    }
+
+    const profile = candidate.profile || {};
+    const split = splitPersonName(profile.fullName || '');
+    let name = String(profile.fullName || split.fullName || '').trim();
+    if (!name || isPortalPlaceholderFullName(name)) {
+      name = 'Candidate';
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        id: candidate.id,
+        candidateId: candidate.id,
+        whatsappNumber: candidate.whatsappNumber || '',
+        email: profile.email || candidate.email || '',
+        name,
+        profilePhotoUrl: profile.profilePhotoUrl || null,
+        isVerified: Boolean(candidate.isVerified),
+        personalInfo: {
+          firstName: split.firstName || '',
+          middleName: split.middleName || '',
+          lastName: split.lastName || '',
+          email: profile.email || candidate.email || '',
+          profilePhotoUrl: profile.profilePhotoUrl || null,
+        },
+      },
+    });
+  } catch (error) {
+    console.error('Error in getMe:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to load session',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+}
+
 module.exports = {
   sendOTP,
   verifyOTP,
@@ -1788,6 +1921,7 @@ module.exports = {
   logout,
   checkCredential,
   listSessions,
+  getMe,
 };
 
 

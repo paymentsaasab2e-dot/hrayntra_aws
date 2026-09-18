@@ -122,7 +122,7 @@ async function uploadCV(req, res) {
     }
 
     console.log('\n' + '='.repeat(80));
-    console.log('📄 CV UPLOAD & PARSING STARTED');
+    console.log('📄 CV UPLOAD (async parse) STARTED');
     console.log('='.repeat(80));
     console.log('Candidate ID:', candidateId);
     console.log('File Name:', file.originalname);
@@ -130,209 +130,9 @@ async function uploadCV(req, res) {
     console.log('File Type:', file.mimetype);
     console.log('-'.repeat(80));
 
-    // Complete Resume Parsing Pipeline (Steps 1-10)
-    const parsedData = await parseResumeFromBuffer(file.buffer, file.mimetype, file.originalname);
-    console.log('✅ Resume parsing pipeline completed!\n');
-    
-    // Extract portfolio URLs from resume text
-    let resumeText = '';
-
-    if (ext === '.pdf' || file.mimetype === 'application/pdf') {
-      try {
-        const { extractPdfText } = require('../utils/pdfTextExtract.util');
-        const { text } = await extractPdfText(file.buffer);
-        resumeText = text || '';
-      } catch (pdfError) {
-        console.warn('⚠️ Could not parse PDF text for portfolio URL extraction:', pdfError.message);
-        resumeText = parsedData?.personalInformation
-          ? [
-              parsedData.personalInformation.fullName,
-              parsedData.personalInformation.email,
-              parsedData.personalInformation.linkedinProfile,
-            ]
-              .filter(Boolean)
-              .join('\n')
-          : '';
-      }
-    } else if (ext === '.docx' || ext === '.doc') {
-      try {
-        const mammoth = require('mammoth');
-        const result = await mammoth.extractRawText({ buffer: file.buffer });
-        resumeText = result.value || '';
-      } catch (docxError) {
-        console.warn('⚠️ Could not parse DOCX text for portfolio URL extraction:', docxError.message);
-      }
-    }
-    
-    // Import extractPortfolioUrls function
-    const { extractPortfolioUrls } = require('../services/resume-parser.service');
-    const regexPortfolioUrls = resumeText ? extractPortfolioUrls(resumeText) : [];
-    const aiPortfolioLinks = Array.isArray(parsedData.portfolioLinks) ? parsedData.portfolioLinks : [];
-    const portfolioUrls = [
-      ...aiPortfolioLinks.map((link) => ({
-        url: link.url,
-        linkType: link.linkType || 'Portfolio Website',
-        title: link.title || link.linkType || 'Portfolio',
-        description: link.description || null,
-      })),
-      ...regexPortfolioUrls,
-    ].filter((link, index, arr) => link.url && arr.findIndex((x) => x.url === link.url) === index);
-
-    if (portfolioUrls.length > 0) {
-      console.log('\n🔗 PORTFOLIO LINKS FOUND (' + portfolioUrls.length + '):');
-      console.log('-'.repeat(80));
-      portfolioUrls.forEach((link, index) => {
-        console.log(`  ${index + 1}. ${link.linkType}: ${link.url}`);
-      });
-      
-      // Store portfolio links in database
-      const linksWithIds = portfolioUrls.map((link, index) => ({
-        id: `link-${Date.now()}-${index}`,
-        linkType: link.linkType,
-        url: link.url,
-        title: link.title,
-        description: link.description,
-      }));
-      
-      await prisma.candidatePortfolioLinks.upsert({
-        where: { candidateId: candidateId },
-        update: {
-          links: linksWithIds,
-          updatedAt: new Date(),
-        },
-        create: {
-          candidateId: candidateId,
-          links: linksWithIds,
-        },
-      });
-      console.log('✅ Portfolio links stored in database');
-    }
-    
-    // Display extracted data in terminal
-    console.log('='.repeat(80));
-    console.log('📊 EXTRACTED RESUME DATA');
-    console.log('='.repeat(80));
-    
-    // Personal Information
-    if (parsedData.personalInformation) {
-      console.log('\n👤 PERSONAL INFORMATION:');
-      console.log('-'.repeat(80));
-      const pi = parsedData.personalInformation;
-      if (pi.fullName) console.log('  Name:', pi.fullName);
-      if (pi.email) console.log('  Email:', pi.email);
-      if (pi.phoneNumber) console.log('  Phone:', pi.phoneNumber);
-      if (pi.alternatePhoneNumber) console.log('  Alternate Phone:', pi.alternatePhoneNumber);
-      if (pi.address) console.log('  Address:', pi.address);
-      if (pi.city) console.log('  City:', pi.city);
-      if (pi.country) console.log('  Country:', pi.country);
-      if (pi.linkedinProfile) console.log('  LinkedIn:', pi.linkedinProfile);
-      if (pi.gender) console.log('  Gender:', pi.gender);
-      if (pi.dateOfBirth) console.log('  Date of Birth:', pi.dateOfBirth);
-      if (pi.nationality) console.log('  Nationality:', pi.nationality);
-    }
-    
-    // Education
-    if (parsedData.education && parsedData.education.length > 0) {
-      console.log('\n🎓 EDUCATION (' + parsedData.education.length + ' entries):');
-      console.log('-'.repeat(80));
-      parsedData.education.forEach((edu, index) => {
-        console.log(`  ${index + 1}. ${edu.degree || 'N/A'}`);
-        if (edu.institution) console.log('     Institution:', edu.institution);
-        if (edu.specialization) console.log('     Specialization:', edu.specialization);
-        if (edu.startYear) console.log('     Start Year:', edu.startYear);
-        if (edu.endYear) console.log('     End Year:', edu.endYear);
-        console.log('');
-      });
-    }
-    
-    // Work Experience
-    if (parsedData.workExperience && parsedData.workExperience.length > 0) {
-      console.log('\n💼 WORK EXPERIENCE (' + parsedData.workExperience.length + ' entries):');
-      console.log('-'.repeat(80));
-      parsedData.workExperience.forEach((exp, index) => {
-        console.log(`  ${index + 1}. ${exp.jobTitle || 'N/A'} at ${exp.company || 'N/A'}`);
-        if (exp.workLocation) console.log('     Location:', exp.workLocation);
-        if (exp.startDate) console.log('     Start Date:', exp.startDate);
-        if (exp.endDate) {
-          console.log('     End Date:', exp.endDate);
-        } else if (exp.currentlyWorking) {
-          console.log('     End Date: Present (Currently Working)');
-        }
-        if (exp.responsibilities) {
-          const responsibilities = exp.responsibilities.substring(0, 200);
-          console.log('     Responsibilities:', responsibilities + (exp.responsibilities.length > 200 ? '...' : ''));
-        }
-        console.log('');
-      });
-    }
-    
-    if (parsedData.summary) {
-      console.log('\n📝 PROFESSIONAL SUMMARY:');
-      console.log('-'.repeat(80));
-      console.log('  ' + String(parsedData.summary).substring(0, 300));
-    }
-
-    const technicalSkills = Array.isArray(parsedData.skills) ? parsedData.skills : [];
-    const languages = Array.isArray(parsedData.languages) ? parsedData.languages : [];
-
-    if (technicalSkills.length > 0) {
-      console.log('\n🛠️  TECHNICAL SKILLS (' + technicalSkills.length + '):');
-      console.log('-'.repeat(80));
-      console.log('  ' + technicalSkills.map((s) => s.name || s.languageName).join(', '));
-    }
-
-    if (languages.length > 0) {
-      console.log('\n🌐 LANGUAGES (' + languages.length + '):');
-      console.log('-'.repeat(80));
-      languages.forEach((lang, index) => {
-        console.log(`  ${index + 1}. ${lang.name || lang.languageName} - ${lang.proficiency}`);
-        const abilities = [];
-        if (lang.speak) abilities.push('Speak');
-        if (lang.read) abilities.push('Read');
-        if (lang.write) abilities.push('Write');
-        if (abilities.length > 0) console.log('     Abilities:', abilities.join(', '));
-      });
-    }
-
-    if (parsedData.projects?.length) {
-      console.log('\n📁 PROJECTS:', parsedData.projects.length);
-    }
-    if (parsedData.certifications?.length) {
-      console.log('📜 CERTIFICATIONS:', parsedData.certifications.length);
-    }
-    if (parsedData.internships?.length) {
-      console.log('🎓 INTERNSHIPS:', parsedData.internships.length);
-    }
-    
-    // Summary
-    console.log('\n' + '='.repeat(80));
-    console.log('📈 EXTRACTION SUMMARY:');
-    console.log('-'.repeat(80));
-    console.log('  Personal Info:', parsedData.personalInformation ? '✅ Found' : '❌ Not found');
-    console.log('  Education Entries:', parsedData.education?.length || 0);
-    console.log('  Work Experience Entries:', parsedData.workExperience?.length || 0);
-    console.log('  Total Skills:', technicalSkills.length);
-    console.log('  Total Languages:', languages.length);
-    console.log('='.repeat(80) + '\n');
-
-    // Transform to cvData format for LaTeX conversion
-    const cvData = {
-      personalInfo: parsedData.personalInformation,
-      education: parsedData.education,
-      workExperience: parsedData.workExperience,
-      skills: technicalSkills.map((s) => ({
-        name: s.name || s.languageName,
-        category: s.category || null,
-        proficiency: s.proficiency,
-        yearsOfExp: s.yearsOfExp || null,
-      })),
-      languages: languages,
-      summary: parsedData.summary || null,
-    };
-
-    // Convert to LaTeX
-    const latexContent = convertToLaTeX(cvData);
-    console.log('LaTeX conversion completed');
+    const { STATUSES, setJob } = require('../services/cv-parse-job.service');
+    const jobId = candidateId;
+    setJob(candidateId, { status: STATUSES.QUEUED, stage: 'uploading', error: null });
 
     const timestamp = Date.now();
     const sanitizedOriginalName = String(file.originalname || 'cv').replace(/[^a-zA-Z0-9._-]/g, '_');
@@ -345,81 +145,312 @@ async function uploadCV(req, res) {
       candidateId,
     });
 
-    // Save generated LaTeX in cloud storage too
-    const latexUpload = await uploadBufferToCloudinary({
-      buffer: Buffer.from(latexContent, 'utf8'),
-      folder: 'jobportal/cv-latex',
-      resourceType: 'raw',
-      publicId: `${candidateId}_${timestamp}_cv_tex`,
-      originalFilename: `${candidateId}_cv.tex`,
-      candidateId,
-    });
-
-    // Store or update Resume record
-    // Store the parsed data including actual email in resumeJson
-    const resumeJsonData = {
-      ...parsedData,
-      extractedAt: new Date().toISOString(),
-      extractionVersion: 'full-profile-v2',
-    };
+    const existingResume = await prisma.resume.findUnique({ where: { candidateId } });
+    const priorJson =
+      existingResume?.resumeJson && typeof existingResume.resumeJson === 'object'
+        ? existingResume.resumeJson
+        : {};
 
     const resume = await prisma.resume.upsert({
-      where: { candidateId: candidateId },
+      where: { candidateId },
       update: {
         fileName: file.originalname,
         fileUrl: cvUpload.secure_url,
         fileSize: file.size,
         mimeType: file.mimetype,
-        aiAnalyzed: true,
-        resumeJson: resumeJsonData,
+        aiAnalyzed: false,
+        resumeJson: {
+          ...priorJson,
+          parseStatus: STATUSES.QUEUED,
+          parseJobId: jobId,
+          parseError: null,
+          parseAttempts: 0,
+          parseQueuedAt: new Date().toISOString(),
+        },
         updatedAt: new Date(),
       },
       create: {
-        candidateId: candidateId,
+        candidateId,
         fileName: file.originalname,
         fileUrl: cvUpload.secure_url,
         fileSize: file.size,
         mimeType: file.mimetype,
+        aiAnalyzed: false,
+        resumeJson: {
+          parseStatus: STATUSES.QUEUED,
+          parseJobId: jobId,
+          parseAttempts: 0,
+          parseQueuedAt: new Date().toISOString(),
+        },
+      },
+    });
+
+    // Background: parse + persist + optional secondary analysis (does not block HTTP).
+    const fileSnapshot = {
+      buffer: file.buffer,
+      originalname: file.originalname,
+      mimetype: file.mimetype,
+      size: file.size,
+    };
+    setImmediate(() => {
+      void processCvParseJob({
+        candidateId,
+        jobId,
+        file: fileSnapshot,
+        fileUrl: cvUpload.secure_url,
+        candidate,
+      });
+    });
+
+    let cvUploadEarn = null;
+    try {
+      const tokenService = require('../services/token.service');
+      cvUploadEarn = await tokenService.earnOnce(
+        candidateId,
+        'earn.cv_upload',
+        'Earned tokens for uploading CV'
+      );
+    } catch (earnErr) {
+      console.warn('[tokens] CV upload earn skipped:', earnErr?.message || earnErr);
+    }
+
+    return res.json({
+      success: true,
+      message: 'CV uploaded. Parsing started in the background.',
+      jobId,
+      status: STATUSES.QUEUED,
+      data: {
+        jobId,
+        status: STATUSES.QUEUED,
+        resumeId: resume.id,
+        fileName: file.originalname,
+        fileUrl: cvUpload.secure_url,
+        tokenEarn: cvUploadEarn?.granted
+          ? { amount: cvUploadEarn.amount, earnKey: cvUploadEarn.earnKey }
+          : null,
+        tokenBalance: cvUploadEarn?.tokenBalance,
+      },
+    });
+  } catch (error) {
+    console.error('Error uploading CV:', error);
+    try {
+      const { STATUSES, setJob } = require('../services/cv-parse-job.service');
+      if (req.body?.candidateId) {
+        setJob(req.body.candidateId, {
+          status: STATUSES.FAILED,
+          error: error?.message || 'Upload failed',
+        });
+      }
+    } catch {
+      /* ignore */
+    }
+    res.status(500).json({
+      success: false,
+      message: 'Failed to upload CV',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+}
+
+/**
+ * Background CV parse pipeline (text extract once → AI → persist → optional analyzeCV).
+ * Durable claim via Mongo parseStatus; can resume from fileUrl after restart.
+ */
+async function processCvParseJob({ candidateId, jobId, file, fileUrl, candidate }) {
+  const {
+    STATUSES,
+    setJob,
+    claimQueuedJob,
+    markJobCompleted,
+    markJobFailed,
+    RETRY_DELAY_MS,
+    MAX_ATTEMPTS,
+  } = require('../services/cv-parse-job.service');
+  const { extractPortfolioUrls } = require('../services/resume-parser.service');
+  const workerId = `pid:${process.pid}:${Date.now().toString(36)}`;
+
+  const claimed = await claimQueuedJob(candidateId, workerId);
+  if (!claimed) {
+    console.log(`[cv-job ${jobId}] skip — not claimable (another worker or terminal state)`);
+    return;
+  }
+
+  const timing = {
+    jobId,
+    candidateId,
+    t0: Date.now(),
+    downloadMs: 0,
+    extractMs: 0,
+    aiMs: 0,
+    portfolioMs: 0,
+    persistMs: 0,
+    totalMs: 0,
+  };
+
+  let buffer = file?.buffer || null;
+  let mimetype = file?.mimetype || claimed.mimeType || 'application/pdf';
+  let originalname = file?.originalname || claimed.fileName || 'cv.pdf';
+  const resolvedUrl = fileUrl || claimed.fileUrl;
+
+  try {
+    if (!buffer && resolvedUrl) {
+      setJob(candidateId, { status: STATUSES.PROCESSING, stage: 'download', error: null });
+      const tDown = Date.now();
+      const resp = await fetch(resolvedUrl);
+      if (!resp.ok) {
+        throw new Error(`Failed to download CV from storage (${resp.status})`);
+      }
+      buffer = Buffer.from(await resp.arrayBuffer());
+      timing.downloadMs = Date.now() - tDown;
+    }
+    if (!buffer) {
+      throw new Error('CV file buffer unavailable and no fileUrl to recover from');
+    }
+
+    setJob(candidateId, { status: STATUSES.PROCESSING, stage: 'extracting', error: null });
+    const { patchPersistedJob } = require('../services/cv-parse-job.service');
+    await patchPersistedJob(candidateId, {
+      parseStatus: STATUSES.PROCESSING,
+      parseStage: 'extracting',
+      parseStartedAt: new Date().toISOString(),
+    });
+
+    console.log(`\n🔄 [cv-job ${jobId}] parsing for ${candidateId} (attempt ${claimed.attempts || 1})`);
+    const tAi = Date.now();
+    const parsedData = await parseResumeFromBuffer(buffer, mimetype, originalname);
+    timing.aiMs = Date.now() - tAi;
+    // extract+AI are coupled inside parseResumeFromBuffer; report as aiMs (includes text extract)
+    timing.extractMs = timing.aiMs;
+
+    setJob(candidateId, { status: STATUSES.PROCESSING, stage: 'persisting' });
+    await patchPersistedJob(candidateId, { parseStage: 'persisting' });
+
+    const tPort = Date.now();
+    // Reuse AI-extracted portfolio links; only regex-scan when AI returned none.
+    let portfolioUrls = (Array.isArray(parsedData.portfolioLinks) ? parsedData.portfolioLinks : [])
+      .map((link) => ({
+        url: link.url,
+        linkType: link.linkType || 'Portfolio Website',
+        title: link.title || link.linkType || 'Portfolio',
+        description: link.description || null,
+      }))
+      .filter((link) => link.url);
+
+    if (portfolioUrls.length === 0) {
+      const rawText =
+        typeof parsedData._rawText === 'string'
+          ? parsedData._rawText
+          : [
+              parsedData.personalInformation?.fullName,
+              parsedData.personalInformation?.email,
+              parsedData.personalInformation?.linkedinProfile,
+            ]
+              .filter(Boolean)
+              .join('\n');
+      if (rawText) {
+        portfolioUrls = extractPortfolioUrls(rawText) || [];
+      }
+    }
+
+    portfolioUrls = portfolioUrls.filter(
+      (link, index, arr) => link.url && arr.findIndex((x) => x.url === link.url) === index,
+    );
+    timing.portfolioMs = Date.now() - tPort;
+
+    if (portfolioUrls.length > 0) {
+      const linksWithIds = portfolioUrls.map((link, index) => ({
+        id: `link-${Date.now()}-${index}`,
+        linkType: link.linkType,
+        url: link.url,
+        title: link.title,
+        description: link.description,
+      }));
+      await prisma.candidatePortfolioLinks.upsert({
+        where: { candidateId },
+        update: { links: linksWithIds, updatedAt: new Date() },
+        create: { candidateId, links: linksWithIds },
+      });
+    }
+
+    const tPersist = Date.now();
+    const technicalSkills = Array.isArray(parsedData.skills) ? parsedData.skills : [];
+    const languages = Array.isArray(parsedData.languages) ? parsedData.languages : [];
+    const cvData = {
+      personalInfo: parsedData.personalInformation,
+      education: parsedData.education,
+      workExperience: parsedData.workExperience,
+      skills: technicalSkills.map((s) => ({
+        name: s.name || s.languageName,
+        category: s.category || null,
+        proficiency: s.proficiency,
+        yearsOfExp: s.yearsOfExp || null,
+      })),
+      languages,
+      summary: parsedData.summary || null,
+    };
+
+    let latexFileUrl = null;
+    try {
+      const latexContent = convertToLaTeX(cvData);
+      const latexUpload = await uploadBufferToCloudinary({
+        buffer: Buffer.from(latexContent, 'utf8'),
+        folder: 'jobportal/cv-latex',
+        resourceType: 'raw',
+        publicId: `${candidateId}_${Date.now()}_cv_tex`,
+        originalFilename: `${candidateId}_cv.tex`,
+        candidateId,
+      });
+      latexFileUrl = latexUpload.secure_url;
+    } catch (latexErr) {
+      console.warn('[cv-job] LaTeX upload skipped:', latexErr?.message || latexErr);
+    }
+
+    const resumeJsonData = {
+      ...parsedData,
+      extractedAt: new Date().toISOString(),
+      extractionVersion: 'full-profile-v2-async-durable',
+      parseStatus: STATUSES.COMPLETED,
+      parseStage: 'completed',
+      parseCompletedAt: new Date().toISOString(),
+      parseJobId: jobId,
+      parseLockedBy: null,
+      parseLockedAt: null,
+      latexFileUrl,
+      fileUrl: resolvedUrl,
+    };
+    delete resumeJsonData._rawText;
+
+    await prisma.resume.update({
+      where: { candidateId },
+      data: {
         aiAnalyzed: true,
         resumeJson: resumeJsonData,
+        updatedAt: new Date(),
       },
     });
 
     const persistStats = await persistExtractedCvProfile(candidateId, parsedData, { candidate });
-    console.log('CV profile data stored successfully:', persistStats);
+    console.log(`[cv-job ${jobId}] profile persist:`, persistStats);
+    timing.persistMs = Date.now() - tPersist;
 
-    let profileExtractPdfUrl = null;
     try {
-      console.log('📄 Generating full profile extraction PDF...');
       const profilePdfBuffer = await generateProfileExtractPdf(parsedData);
       const pdfUpload = await uploadBufferToCloudinary({
         buffer: profilePdfBuffer,
         folder: 'jobportal/cv-extract-pdfs',
         resourceType: 'raw',
-        publicId: `${candidateId}_${timestamp}_profile_extract`,
+        publicId: `${candidateId}_${Date.now()}_profile_extract`,
         originalFilename: `${candidateId}_profile_extract.pdf`,
         candidateId,
       });
-      profileExtractPdfUrl = pdfUpload.secure_url;
-      await prisma.resume.update({
-        where: { candidateId },
-        data: {
-          resumeJson: {
-            ...resumeJsonData,
-            profileExtractPdfUrl,
-          },
-        },
-      });
-      console.log('✅ Profile extraction PDF uploaded:', profileExtractPdfUrl);
+      await patchPersistedJob(candidateId, { profileExtractPdfUrl: pdfUpload.secure_url });
     } catch (pdfErr) {
-      console.warn('⚠️ Profile extraction PDF failed (upload still succeeded):', pdfErr?.message || pdfErr);
+      console.warn('[cv-job] profile extract PDF skipped:', pdfErr?.message || pdfErr);
     }
 
-    // Trigger CV analysis asynchronously (don't wait for it)
     setImmediate(async () => {
       try {
         const { analyzeCV } = require('./cv-analysis.controller');
-        // Create mock req/res objects for the analysis function
         const mockReq = { body: { candidateId } };
         const mockRes = {
           json: (data) => {
@@ -441,52 +472,47 @@ async function uploadCV(req, res) {
       }
     });
 
-    let cvUploadEarn = null;
-    try {
-      const tokenService = require('../services/token.service');
-      cvUploadEarn = await tokenService.earnOnce(
-        candidateId,
-        'earn.cv_upload',
-        'Earned tokens for uploading CV'
-      );
-    } catch (earnErr) {
-      console.warn('[tokens] CV upload earn skipped:', earnErr?.message || earnErr);
-    }
-
-    res.json({
-      success: true,
-      message: 'CV uploaded and processed successfully',
-      data: {
-        resumeId: resume.id,
-        fileName: file.originalname,
-        fileUrl: cvUpload.secure_url,
-        latexFileUrl: latexUpload.secure_url,
-        profileExtractPdfUrl,
-        extractedData: {
-          hasPersonalInfo: !!cvData.personalInfo,
-          hasSummary: !!parsedData.summary,
-          educationCount: cvData.education?.length || 0,
-          workExperienceCount: cvData.workExperience?.length || 0,
-          skillsCount: cvData.skills?.length || 0,
-          languagesCount: cvData.languages?.length || 0,
-          projectsCount: parsedData.projects?.length || 0,
-          certificationsCount: parsedData.certifications?.length || 0,
-          internshipsCount: parsedData.internships?.length || 0,
-          persistStats,
-        },
-        tokenEarn: cvUploadEarn?.granted
-          ? { amount: cvUploadEarn.amount, earnKey: cvUploadEarn.earnKey }
-          : null,
-        tokenBalance: cvUploadEarn?.tokenBalance,
-      },
-    });
+    await markJobCompleted(candidateId);
+    setJob(candidateId, { status: STATUSES.COMPLETED, stage: 'completed', error: null });
+    timing.totalMs = Date.now() - timing.t0;
+    console.log(
+      `[CV_PARSE_TIMING] jobId=${jobId} downloadMs=${timing.downloadMs} extractMs=${timing.extractMs} aiMs=${timing.aiMs} portfolioMs=${timing.portfolioMs} persistMs=${timing.persistMs} totalMs=${timing.totalMs}`,
+    );
+    console.log(`✅ [cv-job ${jobId}] completed for ${candidateId}`);
   } catch (error) {
-    console.error('Error uploading CV:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to upload and process CV',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    timing.totalMs = Date.now() - timing.t0;
+    console.log(
+      `[CV_PARSE_TIMING] jobId=${jobId} failed=1 downloadMs=${timing.downloadMs} aiMs=${timing.aiMs} totalMs=${timing.totalMs}`,
+    );
+    console.error(`❌ [cv-job ${jobId}] failed:`, error?.message || error);
+    const attempts = Number(claimed.attempts) || 1;
+    const requeue = attempts < MAX_ATTEMPTS;
+    await markJobFailed(candidateId, error?.message || 'Parse failed', { requeue });
+    setJob(candidateId, {
+      status: requeue ? STATUSES.QUEUED : STATUSES.FAILED,
+      stage: requeue ? 'retry_queued' : 'failed',
+      error: error?.message || 'Parse failed',
     });
+    try {
+      await prisma.resume.update({
+        where: { candidateId },
+        data: { aiAnalyzed: false },
+      });
+    } catch {
+      /* ignore */
+    }
+    if (requeue) {
+      console.log(`[cv-job ${jobId}] re-queue in ${RETRY_DELAY_MS}ms (attempt ${attempts}/${MAX_ATTEMPTS})`);
+      setTimeout(() => {
+        void processCvParseJob({
+          candidateId,
+          jobId,
+          file: null,
+          fileUrl: resolvedUrl,
+          candidate,
+        });
+      }, RETRY_DELAY_MS);
+    }
   }
 }
 
@@ -512,6 +538,7 @@ function mapProficiency(proficiency) {
 async function getCVStatus(req, res) {
   try {
     const { candidateId } = req.params;
+    const { getJob, readPersistedJob, STATUSES } = require('../services/cv-parse-job.service');
 
     if (!candidateId) {
       return res.status(400).json({
@@ -530,21 +557,39 @@ async function getCVStatus(req, res) {
         success: false,
         message: 'Candidate not found',
         processed: false,
+        status: STATUSES.FAILED,
       });
     }
 
-    // Check if resume exists and is processed
     const resume = await prisma.resume.findUnique({
       where: { candidateId: candidateId },
     });
 
-    const processed = resume && resume.aiAnalyzed === true;
+    const mem = getJob(candidateId);
+    const persisted = await readPersistedJob(candidateId);
+    const json =
+      resume?.resumeJson && typeof resume.resumeJson === 'object' ? resume.resumeJson : {};
+    // Prefer durable Mongo status so any instance can answer correctly.
+    const parseStatus =
+      persisted?.status ||
+      mem?.status ||
+      json.parseStatus ||
+      (resume?.aiAnalyzed ? STATUSES.COMPLETED : resume ? STATUSES.PROCESSING : STATUSES.QUEUED);
+    const processed = parseStatus === STATUSES.COMPLETED && resume?.aiAnalyzed === true;
+    const failed = parseStatus === STATUSES.FAILED;
 
     res.json({
       success: true,
-      processed: processed,
+      processed,
       hasResume: !!resume,
       aiAnalyzed: resume?.aiAnalyzed || false,
+      status: parseStatus,
+      stage: persisted?.stage || mem?.stage || json.parseStage || null,
+      error: failed
+        ? persisted?.error || mem?.error || json.parseError || 'Parse failed'
+        : null,
+      jobId: json.parseJobId || candidateId,
+      attempts: persisted?.attempts || Number(json.parseAttempts) || 0,
     });
   } catch (error) {
     console.error('Error checking CV status:', error);
@@ -1430,4 +1475,18 @@ module.exports = {
   updateCandidateProfile,
   getCandidateDashboard,
   getAllProfileData,
+  /** Used by server boot recovery (P1-4). */
+  resumeCvParseJobs: async function resumeCvParseJobs(job) {
+    if (!job?.candidateId || !job?.fileUrl) return;
+    const candidate = await prisma.candidate.findUnique({
+      where: { id: job.candidateId },
+    });
+    await processCvParseJob({
+      candidateId: job.candidateId,
+      jobId: job.parseJobId || job.candidateId,
+      file: null,
+      fileUrl: job.fileUrl,
+      candidate,
+    });
+  },
 };

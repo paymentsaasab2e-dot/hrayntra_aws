@@ -220,7 +220,7 @@ export const RBAC_PERMISSION_SEED: PermissionSeed[] = [
   { permissionName: 'export_data', module: 'System', description: 'Export from lists and Reports' },
   { permissionName: 'view_activity_log', module: 'System', description: 'Activity log (sidenav) and Settings → Activity Log' },
   { permissionName: 'recycle_bin_manage', module: 'System', description: 'Recycle Bin' },
-  { permissionName: 'view_dashboard', module: 'System', description: 'CRM → Dashboard and Recruitment → Dashboard' },
+  { permissionName: 'view_dashboard', module: 'System', description: 'CRM → Dashboard only. Recruitment → Dashboard uses the Recruitment Dashboard ticks above.' },
   {
     permissionName: 'dash_dept_scope',
     module: 'System',

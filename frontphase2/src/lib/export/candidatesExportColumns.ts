@@ -1,4 +1,6 @@
 import type { Candidate } from '../../app/candidate/components/CandidateTable';
+import { formatTableLocation } from '../formatTableLocation';
+import { readTableLocationDisplayMode } from '../tableLocationDisplayStorage';
 import { buildExportCsvColumns, type ExportColumnDef } from './buildExportCsvColumns';
 
 export const CANDIDATES_EXPORT_COLUMNS: ExportColumnDef<Candidate>[] = [
@@ -8,7 +10,17 @@ export const CANDIDATES_EXPORT_COLUMNS: ExportColumnDef<Candidate>[] = [
   { id: 'designation', label: 'Designation', accessor: (c) => c.designation || '' },
   { id: 'company', label: 'Company', accessor: (c) => c.company || '' },
   { id: 'experience', label: 'Experience', accessor: (c) => c.experience ?? '' },
-  { id: 'location', label: 'Location', accessor: (c) => c.location || '' },
+  {
+    id: 'location',
+    label: 'Location',
+    accessor: (c) => {
+      const value = formatTableLocation(
+        { location: c.location, country: c.country, city: c.city },
+        readTableLocationDisplayMode(),
+      );
+      return value === '—' ? '' : value;
+    },
+  },
   { id: 'stage', label: 'Stage', accessor: (c) => c.stage || '' },
   { id: 'owner', label: 'Team Member', accessor: (c) => c.owner || '' },
   { id: 'lastActivity', label: 'Last Activity', accessor: (c) => c.lastActivity || '' },

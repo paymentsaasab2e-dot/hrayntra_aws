@@ -1,4 +1,6 @@
 import type { BackendContact } from '../../lib/api';
+import { formatTableLocation } from '../formatTableLocation';
+import { readTableLocationDisplayMode } from '../tableLocationDisplayStorage';
 import { buildExportCsvColumns, type ExportColumnDef } from './buildExportCsvColumns';
 
 export const CONTACTS_EXPORT_COLUMNS: ExportColumnDef<BackendContact>[] = [
@@ -10,7 +12,14 @@ export const CONTACTS_EXPORT_COLUMNS: ExportColumnDef<BackendContact>[] = [
   { id: 'designation', label: 'Designation', accessor: (c) => c.designation || '' },
   { id: 'contactType', label: 'Contact Type', accessor: (c) => c.contactType || '' },
   { id: 'status', label: 'Status', accessor: (c) => c.status || '' },
-  { id: 'location', label: 'Location', accessor: (c) => c.location || '' },
+  {
+    id: 'location',
+    label: 'Location',
+    accessor: (c) => {
+      const value = formatTableLocation(c.location, readTableLocationDisplayMode());
+      return value === '—' ? '' : value;
+    },
+  },
 ];
 
 export function buildContactsCsvColumns(selectedIds: string[]) {

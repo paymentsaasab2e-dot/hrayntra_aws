@@ -148,6 +148,18 @@ export async function endSessionOnServer() {
   }
 }
 
+/** Invite URL tenant, or tenant already set by /auth/login (HQ). Never invent a stale cache. */
+function resolveLoginTenantHint(): string | null {
+  if (typeof window === 'undefined') return null;
+  const fromUrl = new URLSearchParams(window.location.search).get('tenantDbName');
+  if (fromUrl) {
+    syncTenantDbName(fromUrl);
+    return fromUrl;
+  }
+  // Login response may already have synced HQ tenant — keep it for transfer APIs.
+  return getTenantDbName();
+}
+
 export async function apiRequestSessionTransfer(body: {
   email?: string;
   loginId?: string;
@@ -156,7 +168,7 @@ export async function apiRequestSessionTransfer(body: {
   macAddress?: string;
   userAgent?: string;
 }) {
-  const tenantDbName = getTenantDbName();
+  const tenantDbNameHint = resolveLoginTenantHint();
   const mac = body.macAddress || body.deviceId;
   const res = await apiFetch<{
     requestId: string;
@@ -170,9 +182,9 @@ export async function apiRequestSessionTransfer(body: {
       macAddress: mac,
       macId: mac,
       deviceId: mac,
-      tenantDbName: tenantDbName || undefined,
+      tenantDbName: tenantDbNameHint || undefined,
     },
-    includeTenantHeader: !!tenantDbName,
+    includeTenantHeader: !!tenantDbNameHint,
   });
   if (res.data?.tenantDbName) {
     syncTenantDbName(res.data.tenantDbName);
@@ -197,9 +209,10 @@ export async function apiRejectSessionTransfer(requestId: string) {
 }
 
 export async function apiSessionTransferStatus(requestId: string) {
+  const tenantDbNameHint = getTenantDbName();
   return apiFetch<{ status: string }>(`/auth/session/transfer/${encodeURIComponent(requestId)}`, {
     method: 'GET',
-    includeTenantHeader: !!getTenantDbName(),
+    includeTenantHeader: !!tenantDbNameHint,
   });
 }
 
@@ -213,6 +226,12 @@ export async function apiCompleteSessionTransfer(body: {
   userAgent?: string;
 }) {
   const mac = body.macAddress || body.deviceId;
+  // Prefer tenant returned by request-transfer; fall back to URL invite tenant only.
+  const tenantDbNameHint =
+    getTenantDbName() ||
+    (typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search).get('tenantDbName')
+      : null);
   return apiFetch<{
     accessToken: string;
     refreshToken: string;
@@ -225,9 +244,9 @@ export async function apiCompleteSessionTransfer(body: {
       macAddress: mac,
       macId: mac,
       deviceId: mac,
-      tenantDbName: getTenantDbName() || undefined,
+      tenantDbName: tenantDbNameHint || undefined,
     },
-    includeTenantHeader: !!getTenantDbName(),
+    includeTenantHeader: !!tenantDbNameHint,
   });
 }
 
