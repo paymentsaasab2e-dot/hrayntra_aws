@@ -3,6 +3,7 @@ const { prisma, retryQuery } = require('../lib/prisma');
 const SECTION_KEYS = {
   BASIC_INFORMATION: 'basicInformation',
   SUMMARY: 'summary',
+  WORK_EXPERIENCE: 'workExperience',
   EDUCATION: 'education',
   SKILLS: 'skills',
   LANGUAGES: 'languages',
@@ -17,6 +18,7 @@ const SECTION_KEYS = {
 const SECTION_ORDER = [
   SECTION_KEYS.BASIC_INFORMATION,
   SECTION_KEYS.SUMMARY,
+  SECTION_KEYS.WORK_EXPERIENCE,
   SECTION_KEYS.EDUCATION,
   SECTION_KEYS.SKILLS,
   SECTION_KEYS.LANGUAGES,
@@ -64,6 +66,7 @@ function buildSections(candidate) {
   const basicInfo = candidate.profile || null;
   const summary = candidate.summary || null;
   const educations = candidate.educations || [];
+  const workExperiences = Array.isArray(candidate.workExperiences) ? candidate.workExperiences : [];
   const skills = candidate.skills || [];
   const languages = candidate.languages || [];
   const project = candidate.project || null;
@@ -74,6 +77,9 @@ function buildSections(candidate) {
   const resume = candidate.resume || null;
 
   const educationEntry = educations[0] || null;
+  const hasWorkExperience = workExperiences.some(
+    (entry) => hasValue(entry?.jobTitle) || hasValue(entry?.company),
+  );
   const projectFields = project
     ? {
         projectTitle: project.projectTitle,
@@ -142,6 +148,23 @@ function buildSections(candidate) {
       requiredFields: ['summaryText'],
       missingFields: !hasValue(summary?.summaryText) ? ['summaryText'] : [],
       isComplete: hasValue(summary?.summaryText),
+    },
+    {
+      key: SECTION_KEYS.WORK_EXPERIENCE,
+      label: 'Work Experience',
+      completionRule: 'At least one work experience entry with a job title or company is required.',
+      schemaFields: [
+        'jobTitle',
+        'company',
+        'location',
+        'startDate',
+        'endDate',
+        'isCurrentJob',
+        'responsibilities',
+      ],
+      requiredFields: ['jobTitle'],
+      missingFields: hasWorkExperience ? [] : ['jobTitle', 'company'],
+      isComplete: hasWorkExperience,
     },
     {
       key: SECTION_KEYS.EDUCATION,
@@ -345,6 +368,9 @@ async function fetchCandidateProfileGraph(candidateId) {
       summary: true,
       educations: {
         orderBy: { startYear: 'desc' },
+      },
+      workExperiences: {
+        orderBy: { startDate: 'desc' },
       },
       skills: {
         include: {

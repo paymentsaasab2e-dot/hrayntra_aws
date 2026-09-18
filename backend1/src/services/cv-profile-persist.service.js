@@ -19,9 +19,76 @@ function mapProficiency(proficiency) {
 
 function normalizeGender(value) {
   if (!value) return null;
-  const key = String(value).trim().toUpperCase();
-  const map = { MALE: Gender.MALE, FEMALE: Gender.FEMALE, OTHER: Gender.OTHER, M: Gender.MALE, F: Gender.FEMALE };
+  const key = String(value)
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z]/g, '');
+  const map = {
+    MALE: Gender.MALE,
+    M: Gender.MALE,
+    MAN: Gender.MALE,
+    BOY: Gender.MALE,
+    FEMALE: Gender.FEMALE,
+    F: Gender.FEMALE,
+    WOMAN: Gender.FEMALE,
+    GIRL: Gender.FEMALE,
+    OTHER: Gender.OTHER,
+    NONBINARY: Gender.OTHER,
+    TRANSGENDER: Gender.OTHER,
+  };
   return map[key] || null;
+}
+
+/** Fill city/country from a free-text address or "City, Country" location string. */
+function deriveCityCountry({ city, country, address, location }) {
+  let nextCity = city != null && String(city).trim() ? String(city).trim() : null;
+  let nextCountry = country != null && String(country).trim() ? String(country).trim() : null;
+
+  const trySplit = (raw) => {
+    if (!raw || (nextCity && nextCountry)) return;
+    const parts = String(raw)
+      .split(',')
+      .map((part) => part.trim())
+      .filter(Boolean);
+    if (parts.length >= 2) {
+      if (!nextCountry) nextCountry = parts[parts.length - 1];
+      if (!nextCity) nextCity = parts[parts.length - 2];
+    } else if (parts.length === 1 && !nextCity) {
+      nextCity = parts[0];
+    }
+  };
+
+  trySplit(address);
+  trySplit(location);
+  return { city: nextCity, country: nextCountry };
+}
+
+/** Accept YYYY-MM-DD, ISO, or common CV forms DD/MM/YYYY. */
+function coerceDateOfBirth(value) {
+  if (!value) return null;
+  const s = String(value).trim();
+  if (!s) return null;
+
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+    const d = new Date(s.slice(0, 10));
+    return Number.isNaN(d.getTime()) ? null : s.slice(0, 10);
+  }
+
+  const dmy = s.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})$/);
+  if (dmy) {
+    const day = Number(dmy[1]);
+    const month = Number(dmy[2]);
+    const year = Number(dmy[3]);
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31 && year >= 1900 && year <= 2100) {
+      const iso = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const d = new Date(iso);
+      if (!Number.isNaN(d.getTime())) return iso;
+    }
+  }
+
+  const d = new Date(s);
+  if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  return null;
 }
 
 function normalizeMaritalStatus(value) {
@@ -168,16 +235,32 @@ async function persistExtractedCvProfile(candidateId, parsedData, { candidate } 
       existingProfile?.fullName ||
       '';
 
+    const firstWorkLocation =
+      Array.isArray(parsedData.workExperience) && parsedData.workExperience.length
+        ? parsedData.workExperience.find((row) => row?.location || row?.city || row?.country)
+        : null;
+
+    const derivedLocation = deriveCityCountry({
+      city: pi.city ?? firstWorkLocation?.city ?? null,
+      country: pi.country ?? firstWorkLocation?.country ?? null,
+      address: pi.address,
+      location: pi.location || firstWorkLocation?.location || null,
+    });
+
+    const coercedDob = coerceDateOfBirth(pi.dateOfBirth);
+
     const profileData = {
       fullName,
       email: pi.email || existingProfile?.email || `${candidateId}@noemail.local`,
       phoneNumber: resolvedPhoneNumber,
       alternatePhone: pi.alternatePhoneNumber ?? existingProfile?.alternatePhone ?? null,
       address: pi.address ?? existingProfile?.address ?? null,
-      city: pi.city ?? existingProfile?.city ?? null,
-      country: pi.country ?? existingProfile?.country ?? null,
+      city: derivedLocation.city ?? existingProfile?.city ?? null,
+      country: derivedLocation.country ?? existingProfile?.country ?? null,
       linkedinUrl: pi.linkedinProfile ?? existingProfile?.linkedinUrl ?? null,
-      dateOfBirth: pi.dateOfBirth ? parseDate(pi.dateOfBirth) : existingProfile?.dateOfBirth ?? null,
+      dateOfBirth: coercedDob
+        ? parseDate(coercedDob)
+        : existingProfile?.dateOfBirth ?? null,
       gender: genderEnum ?? existingProfile?.gender ?? null,
       maritalStatus: maritalStatusEnum ?? existingProfile?.maritalStatus ?? null,
       nationality: pi.nationality ?? existingProfile?.nationality ?? null,

@@ -14,6 +14,12 @@ import {
   type SubmitToClientFieldVisibility,
 } from '../../lib/submitToClientFieldVisibility';
 import { normalizeClientTrackerOptions } from '../../lib/clientTrackerOptions';
+import { isClientReviewFileHref } from '../../lib/clientReviewAssets';
+import {
+  ageFromBirthDate,
+  resolveClientReviewFieldValue,
+  resolveClientReviewLabelValue,
+} from '../../lib/clientReviewFieldFallbacks';
 
 const EASE_OUT = [0.22, 1, 0.36, 1] as const;
 
@@ -275,6 +281,48 @@ function workFromRow(row: ClientReviewBatchRow): string {
   );
 }
 
+function resumeHrefOf(row: ClientReviewBatchRow): string {
+  const tracker = normalizeClientTrackerOptions(row.detail?.trackerOptions, true);
+  if (tracker.downloadResume === false) return '';
+  const candidates = [
+    row.detail?.sharedResumeUrl,
+    row.detail?.candidate?.resume,
+    fieldValueFromSections(row.detail, 'Resume / CV'),
+    fieldValueFromSections(row.detail, 'Resume url'),
+    fieldValueFromSections(row.detail, 'File url'),
+  ];
+  for (const raw of candidates) {
+    const url = String(raw || '').trim();
+    if (!url) continue;
+    if (
+      url.startsWith('http') ||
+      url.startsWith('/') ||
+      isClientReviewFileHref(url)
+    ) {
+      return url;
+    }
+  }
+  return '';
+}
+
+function resumeDisplayOf(row: ClientReviewBatchRow): string {
+  const href = resumeHrefOf(row);
+  if (!href) return '';
+  const fileName =
+    fieldValueFromSections(row.detail, 'File name') ||
+    fieldValueFromSections(row.detail, 'Resume / CV');
+  if (fileName && !/^https?:\/\//i.test(fileName) && !isClientReviewFileHref(fileName) && !fileName.startsWith('/')) {
+    return fileName;
+  }
+  return 'Available';
+}
+
+function isResumeCompareField(fieldId?: string, label?: string): boolean {
+  if (fieldId === 'p1Resume') return true;
+  const key = normalizeCompareLabel(label || '');
+  return key === 'resume cv' || key === 'resume' || key === 'file name' || key === 'cv';
+}
+
 /**
  * When presentation fields are empty for a candidate, pull the same attribute
  * from profile / CV payload so comparative columns stay filled.
@@ -308,6 +356,7 @@ function profileFallbackForLabel(row: ClientReviewBatchRow, label: string): stri
     case 'candidate score':
     case 'match score':
     case 'score': {
+      if (row.detail?.trackerOptions?.showScore === false) return '';
       const score = row.matchScore ?? row.detail?.matchScore;
       return Number.isFinite(Number(score)) ? String(Math.round(Number(score))) : '';
     }
@@ -315,7 +364,7 @@ function profileFallbackForLabel(row: ClientReviewBatchRow, label: string): stri
     case 'city':
       return displayValue(candidate?.city);
     case 'state':
-      return '';
+      return displayValue(candidate?.state);
     case 'country':
       return (
         displayValue(candidate?.country) ||
@@ -329,7 +378,7 @@ function profileFallbackForLabel(row: ClientReviewBatchRow, label: string): stri
     case 'actual location':
     case 'location':
     case 'preferred location':
-      return locationFromRow(row);
+      return displayValue(candidate?.preferredLocation) || fieldValueFromSections(row.detail, 'Preferred Location');
     case 'current address':
     case 'address':
       return displayValue(candidate?.address);
@@ -364,7 +413,8 @@ function profileFallbackForLabel(row: ClientReviewBatchRow, label: string): stri
     case 'cv summary':
       return displayValue(candidate?.cvSummary) || displayValue(preview?.summary);
     case 'languages':
-    case 'language proficiency': {
+    case 'language proficiency':
+    case 'language & proficiency': {
       const languages = Array.isArray(candidate?.languages)
         ? candidate.languages.map((item) => displayValue(item)).filter(Boolean)
         : [];
@@ -372,7 +422,56 @@ function profileFallbackForLabel(row: ClientReviewBatchRow, label: string): stri
       return fieldValueFromSections(row.detail, 'Language & proficiency');
     }
     case 'linkedin':
-      return displayValue(preview?.linkedin);
+      return displayValue(candidate?.linkedIn) || displayValue(preview?.linkedin);
+    case 'age':
+      return (
+        displayValue(candidate?.age) ||
+        ageFromBirthDate(candidate?.birthDate) ||
+        ageFromBirthDate(fieldValueFromSections(row.detail, 'Birth Date')) ||
+        ageFromBirthDate(fieldValueFromSections(row.detail, 'Date of birth'))
+      );
+    case 'birth date':
+    case 'date of birth':
+      return displayValue(candidate?.birthDate);
+    case 'nationality':
+      return displayValue(candidate?.nationality);
+    case 'gender':
+      return displayValue(candidate?.gender);
+    case 'employment status':
+    case 'employment':
+      return displayValue(candidate?.employment);
+    case 'marital status':
+      return displayValue(candidate?.maritalStatus);
+    case 'passport number':
+      return displayValue(candidate?.passportNumber);
+    case 'phone code':
+      return displayValue(candidate?.phoneCode);
+    case 'zip':
+      return displayValue(candidate?.zip);
+    case 'notice period':
+      return displayValue(candidate?.noticePeriod);
+    case 'current salary':
+      return displayValue(candidate?.currentSalary);
+    case 'current salary currency':
+      return displayValue(candidate?.currentSalaryCurrency);
+    case 'expected salary':
+      return displayValue(candidate?.expectedSalary);
+    case 'expected salary currency':
+      return displayValue(candidate?.expectedSalaryCurrency);
+    case 'current benefits':
+      return displayValue(candidate?.currentBenefits);
+    case 'expected benefits':
+      return displayValue(candidate?.expectedBenefits);
+    case 'availability to start':
+      return (
+        displayValue((candidate as { p1AvailabilityToStart?: string } | undefined)?.p1AvailabilityToStart) ||
+        fieldValueFromSections(row.detail, 'Availability to start')
+      );
+    case 'resume':
+    case 'resume cv':
+    case 'file name':
+    case 'cv':
+      return resumeDisplayOf(row);
     case 'stage':
     case 'candidate stage':
       return displayValue(row.clientMarkedStage || row.detail?.clientMarkedStage);
@@ -387,7 +486,11 @@ function isCompareLabelAllowed(row: ClientReviewBatchRow, label: string): boolea
 
 /** Resolve value for compare/export — do not blank out when the cell is empty. */
 function resolveFieldValueRaw(row: ClientReviewBatchRow, label: string): string {
-  return profileFallbackForLabel(row, label) || fieldValueFromSections(row.detail, label);
+  return (
+    resolveClientReviewLabelValue(row, label) ||
+    fieldValueFromSections(row.detail, label) ||
+    profileFallbackForLabel(row, label)
+  );
 }
 
 function resolveFieldValue(row: ClientReviewBatchRow, label: string): string {
@@ -431,6 +534,11 @@ function resolveCompareCellValue(
   fieldId: SubmitToClientFieldId,
   label: string,
 ): string {
+  if (fieldId === 'p1Resume') {
+    return resumeDisplayOf(row) || resolveClientReviewFieldValue(row, fieldId);
+  }
+  const resolved = resolveClientReviewFieldValue(row, fieldId);
+  if (resolved) return resolved;
   if (fieldId === 'cvEducationEntries') {
     return resolveEntriesValueRaw(row, 'education') || resolveFieldValueRaw(row, label);
   }
@@ -438,11 +546,7 @@ function resolveCompareCellValue(
     return resolveEntriesValueRaw(row, 'work') || resolveFieldValueRaw(row, label);
   }
   if (fieldId === 'educationSummary') {
-    return (
-      resolveFieldValueRaw(row, 'Education summary') ||
-      resolveFieldValueRaw(row, 'Education') ||
-      educationFromRow(row)
-    );
+    return resolveFieldValueRaw(row, label) || educationFromRow(row);
   }
   return resolveFieldValueRaw(row, label);
 }
@@ -613,6 +717,58 @@ function buildCompareParams(
     return params;
   }
 
+function CompareValueCell({
+  row,
+  fieldId,
+  label,
+  value,
+  emphasize,
+}: {
+  row: ClientReviewBatchRow;
+  fieldId: string;
+  label: string;
+  value: string;
+  emphasize?: boolean;
+}) {
+  if (isResumeCompareField(fieldId, label)) {
+    const href = resumeHrefOf(row);
+    if (href) {
+      return (
+        <a
+          href={href}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+        >
+          <FileText className="h-3.5 w-3.5" />
+          Open CV
+        </a>
+      );
+    }
+    return <span className="text-slate-400">—</span>;
+  }
+
+  const text = String(value || '').trim();
+  if (!text || text === '—') {
+    return <span className="text-slate-400">—</span>;
+  }
+  if (/^https?:\/\//i.test(text) || isClientReviewFileHref(text) || text.startsWith('/client-review/')) {
+    return (
+      <a
+        href={text}
+        target="_blank"
+        rel="noreferrer"
+        className="inline-flex items-center gap-1.5 break-all text-indigo-600 hover:text-indigo-700"
+      >
+        Open link
+      </a>
+    );
+  }
+  return (
+    <span className={emphasize ? 'font-semibold text-slate-900' : 'text-slate-800'}>{text}</span>
+  );
+}
+
 type CompareExportRow =
   | { kind: 'section'; label: string }
   | { kind: 'field'; label: string; values: string[]; emphasize?: boolean };
@@ -634,6 +790,9 @@ function buildCompareExportModel(
       label: param.label,
       emphasize: param.emphasize,
       values: selectedRows.map((row) => {
+        if (isResumeCompareField(param.id, param.label)) {
+          return resumeDisplayOf(row) || cell('');
+        }
         const raw = param.valuesByMatchId[row.matchId];
         return cell(raw === '[]' || raw === '{}' ? '' : raw);
       }),
@@ -1298,11 +1457,17 @@ export function ClientReviewComparativeAnalysisDrawer({
                               key={`${row.matchId}-${meta.id}-${index}`}
                               className={`border-b border-slate-100 px-4 py-3.5 text-sm leading-6 whitespace-pre-line sm:px-6 ${
                                 meta.emphasize
-                                  ? 'bg-indigo-50/60 font-semibold text-slate-900'
-                                  : 'text-slate-800'
+                                  ? 'bg-indigo-50/60'
+                                  : ''
                               }`}
                             >
-                              {meta.valuesByMatchId[row.matchId] || '—'}
+                              <CompareValueCell
+                                row={row}
+                                fieldId={meta.id}
+                                label={meta.label}
+                                value={meta.valuesByMatchId[row.matchId] || ''}
+                                emphasize={meta.emphasize}
+                              />
                             </td>
                           ))}
                         </tr>

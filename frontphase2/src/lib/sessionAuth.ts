@@ -158,20 +158,26 @@ export async function apiRequestSessionTransfer(body: {
 }) {
   const tenantDbName = getTenantDbName();
   const mac = body.macAddress || body.deviceId;
-  return apiFetch<{ requestId: string; status: string; expiresAt: string }>(
-    '/auth/request-session-transfer',
-    {
-      method: 'POST',
-      body: {
-        ...body,
-        macAddress: mac,
-        macId: mac,
-        deviceId: mac,
-        tenantDbName: tenantDbName || undefined,
-      },
-      includeTenantHeader: !!tenantDbName,
+  const res = await apiFetch<{
+    requestId: string;
+    status: string;
+    expiresAt: string;
+    tenantDbName?: string;
+  }>('/auth/request-session-transfer', {
+    method: 'POST',
+    body: {
+      ...body,
+      macAddress: mac,
+      macId: mac,
+      deviceId: mac,
+      tenantDbName: tenantDbName || undefined,
     },
-  );
+    includeTenantHeader: !!tenantDbName,
+  });
+  if (res.data?.tenantDbName) {
+    syncTenantDbName(res.data.tenantDbName);
+  }
+  return res;
 }
 
 export async function apiApproveSessionTransfer(requestId: string) {

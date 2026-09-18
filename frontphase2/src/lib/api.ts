@@ -5081,13 +5081,18 @@ export async function apiLogin(
   }
 ) {
   // Invite links include ?tenantDbName= — apply right before login so first attempt works.
+  // Do NOT reuse a cached tenant from a previous account: that makes Device 2/3 logins
+  // hit the wrong DB and show "Invalid email or password" instead of duplicate-session.
+  let tenantDbNameHint: string | null = null;
   if (typeof window !== 'undefined') {
     const fromUrl = new URLSearchParams(window.location.search).get('tenantDbName');
     if (fromUrl) {
       syncTenantDbName(fromUrl);
+      tenantDbNameHint = fromUrl;
+    } else {
+      syncTenantDbName(null);
     }
   }
-  const tenantDbNameHint = getTenantDbName();
   let res: ApiResponse<AuthPayload>;
   try {
     res = await apiFetch<AuthPayload>('/auth/login', {

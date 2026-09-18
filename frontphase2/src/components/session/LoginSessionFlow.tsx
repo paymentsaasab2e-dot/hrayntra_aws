@@ -13,6 +13,7 @@ import {
   finalizeAuthAfterTokens,
   type ActiveSessionView,
 } from '@/lib/sessionAuth';
+import { syncTenantDbName } from '@/lib/api';
 import {
   DuplicateLoginModal,
   SessionMessageModal,
@@ -157,6 +158,9 @@ export function LoginSessionFlow({ identifier, password, activeSession, onCancel
         password,
         ...device,
       });
+      if (res.data && 'tenantDbName' in res.data && res.data.tenantDbName) {
+        syncTenantDbName(String(res.data.tenantDbName));
+      }
       const rid = res.data?.requestId;
       if (!rid) throw new Error('Failed to create session transfer request.');
       setRequestId(rid);
