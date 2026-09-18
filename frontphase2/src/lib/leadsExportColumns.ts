@@ -24,7 +24,7 @@ export const LEADS_EXPORT_COLUMNS: LeadExportColumnDef[] = [
   { id: 'companySize', label: 'Team Name', accessor: (l) => l.companySize || '' },
   { id: 'website', label: 'Website', accessor: (l) => l.website || '' },
   { id: 'linkedIn', label: 'LinkedIn', accessor: (l) => l.linkedIn || '' },
-  { id: 'location', label: 'Location', accessor: (l) => l.location || '' },
+  { id: 'location', label: 'Location', accessor: (l) => (l.location === '—' ? '' : l.location || '') },
   { id: 'city', label: 'City', accessor: (l) => l.city || '' },
   { id: 'country', label: 'Country', accessor: (l) => l.country || '' },
   { id: 'state', label: 'State', accessor: (l) => l.state || '' },

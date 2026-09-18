@@ -36,6 +36,7 @@ import { usePageAutoRefresh } from "../../hooks/usePageAutoRefresh";
 import { useWorkspaceEntityAlerts } from "../../hooks/useWorkspaceEntityAlerts";
 import { WorkspaceAlertTableCell, WorkspaceAlertTableHeader } from "../../components/ai/WorkspaceAlertTableCell";
 import { TableColumnsMenu } from "../../components/table/TableColumnsMenu";
+import { useFormatTableLocationCell } from "../../components/table/LocationColumnHeader";
 import { usePersistedColumnVisibility } from "../../hooks/usePersistedColumnVisibility";
 import { PIPELINE_TABLE_COLUMNS } from "../../lib/tableColumns/moduleTableColumns";
 import {
@@ -86,6 +87,8 @@ interface Candidate {
   ownerName?: string;
   experience: string;
   location: string;
+  city?: string;
+  country?: string;
   status: string;
   lastActivity: string;
   followUpStatus?: "Overdue" | "Due Today" | "Upcoming" | "None";
@@ -404,6 +407,8 @@ function mapBackendCandidateToPipelineCandidate(
     ownerName: candidate.assignedTo?.name || undefined,
     experience,
     location: location || '—',
+    country: (candidate as { country?: string }).country || undefined,
+    city: (candidate as { city?: string }).city || undefined,
     status: mapPipelineCandidateStatus(candidate),
     lastActivity: candidate.updatedAt ? formatDateDMY(candidate.updatedAt) : 'Just now',
     followUpStatus: getFollowUpStatus(candidate),
@@ -686,6 +691,7 @@ export default function App() {
     'pipeline.visibleColumns',
     PIPELINE_TABLE_COLUMNS,
   );
+  const { format: formatLocationCell } = useFormatTableLocationCell();
   const [searchQuery, setSearchQuery] = useState("");
   const [isAddCandidateOpen, setIsAddCandidateOpen] = useState(false);
   const [selectedJobId, setSelectedJobId] = useState('');
@@ -1170,7 +1176,11 @@ export default function App() {
                         ) : null}
                         {show('owner') ? <th className="pb-4 pt-2 px-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">Team member</th> : null}
                         {show('experience') ? <th className="pb-4 pt-2 px-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">Experience</th> : null}
-                        {show('location') ? <th className="pb-4 pt-2 px-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">Location</th> : null}
+                        {show('location') ? (
+                          <th className="pb-4 pt-2 px-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                            Location
+                          </th>
+                        ) : null}
                         {show('followUp') ? <th className="pb-4 pt-2 px-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">Follow-up</th> : null}
                         {show('job') ? <th className="pb-4 pt-2 px-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">Job</th> : null}
                         {show('client') ? <th className="pb-4 pt-2 px-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">Client</th> : null}
@@ -1186,7 +1196,13 @@ export default function App() {
                               </div>
                               <div>
                                 <p className="font-semibold text-sm text-slate-900 group-hover:text-blue-600 transition-colors">{candidate.name}</p>
-                                <p className="text-xs text-slate-500">{candidate.location}</p>
+                                <p className="text-xs text-slate-500">
+                                  {formatLocationCell({
+                                    location: candidate.location,
+                                    country: candidate.country,
+                                    city: candidate.city,
+                                  })}
+                                </p>
                               </div>
                             </div>
                           </td>
@@ -1245,7 +1261,13 @@ export default function App() {
                           ) : null}
                           {show('location') ? (
                             <td className="py-4 px-4">
-                              <span className="text-sm text-slate-700">{candidate.location || '—'}</span>
+                              <span className="text-sm text-slate-700">
+                                {formatLocationCell({
+                                  location: candidate.location,
+                                  country: candidate.country,
+                                  city: candidate.city,
+                                })}
+                              </span>
                             </td>
                           ) : null}
                           {show('followUp') ? (

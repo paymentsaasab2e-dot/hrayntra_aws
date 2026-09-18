@@ -17,6 +17,7 @@ import {
   getCandidateStageLabel,
 } from '../../../utils/candidateStage';
 import { WhatsAppIcon } from '../../../components/icons/WhatsAppIcon';
+import { useFormatTableLocationCell } from '../../../components/table/LocationColumnHeader';
 
 interface CandidateGridProps {
   candidates: Candidate[];
@@ -31,6 +32,7 @@ export const CandidateGrid: React.FC<CandidateGridProps> = ({
   onToggleSelect,
   onViewProfile,
 }) => {
+  const { format: formatLocationCell } = useFormatTableLocationCell();
   return (
     <div className="p-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 bg-slate-50">
       {candidates.map((candidate) => (
@@ -109,7 +111,13 @@ export const CandidateGrid: React.FC<CandidateGridProps> = ({
             <div className="w-full space-y-2 mb-6">
               <div className="flex items-center gap-2 text-slate-500 justify-center">
                 <MapPin size={14} className="shrink-0" />
-                <span className="text-xs truncate">{candidate.location}</span>
+                <span className="text-xs truncate">
+                  {formatLocationCell({
+                    location: candidate.location,
+                    country: candidate.country,
+                    city: candidate.city,
+                  })}
+                </span>
               </div>
               <div className="flex items-center gap-2 text-slate-500 justify-center">
                 <Briefcase size={14} className="shrink-0" />

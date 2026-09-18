@@ -1,11 +1,71 @@
-import type { TableColumnDef } from '../../hooks/usePersistedColumnVisibility';
+﻿import type { TableColumnDef } from '../../hooks/usePersistedColumnVisibility';
 import { TABLE_AUDIT_COLUMN_LABEL } from './columnLabels';
 
 /** Extra optional columns (off by default) from drawer / list row data. */
-const extra = (id: string, label: string): TableColumnDef => ({
+const extra = (id: string, label: string, children?: TableColumnDef[]): TableColumnDef => ({
   id,
   label,
   defaultVisible: false,
+  ...(children?.length ? { children } : {}),
+});
+
+/** Nested Pipeline stage chips (Jobs table Columns menu). */
+export const JOB_PIPELINE_STAGE_COLUMN_PREFIX = 'pipelineStage:';
+
+export const JOB_PIPELINE_STAGE_COLUMNS: TableColumnDef[] = [
+  { id: 'pipelineStage:applied', label: 'Applied', defaultVisible: true, excludeFromBadgeCount: true },
+  { id: 'pipelineStage:screening', label: 'Screening', defaultVisible: true, excludeFromBadgeCount: true },
+  {
+    id: 'pipelineStage:submit-to-client',
+    label: 'Submit to Client',
+    defaultVisible: true,
+    excludeFromBadgeCount: true,
+  },
+  {
+    id: 'pipelineStage:interviewing',
+    label: 'Interviewing',
+    defaultVisible: true,
+    excludeFromBadgeCount: true,
+  },
+  { id: 'pipelineStage:offer', label: 'Offer', defaultVisible: true, excludeFromBadgeCount: true },
+  { id: 'pipelineStage:hired', label: 'Hired', defaultVisible: true, excludeFromBadgeCount: true },
+  { id: 'pipelineStage:rejected', label: 'Rejected', defaultVisible: true, excludeFromBadgeCount: true },
+];
+
+/** Nested Location display modes (Columns → Location ▾) — same UX as Pipeline stages. */
+export const LOCATION_DISPLAY_COLUMN_PREFIX = 'locationDisplay:';
+
+export const LOCATION_DISPLAY_COLUMNS: TableColumnDef[] = [
+  {
+    id: 'locationDisplay:country',
+    label: 'Country only',
+    defaultVisible: true,
+    excludeFromBadgeCount: true,
+  },
+  {
+    id: 'locationDisplay:state',
+    label: 'State only',
+    defaultVisible: false,
+    excludeFromBadgeCount: true,
+  },
+  {
+    id: 'locationDisplay:city',
+    label: 'City only',
+    defaultVisible: false,
+    excludeFromBadgeCount: true,
+  },
+  {
+    id: 'locationDisplay:all',
+    label: 'Full address',
+    defaultVisible: false,
+    excludeFromBadgeCount: true,
+  },
+];
+
+const locationCol = (): TableColumnDef => ({
+  id: 'location',
+  label: 'Location',
+  children: LOCATION_DISPLAY_COLUMNS,
 });
 
 export const CANDIDATE_TABLE_COLUMNS: TableColumnDef[] = [
@@ -13,7 +73,7 @@ export const CANDIDATE_TABLE_COLUMNS: TableColumnDef[] = [
   { id: 'candidate', label: 'Candidate', locked: true },
   { id: 'roleCompany', label: 'Role / company' },
   { id: 'experience', label: 'Experience' },
-  { id: 'location', label: 'Location' },
+  locationCol(),
   { id: 'assignedJob', label: 'Assigned job' },
   { id: 'stage', label: 'Stage' },
   extra('email', 'Email'),
@@ -38,9 +98,9 @@ export const JOB_TABLE_COLUMNS: TableColumnDef[] = [
   { id: 'title', label: 'Job title', locked: true },
   { id: 'client', label: 'Client' },
   { id: 'status', label: 'Status' },
-  { id: 'pipeline', label: 'Pipeline' },
+  { id: 'pipeline', label: 'Pipeline', children: JOB_PIPELINE_STAGE_COLUMNS },
   { id: 'details', label: 'Details' },
-  extra('location', 'Location'),
+  extra('location', 'Location', LOCATION_DISPLAY_COLUMNS),
   extra('openings', 'Openings'),
   extra('owner', 'Recruiter'),
   extra('manager', 'Manager'),
@@ -70,7 +130,7 @@ export const LEAD_TABLE_COLUMNS: TableColumnDef[] = [
   extra('phone', 'Phone'),
   extra('industry', 'Industry'),
   extra('companySize', 'Company size'),
-  extra('location', 'Location'),
+  extra('location', 'Location', LOCATION_DISPLAY_COLUMNS),
   extra('website', 'Website'),
   extra('designation', 'Designation'),
   extra('needs', 'Services needed'),
@@ -85,7 +145,7 @@ export const CLIENT_TABLE_COLUMNS: TableColumnDef[] = [
   { id: 'select', label: 'Select', locked: true },
   { id: 'client', label: 'Client Name', locked: true },
   { id: 'industry', label: 'Industry' },
-  { id: 'location', label: 'Location' },
+  locationCol(),
   { id: 'status', label: 'Status' },
   { id: 'owner', label: 'Team Member' },
   extra('openJobs', 'Open jobs'),
@@ -116,7 +176,7 @@ export const CONTACT_TABLE_COLUMNS: TableColumnDef[] = [
   extra('email', 'Email'),
   extra('phone', 'Phone'),
   extra('department', 'Department'),
-  extra('location', 'Location'),
+  extra('location', 'Location', LOCATION_DISPLAY_COLUMNS),
   extra('linkedin', 'LinkedIn'),
   extra('preferredChannel', 'Preferred channel'),
   extra('tags', 'Tags'),
@@ -141,7 +201,7 @@ export const INTERVIEW_TABLE_COLUMNS: TableColumnDef[] = [
   extra('type', 'Interview type'),
   extra('mode', 'Mode'),
   extra('platform', 'Meeting platform'),
-  extra('location', 'Location'),
+  extra('location', 'Location', LOCATION_DISPLAY_COLUMNS),
   extra('createdBy', 'Created by'),
   { id: 'audit', label: TABLE_AUDIT_COLUMN_LABEL },
   { id: 'actions', label: 'Actions', locked: true },
@@ -174,7 +234,7 @@ export const MATCH_TABLE_COLUMNS: TableColumnDef[] = [
   { id: 'score', label: 'Match' },
   { id: 'roleCompany', label: 'Role / company' },
   { id: 'experience', label: 'Experience' },
-  { id: 'location', label: 'Location' },
+  locationCol(),
   { id: 'status', label: 'Status' },
   extra('noticePeriod', 'Notice period'),
   extra('salary', 'Expected salary'),
@@ -210,7 +270,7 @@ export const PIPELINE_TABLE_COLUMNS: TableColumnDef[] = [
   { id: 'lastActivity', label: 'Last Activity' },
   extra('owner', 'Team member'),
   extra('experience', 'Experience'),
-  extra('location', 'Location'),
+  extra('location', 'Location', LOCATION_DISPLAY_COLUMNS),
   extra('followUp', 'Follow-up'),
   extra('job', 'Job'),
   extra('client', 'Client'),
@@ -226,7 +286,7 @@ export const TEAM_TABLE_COLUMNS: TableColumnDef[] = [
   { id: 'credential', label: 'Credential' },
   { id: 'status', label: 'Status' },
   extra('phone', 'Phone'),
-  extra('location', 'Location'),
+  extra('location', 'Location', LOCATION_DISPLAY_COLUMNS),
   extra('designation', 'Designation'),
   extra('manager', 'Manager'),
   extra('tasks', 'Tasks'),

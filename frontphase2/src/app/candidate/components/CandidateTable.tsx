@@ -28,6 +28,7 @@ import { WhatsAppIcon } from '../../../components/icons/WhatsAppIcon';
 import { displayMatchBand, scoreBadgeClass } from '../../../components/matches/types';
 import type { AuditMeta } from '../../../types/audit';
 import { TableAuditColumnHeader, TableAuditCell } from '../../../components/table/TableAuditCell';
+import { useFormatTableLocationCell } from '../../../components/table/LocationColumnHeader';
 import type { AiWorkspaceBriefAlert } from '@/lib/apiAiWorkspaceBrief';
 import { WorkspaceAlertTableCell, WorkspaceAlertTableHeader } from '../../../components/ai/WorkspaceAlertTableCell';
 import { useDrawerPortalDropdownPosition } from '../../../components/drawers/drawerFormUi';
@@ -336,6 +337,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
       Object.values(workspaceAlertsByEntityId).some((alerts) => alerts.length > 0),
   );
   const show = isColumnVisible;
+  const { format: formatLocationCell } = useFormatTableLocationCell();
 
   return (
     <div
@@ -510,7 +512,13 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                   <td className="px-3 py-3 sm:px-4 sm:py-3.5">
                     <div className="inline-flex max-w-[140px] items-center gap-1.5 rounded-lg bg-slate-50 px-2 py-1 text-slate-600 ring-1 ring-slate-200/70">
                       <MapPin size={13} className="shrink-0 text-indigo-400" />
-                      <span className="truncate text-xs font-medium">{candidate.location}</span>
+                      <span className="truncate text-xs font-medium">
+                        {formatLocationCell({
+                          location: candidate.location,
+                          country: candidate.country,
+                          city: candidate.city,
+                        })}
+                      </span>
                     </div>
                   </td>
                 ) : null}

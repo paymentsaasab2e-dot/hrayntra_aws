@@ -582,6 +582,52 @@ const canonicalStageLabel = (value: string) => {
   return normalized;
 };
 
+type PipelineStageMatchMeta = {
+  id: string;
+  rawName: string;
+  normalized: string;
+  canonical: string;
+};
+
+function buildPipelineStageMatchMeta(stages: JobPipelineStage[]): PipelineStageMatchMeta[] {
+  return (Array.isArray(stages) ? stages : []).map((stage) => {
+    const rawName = String(stage?.name || '').trim();
+    return {
+      id: stage.id,
+      rawName,
+      normalized: normalizeStageLabel(rawName),
+      canonical: canonicalStageLabel(rawName),
+    };
+  });
+}
+
+function resolveCandidateStageId(
+  candidateStageRaw: string,
+  stageMeta: PipelineStageMatchMeta[],
+): string | null {
+  const candidateStageNormalized = normalizeStageLabel(candidateStageRaw);
+  if (!candidateStageNormalized || stageMeta.length === 0) return null;
+
+  const normalizedStageMap = new Map(stageMeta.map((s) => [s.normalized, s.id]));
+  const canonicalStageMap = new Map(stageMeta.map((s) => [s.canonical, s.id]));
+
+  let stageId =
+    normalizedStageMap.get(candidateStageNormalized) ||
+    canonicalStageMap.get(canonicalStageLabel(candidateStageRaw)) ||
+    null;
+
+  if (!stageId) {
+    const prefixMatch = stageMeta.find(
+      (stage) =>
+        candidateStageNormalized.startsWith(`${stage.normalized} `) ||
+        stage.normalized.startsWith(`${candidateStageNormalized} `),
+    );
+    stageId = prefixMatch?.id || null;
+  }
+
+  return stageId;
+}
+
 function normalizePipelineStages(stages?: JobPipelineStage[] | null): JobPipelineStage[] {
   const input = Array.isArray(stages) ? stages : [];
   const normalizedInput = input
@@ -1281,6 +1327,8 @@ export function JobDetailsDrawer({
   const [candidatesPage, setCandidatesPage] = useState(1);
   const [candidatesPageSize, setCandidatesPageSize] = useState<TablePageSize>(50);
   const [jobCandidatesSearch, setJobCandidatesSearch] = useState('');
+  /** Pipeline stage chip filter on Candidates tab (`all` = every stage). */
+  const [candidatesStageFilterId, setCandidatesStageFilterId] = useState<string>('all');
   const prevCandidatesTabJobIdRef = useRef<string | null>(null);
   const wasOnCandidatesTabRef = useRef(false);
   const [showMatchScores, setShowMatchScores] = useState(false);
@@ -1521,10 +1569,19 @@ export function JobDetailsDrawer({
     [displayJobCandidates, job?.id, job?.title],
   );
 
+  const candidatesStageMatchMeta = useMemo(
+    () => buildPipelineStageMatchMeta(pipelineStages),
+    [pipelineStages],
+  );
+
   const filteredJobTableCandidates = useMemo(() => {
     const query = jobCandidatesSearch.trim().toLowerCase();
-    if (!query) return jobTableCandidates;
     return jobTableCandidates.filter((row) => {
+      if (candidatesStageFilterId !== 'all') {
+        const stageId = resolveCandidateStageId(String(row.stage || ''), candidatesStageMatchMeta);
+        if (stageId !== candidatesStageFilterId) return false;
+      }
+      if (!query) return true;
       const haystack = [
         row.name,
         row.email,
@@ -1538,7 +1595,12 @@ export function JobDetailsDrawer({
         .join(' ');
       return haystack.includes(query);
     });
-  }, [jobTableCandidates, jobCandidatesSearch]);
+  }, [
+    jobTableCandidates,
+    jobCandidatesSearch,
+    candidatesStageFilterId,
+    candidatesStageMatchMeta,
+  ]);
 
   const candidatesTotalPages = Math.max(
     1,
@@ -1552,7 +1614,7 @@ export function JobDetailsDrawer({
 
   useEffect(() => {
     setCandidatesPage(1);
-  }, [job?.id, candidatesPageSize, jobCandidatesSearch]);
+  }, [job?.id, candidatesPageSize, jobCandidatesSearch, candidatesStageFilterId]);
 
   useEffect(() => {
     if (candidatesPage > candidatesTotalPages) {
@@ -1562,6 +1624,7 @@ export function JobDetailsDrawer({
 
   useEffect(() => {
     setJobCandidatesSearch('');
+    setCandidatesStageFilterId('all');
   }, [job?.id, isOpen]);
 
   const pipelineJobOptions = useMemo((): CandidatePipelineJobOption[] => {
@@ -3271,39 +3334,11 @@ export function JobDetailsDrawer({
   const isDefaultPipelineStage = (stage: JobPipelineStage) => DEFAULT_PIPELINE_STAGE_ID_SET.has(String(stage.id || ''));
   const pipelineStageCountCards = useMemo(() => {
     const stageList = Array.isArray(pipelineStages) ? pipelineStages : [];
+    const stageMeta = buildPipelineStageMatchMeta(stageList);
     const countsByStageId = new Map<string, number>();
-    const stageMeta = stageList.map((stage) => {
-      const rawName = String(stage?.name || '').trim();
-      const normalized = normalizeStageLabel(rawName);
-      const canonical = canonicalStageLabel(rawName);
-      return {
-        id: stage.id,
-        rawName,
-        normalized,
-        canonical,
-      };
-    });
-    const normalizedStageMap = new Map(stageMeta.map((s) => [s.normalized, s.id]));
-    const canonicalStageMap = new Map(stageMeta.map((s) => [s.canonical, s.id]));
 
-    (Array.isArray(jobCandidates) ? jobCandidates : []).forEach((candidate) => {
-      const candidateStageRaw = String(candidate?.currentStage || '');
-      const candidateStageNormalized = normalizeStageLabel(candidateStageRaw);
-      if (!candidateStageNormalized) return;
-
-      let stageId =
-        normalizedStageMap.get(candidateStageNormalized) ||
-        canonicalStageMap.get(canonicalStageLabel(candidateStageRaw));
-
-      if (!stageId) {
-        const prefixMatch = stageMeta.find(
-          (stage) =>
-            candidateStageNormalized.startsWith(`${stage.normalized} `) ||
-            stage.normalized.startsWith(`${candidateStageNormalized} `)
-        );
-        stageId = prefixMatch?.id;
-      }
-
+    (Array.isArray(displayJobCandidates) ? displayJobCandidates : []).forEach((candidate) => {
+      const stageId = resolveCandidateStageId(String(candidate?.currentStage || ''), stageMeta);
       if (!stageId) return;
       countsByStageId.set(stageId, (countsByStageId.get(stageId) || 0) + 1);
     });
@@ -3315,7 +3350,13 @@ export function JobDetailsDrawer({
         count: countsByStageId.get(stage.id) || 0,
       };
     });
-  }, [pipelineStages, jobCandidates]);
+  }, [pipelineStages, displayJobCandidates]);
+
+  useEffect(() => {
+    if (candidatesStageFilterId === 'all') return;
+    const stillExists = pipelineStageCountCards.some((stage) => stage.id === candidatesStageFilterId);
+    if (!stillExists) setCandidatesStageFilterId('all');
+  }, [candidatesStageFilterId, pipelineStageCountCards]);
 
   return (
     <>
@@ -3678,6 +3719,55 @@ export function JobDetailsDrawer({
 
                   {candidateMatchMode === 'applied' ? (
                 <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 pb-3">
+                {pipelineStageCountCards.length > 0 ? (
+                  <div className="mb-2 flex shrink-0 gap-2 overflow-x-auto pb-1 [scrollbar-width:thin]">
+                    <button
+                      type="button"
+                      onClick={() => setCandidatesStageFilterId('all')}
+                      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                        candidatesStageFilterId === 'all'
+                          ? 'border-indigo-300 bg-indigo-600 text-white shadow-sm'
+                          : 'border-slate-200 bg-white text-slate-600 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700'
+                      }`}
+                    >
+                      All
+                      <span
+                        className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+                          candidatesStageFilterId === 'all'
+                            ? 'bg-white/20 text-white'
+                            : 'bg-slate-100 text-slate-500'
+                        }`}
+                      >
+                        {displayJobCandidates.length}
+                      </span>
+                    </button>
+                    {pipelineStageCountCards.map((stage) => {
+                      const active = candidatesStageFilterId === stage.id;
+                      return (
+                        <button
+                          key={stage.id}
+                          type="button"
+                          onClick={() => setCandidatesStageFilterId(stage.id)}
+                          title={`Show ${stage.name} candidates`}
+                          className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                            active
+                              ? 'border-indigo-300 bg-indigo-600 text-white shadow-sm'
+                              : 'border-slate-200 bg-white text-slate-600 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700'
+                          }`}
+                        >
+                          <span className="max-w-[9rem] truncate">{stage.name}</span>
+                          <span
+                            className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+                              active ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'
+                            }`}
+                          >
+                            {stage.count}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
                 <div className={PH2_TABLE_CARD_CLASS}>
                   <div className="flex shrink-0 items-center justify-between gap-3 border-b border-indigo-100/50 px-3 py-2">
                     <p className="text-sm font-semibold text-slate-800">
@@ -3685,6 +3775,13 @@ export function JobDetailsDrawer({
                       {filteredJobTableCandidates.length ? (
                         <span className="ml-1.5 text-xs font-medium text-slate-400">
                           {filteredJobTableCandidates.length}
+                        </span>
+                      ) : null}
+                      {candidatesStageFilterId !== 'all' ? (
+                        <span className="ml-1.5 text-xs font-medium text-indigo-500">
+                          ·{' '}
+                          {pipelineStageCountCards.find((s) => s.id === candidatesStageFilterId)?.name ||
+                            'Stage'}
                         </span>
                       ) : null}
                     </p>
@@ -3774,15 +3871,33 @@ export function JobDetailsDrawer({
                     <div className="flex min-h-0 flex-1 flex-col items-center justify-center p-8 text-center">
                       <Search size={28} className="mx-auto mb-3 text-slate-300" />
                       <p className="text-sm text-slate-500">
-                        No candidates match “{jobCandidatesSearch.trim()}”.
+                        {candidatesStageFilterId !== 'all' && !jobCandidatesSearch.trim()
+                          ? `No candidates in “${
+                              pipelineStageCountCards.find((s) => s.id === candidatesStageFilterId)
+                                ?.name || 'this stage'
+                            }” yet.`
+                          : `No candidates match “${jobCandidatesSearch.trim()}”.`}
                       </p>
-                      <button
-                        type="button"
-                        onClick={() => setJobCandidatesSearch('')}
-                        className="mt-3 text-sm font-semibold text-indigo-600 hover:text-indigo-700"
-                      >
-                        Clear search
-                      </button>
+                      <div className="mt-3 flex flex-wrap items-center justify-center gap-3">
+                        {candidatesStageFilterId !== 'all' ? (
+                          <button
+                            type="button"
+                            onClick={() => setCandidatesStageFilterId('all')}
+                            className="text-sm font-semibold text-indigo-600 hover:text-indigo-700"
+                          >
+                            Show all stages
+                          </button>
+                        ) : null}
+                        {jobCandidatesSearch.trim() ? (
+                          <button
+                            type="button"
+                            onClick={() => setJobCandidatesSearch('')}
+                            className="text-sm font-semibold text-indigo-600 hover:text-indigo-700"
+                          >
+                            Clear search
+                          </button>
+                        ) : null}
+                      </div>
                     </div>
                   ) : (
                     <>

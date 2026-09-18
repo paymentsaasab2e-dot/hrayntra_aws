@@ -780,7 +780,7 @@ async function getPersonalizedJobs(req, res) {
         company: { select: { name: true, logoUrl: true } },
         client: { select: { companyName: true, logo: true } }
       },
-      take: 500 // Fetch a deeper pool of jobs for matching
+      take: 100 // Bounded pool for matching (was 500; keep personalized quality without huge fetch)
     });
 
     await hydrateJobsPublicProfileFields(prisma, activeJobs);

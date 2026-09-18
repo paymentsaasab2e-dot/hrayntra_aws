@@ -53,6 +53,34 @@ const genAI = GEMINI_API_KEY ? new GoogleGenerativeAI(GEMINI_API_KEY) : null;
 const anthropic = ANTHROPIC_API_KEY ? new Anthropic({ apiKey: ANTHROPIC_API_KEY }) : null;
 const openai = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
 
+/** Hard ceiling for a single provider call (ms). Env: CV_PARSER_AI_TIMEOUT_MS */
+function getAiTimeoutMs() {
+  const raw = Number(process.env.CV_PARSER_AI_TIMEOUT_MS);
+  if (Number.isFinite(raw) && raw >= 5000) return Math.min(raw, 180000);
+  return 45000;
+}
+
+/** Output token budget. Env: CV_PARSER_MAX_TOKENS (default 8192; was historically 16384). */
+function getCvParserMaxTokens() {
+  const raw = Number(process.env.CV_PARSER_MAX_TOKENS);
+  if (Number.isFinite(raw) && raw >= 2048) return Math.min(raw, 16384);
+  return 8192;
+}
+
+function withTimeout(promise, ms, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      const err = new Error(`${label || 'AI request'} timed out after ${ms}ms`);
+      err.code = 'AI_TIMEOUT';
+      reject(err);
+    }, ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
 /**
  * STEP 1: PDF Upload
  * (Handled by multer middleware in controller)
@@ -78,6 +106,9 @@ async function parseDocument(buffer, extension) {
       const mammoth = require('mammoth');
       const result = await mammoth.extractRawText({ buffer });
       rawText = result.value;
+    } else if (extension === '.txt') {
+      // Synthetic golden fixtures / plain-text resumes (UTF-8)
+      rawText = Buffer.isBuffer(buffer) ? buffer.toString('utf8') : String(buffer || '');
     } else {
       throw new Error(`Unsupported extension for text extraction: ${extension}`);
     }
@@ -209,27 +240,33 @@ async function structureResumeWithAI(cleanResumeText) {
   const prompt = buildCvExtractionPrompt(cleanResumeText);
   const { OPENAI_CHAT_MODEL } = require('../config/openaiModel');
   const openAiOnly = process.env.CV_PARSER_OPENAI_ONLY !== 'false';
+  const aiTimeoutMs = getAiTimeoutMs();
+  const maxTokens = getCvParserMaxTokens();
 
   let responseText = '';
   let lastError = null;
 
   if (openai) {
     try {
-      console.log(`  📤 Using OpenAI (${OPENAI_CHAT_MODEL})...`);
-      const completion = await openai.chat.completions.create({
-        messages: [
-          {
-            role: 'system',
-            content:
-              'You extract structured candidate profile data from resumes. Respond with valid JSON only.',
-          },
-          { role: 'user', content: prompt },
-        ],
-        model: OPENAI_CHAT_MODEL,
-        temperature: 0.2,
-        max_tokens: 16384,
-        response_format: { type: 'json_object' },
-      });
+      console.log(`  📤 Using OpenAI (${OPENAI_CHAT_MODEL}, max_tokens=${maxTokens}, timeout=${aiTimeoutMs}ms)...`);
+      const completion = await withTimeout(
+        openai.chat.completions.create({
+          messages: [
+            {
+              role: 'system',
+              content:
+                'You extract structured candidate profile data from resumes. Respond with valid JSON only.',
+            },
+            { role: 'user', content: prompt },
+          ],
+          model: OPENAI_CHAT_MODEL,
+          temperature: 0.2,
+          max_tokens: maxTokens,
+          response_format: { type: 'json_object' },
+        }),
+        aiTimeoutMs,
+        'OpenAI',
+      );
       responseText = completion.choices[0]?.message?.content?.trim() || '';
       if (responseText) {
         console.log(`  ✅ Successfully used OpenAI (${OPENAI_CHAT_MODEL})`);
@@ -241,12 +278,16 @@ async function structureResumeWithAI(cleanResumeText) {
       );
       if (openaiError?.message?.includes('response_format')) {
         try {
-          const completion = await openai.chat.completions.create({
-            messages: [{ role: 'user', content: prompt }],
-            model: OPENAI_CHAT_MODEL,
-            temperature: 0.2,
-            max_tokens: 16384,
-          });
+          const completion = await withTimeout(
+            openai.chat.completions.create({
+              messages: [{ role: 'user', content: prompt }],
+              model: OPENAI_CHAT_MODEL,
+              temperature: 0.2,
+              max_tokens: maxTokens,
+            }),
+            aiTimeoutMs,
+            'OpenAI-retry',
+          );
           responseText = completion.choices[0]?.message?.content?.trim() || '';
         } catch (retryErr) {
           lastError = retryErr;
@@ -261,13 +302,17 @@ async function structureResumeWithAI(cleanResumeText) {
 
   if (tryFallbackProviders && !responseText && mistral) {
     try {
-      console.log(`  📤 Using Mistral (${MISTRAL_CHAT_MODEL})...`);
-      const chatResponse = await mistral.chat.complete({
-        model: MISTRAL_CHAT_MODEL,
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.3,
-        maxTokens: 4096,
-      });
+      console.log(`  📤 Using Mistral (${MISTRAL_CHAT_MODEL}, timeout=${aiTimeoutMs}ms)...`);
+      const chatResponse = await withTimeout(
+        mistral.chat.complete({
+          model: MISTRAL_CHAT_MODEL,
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.3,
+          maxTokens: Math.min(maxTokens, 8192),
+        }),
+        aiTimeoutMs,
+        'Mistral',
+      );
       responseText = chatResponse.choices[0]?.message?.content?.trim() || '';
       if (responseText) {
         console.log(`  ✅ Successfully used Mistral (${MISTRAL_CHAT_MODEL})`);
@@ -281,9 +326,9 @@ async function structureResumeWithAI(cleanResumeText) {
   if (tryFallbackProviders && !responseText && genAI) {
     try {
       const geminiModel = process.env.GEMINI_CHAT_MODEL?.trim() || 'gemini-2.0-flash';
-      console.log(`  📤 Using Google Gemini (${geminiModel})...`);
+      console.log(`  📤 Using Google Gemini (${geminiModel}, timeout=${aiTimeoutMs}ms)...`);
       const model = genAI.getGenerativeModel({ model: geminiModel });
-      const result = await model.generateContent(prompt);
+      const result = await withTimeout(model.generateContent(prompt), aiTimeoutMs, 'Gemini');
       const response = await result.response;
       responseText = response.text().trim();
       if (responseText) {
@@ -297,12 +342,16 @@ async function structureResumeWithAI(cleanResumeText) {
 
   if (tryFallbackProviders && !responseText && anthropic) {
     try {
-      console.log('  📤 Using Anthropic Claude...');
-      const message = await anthropic.messages.create({
-        model: 'claude-3-5-sonnet-20241022',
-        max_tokens: 4096,
-        messages: [{ role: 'user', content: prompt }],
-      });
+      console.log(`  📤 Using Anthropic Claude (timeout=${aiTimeoutMs}ms)...`);
+      const message = await withTimeout(
+        anthropic.messages.create({
+          model: 'claude-3-5-sonnet-20241022',
+          max_tokens: Math.min(maxTokens, 4096),
+          messages: [{ role: 'user', content: prompt }],
+        }),
+        aiTimeoutMs,
+        'Anthropic',
+      );
       responseText = message.content[0]?.text?.trim() || '';
       if (responseText) {
         console.log('  ✅ Successfully used Anthropic Claude');
@@ -669,11 +718,11 @@ async function parseResumeFromBuffer(buffer, mimeType, fileName) {
     console.log('File Type:', mimeType);
     console.log('-'.repeat(80));
     
-    // Validate file type (allow PDF, DOC, DOCX)
+    // Validate file type (PDF/DOC/DOCX production; .txt for golden/synthetic fixtures)
     const extension = path.extname(fileName).toLowerCase();
-    const validExtensions = ['.pdf', '.doc', '.docx'];
+    const validExtensions = ['.pdf', '.doc', '.docx', '.txt'];
     if (!validExtensions.includes(extension)) {
-      throw new Error(`Unsupported file type: ${extension}. Only PDF and Word files are supported.`);
+      throw new Error(`Unsupported file type: ${extension}. Only PDF, Word, and TXT files are supported.`);
     }
     
     // STEP 2: Parse Document

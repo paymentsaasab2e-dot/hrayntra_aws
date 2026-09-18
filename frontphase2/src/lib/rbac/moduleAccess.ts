@@ -54,7 +54,9 @@ export const MODULE_ACCESS_MAP: Record<string, string[]> = {
     'recycle_bin_manage', 'view_dashboard',
   ],
   CrmDashboard: ['dash_crm_insights', 'dash_crm_pipeline', 'dash_crm_team', 'dash_crm_people', 'view_dashboard'],
-  RecDashboard: ['dash_rec_insights', 'dash_rec_pipeline', 'dash_rec_team', 'dash_rec_people', 'view_dashboard'],
+  // Recruitment Dashboard nav/route: only the dash_rec_* ticks — NOT view_dashboard,
+  // and NOT Jobs/Candidates. view_dashboard alone is CRM → Dashboard.
+  RecDashboard: ['dash_rec_insights', 'dash_rec_pipeline', 'dash_rec_team', 'dash_rec_people'],
   Behaviour: [
     'behavior_read', 'behavior_manage',
     'view_team_activity', 'reports_read', 'view_activity_log', 'manage_settings', 'view_dashboard',
@@ -87,14 +89,8 @@ export const ROUTE_PERMISSION_GUARDS: Record<string, string[]> = {
   '/subscription': MODULE_ACCESS_MAP.Subscription,
   '/activity-feed': ['view_activity_log', 'reports_read', 'view_team_activity'],
   '/recycle-bin': ['recycle_bin_manage'],
-  '/dashboard': ['view_dashboard'],
-  '/recruitment': [
-    ...MODULE_ACCESS_MAP.Jobs,
-    ...MODULE_ACCESS_MAP.Candidates,
-    ...MODULE_ACCESS_MAP.Interviews,
-    ...MODULE_ACCESS_MAP.Placements,
-    'view_dashboard',
-  ],
+  '/dashboard': ['view_dashboard', ...MODULE_ACCESS_MAP.CrmDashboard],
+  '/recruitment': MODULE_ACCESS_MAP.RecDashboard,
   '/administration': ['manage_settings', 'manage_roles', 'manage_departments', 'assign_roles'],
   '/thebehave': MODULE_ACCESS_MAP.Behaviour,
   '/tenant-behave': MODULE_ACCESS_MAP.Behaviour,

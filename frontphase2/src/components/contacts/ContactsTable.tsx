@@ -12,6 +12,7 @@ import { ContactTypeBadge } from './ContactTypeBadge';
 import { OwnerAvatar } from './OwnerAvatar';
 import { formatDirectorDisplay } from '../../constants/salutations';
 import { visibleContactEmail } from '../../lib/contactEmail';
+import { useFormatTableLocationCell } from '../table/LocationColumnHeader';
 import { PH2_TABLE_BODY_SCROLL_CLASS, PH2_TABLE_CARD_FOOTER_CLASS } from '../layout/Ph2ModulePageLayout';
 import { extractAuditMeta } from '../../utils/auditMeta';
 import { TableAuditColumnHeader, TableAuditCell } from '../table/TableAuditCell';
@@ -46,6 +47,7 @@ export function ContactsTable({
   isColumnVisible = () => true,
 }: ContactsTableProps) {
   const show = isColumnVisible;
+  const { format: formatLocationCell } = useFormatTableLocationCell();
   const allSelected = contacts.length > 0 && contacts.every((contact) => selectedIds.has(contact.id));
   const someSelected = contacts.some((contact) => selectedIds.has(contact.id));
 
@@ -353,7 +355,9 @@ export function ContactsTable({
                   ) : null}
                   {show('location') ? (
                     <td className="px-3 py-2.5 sm:px-4">
-                      <span className="text-sm text-slate-700">{contact.location || '—'}</span>
+                      <span className="text-sm text-slate-700">
+                        {formatLocationCell(contact.location)}
+                      </span>
                     </td>
                   ) : null}
                   {show('linkedin') ? (

@@ -29,6 +29,7 @@ import {
   DRAWER_TABLE_TR,
   DRAWER_TABLE_TR_SELECTED,
 } from '../drawers/drawerFormUi';
+import { useFormatTableLocationCell } from '../table/LocationColumnHeader';
 
 const statusColors: Record<MatchStatus, string> = {
   New: 'bg-blue-100 text-blue-700 border-blue-200',
@@ -83,6 +84,7 @@ export default function MatchCandidateTable({
   isColumnVisible = () => true,
 }: MatchCandidateTableProps) {
   const show = isColumnVisible;
+  const { format: formatLocationCell } = useFormatTableLocationCell();
   const allSelected = candidates.length > 0 && selectedCandidates.length === candidates.length;
   const showAiAlertColumn = Boolean(
     workspaceAlertsByEntityId &&
@@ -257,7 +259,9 @@ export default function MatchCandidateTable({
                       <td className={DRAWER_TABLE_TD}>
                         <div className="inline-flex max-w-[140px] items-center gap-1.5 rounded-lg bg-slate-50 px-2 py-1 text-slate-600 ring-1 ring-slate-200/70">
                           <MapPin size={13} className="shrink-0 text-indigo-400" />
-                          <span className="truncate text-xs font-medium">{candidate.location}</span>
+                          <span className="truncate text-xs font-medium">
+                            {formatLocationCell(candidate.location)}
+                          </span>
                         </div>
                       </td>
                     ) : null}

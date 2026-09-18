@@ -1,10 +1,17 @@
 'use client';
 
-import React, { useCallback, useLayoutEffect, useRef, useState } from 'react';
+import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Columns3 } from 'lucide-react';
+import { ChevronDown, Columns3 } from 'lucide-react';
 import { PH2_TOOLBAR_SELECT_CLASS } from '../layout/Ph2ModulePageLayout';
 import type { TableColumnDef } from '../../hooks/usePersistedColumnVisibility';
+import {
+  isTableLocationDisplayMode,
+  tableLocationModeLabel,
+  type TableLocationDisplayMode,
+} from '../../lib/formatTableLocation';
+import { LOCATION_DISPLAY_COLUMN_PREFIX } from '../../lib/tableColumns/moduleTableColumns';
+import { useTableLocationDisplayMode } from '../../lib/useTableLocationDisplayMode';
 
 export type TableColumnsMenuProps = {
   columns: TableColumnDef[];
@@ -23,6 +30,60 @@ export type TableColumnsMenuProps = {
   summaryClassName?: string;
 };
 
+function isLocationDisplayChild(id: string): boolean {
+  return id.startsWith(LOCATION_DISPLAY_COLUMN_PREFIX);
+}
+
+function locationDisplayModeFromChildId(id: string): TableLocationDisplayMode | null {
+  const mode = id.slice(LOCATION_DISPLAY_COLUMN_PREFIX.length);
+  return isTableLocationDisplayMode(mode) ? mode : null;
+}
+
+function LocationDisplayNested({
+  children,
+  parentEnabled,
+}: {
+  children: TableColumnDef[];
+  parentEnabled: boolean;
+}) {
+  const { mode, setMode } = useTableLocationDisplayMode();
+  return (
+    <div className="ml-6 space-y-1.5 border-l border-indigo-100 pl-3">
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+        Show as
+      </p>
+      {children.map((child) => {
+        const childMode = locationDisplayModeFromChildId(child.id);
+        const active = Boolean(parentEnabled && childMode && childMode === mode);
+        return (
+          <label
+            key={child.id}
+            className={`flex items-start gap-2 text-xs sm:items-center ${
+              !parentEnabled
+                ? 'cursor-default text-slate-400'
+                : active
+                  ? 'cursor-pointer font-semibold text-indigo-700'
+                  : 'cursor-pointer text-slate-600'
+            }`}
+          >
+            {/* Checkbox look (tick) — exclusive like a radio so it matches Pipeline stages. */}
+            <input
+              type="checkbox"
+              checked={active}
+              disabled={!parentEnabled || !childMode}
+              onChange={() => {
+                if (childMode) setMode(childMode);
+              }}
+              className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-indigo-200 text-indigo-600 focus:ring-indigo-500/30 disabled:opacity-50 sm:mt-0"
+            />
+            <span className="min-w-0 break-words leading-snug">{child.label}</span>
+          </label>
+        );
+      })}
+    </div>
+  );
+}
+
 function ColumnChecklist({
   columns,
   isVisible,
@@ -32,33 +93,121 @@ function ColumnChecklist({
   isVisible: (id: string) => boolean;
   onToggle: (id: string) => void;
 }) {
+  const nestedIds = useMemo(
+    () =>
+      columns
+        .filter((col) => Array.isArray(col.children) && col.children.length > 0)
+        .map((col) => col.id),
+    [columns],
+  );
+  const [expandedIds, setExpandedIds] = useState<string[]>(() => nestedIds);
+  const { mode: locationDisplayMode } = useTableLocationDisplayMode();
+
+  const toggleExpanded = (id: string) => {
+    setExpandedIds((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
+  };
+
   return (
     <div className="space-y-2">
       {columns.map((col) => {
         const checked = isVisible(col.id);
+        const children = Array.isArray(col.children) ? col.children : [];
+        const hasChildren = children.length > 0;
+        const isLocationDisplayNest =
+          hasChildren && children.every((child) => isLocationDisplayChild(child.id));
+        const expanded = hasChildren && expandedIds.includes(col.id);
+        const enabledChildCount = isLocationDisplayNest
+          ? 0
+          : children.filter((child) => isVisible(child.id)).length;
+
         return (
-          <label
-            key={col.id}
-            className={`flex items-start gap-2 text-xs sm:items-center sm:text-xs ${
-              col.locked ? 'cursor-default text-slate-400' : 'cursor-pointer text-slate-700'
-            }`}
-          >
-            <input
-              type="checkbox"
-              checked={checked}
-              disabled={Boolean(col.locked)}
-              onChange={() => onToggle(col.id)}
-              className="mt-0.5 h-4 w-4 shrink-0 rounded border-indigo-200 text-indigo-600 focus:ring-indigo-500/30 disabled:opacity-60 sm:mt-0 sm:h-3.5 sm:w-3.5"
-            />
-            <span className="min-w-0 break-words leading-snug">
-              {col.label}
-              {col.locked ? (
-                <span className="ml-1 text-[10px] font-medium uppercase tracking-wide text-slate-400">
-                  required
+          <div key={col.id} className="space-y-1.5">
+            <div className="flex items-start gap-1 sm:items-center">
+              <label
+                className={`flex min-w-0 flex-1 items-start gap-2 text-xs sm:items-center sm:text-xs ${
+                  col.locked ? 'cursor-default text-slate-400' : 'cursor-pointer text-slate-700'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  disabled={Boolean(col.locked)}
+                  onChange={() => onToggle(col.id)}
+                  className="mt-0.5 h-4 w-4 shrink-0 rounded border-indigo-200 text-indigo-600 focus:ring-indigo-500/30 disabled:opacity-60 sm:mt-0 sm:h-3.5 sm:w-3.5"
+                />
+                <span className="min-w-0 break-words leading-snug">
+                  {col.label}
+                  {col.locked ? (
+                    <span className="ml-1 text-[10px] font-medium uppercase tracking-wide text-slate-400">
+                      required
+                    </span>
+                  ) : null}
+                  {isLocationDisplayNest && checked ? (
+                    <span className="ml-1 text-[10px] font-medium text-slate-400">
+                      ({tableLocationModeLabel(locationDisplayMode)})
+                    </span>
+                  ) : null}
+                  {!isLocationDisplayNest && hasChildren && enabledChildCount > 0 ? (
+                    <span className="ml-1 text-[10px] font-medium text-slate-400">
+                      ({enabledChildCount})
+                    </span>
+                  ) : null}
                 </span>
+              </label>
+              {hasChildren ? (
+                <button
+                  type="button"
+                  onClick={() => toggleExpanded(col.id)}
+                  className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 sm:mt-0"
+                  aria-expanded={expanded}
+                  aria-label={
+                    expanded
+                      ? `Collapse ${col.label} options`
+                      : `Expand ${col.label} options`
+                  }
+                >
+                  <ChevronDown
+                    size={14}
+                    className={`transition-transform ${expanded ? 'rotate-180' : ''}`}
+                  />
+                </button>
               ) : null}
-            </span>
-          </label>
+            </div>
+
+            {hasChildren && expanded ? (
+              isLocationDisplayNest ? (
+                <LocationDisplayNested children={children} parentEnabled={checked} />
+              ) : (
+                <div className="ml-6 space-y-1.5 border-l border-indigo-100 pl-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                    Pipeline stages
+                  </p>
+                  {children.map((child) => {
+                    const childChecked = isVisible(child.id);
+                    return (
+                      <label
+                        key={child.id}
+                        className={`flex items-start gap-2 text-xs sm:items-center ${
+                          child.locked
+                            ? 'cursor-default text-slate-400'
+                            : 'cursor-pointer text-slate-600'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={childChecked}
+                          disabled={Boolean(child.locked) || !checked}
+                          onChange={() => onToggle(child.id)}
+                          className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-indigo-200 text-indigo-600 focus:ring-indigo-500/30 disabled:opacity-50 sm:mt-0"
+                        />
+                        <span className="min-w-0 break-words leading-snug">{child.label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )
+            ) : null}
+          </div>
         );
       })}
     </div>
@@ -111,9 +260,7 @@ function computeMenuPosition(trigger: DOMRect): MenuPosition {
   const availableHeight = Math.max(0, safeBottom - safeTop);
 
   const isCompact = box.width < COMPACT_BREAKPOINT;
-  const width = isCompact
-    ? availableWidth
-    : Math.min(PREFERRED_WIDTH, availableWidth);
+  const width = isCompact ? availableWidth : Math.min(PREFERRED_WIDTH, availableWidth);
 
   let left = isCompact ? safeLeft : trigger.right - width;
   if (left < safeLeft) left = safeLeft;
@@ -144,7 +291,6 @@ function computeMenuPosition(trigger: DOMRect): MenuPosition {
     };
   }
 
-  // Both directions are tight (short landscape / small phone): fill the safe viewport.
   return {
     left,
     width,
@@ -215,7 +361,9 @@ export function TableColumnsMenu({
   const count =
     typeof unlockedVisibleCount === 'number'
       ? unlockedVisibleCount
-      : columns.filter((col) => !col.locked && isVisible(col.id)).length;
+      : columns.filter(
+          (col) => !col.locked && !col.excludeFromBadgeCount && isVisible(col.id),
+        ).length;
   const dynamicSelected = dynamicSection?.selectedLabels.length ?? 0;
   const badgeCount = count + dynamicSelected;
 

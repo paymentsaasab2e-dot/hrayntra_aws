@@ -204,4 +204,27 @@ httpServer.listen(PORT, () => {
   console.log(`📱 Allowed frontend origins: ${allowedOrigins.join(', ')}`);
   console.log('🎥 Interview room signaling ready on Socket.IO');
   startInterviewReminderScheduler();
+
+  // P1-4: recover durable CV parse jobs left queued/stale after restart
+  setTimeout(() => {
+    void (async () => {
+      try {
+        const {
+          recoverOrphanedJobs,
+          RETRY_DELAY_MS,
+        } = require('./services/cv-parse-job.service');
+        const { resumeCvParseJobs } = require('./controllers/cv.controller');
+        const orphaned = await recoverOrphanedJobs({ limit: 15 });
+        if (!orphaned.length) return;
+        console.log(`[cv-parse-job] recovering ${orphaned.length} orphaned job(s)`);
+        for (const job of orphaned) {
+          setTimeout(() => {
+            void resumeCvParseJobs(job);
+          }, RETRY_DELAY_MS);
+        }
+      } catch (err) {
+        console.warn('[cv-parse-job] recovery skipped:', err?.message || err);
+      }
+    })();
+  }, 4000);
 });

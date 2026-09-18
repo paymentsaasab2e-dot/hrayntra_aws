@@ -39,6 +39,28 @@ function resolveProfileDisplayEmail(candidate) {
   return profileEmail || candidateEmail || '';
 }
 
+function mapEducationForClient(edu) {
+  if (!edu) return null;
+  return {
+    id: edu.id,
+    educationLevel: edu.educationLevel || '',
+    degreeProgram: edu.degree || '',
+    institutionName: edu.institution || '',
+    institutionLocation: edu.institutionLocation || '',
+    fieldOfStudy: edu.specialization || '',
+    startYear: edu.startYear != null ? String(edu.startYear) : '',
+    startMonth: edu.startMonth != null ? String(edu.startMonth) : '',
+    endYear: edu.endYear != null ? String(edu.endYear) : '',
+    endMonth: edu.endMonth != null ? String(edu.endMonth) : '',
+    currentlyStudying: Boolean(edu.isOngoing),
+    grade: edu.grade || '',
+    modeOfStudy: edu.modeOfStudy || '',
+    courseDuration: edu.courseDuration || '',
+    description: edu.description || '',
+    documents: Array.isArray(edu.documents) ? edu.documents : [],
+  };
+}
+
 function normalizeCandidateIdForDb(candidateId) {
   return String(candidateId || '').trim();
 }
@@ -1021,14 +1043,25 @@ async function saveEducation(req, res) {
 
     if (educationId) {
       // Update existing education
-      await prisma.education.update({
+      const updated = await prisma.education.update({
         where: { id: educationId },
         data: educationData,
       });
       logProfileSave('Education', 'updated', educationId, logData);
+      const ownerId = updated.candidateId || candidateId;
+      const all = ownerId
+        ? await prisma.education.findMany({
+            where: { candidateId: ownerId },
+            orderBy: { startYear: 'desc' },
+          })
+        : [updated];
       res.json({
         success: true,
         message: 'Education updated successfully',
+        data: {
+          education: mapEducationForClient(updated),
+          educations: all.map(mapEducationForClient),
+        },
       });
     } else {
       // Create new education
@@ -1039,12 +1072,16 @@ async function saveEducation(req, res) {
         },
       });
       logProfileSave('Education', 'created', candidateId, logData);
+      const all = await prisma.education.findMany({
+        where: { candidateId },
+        orderBy: { startYear: 'desc' },
+      });
       res.json({
         success: true,
         message: 'Education added successfully',
         data: {
-          id: created.id,
-          ...created,
+          education: mapEducationForClient(created),
+          educations: all.map(mapEducationForClient),
         },
       });
     }
@@ -1159,7 +1196,7 @@ async function saveWorkExperience(req, res) {
 
     if (experienceId) {
       // Update existing work experience
-      await prisma.workExperience.update({
+      const updated = await prisma.workExperience.update({
         where: { id: experienceId },
         data: experienceData,
       });
@@ -1185,6 +1222,7 @@ async function saveWorkExperience(req, res) {
       res.json({
         success: true,
         message: 'Work experience updated successfully',
+        data: mapWorkExperienceForClient(updated),
       });
     } else {
       // Create new work experience
@@ -1526,6 +1564,10 @@ async function saveSkills(req, res) {
     res.json({
       success: true,
       message: 'Skills saved successfully',
+      data: {
+        skills: Array.isArray(skills) ? skills : [],
+        additionalNotes: additionalNotes || null,
+      },
     });
   } catch (error) {
     console.error('Error saving skills:', error);
@@ -1682,6 +1724,9 @@ async function saveLanguages(req, res) {
     res.json({
       success: true,
       message: 'Languages saved successfully',
+      data: {
+        languages: Array.isArray(languages) ? languages : [],
+      },
     });
   } catch (error) {
     console.error('Error saving languages:', error);
@@ -2015,6 +2060,7 @@ async function updateCareerPreferences(req, res) {
     res.json({
       success: true,
       message: 'Career preferences updated successfully',
+      data: preferences,
     });
   } catch (error) {
     console.error('Error updating career preferences:', error);
@@ -2042,7 +2088,11 @@ async function saveSummary(req, res) {
     });
 
     logProfileSave('Summary', 'upserted', candidateId, { summaryText: summaryText || '' });
-    res.json({ success: true, message: 'Summary saved successfully' });
+    res.json({
+      success: true,
+      message: 'Summary saved successfully',
+      data: { summaryText: summaryText || '' },
+    });
   } catch (error) {
     console.error('Error saving summary:', error);
     res.status(500).json({
@@ -3033,7 +3083,11 @@ async function savePortfolioLinks(req, res) {
     };
 
     logProfileSave('Portfolio Links', 'upserted', candidateId, logData);
-    res.json({ success: true, message: 'Portfolio links saved successfully' });
+    res.json({
+      success: true,
+      message: 'Portfolio links saved successfully',
+      data: { links: linksArray },
+    });
   } catch (error) {
     console.error('Error saving portfolio links:', error);
     res.status(500).json({
@@ -3820,7 +3874,11 @@ async function saveAccomplishments(req, res) {
 
     logProfileSave('Accomplishments', 'saved', candidateId, logData);
 
-    res.json({ success: true, message: 'Accomplishments saved successfully' });
+    res.json({
+      success: true,
+      message: 'Accomplishments saved successfully',
+      data: { accomplishments: Array.isArray(accomplishments) ? accomplishments : [] },
+    });
   } catch (error) {
     console.error('Error saving accomplishments:', error);
     res.status(500).json({
@@ -3968,7 +4026,11 @@ async function saveVisaWorkAuthorization(req, res) {
 
     logProfileSave('Visa Work Authorization', 'upserted', candidateId, logData);
 
-    res.json({ success: true, message: 'Visa work authorization saved successfully' });
+    res.json({
+      success: true,
+      message: 'Visa work authorization saved successfully',
+      data: visa,
+    });
   } catch (error) {
     console.error('Error saving visa work authorization:', error);
     res.status(500).json({
@@ -4092,7 +4154,15 @@ async function saveVaccination(req, res) {
 
     logProfileSave('Vaccination', 'upserted', candidateId, logData);
 
-    res.json({ success: true, message: 'Vaccination saved successfully' });
+    res.json({
+      success: true,
+      message: 'Vaccination saved successfully',
+      data: {
+        ...vaccination,
+        documents: allDocuments,
+        certificate: allDocuments[0] || null,
+      },
+    });
   } catch (error) {
     console.error('Error saving vaccination:', error);
     res.status(500).json({

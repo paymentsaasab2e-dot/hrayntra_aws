@@ -304,7 +304,7 @@ model Session {
   userAgent         String?
   ipAddress         String?
   /// When the session/login started (mirrors createdAt for clarity in analytics).
-  loginAt           DateTime  @default(now())
+  loginAt           DateTime? @default(now())
   logoutAt          DateTime?
   /// Wall-clock session length in ms (logoutAt - loginAt) when closed.
   durationMs        Int?

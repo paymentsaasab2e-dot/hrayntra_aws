@@ -142,7 +142,15 @@ function uniqueJobIdsKeepOldest(rows) {
   }
 }
 
-async function uniqueJobIdsForAllCompanies(where) {
+/** Cap for all-companies identity dedupe window — never load every job id into Node. */
+const JOB_LIST_UNIQUE_MAX_K = Math.min(
+  10_000,
+  Math.max(200, Number(process.env.JOB_LIST_UNIQUE_MAX_K || 2500) || 2500),
+);
+
+async function uniqueJobIdsForAllCompanies(where, { skip = 0, limit = 50 } = {}) {
+  const pageWindow = Math.max(1, Number(skip) + Number(limit));
+  const take = Math.min(JOB_LIST_UNIQUE_MAX_K, Math.max(pageWindow, pageWindow * 2));
   try {
     const rows = await prisma.job.findMany({
       where,
@@ -156,13 +164,13 @@ async function uniqueJobIdsForAllCompanies(where) {
         createdAt: true,
         updatedAt: true,
       },
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+      take,
     });
     const seen = new Set();
     const kept = [];
-    const byCreated = [...rows].sort(
-      (a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime(),
-    );
-    for (const row of byCreated) {
+    // Prefer newest-first for list UX; still drop transfer-identity duplicates in-window.
+    for (const row of rows) {
       const key = transferIdentityKey('jobs', row);
       if (key) {
         if (seen.has(key)) continue;
@@ -170,20 +178,18 @@ async function uniqueJobIdsForAllCompanies(where) {
       }
       kept.push(row);
     }
-    kept.sort(
-      (a, b) =>
-        new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime() ||
-        new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime(),
-    );
-    return kept.map((row) => row.id);
+    const ids = kept.map((row) => row.id).filter(Boolean);
+    const capped = ids.length >= take;
+    return { ids, capped, take };
   } catch (error) {
-    console.error('[jobs] unique all-companies list failed, using full list', error);
+    console.error('[jobs] unique all-companies list failed, using bounded id list', error);
     const rows = await prisma.job.findMany({
       where,
       select: { id: true },
       orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+      take,
     });
-    return rows.map((row) => row.id);
+    return { ids: rows.map((row) => row.id), capped: rows.length >= take, take };
   }
 }
 
@@ -1496,17 +1502,28 @@ export const jobService = {
       ]);
     if (!isOrgCompanyScoped(orgScope)) {
       try {
-        const uniqueIds = await uniqueJobIdsForAllCompanies(scopedWhere);
-        total = uniqueIds.length;
-        const pageIds = uniqueIds.slice(skip, skip + limit);
-        jobs = pageIds.length
-          ? await prisma.job.findMany({
-              where: { id: { in: pageIds } },
-              include: jobListInclude,
-            })
-          : [];
-        const order = new Map(pageIds.map((id, index) => [id, index]));
-        jobs.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+        const uniqueResult = await uniqueJobIdsForAllCompanies(scopedWhere, { skip, limit });
+        const uniqueIds = uniqueResult.ids;
+        // Prefer exact DB count for pagination chrome; unique window only drives the page slice.
+        const [pageCount] = await Promise.all([prisma.job.count({ where: scopedWhere })]);
+        total = pageCount;
+        const pageIds =
+          uniqueIds.length > skip
+            ? uniqueIds.slice(skip, skip + limit)
+            : uniqueIds.slice(0, limit);
+        // Deep page beyond unique window: fall back to standard skip/take (no full-table unique scan).
+        if (skip >= uniqueIds.length && uniqueResult.capped) {
+          [jobs, total] = await loadPagedJobs();
+        } else {
+          jobs = pageIds.length
+            ? await prisma.job.findMany({
+                where: { id: { in: pageIds } },
+                include: jobListInclude,
+              })
+            : [];
+          const order = new Map(pageIds.map((id, index) => [id, index]));
+          jobs.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+        }
       } catch (error) {
         console.error('[jobs] unique page load failed, using standard list', error);
         [jobs, total] = await loadPagedJobs();
@@ -2711,14 +2728,8 @@ export const jobService = {
     const allCompaniesView = !isOrgCompanyScoped(org);
 
     const countUnique = async (where) => {
-      if (!allCompaniesView) return prisma.job.count({ where });
-      try {
-        const ids = await uniqueJobIdsForAllCompanies(where);
-        return ids.length;
-      } catch (error) {
-        console.error('[jobs] unique metrics failed, using standard count', error);
-        return prisma.job.count({ where });
-      }
+      // Exact DB count — avoid loading all job ids into Node for metrics.
+      return prisma.job.count({ where });
     };
 
     const activeJobs = await countUnique({ ...scope, status: 'OPEN' });
@@ -2743,6 +2754,8 @@ export const jobService = {
             createdAt: true,
           }
         : { id: true },
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+      take: JOB_LIST_UNIQUE_MAX_K,
     });
     const metricJobIds = allCompaniesView
       ? uniqueJobIdsKeepOldest(jobsForCandidateMetrics)

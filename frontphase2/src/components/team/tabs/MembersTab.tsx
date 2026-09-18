@@ -18,6 +18,7 @@ import { buildTeamCsvColumns, TEAM_EXPORT_COLUMNS } from '../../../lib/export/te
 import { TableColumnsMenu } from '../../table/TableColumnsMenu';
 import { usePersistedColumnVisibility } from '../../../hooks/usePersistedColumnVisibility';
 import { TEAM_TABLE_COLUMNS } from '../../../lib/tableColumns/moduleTableColumns';
+import { useFormatTableLocationCell } from '../../table/LocationColumnHeader';
 import { toast } from 'sonner';
 import useSWR from 'swr';
 import {
@@ -160,6 +161,7 @@ export const MembersTab: React.FC<MembersTabProps> = ({
     'team.visibleColumns',
     TEAM_TABLE_COLUMNS,
   );
+  const { format: formatLocationCell } = useFormatTableLocationCell();
 
   const debouncedSearch = useDebounce(searchQuery, 300);
 
@@ -795,7 +797,7 @@ export const MembersTab: React.FC<MembersTabProps> = ({
                         ) : null}
                         {show('location') ? (
                           <td className="px-3 py-3 text-xs text-slate-600 sm:px-4 sm:py-3.5">
-                            {member.location || '—'}
+                            {formatLocationCell(member.location)}
                           </td>
                         ) : null}
                         {show('designation') ? (

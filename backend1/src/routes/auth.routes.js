@@ -10,6 +10,7 @@ const {
   logout,
   checkCredential,
   listSessions,
+  getMe,
 } = require('../controllers/auth.controller');
 const { protect } = require('../middleware/auth.middleware');
 
@@ -23,6 +24,7 @@ router.post('/forgot-password', forgotPassword);
 router.post('/reset-password', resetPassword);
 router.post('/check-credential', checkCredential);
 router.post('/set-password', protect, setPassword);
+router.get('/me', protect, getMe);
 router.get('/sessions', protect, listSessions);
 router.post('/logout', protect, logout);
 

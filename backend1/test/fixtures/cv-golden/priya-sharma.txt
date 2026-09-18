@@ -1,0 +1,24 @@
+Priya Sharma
+Full Stack Developer
+Bengaluru, India
+Email: priya.sharma@example.com
+Phone: +91-98765-43210
+DOB: 21 July 1992
+Gender: Female
+
+PROFESSIONAL SUMMARY
+Full stack developer specializing in Python/Django and modern web UIs.
+
+WORK EXPERIENCE
+Full Stack Developer — Lotus Systems (2020–Present)
+- Django REST APIs and PostgreSQL
+- Mentored junior engineers
+
+Backend Developer — River Soft (2017–2020)
+- Built microservices in Python
+
+EDUCATION
+M.Tech Information Technology — IIIT Bangalore (2017)
+
+SKILLS
+Python, Django, PostgreSQL, REST, Docker

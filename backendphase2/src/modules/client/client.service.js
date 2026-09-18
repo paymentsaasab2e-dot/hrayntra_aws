@@ -216,17 +216,32 @@ async function mergePortalDuplicateClientsByCompanyName() {
 }
 
 async function listClientIdsThatHaveJobs() {
-  const rows = await prisma.job.findMany({
-    where: { clientId: { not: null } },
-    select: { clientId: true },
-  });
-  return [
-    ...new Set(
-      rows
-        .map((row) => String(row.clientId || '').trim())
-        .filter((id) => /^[a-fA-F0-9]{24}$/.test(id)),
-    ),
-  ];
+  try {
+    const rows = await prisma.job.findMany({
+      where: { clientId: { not: null }, isDeleted: { not: true } },
+      select: { clientId: true },
+      distinct: ['clientId'],
+    });
+    return rows
+      .map((row) => String(row.clientId || '').trim())
+      .filter((id) => /^[a-fA-F0-9]{24}$/.test(id));
+  } catch (err) {
+    // distinct unsupported / legacy — fall back to bounded scan
+    console.warn('[client] distinct clientId failed, using bounded scan:', err?.message || err);
+    const rows = await prisma.job.findMany({
+      where: { clientId: { not: null }, isDeleted: { not: true } },
+      select: { clientId: true },
+      take: 10_000,
+      orderBy: { updatedAt: 'desc' },
+    });
+    return [
+      ...new Set(
+        rows
+          .map((row) => String(row.clientId || '').trim())
+          .filter((id) => /^[a-fA-F0-9]{24}$/.test(id)),
+      ),
+    ];
+  }
 }
 
 function recruitmentEnabledCreateFields(performedById = null) {

@@ -8,6 +8,7 @@ import { WorkspaceAlertTableCell, WorkspaceAlertTableHeader } from './ai/Workspa
 import { apiUpdateClient, filesApiUpload } from '../lib/api';
 import { requestError, requestWarning } from '../lib/appDialog';
 import { TableAuditColumnHeader, TableAuditCell } from './table/TableAuditCell';
+import { useFormatTableLocationCell } from './table/LocationColumnHeader';
 import {
   clientStatusBadgeClass,
   resolveClientStatusLabel,
@@ -109,6 +110,7 @@ export function ClientTable({
   const [uploadingClientId, setUploadingClientId] = useState<string | null>(null);
   const [pendingUploadClientId, setPendingUploadClientId] = useState<string | null>(null);
   const show = isColumnVisible;
+  const { format: formatLocationCell } = useFormatTableLocationCell();
 
   const toggleSelectAll = () => {
     if (selectedIds.length === clients.length) {
@@ -333,7 +335,17 @@ export function ClientTable({
                   <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">{client.industry}</td>
                 ) : null}
                 {show('location') ? (
-                  <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">{client.location}</td>
+                  <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
+                    {formatLocationCell(
+                      {
+                        location: client.location,
+                        country: client.country,
+                        city: client.city,
+                        state: client.state,
+                      },
+                      'Not specified',
+                    )}
+                  </td>
                 ) : null}
                 {dynamicColumnLabels.map((label) => {
                   const value = getDynamicFieldValue?.(client, label) ?? '';

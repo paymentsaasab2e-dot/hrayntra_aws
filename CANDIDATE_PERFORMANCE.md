@@ -7,6 +7,8 @@ Supersedes: `CANDIDATE_SEARCH_PERFORMANCE.md`, `CANDIDATE_INDEX_STRATEGY.md`, `C
 **Ops script:** `backendphase2/scripts/ensure-candidate-search-indexes.mjs`  
 (creates indexes, backfills `nameNormalized` + `nameSearchGrams`, explain + micro-bench)
 
+**Other Phase 2 list pages:** see `PHASE2_LIST_PERFORMANCE.md` (jobs, interviews, clients, leads, shared page-size cap).
+
 ---
 
 ## 1. Scale architecture (bounded k-way merge)

@@ -1289,7 +1289,9 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
   const canViewRecruitmentDashboard =
     mounted &&
     isOrgModuleEnabled('command_center') &&
-    (canViewDashboard || canViewJobs || canViewCandidates || canViewInterviews || canViewPlacements || showAll);
+    (showAll ||
+      isSuperAdmin() ||
+      hasAnyPermission(MODULE_ACCESS_MAP.RecDashboard));
   const canViewPipeline =
     mounted &&
     isOrgModuleEnabled('pipeline') &&
