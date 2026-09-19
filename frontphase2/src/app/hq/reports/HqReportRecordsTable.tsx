@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
-import { matchesQuickSearch, buildQuickSearchHaystack } from '../../lib/quickSearch';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '@/lib/quickSearch';
 import { HQ_REPORTS_BTN_SECONDARY, HQ_REPORTS_CARD } from './hqReportsChrome';
 
 export type HqReportTableColumn = {

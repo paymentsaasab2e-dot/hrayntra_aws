@@ -5,7 +5,7 @@
  * Data stored only in headquarters DB via /hq/leads.
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { matchesQuickSearch, buildQuickSearchHaystack } from '../../lib/quickSearch';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '@/lib/quickSearch';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
   CalendarClock,
