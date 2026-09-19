@@ -1,6 +1,7 @@
 const path = require('path');
 const { parseOurS3Url, uploadContentTypeForFile } = require('../lib/s3');
 const { fetchS3DocumentBuffer } = require('../lib/s3DocumentFetch');
+const { assertSafeOutboundUrl } = require('../utils/ssrf.util');
 
 const ALLOWED_EXT = /\.(pdf|png|jpe?g|webp|docx?|txt)($|[?#])/i;
 
@@ -49,8 +50,9 @@ async function fetchDocumentBuffer(decoded) {
     return fetchS3DocumentBuffer(decoded);
   }
 
+  assertSafeOutboundUrl(decoded, { allowHttp: false });
   const upstream = await fetch(decoded, {
-    redirect: 'follow',
+    redirect: 'error',
     headers: { Accept: '*/*' },
   });
   if (!upstream.ok) {

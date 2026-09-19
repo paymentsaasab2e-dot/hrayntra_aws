@@ -1,4 +1,7 @@
 const { Router } = require('express');
+const { protect } = require('../middleware/auth.middleware');
+const { requireOwnCandidate } = require('../middleware/requireOwnCandidate.middleware');
+const { requireSystemAdmin } = require('../middleware/system-admin.middleware');
 const {
   getAllCandidates,
   getCandidateById,
@@ -10,20 +13,14 @@ const {
 
 const router = Router();
 
-// Get all candidates
-router.get('/', getAllCandidates);
+// Listing / bulk delete are administrative
+router.get('/', requireSystemAdmin, getAllCandidates);
+router.delete('/bulk-delete', requireSystemAdmin, bulkDeleteCandidates);
+router.post('/delete-preview', requireSystemAdmin, getCandidatesDeletePreview);
 
-// Bulk delete (must be registered before /:id)
-router.delete('/bulk-delete', bulkDeleteCandidates);
-
-// Delete preview (full Phase 1 + common DB) — before /:id
-router.post('/delete-preview', getCandidatesDeletePreview);
-router.get('/:id/delete-preview', getCandidateDeletePreview);
-
-// Get single candidate
-router.get('/:id', getCandidateById);
-
-// Delete candidate
-router.delete('/:id', deleteCandidate);
+// Self-service (or admin via x-internal-admin-key bypass in requireOwnCandidate)
+router.get('/:id/delete-preview', protect, requireOwnCandidate, getCandidateDeletePreview);
+router.get('/:id', protect, requireOwnCandidate, getCandidateById);
+router.delete('/:id', protect, requireOwnCandidate, deleteCandidate);
 
 module.exports = router;

@@ -1,5 +1,6 @@
 const { prisma } = require('../lib/prisma');
 const { mapLmsDraftToRecruiterCvFields } = require('./lmsTailoredCvMapper.service');
+const { getPhase2PortalSyncSecretOrEmpty } = require('../config/secrets');
 
 function getPhase2BaseUrl() {
   return (
@@ -11,7 +12,7 @@ function getPhase2BaseUrl() {
 }
 
 function getPhase2SyncSecret() {
-  return process.env.PHASE2_PORTAL_SYNC_SECRET || 'phase2-portal-sync-2026-shared-secret';
+  return getPhase2PortalSyncSecretOrEmpty();
 }
 
 async function resolveTenantDbName(jobId) {

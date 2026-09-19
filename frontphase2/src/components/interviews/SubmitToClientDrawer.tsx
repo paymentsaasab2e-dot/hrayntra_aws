@@ -10,12 +10,14 @@ import { ClientCvSelectionPanel } from './ClientCvSelectionPanel';
 import { ResumePreviewModal } from '../candidates/ResumePreviewModal';
 import {
   buildCvSubmissionExtra,
+  readCvSubmission,
   resolveDefaultCvShareMode,
   type CvShareMode,
 } from '../../lib/cvEditorMapping';
 import { isResumeHttpUrl, normalizeResumeHref } from '../../lib/resumePreview';
 import { useSaasaCvAnnotations } from '../../hooks/useSaasaCvAnnotations';
 import { resolveSaasaCvPreviewUrl } from '../../lib/saasaCvAnnotations';
+import { buildFileHref } from '../../utils/cloudinaryUrls';
 import type { Interview } from '../../types/interview.types';
 import {
   apiGetCandidate,
@@ -454,6 +456,8 @@ export function SubmitToClientDrawer({
     () => readCachedSubmitToClientVisibilityDefaults().visibility,
   );
   const [cvShareMode, setCvShareMode] = useState<CvShareMode | null>(null);
+  const [selectedResumeFileId, setSelectedResumeFileId] = useState<string | null>(null);
+  const [resumeVersionPreviewUrl, setResumeVersionPreviewUrl] = useState<string | null>(null);
 
   useEffect(() => {
     return subscribeSubmitToClientVisibilityDefaultsChanged((defaults) => {
@@ -897,6 +901,148 @@ export function SubmitToClientDrawer({
   const [saasaPreviewOpen, setSaasaPreviewOpen] = useState(false);
   const [cvShareSaving, setCvShareSaving] = useState(false);
 
+  const resumeVersions = useMemo(() => {
+    const extra =
+      candidate?.extraData && typeof candidate.extraData === 'object' && !Array.isArray(candidate.extraData)
+        ? (candidate.extraData as Record<string, unknown>)
+        : {};
+    const primaryUrl = String(
+      candidate?.resume || candidate?.resumeUrl || extra.originalResumeUrl || '',
+    ).trim();
+    const normalizeKey = (url: string) => {
+      const raw = String(url || '').trim();
+      if (!raw) return '';
+      try {
+        const parsed = new URL(raw);
+        return `${parsed.origin}${parsed.pathname}`.replace(/\/+$/, '').toLowerCase();
+      } catch {
+        return raw.split('?')[0]?.replace(/\/+$/, '').toLowerCase() || '';
+      }
+    };
+    const primaryKey = normalizeKey(primaryUrl);
+    const toHref = (raw: string) => {
+      if (!raw) return '';
+      return isResumeHttpUrl(raw) ? normalizeResumeHref(raw) : buildFileHref(raw, uploadsBase);
+    };
+
+    const fileByUrl = new Map<
+      string,
+      { id: string; fileName: string; fileUrl: string; uploadDate?: string; isPrimary: boolean }
+    >();
+    for (const file of candidateFiles) {
+      const type = String(file.fileType || '').trim();
+      if (/^SAASA_CV$/i.test(type)) continue;
+      const name = String(file.fileName || file.fileUrl || '');
+      if (/(?:SAASA|HRYantra|HRYANTRA)[\s_-]*CV/i.test(name)) continue;
+      const raw = String(file.fileUrl || '').trim();
+      const urlOk =
+        /^resume$/i.test(type) ||
+        /^cv$/i.test(type) ||
+        /\/resumes\/|\/cv-files\//i.test(raw) ||
+        /\.(pdf|docx?)($|[?#])/i.test(raw);
+      if (!urlOk || !raw) continue;
+      const key = normalizeKey(raw);
+      if (!key) continue;
+      fileByUrl.set(key, {
+        id: file.id,
+        fileName: file.fileName || 'Resume',
+        fileUrl: toHref(raw),
+        uploadDate: file.uploadDate,
+        isPrimary: Boolean(primaryKey && key === primaryKey),
+      });
+    }
+
+    const stored = Array.isArray(extra.resumeVersions) ? extra.resumeVersions : [];
+    const fromStored = stored
+      .map((row, index) => {
+        if (!row || typeof row !== 'object') return null;
+        const item = row as {
+          id?: string | null;
+          fileUrl?: string | null;
+          fileName?: string | null;
+          uploadedAt?: string | null;
+          isPrimary?: boolean;
+        };
+        const raw = String(item.fileUrl || '').trim();
+        const key = normalizeKey(raw);
+        if (!raw || !key) return null;
+        const matched = fileByUrl.get(key);
+        return {
+          id: String(item.id || '').trim() || matched?.id || `stored-${index}-${key}`,
+          fileName: String(item.fileName || matched?.fileName || '').trim() || 'Resume',
+          fileUrl: toHref(raw),
+          uploadDate: item.uploadedAt || matched?.uploadDate,
+          isPrimary: Boolean(item.isPrimary) || Boolean(primaryKey && key === primaryKey),
+          _key: key,
+        };
+      })
+      .filter(Boolean) as Array<{
+      id: string;
+      fileName: string;
+      fileUrl: string;
+      uploadDate?: string;
+      isPrimary: boolean;
+      _key: string;
+    }>;
+
+    let rows =
+      fromStored.length > 0
+        ? fromStored
+            .filter((row) => {
+              if (primaryKey && row._key === primaryKey) return true;
+              if (fileByUrl.size === 0) return true;
+              return fileByUrl.has(row._key);
+            })
+            .map(({ _key: _ignored, ...rest }) => rest)
+        : Array.from(fileByUrl.values());
+
+    if (
+      primaryUrl &&
+      !rows.some((row) => normalizeKey(row.fileUrl) === primaryKey)
+    ) {
+      const href = toHref(primaryUrl);
+      if (href) {
+        rows = [
+          {
+            id: '__primary_resume__',
+            fileName: String(extra.originalResumeFileName || 'Original CV'),
+            fileUrl: href,
+            uploadDate: undefined,
+            isPrimary: true,
+          },
+          ...rows,
+        ];
+      }
+    }
+
+    rows.sort((a, b) => {
+      if (a.isPrimary && !b.isPrimary) return -1;
+      if (!a.isPrimary && b.isPrimary) return 1;
+      const aHas = Boolean(a.uploadDate && Date.parse(String(a.uploadDate)));
+      const bHas = Boolean(b.uploadDate && Date.parse(String(b.uploadDate)));
+      if (!aHas && bHas) return -1;
+      if (aHas && !bHas) return 1;
+      const ta = Date.parse(String(a.uploadDate || '')) || 0;
+      const tb = Date.parse(String(b.uploadDate || '')) || 0;
+      return ta - tb;
+    });
+    return rows;
+  }, [candidate?.resume, candidate?.resumeUrl, candidate?.extraData, candidateFiles, uploadsBase]);
+
+  useEffect(() => {
+    if (!candidate) {
+      setSelectedResumeFileId(null);
+      return;
+    }
+    const storedId = readCvSubmission(candidate)?.resumeFileId || null;
+    if (storedId && resumeVersions.some((v) => v.id === storedId)) {
+      setSelectedResumeFileId(storedId);
+      return;
+    }
+    const primary = resumeVersions.find((v) => v.isPrimary);
+    setSelectedResumeFileId(primary?.id || resumeVersions[0]?.id || null);
+  }, [candidate, resumeVersions]);
+
   const saasaCv = useSaasaCvAnnotations({
     candidateId: isOpen ? candidateId : null,
     candidateName: fullName,
@@ -947,16 +1093,47 @@ export function SubmitToClientDrawer({
       setCvShareMode(null);
       return;
     }
-    setCvShareMode(resolveDefaultCvShareMode(candidate, hasOriginalCv, hasSaasaCvExport));
-  }, [candidate, hasOriginalCv, hasSaasaCvExport]);
+    setCvShareMode(
+      resolveDefaultCvShareMode(
+        candidate,
+        hasOriginalCv || resumeVersions.length > 0,
+        hasSaasaCvExport,
+      ),
+    );
+  }, [candidate, hasOriginalCv, hasSaasaCvExport, resumeVersions.length]);
 
-  const persistCvShareMode = async (mode: CvShareMode) => {
+  const persistCvShareMode = async (mode: CvShareMode, resumeFileId?: string | null) => {
     if (!candidate?.id) return;
     setCvShareMode(mode);
+    if (mode === 'original') {
+      const nextId =
+        resumeFileId ||
+        selectedResumeFileId ||
+        resumeVersions.find((v) => v.isPrimary)?.id ||
+        resumeVersions[0]?.id ||
+        null;
+      setSelectedResumeFileId(nextId);
+      setCvShareSaving(true);
+      try {
+        const extraData = buildCvSubmissionExtra(candidate.extraData ?? null, {
+          shareMode: mode,
+          resumeFileId: nextId,
+          updatedAt: new Date().toISOString(),
+        });
+        const updatedRaw = await apiUpdateCandidate(candidate.id, { extraData });
+        setCandidate(extractApiData<BackendCandidate>(updatedRaw));
+      } catch (error: unknown) {
+        onToast(error instanceof Error ? error.message : 'Unable to save CV selection');
+      } finally {
+        setCvShareSaving(false);
+      }
+      return;
+    }
     setCvShareSaving(true);
     try {
       const extraData = buildCvSubmissionExtra(candidate.extraData ?? null, {
         shareMode: mode,
+        resumeFileId: null,
         updatedAt: new Date().toISOString(),
       });
       const updatedRaw = await apiUpdateCandidate(candidate.id, { extraData });
@@ -973,27 +1150,38 @@ export function SubmitToClientDrawer({
     cvShareMode,
     cvShareSaving,
     hasEditedCv: false,
-    hasOriginalCv: false,
+    hasOriginalCv: hasOriginalCv || resumeVersions.length > 0,
     hasSaasaCv: hasSaasaCvExport,
     canOpenSaasaCv,
     saasaCvFileName,
     saasaAnnotationCount: saasaCv.annotationCount,
     saasaCvPreviewUrl: saasaCvPreviewUrl || '',
     resumeHref,
+    resumeVersions,
+    selectedResumeFileId,
     cvEditorLoading: false,
     saasaCvBusy: saasaCv.busy,
     loading,
     onSelectMode: (mode: CvShareMode) => void persistCvShareMode(mode),
+    onSelectResumeVersion: (fileId: string) => void persistCvShareMode('original', fileId),
     onExcludeVersion: () => undefined,
     onEditCv: () => undefined,
     onPreviewEdited: () => undefined,
-    onPreviewOriginal: () => undefined,
+    onPreviewOriginal: () => {
+      const url =
+        resumeVersions.find((v) => v.id === selectedResumeFileId)?.fileUrl || resumeHref;
+      if (url) setResumeVersionPreviewUrl(url);
+    },
+    onPreviewResumeVersion: (fileId: string) => {
+      const url = resumeVersions.find((v) => v.id === fileId)?.fileUrl;
+      if (url) setResumeVersionPreviewUrl(url);
+    },
     onOpenSaasaCv: () => saasaCv.openModal(),
     onPreviewSaasaCv: () => {
       if (saasaCvPreviewUrl) setSaasaPreviewOpen(true);
     },
     showEditedOption: false,
-    showOriginalOption: false,
+    showOriginalOption: true,
   };
 
   const saveDetails = async () => {
@@ -1334,6 +1522,10 @@ export function SubmitToClientDrawer({
               });
         const extraData = buildCvSubmissionExtra(presentationExtra, {
           shareMode: cvShareMode,
+          resumeFileId:
+            cvShareMode === 'original'
+              ? selectedResumeFileId || resumeVersions[0]?.id || null
+              : null,
           updatedAt: new Date().toISOString(),
         });
         const updatedRaw = await apiUpdateCandidate(candidate.id, { extraData });
@@ -1345,6 +1537,10 @@ export function SubmitToClientDrawer({
         (activeSource.kind === 'interview' ? activeSource.interview?.job?.title || '' : '') ||
         'this role';
       const message = `Please review the submitted candidate details for ${title}. Purpose: ${purpose}.`;
+      const submitResumeFileId =
+        cvShareMode === 'original'
+          ? selectedResumeFileId || resumeVersions[0]?.id || undefined
+          : undefined;
 
       if (activeSource.kind === 'interview') {
         let interviewEmailSent = false;
@@ -1355,6 +1551,7 @@ export function SubmitToClientDrawer({
             message,
         submissionType,
             cvShareMode: cvShareMode || undefined,
+            resumeFileId: submitResumeFileId,
           });
           const submitted = extractApiData<{
             reviewUrl?: string;
@@ -1395,6 +1592,7 @@ export function SubmitToClientDrawer({
           notifyClient: true,
           submissionType,
           cvShareMode: cvShareMode || undefined,
+          resumeFileId: submitResumeFileId,
           toEmail: primaryRecipient?.toEmail,
           additionalClients,
         });
@@ -1796,6 +1994,12 @@ export function SubmitToClientDrawer({
       onClose={() => setSaasaPreviewOpen(false)}
       resumeUrl={saasaCvPreviewUrl || null}
       candidateName={`HRYantra CV — ${fullName}`}
+    />
+    <ResumePreviewModal
+      isOpen={Boolean(resumeVersionPreviewUrl)}
+      onClose={() => setResumeVersionPreviewUrl(null)}
+      resumeUrl={resumeVersionPreviewUrl}
+      candidateName={`${fullName} — CV version`}
     />
     </>
   );

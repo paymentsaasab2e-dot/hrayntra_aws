@@ -105,15 +105,40 @@ function withDownloadExtension(filename: string, extension: string): string {
   return `${base}.${extension}`;
 }
 
-async function downloadBlob(blob: Blob, filename: string) {
+function isAlreadyWatermarkedResumeStream(url: string): boolean {
+  const raw = String(url || '');
+  return (
+    /\/client-review\/[^/?#]+\/resume(?:\?|$|\/)/i.test(raw) ||
+    /\/interviews\/public\/review\/[^/?#]+\/resume(?:\?|$|\/)/i.test(raw)
+  );
+}
+
+async function downloadBlob(
+  blob: Blob,
+  filename: string,
+  watermarkOverride?: import('../lib/exportWatermark').ExportWatermarkSettings | null,
+  options?: { skipWatermark?: boolean },
+) {
   let stamped = blob;
-  try {
-    const { fetchAndCacheOrgWatermark } = await import('../lib/useOrgExportWatermark');
-    const { stampDownloadBlob } = await import('../lib/exportWatermark');
-    await fetchAndCacheOrgWatermark();
-    stamped = await stampDownloadBlob(blob, filename);
-  } catch {
-    stamped = blob;
+  if (!options?.skipWatermark) {
+    try {
+      const { fetchAndCacheOrgWatermark } = await import('../lib/useOrgExportWatermark');
+      const {
+        stampDownloadBlob,
+        preloadOrgWatermarkLogo,
+        normalizeExportWatermark,
+        writeCachedOrgWatermark,
+      } = await import('../lib/exportWatermark');
+      if (watermarkOverride) {
+        writeCachedOrgWatermark(normalizeExportWatermark(watermarkOverride));
+      } else {
+        await fetchAndCacheOrgWatermark();
+      }
+      await preloadOrgWatermarkLogo(watermarkOverride ?? undefined);
+      stamped = await stampDownloadBlob(blob, filename, watermarkOverride);
+    } catch {
+      stamped = blob;
+    }
   }
   const objectUrl = URL.createObjectURL(stamped);
   const link = document.createElement('a');
@@ -131,6 +156,8 @@ export async function triggerFileDownload(
   options?: {
     filename?: string;
     uploadsBase?: string;
+    /** Optional org watermark (e.g. public client-review payload). */
+    watermark?: import('../lib/exportWatermark').ExportWatermarkSettings | null;
   },
 ): Promise<void> {
   const uploadsBase = options?.uploadsBase || '';
@@ -141,6 +168,8 @@ export async function triggerFileDownload(
   const requestedFilename = sanitizeFilename(options?.filename || inferFilenameFromUrl(sourceUrl));
   const token = typeof window !== 'undefined' ? getAccessToken() : null;
   const authHeaders: HeadersInit | undefined = token ? { Authorization: `Bearer ${token}` } : undefined;
+  const watermark = options?.watermark ?? null;
+  const skipWatermark = isAlreadyWatermarkedResumeStream(sourceUrl);
 
   const proxyPath = resolveDownloadFilePath(sourceUrl, uploadsBase);
   if (proxyPath) {
@@ -152,7 +181,7 @@ export async function triggerFileDownload(
     if (!response.ok) {
       throw new Error(`Download failed (${response.status})`);
     }
-    await downloadBlob(await response.blob(), requestedFilename);
+    await downloadBlob(await response.blob(), requestedFilename, watermark, { skipWatermark });
     return;
   }
 
@@ -172,7 +201,9 @@ export async function triggerFileDownload(
     const urlExt = getResumeExtension(normalizedSource || sourceUrl);
     const contentExt = inferExtensionFromContentType(response.headers.get('content-type') || blob.type);
     const downloadName = withDownloadExtension(requestedFilename, urlExt || contentExt);
-    await downloadBlob(blob, downloadName);
+    await downloadBlob(blob, downloadName, watermark, {
+      skipWatermark: skipWatermark || isAlreadyWatermarkedResumeStream(resumeProxyUrl),
+    });
     return;
   }
 
@@ -193,7 +224,9 @@ export async function triggerFileDownload(
         lastError = new Error(`Download failed (${response.status})`);
         continue;
       }
-      await downloadBlob(await response.blob(), requestedFilename);
+      await downloadBlob(await response.blob(), requestedFilename, watermark, {
+        skipWatermark: skipWatermark || isAlreadyWatermarkedResumeStream(target),
+      });
       return;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error('Download failed');

@@ -673,8 +673,7 @@ function queueCandidateJobMatchAlerts(jobId) {
   if (!id || !base) return;
 
   const secret =
-    String(process.env.PHASE2_PORTAL_SYNC_SECRET || '').trim() ||
-    'phase2-portal-sync-2026-shared-secret';
+    String(process.env.PHASE2_PORTAL_SYNC_SECRET || '').trim();
 
   setImmediate(() => {
     fetch(`${base}/api/internal/job-match-alerts`, {

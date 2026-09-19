@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken');
+const { requireJwtSecret } = require('../../config/secrets');
 
 function requireLmsAuth(req, res, next) {
   const authHeader = req.headers.authorization;
@@ -8,7 +9,7 @@ function requireLmsAuth(req, res, next) {
 
   const token = authHeader.split(' ')[1];
   try {
-    const secret = process.env.JWT_SECRET || 'saasa_jwt_secret_key_2024';
+    const secret = requireJwtSecret();
     const decoded = jwt.verify(token, secret);
     
     // Map candidateId from payload to req.user.id

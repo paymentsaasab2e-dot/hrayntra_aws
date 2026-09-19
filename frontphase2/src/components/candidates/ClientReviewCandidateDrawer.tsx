@@ -19,7 +19,7 @@ import {
 } from '../../lib/clientTrackerOptions';
 import { isClientReviewFileHref } from '../../lib/clientReviewAssets';
 import { isSubmitToClientCandidateNameVisible } from '../../lib/submitToClientFieldVisibility';
-import { clientReviewFieldFallbacks } from '../../lib/clientReviewFieldFallbacks';
+import { clientReviewFieldFallbacks, resolveClientReviewFullName } from '../../lib/clientReviewFieldFallbacks';
 
 const EASE_OUT = [0.22, 1, 0.36, 1] as const;
 
@@ -59,7 +59,10 @@ export function ClientReviewCandidateDrawer({
 }: Props) {
   const reviewData = row?.detail ?? null;
   const displayName = isSubmitToClientCandidateNameVisible(reviewData?.visibleFields)
-    ? row?.candidateName || reviewData?.candidate?.name || 'Candidate'
+    ? (row ? resolveClientReviewFullName(row) : '') ||
+      row?.candidateName ||
+      reviewData?.candidate?.name ||
+      'Candidate'
     : 'Candidate';
   const submissionType = String(reviewData?.submissionType || 'GENERAL').toUpperCase();
   const isOfferFlow = submissionType === 'OFFER_CONFIRMATION';

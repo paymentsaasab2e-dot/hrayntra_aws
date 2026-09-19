@@ -1,40 +1,34 @@
 const express = require('express');
 const router = express.Router();
 const jobController = require('../controllers/job.controller');
+const { protect } = require('../middleware/auth.middleware');
+const { requireSystemAdmin } = require('../middleware/system-admin.middleware');
 
-// Adzuna / Careerjet XML feeds (must be before /:jobId)
+// PUBLIC: partner XML feeds / status
 router.get('/adzuna.xml', jobController.getAdzunaFeed);
 router.get('/adzuna/status', jobController.getAdzunaStatus);
 router.get('/careerjet.xml', jobController.getCareerjetFeed);
 
-// Get personalized job matches
-router.get('/personalized', jobController.getPersonalizedJobs);
+// SENSITIVE: personalized matches require auth
+router.get('/personalized', protect, jobController.getPersonalizedJobs);
 
-// Get location recommendations
+// PUBLIC: job browse / autocomplete (intended catalog)
 router.get('/location-recommend', jobController.recommendLocations);
-
-// Get job recommendations (autocomplete)
 router.get('/recommend', jobController.recommendJobs);
-
-// Get all jobs
 router.get('/', jobController.getAllJobs);
 
-// Phase 2 CRM calls this after mirroring job edits to the portal DB.
-router.post('/cache/invalidate', jobController.invalidateJobsCache);
+// SENSITIVE: mutating / admin — system admin key
+router.post('/cache/invalidate', requireSystemAdmin, jobController.invalidateJobsCache);
+router.post('/seed', requireSystemAdmin, jobController.seedSampleJobs);
+router.delete('/bulk-delete', requireSystemAdmin, jobController.bulkDeleteJobs);
 
-// Seed sample jobs (for testing)
-router.post('/seed', jobController.seedSampleJobs);
+// Pre-screen assessments — auth required (candidate-facing detail)
+router.get('/:jobId/pre-screen-assessments', protect, jobController.getJobPreScreenAssessments);
 
-// Bulk delete jobs
-router.delete('/bulk-delete', jobController.bulkDeleteJobs);
-
-// Pre-screen assessments mirrored from Phase 2 CRM
-router.get('/:jobId/pre-screen-assessments', jobController.getJobPreScreenAssessments);
-
-// Get job by ID
+// PUBLIC: single job detail for browsing
 router.get('/:jobId', jobController.getJobById);
 
-// Delete a single job
-router.delete('/:jobId', jobController.deleteJob);
+// SENSITIVE: delete
+router.delete('/:jobId', requireSystemAdmin, jobController.deleteJob);
 
 module.exports = router;

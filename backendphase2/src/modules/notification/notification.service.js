@@ -123,9 +123,7 @@ export async function pushPortalNotification(portalCandidateId, payload) {
       .trim()
       .replace(/\/+$/, '');
     const secret =
-      env.PHASE2_PORTAL_SYNC_SECRET ||
-      process.env.PHASE2_PORTAL_SYNC_SECRET ||
-      'phase2-portal-sync-2026-shared-secret';
+      env.PHASE2_PORTAL_SYNC_SECRET || process.env.PHASE2_PORTAL_SYNC_SECRET || '';
 
     const res = await fetch(`${base}/api/internal/portal-notification`, {
       method: 'POST',

@@ -34,6 +34,8 @@ import {
   publicClientTagSchema,
 } from '../../validators/interview.validator.js';
 
+import { publicTokenRateLimit } from '../../middleware/publicRateLimit.middleware.js';
+
 const router = express.Router();
 
 const __filename = fileURLToPath(import.meta.url);
@@ -64,21 +66,25 @@ const clientReviewUpload = multer({
 
 router.get(
   '/public/review/:token',
+  publicTokenRateLimit,
   validateRequest({ params: reviewTokenParamSchema }),
   interviewController.getPublicClientReview
 );
 router.get(
   '/public/review/:token/resume',
+  publicTokenRateLimit,
   validateRequest({ params: reviewTokenParamSchema }),
   interviewController.streamPublicClientReviewResume
 );
 router.get(
   '/public/review/:token/files/:fileId',
+  publicTokenRateLimit,
   validateRequest({ params: reviewFileParamSchema }),
   interviewController.streamPublicClientReviewFile
 );
 router.post(
   '/public/review/:token/tag',
+  publicTokenRateLimit,
   clientReviewUpload.single('offerLetter'),
   validateRequest({ params: reviewTokenParamSchema, body: publicClientTagSchema }),
   interviewController.submitPublicClientTag
@@ -86,21 +92,25 @@ router.post(
 
 router.get(
   '/public/rsvp/:token',
+  publicTokenRateLimit,
   validateRequest({ params: reviewTokenParamSchema }),
   interviewController.getPublicInterviewRsvp
 );
 router.post(
   '/public/rsvp/:token/accept',
+  publicTokenRateLimit,
   validateRequest({ params: reviewTokenParamSchema }),
   interviewController.acceptPublicInterviewRsvp
 );
 router.post(
   '/public/rsvp/:token/reject',
+  publicTokenRateLimit,
   validateRequest({ params: reviewTokenParamSchema }),
   interviewController.rejectPublicInterviewRsvp
 );
 router.post(
   '/public/rsvp/:token/reschedule',
+  publicTokenRateLimit,
   validateRequest({ params: reviewTokenParamSchema }),
   interviewController.reschedulePublicInterviewRsvp
 );

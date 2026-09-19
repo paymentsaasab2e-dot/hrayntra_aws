@@ -97,6 +97,7 @@ import {
   apiAddCandidateToPipeline,
   apiDeleteCandidate,
   apiRemoveCandidateFromPipeline,
+  filesApiGet,
   type BackendCandidate,
   type BackendInterviewListItem,
   type AddCandidatePayload,
@@ -690,26 +691,200 @@ export interface JobCandidateItem {
   isJobAppliedCandidate?: boolean;
 }
 
+type PickerResumeVersion = {
+  id: string;
+  fileUrl: string;
+  fileName: string;
+  isPrimary?: boolean;
+};
+
 type PickerCvMeta = {
   hasOriginal: boolean;
   hasSaasa: boolean;
   hasEdited: boolean;
   originalUrl: string | null;
   saasaUrl: string | null;
+  resumeVersions: PickerResumeVersion[];
 };
 
-function buildPickerCvMeta(candidate: BackendCandidate | null | undefined): PickerCvMeta {
-  const originalUrl = String(candidate?.resumeUrl || candidate?.resume || '').trim() || null;
+function normalizePickerResumeUrl(url: string): string {
+  const raw = String(url || '').trim();
+  if (!raw) return '';
+  try {
+    const parsed = new URL(raw);
+    return `${parsed.origin}${parsed.pathname}`.replace(/\/+$/, '').toLowerCase();
+  } catch {
+    return raw.split('?')[0]?.replace(/\/+$/, '').toLowerCase() || '';
+  }
+}
+
+function isPickerResumeFile(file: {
+  fileType?: string;
+  fileUrl?: string | null;
+  fileName?: string;
+}): boolean {
+  const type = String(file.fileType || '').trim();
+  if (/^SAASA_CV$/i.test(type)) return false;
+  const name = String(file.fileName || file.fileUrl || '');
+  if (/(?:SAASA|HRYantra|HRYANTRA)[\s_-]*CV/i.test(name)) return false;
+  if (/^resume$/i.test(type) || /^cv$/i.test(type)) return true;
+  const url = String(file.fileUrl || '');
+  if (/\/resumes\/|\/cv-files\//i.test(url)) return true;
+  return /\.(pdf|docx?)($|[?#])/i.test(url) || /\.(pdf|docx?)$/i.test(name);
+}
+
+function isRealResumeFileId(id: string): boolean {
+  return /^[a-f\d]{24}$/i.test(String(id || '').trim());
+}
+
+function buildPickerResumeVersions(
+  candidate: BackendCandidate | null | undefined,
+  files: Array<{
+    id: string;
+    fileUrl?: string | null;
+    fileType?: string;
+    fileName?: string;
+    uploadDate?: string;
+    createdAt?: string;
+  }> = [],
+): PickerResumeVersion[] {
+  const extra =
+    candidate?.extraData && typeof candidate.extraData === 'object' && !Array.isArray(candidate.extraData)
+      ? (candidate.extraData as Record<string, unknown>)
+      : {};
+  const primary = String(
+    candidate?.resumeUrl || candidate?.resume || extra.originalResumeUrl || '',
+  ).trim();
+  const primaryKey = normalizePickerResumeUrl(primary);
+  const originalKey =
+    primaryKey || normalizePickerResumeUrl(String(extra.firstOriginalResumeUrl || '').trim());
+
+  const fileByUrl = new Map<string, PickerResumeVersion & { uploadDate?: string }>();
+  for (const file of files) {
+    if (!isPickerResumeFile(file)) continue;
+    const raw = String(file.fileUrl || '').trim();
+    const key = normalizePickerResumeUrl(raw);
+    if (!key) continue;
+    fileByUrl.set(key, {
+      id: file.id,
+      fileUrl: raw,
+      fileName: file.fileName || 'Resume',
+      isPrimary: Boolean(primaryKey && key === primaryKey),
+      uploadDate: file.uploadDate || file.createdAt,
+    });
+  }
+
+  const stored = Array.isArray(extra.resumeVersions) ? extra.resumeVersions : [];
+  const fromStored: Array<PickerResumeVersion & { uploadDate?: string }> = stored
+    .map((row, index) => {
+      if (!row || typeof row !== 'object') return null;
+      const item = row as {
+        id?: string | null;
+        fileUrl?: string | null;
+        fileName?: string | null;
+        uploadedAt?: string | null;
+        isPrimary?: boolean;
+      };
+      const raw = String(item.fileUrl || '').trim();
+      const key = normalizePickerResumeUrl(raw);
+      if (!raw || !key) return null;
+      const matchedFile = fileByUrl.get(key);
+      return {
+        id: String(item.id || '').trim() || matchedFile?.id || `stored-${index}-${key}`,
+        fileUrl: raw,
+        fileName: String(item.fileName || matchedFile?.fileName || '').trim() || 'Resume',
+        isPrimary:
+          Boolean(item.isPrimary) || Boolean(primaryKey && key === primaryKey),
+        uploadDate: item.uploadedAt || matchedFile?.uploadDate || undefined,
+      };
+    })
+    .filter(Boolean) as Array<PickerResumeVersion & { uploadDate?: string }>;
+
+  // Prefer stored resumeVersions so deleted/replaced CVs are not resurrected from files.
+  // When files are present, drop stored URLs that no longer have a file (except current primary).
+  let versions: Array<PickerResumeVersion & { uploadDate?: string }>;
+  if (fromStored.length > 0) {
+    versions = fromStored.filter((row) => {
+      const key = normalizePickerResumeUrl(row.fileUrl);
+      if (primaryKey && key === primaryKey) return true;
+      if (fileByUrl.size === 0) return true;
+      return fileByUrl.has(key);
+    });
+  } else {
+    versions = Array.from(fileByUrl.values());
+  }
+
+  if (primary && !versions.some((row) => normalizePickerResumeUrl(row.fileUrl) === primaryKey)) {
+    versions.unshift({
+      id: '__primary_resume__',
+      fileUrl: primary,
+      fileName: String(extra.originalResumeFileName || '').trim() || 'Original CV',
+      isPrimary: true,
+    });
+  }
+
+  versions.sort((a, b) => {
+    const aIsOriginal =
+      Boolean(originalKey) && normalizePickerResumeUrl(a.fileUrl) === originalKey;
+    const bIsOriginal =
+      Boolean(originalKey) && normalizePickerResumeUrl(b.fileUrl) === originalKey;
+    if (aIsOriginal && !bIsOriginal) return -1;
+    if (!aIsOriginal && bIsOriginal) return 1;
+    if (a.isPrimary && !b.isPrimary) return -1;
+    if (!a.isPrimary && b.isPrimary) return 1;
+    const aHas = Boolean(a.uploadDate && Date.parse(String(a.uploadDate)));
+    const bHas = Boolean(b.uploadDate && Date.parse(String(b.uploadDate)));
+    if (!aHas && bHas) return -1;
+    if (aHas && !bHas) return 1;
+    const ta = Date.parse(String(a.uploadDate || '')) || 0;
+    const tb = Date.parse(String(b.uploadDate || '')) || 0;
+    if (ta !== tb) return ta - tb;
+    return String(a.fileName || '').localeCompare(String(b.fileName || ''));
+  });
+
+  const seen = new Set<string>();
+  const unique: PickerResumeVersion[] = [];
+  for (const row of versions) {
+    const key = normalizePickerResumeUrl(row.fileUrl) || row.id;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push({
+      id: row.id,
+      fileUrl: row.fileUrl,
+      fileName: row.fileName,
+      isPrimary: row.isPrimary,
+    });
+  }
+  return unique;
+}
+
+function buildPickerCvMeta(
+  candidate: BackendCandidate | null | undefined,
+  files: Array<{
+    id: string;
+    fileUrl?: string | null;
+    fileType?: string;
+    fileName?: string;
+    uploadDate?: string;
+    createdAt?: string;
+  }> = [],
+): PickerCvMeta {
+  const resumeVersions = buildPickerResumeVersions(candidate, files);
+  const originalUrl =
+    resumeVersions[0]?.fileUrl ||
+    String(candidate?.resumeUrl || candidate?.resume || '').trim() ||
+    null;
   const saasaUrl =
     resolveSaasaCvPreviewUrl(
       (candidate?.extraData as Record<string, unknown> | null | undefined) || null,
     ) || null;
   return {
-    hasOriginal: Boolean(originalUrl),
+    hasOriginal: Boolean(originalUrl) || resumeVersions.length > 0,
     hasSaasa: Boolean(saasaUrl),
     hasEdited: hasEditedCvAvailable(candidate ?? null),
     originalUrl,
     saasaUrl,
+    resumeVersions,
   };
 }
 
@@ -1344,6 +1519,7 @@ export function JobDetailsDrawer({
   /** When set, picker only lists these candidates (table selection). Null = show all job candidates. */
   const [pickerScopeIds, setPickerScopeIds] = useState<string[] | null>(null);
   const [pickerCvModeById, setPickerCvModeById] = useState<Record<string, CvShareMode>>({});
+  const [pickerResumeFileIdById, setPickerResumeFileIdById] = useState<Record<string, string>>({});
   const [pickerCvMetaById, setPickerCvMetaById] = useState<Record<string, PickerCvMeta>>({});
   const [pickerCvMetaLoading, setPickerCvMetaLoading] = useState(false);
   const pickerCvMetaByIdRef = useRef<Record<string, PickerCvMeta>>({});
@@ -1369,9 +1545,25 @@ export function JobDetailsDrawer({
     onClosed: () => setSubmitClientRowId(null),
   });
 
-  const applyPickerCvMeta = useCallback((candidateId: string, candidate: BackendCandidate | null) => {
-    const meta = buildPickerCvMeta(candidate);
+  const applyPickerCvMeta = useCallback((
+    candidateId: string,
+    candidate: BackendCandidate | null,
+    files: Array<{
+      id: string;
+      fileUrl?: string | null;
+      fileType?: string;
+      fileName?: string;
+      uploadDate?: string;
+      createdAt?: string;
+    }> = [],
+  ) => {
+    const meta = buildPickerCvMeta(candidate, files);
     setPickerCvMetaById((prev) => ({ ...prev, [candidateId]: meta }));
+    const defaultVersion =
+      meta.resumeVersions.find((row) => row.isPrimary) || meta.resumeVersions[0] || null;
+    if (defaultVersion?.id) {
+      setPickerResumeFileIdById((prev) => ({ ...prev, [candidateId]: defaultVersion.id }));
+    }
     const mode = resolveDefaultCvShareMode(candidate, meta.hasOriginal, meta.hasSaasa);
     if (mode === 'original' || mode === 'saasa') {
       setPickerCvModeById((prev) => ({ ...prev, [candidateId]: mode }));
@@ -1385,8 +1577,24 @@ export function JobDetailsDrawer({
 
   const refreshPickerCvMetaForCandidate = useCallback(async (candidateId: string) => {
     try {
-      const candidate = extractApiData<BackendCandidate>(await apiGetCandidate(candidateId));
-      applyPickerCvMeta(candidateId, candidate);
+      const [candidateRaw, filesRaw] = await Promise.all([
+        apiGetCandidate(candidateId),
+        filesApiGet('candidate', candidateId).catch(() => null),
+      ]);
+      const candidate = extractApiData<BackendCandidate>(candidateRaw);
+      const files = extractApiData(filesRaw) ?? [];
+      applyPickerCvMeta(
+        candidateId,
+        candidate,
+        files.map((f) => ({
+          id: f.id,
+          fileUrl: f.fileUrl,
+          fileType: f.fileType,
+          fileName: f.fileName,
+          uploadDate: f.uploadDate,
+          createdAt: (f as { createdAt?: string }).createdAt,
+        })),
+      );
     } catch {
       /* keep prior meta */
     }
@@ -1413,8 +1621,24 @@ export function JobDetailsDrawer({
       await Promise.all(
         toFetch.map(async (id) => {
           try {
-            const candidate = extractApiData<BackendCandidate>(await apiGetCandidate(id));
-            applyPickerCvMeta(id, candidate);
+            const [candidateRaw, filesRaw] = await Promise.all([
+              apiGetCandidate(id),
+              filesApiGet('candidate', id).catch(() => null),
+            ]);
+            const candidate = extractApiData<BackendCandidate>(candidateRaw);
+            const files = extractApiData(filesRaw) ?? [];
+            applyPickerCvMeta(
+              id,
+              candidate,
+              files.map((f) => ({
+                id: f.id,
+                fileUrl: f.fileUrl,
+                fileType: f.fileType,
+                fileName: f.fileName,
+                uploadDate: f.uploadDate,
+                createdAt: (f as { createdAt?: string }).createdAt,
+              })),
+            );
           } catch {
             setPickerCvMetaById((prev) => ({
               ...prev,
@@ -1424,6 +1648,7 @@ export function JobDetailsDrawer({
                 hasEdited: false,
                 originalUrl: null,
                 saasaUrl: null,
+                resumeVersions: [],
               },
             }));
           } finally {
@@ -1692,6 +1917,7 @@ export function JobDetailsDrawer({
     }
     setPickerSearch('');
     setPickerCvModeById({});
+    setPickerResumeFileIdById({});
     setPickerCvMetaById({});
     pickerCvMetaByIdRef.current = {};
     pickerCvMetaInFlightRef.current.clear();
@@ -1717,7 +1943,7 @@ export function JobDetailsDrawer({
     const missingMode = rows.find((row) => !pickerCvModeById[row.id]);
     if (missingMode) {
       void requestError(
-        `Choose which CV to send for ${missingMode.candidateName || 'each selected candidate'} — Original CV or HRYantra CV.`,
+        `Choose which CV to send for ${missingMode.candidateName || 'each selected candidate'} — a resume version (v1, v2, …) or HRYantra CV.`,
       );
       return;
     }
@@ -1725,18 +1951,25 @@ export function JobDetailsDrawer({
     openBulkSubmit(
       Array.from(
         new Map(
-          rows.map((row) => [
-            row.id,
-            {
-              candidateId: row.id,
-              jobId: job.id,
-              candidateName: row.candidateName,
-              jobTitle: job.title,
-              clientId: job.clientId ?? undefined,
-              matchScore: parseJobCandidateScore(row.score),
-              cvShareMode: pickerCvModeById[row.id],
-            },
-          ]),
+          rows.map((row) => {
+            const mode = pickerCvModeById[row.id];
+            const resumeFileId =
+              mode === 'original' ? pickerResumeFileIdById[row.id] : undefined;
+            return [
+              row.id,
+              {
+                candidateId: row.id,
+                jobId: job.id,
+                candidateName: row.candidateName,
+                jobTitle: job.title,
+                clientId: job.clientId ?? undefined,
+                matchScore: parseJobCandidateScore(row.score),
+                cvShareMode: mode,
+                resumeFileId:
+                  resumeFileId && isRealResumeFileId(resumeFileId) ? resumeFileId : undefined,
+              },
+            ];
+          }),
         ).values(),
       ),
     );
@@ -1744,8 +1977,16 @@ export function JobDetailsDrawer({
     setPickerSelectedIds([]);
     setPickerScopeIds(null);
     setPickerCvModeById({});
+    setPickerResumeFileIdById({});
     setPickerCvMetaById({});
-  }, [displayJobCandidates, job, openBulkSubmit, pickerCvModeById, pickerSelectedIds]);
+  }, [
+    displayJobCandidates,
+    job,
+    openBulkSubmit,
+    pickerCvModeById,
+    pickerResumeFileIdById,
+    pickerSelectedIds,
+  ]);
 
   const openBulkSubmitToClient = useCallback(() => {
     // Same flow as the header button: CV picker (Original vs HRYantra) then submit.
@@ -3494,7 +3735,51 @@ export function JobDetailsDrawer({
                 <h2 className="text-lg font-bold text-slate-900">Job Details</h2>
               )}
             </div>
-            <div className="flex shrink-0 items-center gap-2">
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5 sm:gap-2">
+              {job && onEdit ? (
+                <button
+                  type="button"
+                  onClick={() => onEdit(job)}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-100 bg-white/90 px-2.5 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-800 sm:px-3"
+                  title="Edit Job"
+                >
+                  <Pencil size={14} />
+                  <span className="hidden sm:inline">Edit Job</span>
+                </button>
+              ) : null}
+              {job?.status === 'Draft' && onPublish ? (
+                <button
+                  type="button"
+                  onClick={() => onPublish(job)}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-2.5 py-2 text-xs font-semibold text-white shadow-sm transition hover:brightness-110 sm:px-3"
+                  title="Publish Job"
+                >
+                  <Send size={14} />
+                  <span className="hidden sm:inline">Publish</span>
+                </button>
+              ) : null}
+              {job && onClone ? (
+                <button
+                  type="button"
+                  onClick={() => onClone(job)}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-100 bg-white/90 px-2.5 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-800 sm:px-3"
+                  title="Clone Job"
+                >
+                  <Copy size={14} />
+                  <span className="hidden sm:inline">Clone Job</span>
+                </button>
+              ) : null}
+              {job && onCloseJob ? (
+                <button
+                  type="button"
+                  onClick={() => onCloseJob(job)}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-2.5 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-100 sm:px-3"
+                  title="Close Job"
+                >
+                  <Archive size={14} />
+                  <span className="hidden sm:inline">Close Job</span>
+                </button>
+              ) : null}
               {showHeaderSubmitToClient ? (
                 <button
                   type="button"
@@ -3504,7 +3789,7 @@ export function JobDetailsDrawer({
                   title="Choose a candidate and submit to the client"
                 >
                   <Send size={16} strokeWidth={2.25} />
-                  Submit to Client
+                  <span className="hidden md:inline">Submit to Client</span>
                 </button>
               ) : null}
               {job?.id ? (
@@ -5280,48 +5565,9 @@ export function JobDetailsDrawer({
                 </DrawerSectionCard>
               ) : null}
               </div>
-            </div>
+              </div>
             )}
 
-            {/* Footer */}
-            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-indigo-100/50 bg-gradient-to-r from-white via-slate-50/80 to-indigo-50/30 px-4 py-2.5 sm:px-5">
-              {onEdit && (
-                <button
-                  type="button"
-                  onClick={() => onEdit(job)}
-                  className="inline-flex items-center gap-2 rounded-xl border border-indigo-100 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-800"
-                >
-                  <Pencil size={14} /> Edit Job
-                </button>
-              )}
-              {job.status === 'Draft' && onPublish && (
-                <button
-                  type="button"
-                  onClick={() => onPublish(job)}
-                  className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 transition hover:brightness-110"
-                >
-                  <Send size={14} /> Publish Job
-                </button>
-              )}
-              {onClone && (
-                <button
-                  type="button"
-                  onClick={() => onClone(job)}
-                  className="inline-flex items-center gap-2 rounded-xl border border-indigo-100 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-800"
-                >
-                  <Copy size={14} /> Clone Job
-                </button>
-              )}
-              {onCloseJob && (
-                <button
-                  type="button"
-                  onClick={() => onCloseJob(job)}
-                  className="inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm font-semibold text-rose-700 transition hover:bg-rose-100"
-                >
-                  <Archive size={14} /> Close Job
-                </button>
-              )}
-            </div>
           </>
         ) : (
           <div className="flex-1 flex items-center justify-center p-8 text-slate-500 text-sm">
@@ -5551,7 +5797,7 @@ export function JobDetailsDrawer({
               <p className="mt-1 text-xs text-slate-500">
                 {pickerScopeIds?.length
                   ? `Review CV choice for the ${pickerScopeIds.length} selected candidate${pickerScopeIds.length === 1 ? '' : 's'}, then continue.`
-                  : `Select who to submit for ${job?.title || 'this job'}, then choose Original CV or HRYantra CV for each.`}
+                  : `Select who to submit for ${job?.title || 'this job'}, then choose a CV version (v1, v2, …) or HRYantra CV for each.`}
               </p>
             </div>
             <button
@@ -5587,8 +5833,9 @@ export function JobDetailsDrawer({
               </p>
             ) : (
               <p className="mt-2 text-[11px] text-slate-500">
-                Choose <strong>Original CV</strong> or <strong>HRYantra CV</strong>. Use View /
-                Preview to open the file; Edit opens the HRYantra editor.
+                Choose a resume version (<strong>v1 · original</strong>, <strong>v2</strong>, …) or{' '}
+                <strong>HRYantra CV</strong>. Use View / Preview to open the file; Edit opens the
+                HRYantra editor.
               </p>
             )}
           </div>
@@ -5605,6 +5852,16 @@ export function JobDetailsDrawer({
                   const mode = pickerCvModeById[row.id];
                   const hasOriginal = meta?.hasOriginal;
                   const hasSaasa = meta?.hasSaasa;
+                  const resumeVersions = meta?.resumeVersions || [];
+                  const selectedResumeId =
+                    pickerResumeFileIdById[row.id] ||
+                    resumeVersions.find((v) => v.isPrimary)?.id ||
+                    resumeVersions[0]?.id ||
+                    '';
+                  const selectedVersion =
+                    resumeVersions.find((v) => v.id === selectedResumeId) ||
+                    resumeVersions[0] ||
+                    null;
                   return (
                     <li key={row.id}>
                       <div
@@ -5661,7 +5918,39 @@ export function JobDetailsDrawer({
                                   Loading CV options…
                                 </span>
                               ) : null}
-                              {hasOriginal ? (
+                              {resumeVersions.length > 0
+                                ? resumeVersions.map((version, index) => {
+                                    const active =
+                                      mode === 'original' && version.id === selectedResumeId;
+                                    const label =
+                                      index === 0 ? `v${index + 1} · original` : `v${index + 1}`;
+                                    return (
+                                      <button
+                                        key={version.id}
+                                        type="button"
+                                        title={version.fileName}
+                                        onClick={() => {
+                                          setPickerCvModeById((prev) => ({
+                                            ...prev,
+                                            [row.id]: 'original',
+                                          }));
+                                          setPickerResumeFileIdById((prev) => ({
+                                            ...prev,
+                                            [row.id]: version.id,
+                                          }));
+                                        }}
+                                        className={`rounded-lg border px-2 py-1 text-[11px] font-semibold transition ${
+                                          active
+                                            ? 'border-indigo-500 bg-indigo-600 text-white'
+                                            : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                                        }`}
+                                      >
+                                        {label}
+                                      </button>
+                                    );
+                                  })
+                                : null}
+                              {!resumeVersions.length && hasOriginal ? (
                                 <button
                                   type="button"
                                   onClick={() =>
@@ -5713,7 +6002,27 @@ export function JobDetailsDrawer({
                               ) : null}
                             </div>
                             <div className="flex flex-wrap items-center gap-1.5">
-                              {hasOriginal && meta?.originalUrl ? (
+                              {mode === 'original' && selectedVersion?.fileUrl ? (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setPickerResumePreview({
+                                      url: selectedVersion.fileUrl,
+                                      name: `${row.candidateName || 'Candidate'} — ${
+                                        resumeVersions.findIndex((v) => v.id === selectedVersion.id) ===
+                                        0
+                                          ? 'v1 · original'
+                                          : selectedVersion.fileName || 'Resume'
+                                      }`,
+                                    })
+                                  }
+                                  className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-50"
+                                >
+                                  <Eye size={12} />
+                                  View selected
+                                </button>
+                              ) : null}
+                              {mode !== 'original' && hasOriginal && meta?.originalUrl ? (
                                 <button
                                   type="button"
                                   onClick={() =>

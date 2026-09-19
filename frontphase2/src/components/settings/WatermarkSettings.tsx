@@ -8,6 +8,7 @@ import { apiGetOrgWatermark, apiSetOrgWatermark, apiUploadOrgWatermarkLogo } fro
 import {
   DEFAULT_EXPORT_WATERMARK,
   resolveWatermarkImageSrc,
+  cacheWatermarkLogoDataUrl,
   type ExportWatermarkSettings,
   writeCachedOrgWatermark,
 } from '../../lib/exportWatermark';
@@ -106,11 +107,38 @@ export function WatermarkSettings() {
     setLocalPreviewUrl(objectUrl);
     setPreviewBroken(false);
 
+    // Cache a PNG data-URL now so exports work even if the public file URL is slow/unavailable.
+    void (async () => {
+      try {
+        const bitmap = await createImageBitmap(file);
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, bitmap.width);
+        canvas.height = Math.max(1, bitmap.height);
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(bitmap, 0, 0);
+        bitmap.close?.();
+        const dataUrl = canvas.toDataURL('image/png');
+        // Temporarily keyed by object URL; re-keyed to server URL after upload.
+        cacheWatermarkLogoDataUrl(objectUrl, dataUrl);
+        (window as unknown as { __pendingWmLogoDataUrl?: string }).__pendingWmLogoDataUrl = dataUrl;
+      } catch {
+        /* ignore */
+      }
+    })();
+
     setUploading(true);
     try {
       const res = await apiUploadOrgWatermarkLogo(file);
       const url = String(res.data?.fileUrl || '').trim();
       if (!url) throw new Error('Upload succeeded but no file URL returned');
+      const pending = (window as unknown as { __pendingWmLogoDataUrl?: string }).__pendingWmLogoDataUrl;
+      if (pending) {
+        cacheWatermarkLogoDataUrl(url, pending);
+        delete (window as unknown as { __pendingWmLogoDataUrl?: string }).__pendingWmLogoDataUrl;
+      }
       const next = {
         ...DEFAULT_EXPORT_WATERMARK,
         ...(res.data?.watermark || draft),

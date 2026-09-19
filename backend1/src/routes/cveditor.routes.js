@@ -6,20 +6,15 @@ const {
   exportResumePDF,
 } = require('../controllers/cveditor.controller');
 const { protect } = require('../middleware/auth.middleware');
+const { requireOwnCandidate } = require('../middleware/requireOwnCandidate.middleware');
 const { requireTokens } = require('../middleware/requireTokens.middleware');
 
 const router = Router();
+router.use(protect);
 
-// Get resume HTML for CV editor
-router.get('/resume/:candidateId', getResumeHTML);
-
-// Save resume HTML
+router.get('/resume/:candidateId', requireOwnCandidate, getResumeHTML);
 router.post('/save', saveResumeHTML);
-
-// Improve text with AI (costs tokens)
-router.post('/ai-improve', protect, requireTokens('cveditor.ai-improve'), improveTextWithAI);
-
-// Export resume as PDF
+router.post('/ai-improve', requireTokens('cveditor.ai-improve'), improveTextWithAI);
 router.post('/export', exportResumePDF);
 
 module.exports = router;

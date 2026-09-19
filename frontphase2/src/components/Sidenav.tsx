@@ -954,6 +954,9 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
       void syncOrgRecruitmentSummaryFromApi().then(() => {
         if (!cancelled) setHqModulesTick((n) => n + 1);
       });
+      void import('../lib/useOrgExportWatermark')
+        .then((m) => m.fetchAndCacheOrgWatermark())
+        .catch(() => undefined);
     };
     refreshModules();
     const onFocus = () => refreshModules();

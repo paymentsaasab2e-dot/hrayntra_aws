@@ -596,7 +596,7 @@ async function fetchPhase2Internal(url, body) {
     process.env.PHASE2_BASE_URL ||
     'http://localhost:5001';
   const secret =
-    process.env.PHASE2_PORTAL_SYNC_SECRET || 'phase2-portal-sync-2026-shared-secret';
+    require('../config/secrets').getPhase2PortalSyncSecretOrEmpty();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), PHASE2_FETCH_TIMEOUT_MS);
 
@@ -1383,7 +1383,7 @@ async function syncPhase2TenantAfterPortalApply(candidateId, jobId) {
     process.env.PHASE2_BASE_URL ||
     'http://localhost:5001';
   const secret =
-    process.env.PHASE2_PORTAL_SYNC_SECRET || 'phase2-portal-sync-2026-shared-secret';
+    require('../config/secrets').getPhase2PortalSyncSecretOrEmpty();
 
   // Resolve which tenant DB this job belongs to.
   // 1. Read from the portal Job's `tenantDbName` (preferred — multi-agency safe).
@@ -1463,7 +1463,7 @@ async function syncPhase2AfterPortalWithdraw(candidateId, jobId) {
     process.env.PHASE2_BASE_URL ||
     'http://localhost:5001';
   const secret =
-    process.env.PHASE2_PORTAL_SYNC_SECRET || 'phase2-portal-sync-2026-shared-secret';
+    require('../config/secrets').getPhase2PortalSyncSecretOrEmpty();
 
   let tenantDbName = null;
   try {
@@ -2217,7 +2217,7 @@ async function syncPhase2PlacementOfferResponse(candidateId, jobId, decision, re
     process.env.PHASE2_BASE_URL ||
     'http://localhost:5001';
   const secret =
-    process.env.PHASE2_PORTAL_SYNC_SECRET || 'phase2-portal-sync-2026-shared-secret';
+    require('../config/secrets').getPhase2PortalSyncSecretOrEmpty();
 
   let tenantDbName = null;
   try {

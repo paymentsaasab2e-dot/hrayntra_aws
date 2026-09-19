@@ -219,6 +219,7 @@ export const submitToClientSchema = z.object({
   message: z.string().optional(),
   submissionType: submissionTypeEnum.optional(),
   cvShareMode: z.enum(['edited', 'original', 'saasa']).optional(),
+  resumeFileId: z.string().min(1).optional(),
 });
 
 export const reviewTokenParamSchema = z.object({

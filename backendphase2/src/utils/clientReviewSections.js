@@ -343,10 +343,12 @@ function buildSectionsFromEditForm(editForm, visibility) {
   const sections = [];
 
   if (isVisible('personal', visible)) {
+    const fullName = [editForm.firstName, editForm.middleName, editForm.lastName]
+      .map((part) => String(part || '').trim())
+      .filter(Boolean)
+      .join(' ');
     pushVisibleSection(sections, 'personal', [
-      ['First Name', editForm.firstName],
-      ['Middle Name', editForm.middleName],
-      ['Last Name', editForm.lastName],
+      ['Full Name', fullName],
       ['E-mail', editForm.email],
       ['Phone code', editForm.phoneCode],
       ['Mobile No', editForm.phone],
@@ -477,11 +479,12 @@ function shouldHideClientReviewField(label, value) {
 }
 
 const SUBMIT_FIELD_LABEL_MAP = {
-  name: ['firstName', 'lastName'],
-  'first name': ['firstName'],
-  'last name': ['lastName'],
-  'middle name': ['middleName'],
-  'full name': ['firstName', 'middleName', 'lastName'],
+  name: ['fullName'],
+  'first name': ['fullName'],
+  'last name': ['fullName'],
+  'middle name': ['fullName'],
+  'full name': ['fullName'],
+  'name of candidate': ['fullName'],
   'e-mail': ['email'],
   email: ['email'],
   'mobile no': ['phone'],
@@ -568,7 +571,7 @@ const SUBMIT_FIELD_LABEL_MAP = {
 };
 
 const SUBMIT_SECTION_ENTRY_FIELDS = {
-  personal: ['firstName', 'lastName', 'email', 'phone'],
+  personal: ['fullName', 'email', 'phone'],
   education: ['cvEducationEntries'],
   professional: ['currentTitle', 'currentCompany', 'expectedSalary', 'noticePeriod'],
   work: ['cvWorkExperienceEntries'],
@@ -591,18 +594,18 @@ const SUBMIT_SECTION_ENTRY_FIELDS = {
 };
 
 const COMPOSITE_REVIEW_LABELS = new Set([
-  'name',
-  'full name',
-  'name of candidate',
   'city & state',
   'salary expectation',
   'location (display)',
 ]);
 
 const REVIEW_LABEL_CANONICAL = {
-  'first name': 'First Name',
-  'middle name': 'Middle Name',
-  'last name': 'Last Name',
+  'first name': 'Full Name',
+  'middle name': 'Full Name',
+  'last name': 'Full Name',
+  'full name': 'Full Name',
+  name: 'Full Name',
+  'name of candidate': 'Full Name',
   email: 'E-mail',
   'e-mail': 'E-mail',
   mobile: 'Mobile No',
@@ -625,8 +628,11 @@ const REVIEW_LABEL_DEDUP_ALIASES = {
   email: 'e-mail',
   mobile: 'mobile no',
   'date of birth': 'birth date',
-  'full name': 'name',
-  'name of candidate': 'name',
+  'first name': 'full name',
+  'middle name': 'full name',
+  'last name': 'full name',
+  name: 'full name',
+  'name of candidate': 'full name',
   'current role': 'current designation',
   'preferred locations': 'preferred location',
   'portfolio url': 'portfolio / project links',
@@ -821,6 +827,14 @@ function parseSubmitFieldVisibility(raw) {
 
 function isSubmitFieldVisible(visibility, fieldId) {
   if (!visibility) return true;
+  if (fieldId === 'fullName') {
+    if (typeof visibility.fullName === 'boolean') return visibility.fullName !== false;
+    return (
+      visibility.firstName !== false ||
+      visibility.middleName !== false ||
+      visibility.lastName !== false
+    );
+  }
   return visibility[fieldId] !== false;
 }
 
@@ -936,13 +950,11 @@ export function applyVisibleFieldsToClientCandidate(candidate, visibleFields) {
   if (hide('currentSalary')) next.currentSalary = '';
   if (hide('expectedSalary')) next.expectedSalary = '';
   if (hide('website')) next.website = '';
-  if (hide('firstName') || hide('lastName')) {
-    const parts = String(next.name || '')
-      .split(/\s+/)
-      .filter(Boolean);
-    if (hide('firstName') && hide('lastName')) next.name = '';
-    else if (hide('firstName')) next.name = parts.slice(1).join(' ');
-    else if (hide('lastName')) next.name = parts[0] || '';
+  if (hide('fullName')) {
+    next.name = '';
+    next.firstName = '';
+    next.middleName = '';
+    next.lastName = '';
   }
 
   return next;
@@ -1030,8 +1042,7 @@ export function buildClientReviewSectionsFromEditForm(editForm, visibleSections)
 }
 
 const DEFAULT_CLIENT_REVIEW_TABLE_COLUMNS = [
-  'firstName',
-  'lastName',
+  'fullName',
   'email',
   'phone',
   'currentTitle',
@@ -1039,6 +1050,15 @@ const DEFAULT_CLIENT_REVIEW_TABLE_COLUMNS = [
 ];
 
 const PREVIOUS_FIVE_COLUMN_CLIENT_REVIEW_TABLE = [
+  'lastName',
+  'email',
+  'phone',
+  'currentTitle',
+  'currentCompany',
+];
+
+const PREVIOUS_SPLIT_NAME_CLIENT_REVIEW_TABLE = [
+  'firstName',
   'lastName',
   'email',
   'phone',
@@ -1063,9 +1083,12 @@ const LEGACY_DEFAULT_CLIENT_REVIEW_TABLE_COLUMNS = [
   'candidateScore',
 ];
 
+const LEGACY_NAME_FIELD_IDS = new Set(['firstName', 'middleName', 'lastName']);
+
 const CLIENT_REVIEW_TABLE_FIELD_IDS = new Set([
   ...LEGACY_DEFAULT_CLIENT_REVIEW_TABLE_COLUMNS,
   ...DEFAULT_CLIENT_REVIEW_TABLE_COLUMNS,
+  'fullName',
   'middleName',
   'phoneCode',
   'age',
@@ -1130,10 +1153,13 @@ function isLegacyUncustomizedClientReviewTableColumns(raw) {
   const ids = raw.map((item) => String(item || '').trim()).filter(Boolean);
   if (ids.join(',') === LEGACY_DEFAULT_CLIENT_REVIEW_TABLE_COLUMNS.join(',')) return true;
   if (ids.join(',') === PREVIOUS_FIVE_COLUMN_CLIENT_REVIEW_TABLE.join(',')) return true;
+  if (ids.join(',') === PREVIOUS_SPLIT_NAME_CLIENT_REVIEW_TABLE.join(',')) return true;
   if (ids.length <= DEFAULT_CLIENT_REVIEW_TABLE_COLUMNS.length) return false;
   const legacy = LEGACY_DEFAULT_CLIENT_REVIEW_TABLE_COLUMNS;
   const legacySet = new Set(legacy);
-  if (ids.some((id) => !legacySet.has(id))) return false;
+  if (ids.some((id) => !legacySet.has(id) && !LEGACY_NAME_FIELD_IDS.has(id) && id !== 'fullName')) {
+    return false;
+  }
   let index = 0;
   for (const id of ids) {
     while (index < legacy.length && legacy[index] !== id) index += 1;
@@ -1141,6 +1167,14 @@ function isLegacyUncustomizedClientReviewTableColumns(raw) {
     index += 1;
   }
   return true;
+}
+
+function normalizeClientReviewTableColumnId(raw) {
+  const id = String(raw || '').trim();
+  if (!id) return null;
+  if (LEGACY_NAME_FIELD_IDS.has(id)) return 'fullName';
+  if (CLIENT_REVIEW_TABLE_FIELD_IDS.has(id)) return id;
+  return null;
 }
 
 export function parseClientReviewTableColumns(raw, visibleFields) {
@@ -1152,9 +1186,19 @@ export function parseClientReviewTableColumns(raw, visibleFields) {
   const seen = new Set();
   const next = [];
   for (const item of source) {
-    const id = String(item || '').trim();
-    if (!CLIENT_REVIEW_TABLE_FIELD_IDS.has(id) || seen.has(id)) continue;
+    const id = normalizeClientReviewTableColumnId(item);
+    if (!id || seen.has(id)) continue;
     if (visibleFields && visibleFields[id] === false) continue;
+    if (
+      id === 'fullName' &&
+      visibleFields &&
+      typeof visibleFields.fullName !== 'boolean' &&
+      visibleFields.firstName === false &&
+      visibleFields.middleName === false &&
+      visibleFields.lastName === false
+    ) {
+      continue;
+    }
     seen.add(id);
     next.push(id);
   }

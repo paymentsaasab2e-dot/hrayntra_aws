@@ -74,9 +74,7 @@ function normalizeJobVisibilityDefaults(raw) {
 }
 
 const SUBMIT_TO_CLIENT_FIELDS = [
-  'firstName',
-  'middleName',
-  'lastName',
+  'fullName',
   'email',
   'phoneCode',
   'phone',
@@ -148,8 +146,7 @@ const SUBMIT_TO_CLIENT_FIELDS = [
 ];
 
 const DEFAULT_SUBMIT_TO_CLIENT_TABLE_COLUMNS = [
-  'firstName',
-  'lastName',
+  'fullName',
   'email',
   'phone',
   'currentTitle',
@@ -157,6 +154,15 @@ const DEFAULT_SUBMIT_TO_CLIENT_TABLE_COLUMNS = [
 ];
 
 const PREVIOUS_FIVE_COLUMN_SUBMIT_TO_CLIENT_TABLE = [
+  'lastName',
+  'email',
+  'phone',
+  'currentTitle',
+  'currentCompany',
+];
+
+const PREVIOUS_SPLIT_NAME_SUBMIT_TO_CLIENT_TABLE = [
+  'firstName',
   'lastName',
   'email',
   'phone',
@@ -181,6 +187,8 @@ const LEGACY_DEFAULT_SUBMIT_TO_CLIENT_TABLE_COLUMNS = [
   'candidateScore',
 ];
 
+const LEGACY_NAME_FIELD_IDS = new Set(['firstName', 'middleName', 'lastName']);
+
 function emptySubmitToClientVisibilityDefaults() {
   const catalog = CLIENT_PREVIEW_STAGE_CATALOG.map((row) => row.name);
   return {
@@ -194,15 +202,26 @@ function emptySubmitToClientVisibilityDefaults() {
 
 const SUBMIT_TO_CLIENT_FIELD_SET = new Set(SUBMIT_TO_CLIENT_FIELDS);
 
+function normalizeSubmitToClientTableColumnId(raw) {
+  const id = String(raw || '').trim();
+  if (!id) return null;
+  if (LEGACY_NAME_FIELD_IDS.has(id)) return 'fullName';
+  if (SUBMIT_TO_CLIENT_FIELD_SET.has(id)) return id;
+  return null;
+}
+
 function isLegacyUncustomizedTableColumns(raw) {
   if (!Array.isArray(raw) || raw.length === 0) return true;
   const ids = raw.map((item) => String(item || '').trim()).filter(Boolean);
   if (ids.join(',') === LEGACY_DEFAULT_SUBMIT_TO_CLIENT_TABLE_COLUMNS.join(',')) return true;
   if (ids.join(',') === PREVIOUS_FIVE_COLUMN_SUBMIT_TO_CLIENT_TABLE.join(',')) return true;
+  if (ids.join(',') === PREVIOUS_SPLIT_NAME_SUBMIT_TO_CLIENT_TABLE.join(',')) return true;
   if (ids.length <= DEFAULT_SUBMIT_TO_CLIENT_TABLE_COLUMNS.length) return false;
   const legacy = LEGACY_DEFAULT_SUBMIT_TO_CLIENT_TABLE_COLUMNS;
   const legacySet = new Set(legacy);
-  if (ids.some((id) => !legacySet.has(id))) return false;
+  if (ids.some((id) => !legacySet.has(id) && !LEGACY_NAME_FIELD_IDS.has(id) && id !== 'fullName')) {
+    return false;
+  }
   let index = 0;
   for (const id of ids) {
     while (index < legacy.length && legacy[index] !== id) index += 1;
@@ -221,8 +240,8 @@ function parseSubmitToClientTableColumns(raw, fieldVisibility) {
   const seen = new Set();
   const next = [];
   for (const item of source) {
-    const id = String(item || '').trim();
-    if (!SUBMIT_TO_CLIENT_FIELD_SET.has(id) || seen.has(id)) continue;
+    const id = normalizeSubmitToClientTableColumnId(item);
+    if (!id || seen.has(id)) continue;
     if (fieldVisibility && fieldVisibility[id] === false) continue;
     seen.add(id);
     next.push(id);
@@ -239,6 +258,15 @@ function normalizeSubmitToClientVisibilityDefaults(raw) {
   const fieldVisibility = {};
   for (const key of SUBMIT_TO_CLIENT_FIELDS) {
     fieldVisibility[key] = nested[key] !== false;
+  }
+  // Migrate legacy First / Middle / Last flags into Full Name.
+  if (typeof nested.fullName !== 'boolean') {
+    const legacyFlags = ['firstName', 'middleName', 'lastName']
+      .map((key) => nested[key])
+      .filter((value) => typeof value === 'boolean');
+    if (legacyFlags.length) {
+      fieldVisibility.fullName = legacyFlags.some((value) => value !== false);
+    }
   }
   const clientStageCatalog = normalizeClientStageCatalog(source.clientStageCatalog).map(
     (row) => row.name,

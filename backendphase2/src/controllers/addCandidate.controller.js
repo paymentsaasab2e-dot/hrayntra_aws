@@ -1,7 +1,12 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { prisma, getActiveTenantDbName } from '../config/prisma.js';
+import {
+  prisma,
+  getActiveTenantDbName,
+  runWithTenantContext,
+  setTenantAuditUser,
+} from '../config/prisma.js';
 import { env } from '../config/env.js';
 import { uploadBufferToCloudinary, uploadContentTypeForFile } from '../utils/s3.js';
 import {
@@ -1663,14 +1668,387 @@ export const addCandidateController = {
         });
       }
 
-      const candidate = await prisma.candidate.findUnique({
-        where: { id: candidateId },
+      // Prefer JWT / header — multer can drop ALS tenant context before this handler runs.
+      const tenantDbName =
+        String(
+          req.user?.tenantDbName ||
+            req.headers['x-tenant-db-name'] ||
+            getActiveTenantDbName() ||
+            ''
+        ).trim();
+      if (!tenantDbName || tenantDbName === 'default') {
+        return res.status(400).json({
+          success: false,
+          message: 'Tenant context is required to upload a resume',
+        });
+      }
+
+      const result = await runWithTenantContext(tenantDbName, async () => {
+        setTenantAuditUser(req.user);
+
+        const candidate = await prisma.candidate.findUnique({
+          where: { id: candidateId },
+        });
+
+        if (!candidate) {
+          const err = new Error('Candidate not found');
+          err.statusCode = 404;
+          throw err;
+        }
+
+        const upload = await uploadBufferToCloudinary(file.buffer, {
+          folder: `jobportal/candidates/${candidateId}/resumes`,
+          contentType: uploadContentTypeForFile(file.mimetype, file.originalname),
+          originalFilename: file.originalname,
+          tenantDbName,
+        });
+        const resumeUrl = upload?.secure_url || upload?.url;
+        if (!resumeUrl) {
+          const err = new Error('Resume upload did not return a file URL');
+          err.statusCode = 500;
+          throw err;
+        }
+
+        const replacePrimaryRaw = String(req.body?.replacePrimary ?? 'true').trim().toLowerCase();
+        const replacePrimary = !(
+          replacePrimaryRaw === 'false' ||
+          replacePrimaryRaw === '0' ||
+          replacePrimaryRaw === 'no'
+        );
+
+        const existingExtra =
+          candidate.extraData && typeof candidate.extraData === 'object' && !Array.isArray(candidate.extraData)
+            ? { ...candidate.extraData }
+            : {};
+
+        const normalizeUrlKey = (url) => {
+          const raw = String(url || '').trim();
+          if (!raw) return '';
+          try {
+            const parsed = new URL(raw);
+            return `${parsed.origin}${parsed.pathname}`.replace(/\/+$/, '').toLowerCase();
+          } catch {
+            return raw.split('?')[0]?.replace(/\/+$/, '').toLowerCase() || '';
+          }
+        };
+
+        const previousPrimaryUrl = String(
+          existingExtra.originalResumeUrl || candidate.resumeUrl || candidate.resume || '',
+        ).trim();
+        const previousPrimaryName = String(
+          existingExtra.originalResumeFileName || 'Original CV',
+        ).trim();
+
+        // Current "Original CV" slot (v1).
+        const currentOriginalUrl = String(
+          existingExtra.firstOriginalResumeUrl || previousPrimaryUrl || '',
+        ).trim();
+        const currentOriginalName = String(
+          existingExtra.firstOriginalResumeFileName || previousPrimaryName || 'Original CV',
+        ).trim();
+
+        const existingFiles = await prisma.candidateFile.findMany({
+          where: { candidateId },
+          orderBy: { uploadDate: 'asc' },
+        });
+        const isResumeFileRow = (row) => {
+          const type = String(row.fileType || '').trim();
+          if (/^SAASA_CV$/i.test(type)) return false;
+          if (/^resume$/i.test(type) || /^cv$/i.test(type)) return true;
+          const name = String(row.fileName || row.fileUrl || '');
+          const url = String(row.fileUrl || '');
+          if (/(?:SAASA|HRYantra|HRYANTRA)[\s_-]*CV/i.test(name)) return false;
+          return /\/resumes\/|\/cv-files\//i.test(url) || /\.(pdf|docx?)($|[?#])/i.test(url);
+        };
+        const existingResumeFiles = existingFiles.filter(isResumeFileRow);
+
+        // Replace CV: wipe every previous resume file + version history, then keep only the new Original.
+        // (Upload another version is the only path that accumulates v2, v3, …)
+        if (replacePrimary) {
+          const urlsToWipe = new Set();
+          const addWipeUrl = (url) => {
+            const key = normalizeUrlKey(url);
+            if (key) urlsToWipe.add(key);
+          };
+          addWipeUrl(previousPrimaryUrl);
+          addWipeUrl(currentOriginalUrl);
+          addWipeUrl(existingExtra.originalResumeUrl);
+          addWipeUrl(existingExtra.firstOriginalResumeUrl);
+          if (Array.isArray(existingExtra.resumeVersions)) {
+            for (const row of existingExtra.resumeVersions) {
+              if (row && typeof row === 'object') addWipeUrl(row.fileUrl);
+            }
+          }
+
+          const idsToDelete = new Set();
+          for (const row of existingResumeFiles) {
+            if (row?.id) idsToDelete.add(row.id);
+          }
+          // Also wipe any file whose URL matches prior original/version history
+          // (covers odd fileType labels that missed the resume filter).
+          for (const row of existingFiles) {
+            const type = String(row.fileType || '').trim();
+            if (/^SAASA_CV$/i.test(type)) continue;
+            const key = normalizeUrlKey(row.fileUrl);
+            if (key && urlsToWipe.has(key) && row?.id) idsToDelete.add(row.id);
+          }
+
+          if (idsToDelete.size) {
+            await prisma.candidateFile.deleteMany({
+              where: { id: { in: Array.from(idsToDelete) }, candidateId },
+            });
+          }
+        }
+
+        const versionByKey = new Map();
+        const upsertVersion = (row) => {
+          const fileUrl = String(row?.fileUrl || '').trim();
+          const key = normalizeUrlKey(fileUrl);
+          if (!key) return;
+          const prev = versionByKey.get(key);
+          versionByKey.set(key, {
+            id: row?.id || prev?.id || null,
+            fileUrl: prev?.fileUrl || fileUrl,
+            fileName: String(row?.fileName || prev?.fileName || 'Resume').trim() || 'Resume',
+            uploadedAt:
+              row?.uploadedAt !== undefined
+                ? row.uploadedAt
+                : prev?.uploadedAt !== undefined
+                  ? prev.uploadedAt
+                  : null,
+            isPrimary: Boolean(row?.isPrimary || prev?.isPrimary),
+          });
+        };
+
+        if (!replacePrimary) {
+          for (const row of existingResumeFiles) {
+            upsertVersion({
+              id: row.id,
+              fileUrl: row.fileUrl,
+              fileName: row.fileName || 'Resume',
+              uploadedAt: row.uploadDate
+                ? new Date(row.uploadDate).toISOString()
+                : row.createdAt
+                  ? new Date(row.createdAt).toISOString()
+                  : null,
+              isPrimary: false,
+            });
+          }
+
+          const priorVersions = Array.isArray(existingExtra.resumeVersions)
+            ? existingExtra.resumeVersions.filter((row) => row && typeof row === 'object')
+            : [];
+          for (const row of priorVersions) {
+            upsertVersion(row);
+          }
+
+          // Keep current original as v1 when adding a version.
+          if (currentOriginalUrl) {
+            upsertVersion({
+              id: null,
+              fileUrl: currentOriginalUrl,
+              fileName: currentOriginalName || 'Original CV',
+              uploadedAt: null,
+              isPrimary: true,
+            });
+          }
+        }
+
+        let createdFileId = null;
+        try {
+          const createdFile = await prisma.candidateFile.create({
+            data: {
+              candidateId,
+              fileName: file.originalname || 'Resume',
+              fileUrl: resumeUrl,
+              fileType: 'Resume',
+              uploadedById: req.user.id,
+            },
+          });
+          createdFileId = createdFile?.id || null;
+        } catch (fileError) {
+          console.error('Failed to mirror resume into candidate files:', fileError?.message || fileError);
+          const createdFile = await prisma.candidateFile.create({
+            data: {
+              candidateId,
+              fileName: file.originalname || 'Resume',
+              fileUrl: resumeUrl,
+              fileType: 'Resume',
+              uploadedById: candidate.createdById || req.user.id,
+            },
+          });
+          createdFileId = createdFile?.id || null;
+        }
+
+        if (replacePrimary) {
+          // New file is the only Original CV (v1).
+          upsertVersion({
+            id: createdFileId,
+            fileUrl: resumeUrl,
+            fileName: file.originalname || 'Resume',
+            uploadedAt: null,
+            isPrimary: true,
+          });
+        } else {
+          upsertVersion({
+            id: createdFileId,
+            fileUrl: resumeUrl,
+            fileName: file.originalname || 'Resume',
+            uploadedAt: new Date().toISOString(),
+            isPrimary: false,
+          });
+        }
+
+        const primaryUrlAfter = replacePrimary
+          ? resumeUrl
+          : currentOriginalUrl || previousPrimaryUrl || resumeUrl;
+
+        let nextVersions = Array.from(versionByKey.values())
+          .sort((a, b) => {
+            const aIsPrimary = normalizeUrlKey(a.fileUrl) === normalizeUrlKey(primaryUrlAfter);
+            const bIsPrimary = normalizeUrlKey(b.fileUrl) === normalizeUrlKey(primaryUrlAfter);
+            if (aIsPrimary && !bIsPrimary) return -1;
+            if (!aIsPrimary && bIsPrimary) return 1;
+            const aHas = Boolean(a.uploadedAt && Date.parse(String(a.uploadedAt)));
+            const bHas = Boolean(b.uploadedAt && Date.parse(String(b.uploadedAt)));
+            if (!aHas && bHas) return -1;
+            if (aHas && !bHas) return 1;
+            const ta = Date.parse(String(a.uploadedAt || '')) || 0;
+            const tb = Date.parse(String(b.uploadedAt || '')) || 0;
+            if (ta !== tb) return ta - tb;
+            return String(a.fileName || '').localeCompare(String(b.fileName || ''));
+          })
+          .slice(-20)
+          .map((row) => ({
+            ...row,
+            isPrimary: normalizeUrlKey(row.fileUrl) === normalizeUrlKey(primaryUrlAfter),
+          }));
+
+        // Replace must never leave ghost versions of the previous original.
+        if (replacePrimary) {
+          nextVersions = nextVersions.filter(
+            (row) => normalizeUrlKey(row.fileUrl) === normalizeUrlKey(resumeUrl),
+          );
+          if (!nextVersions.length) {
+            nextVersions = [
+              {
+                id: createdFileId,
+                fileUrl: resumeUrl,
+                fileName: file.originalname || 'Resume',
+                uploadedAt: null,
+                isPrimary: true,
+              },
+            ];
+          }
+        }
+
+        let updatedCandidate;
+        if (replacePrimary) {
+          const snap =
+            existingExtra.phase1ProfileSnapshot &&
+            typeof existingExtra.phase1ProfileSnapshot === 'object' &&
+            !Array.isArray(existingExtra.phase1ProfileSnapshot)
+              ? { ...existingExtra.phase1ProfileSnapshot }
+              : null;
+          if (snap) {
+            const prevResume =
+              snap.resume && typeof snap.resume === 'object' && !Array.isArray(snap.resume)
+                ? { ...snap.resume }
+                : {};
+            snap.resume = {
+              ...prevResume,
+              fileUrl: resumeUrl,
+              fileName: file.originalname || prevResume.fileName || null,
+            };
+            existingExtra.phase1ProfileSnapshot = snap;
+          }
+          updatedCandidate = await prisma.candidate.update({
+            where: { id: candidateId },
+            data: {
+              resume: resumeUrl,
+              resumeUrl,
+              lastActivity: new Date(),
+              extraData: {
+                ...existingExtra,
+                firstOriginalResumeUrl: resumeUrl,
+                firstOriginalResumeFileName: file.originalname || null,
+                originalResumeUrl: resumeUrl,
+                originalResumeFileName: file.originalname || null,
+                resumeCvViewMode: 'original',
+                resumeVersions: nextVersions,
+              },
+            },
+          });
+        } else {
+          // Additional version: keep Original CV pointer unchanged; new file is v2+.
+          updatedCandidate = await prisma.candidate.update({
+            where: { id: candidateId },
+            data: {
+              lastActivity: new Date(),
+              extraData: {
+                ...existingExtra,
+                firstOriginalResumeUrl: currentOriginalUrl || previousPrimaryUrl || null,
+                firstOriginalResumeFileName:
+                  currentOriginalName || previousPrimaryName || existingExtra.firstOriginalResumeFileName || null,
+                originalResumeUrl: previousPrimaryUrl || existingExtra.originalResumeUrl || null,
+                originalResumeFileName:
+                  previousPrimaryName || existingExtra.originalResumeFileName || null,
+                resumeVersions: nextVersions,
+              },
+            },
+          });
+        }
+
+        await logActivity({
+          candidateId,
+          performedById: req.user.id,
+          action: replacePrimary ? 'Resume replaced' : 'Resume version uploaded',
+          description: replacePrimary
+            ? `${file.originalname} replaced the Original CV.`
+            : `${file.originalname} added as an additional CV version.`,
+          metadata: {
+            kind: 'candidate-resume',
+            fileName: file.originalname,
+            filePath: resumeUrl,
+            replacePrimary,
+            fileId: createdFileId,
+            tenantDbName,
+            versionCount: nextVersions.length,
+            removedOriginal: replacePrimary ? currentOriginalUrl || previousPrimaryUrl || null : null,
+          },
+        });
+
+        return {
+          ...updatedCandidate,
+          resumeFileId: createdFileId,
+          resumeFileUrl: resumeUrl,
+          resumeVersions: nextVersions,
+        };
       });
 
-      if (!candidate) {
-        return res.status(404).json({
+      return res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      const status = Number(error?.statusCode) || 500;
+      return res.status(status).json({
+        success: false,
+        message: error.message,
+      });
+    }
+  },
+
+  async deleteCandidateResumeVersion(req, res) {
+    try {
+      const { candidateId } = req.params;
+      const fileId = String(req.body?.fileId || req.query?.fileId || '').trim();
+      const fileUrl = String(req.body?.fileUrl || req.query?.fileUrl || '').trim();
+
+      if (!fileId && !fileUrl) {
+        return res.status(400).json({
           success: false,
-          message: 'Candidate not found',
+          message: 'fileId or fileUrl is required to delete a CV version',
         });
       }
 
@@ -1679,71 +2057,255 @@ export const addCandidateController = {
           req.user?.tenantDbName ||
             req.headers['x-tenant-db-name'] ||
             getActiveTenantDbName() ||
-            'default'
-        ).trim() || 'default';
-
-      const upload = await uploadBufferToCloudinary(file.buffer, {
-        folder: `jobportal/candidates/${candidateId}/resumes`,
-        contentType: uploadContentTypeForFile(file.mimetype, file.originalname),
-        originalFilename: file.originalname,
-        tenantDbName,
-      });
-      const resumeUrl = upload?.secure_url || upload?.url;
-      const existingExtra =
-        candidate.extraData && typeof candidate.extraData === 'object' && !Array.isArray(candidate.extraData)
-          ? candidate.extraData
-          : {};
-      const updatedCandidate = await prisma.candidate.update({
-        where: { id: candidateId },
-        data: {
-          resume: resumeUrl,
-          resumeUrl,
-          lastActivity: new Date(),
-          // Pin the uploaded binary so Original CV never falls back to Phase 1 studio HTML.
-          extraData: {
-            ...existingExtra,
-            originalResumeUrl: resumeUrl,
-            originalResumeFileName: file.originalname || existingExtra.originalResumeFileName || null,
-            resumeCvViewMode: 'original',
-          },
-        },
-      });
-
-      // Mirror the resume into CandidateFile so the drawer's Files tab (which
-      // reads from /api/v1/files?entityType=candidate) shows the same file
-      // alongside the synthetic "Primary resume" row driven by candidate.resume.
-      try {
-        await prisma.candidateFile.create({
-          data: {
-            candidateId,
-            fileName: file.originalname || 'Resume',
-            fileUrl: resumeUrl,
-            fileType: 'Resume',
-            uploadedById: req.user.id,
-          },
+            ''
+        ).trim();
+      if (!tenantDbName || tenantDbName === 'default') {
+        return res.status(400).json({
+          success: false,
+          message: 'Tenant context is required to delete a resume version',
         });
-      } catch (fileError) {
-        console.error('Failed to mirror resume into candidate files:', fileError?.message || fileError);
       }
 
-      await logActivity({
-        candidateId,
-        performedById: req.user.id,
-        action: 'Resume uploaded',
-        description: `${file.originalname} uploaded for candidate.`,
-        metadata: {
-          kind: 'candidate-resume',
-          fileName: file.originalname,
-          filePath: resumeUrl,
-        },
+      const normalizeUrlKey = (url) => {
+        const raw = String(url || '').trim();
+        if (!raw) return '';
+        try {
+          const parsed = new URL(raw);
+          return `${parsed.origin}${parsed.pathname}`.replace(/\/+$/, '').toLowerCase();
+        } catch {
+          return raw.split('?')[0]?.replace(/\/+$/, '').toLowerCase() || '';
+        }
+      };
+
+      const result = await runWithTenantContext(tenantDbName, async () => {
+        setTenantAuditUser(req.user);
+
+        const candidate = await prisma.candidate.findUnique({
+          where: { id: candidateId },
+        });
+        if (!candidate) {
+          const err = new Error('Candidate not found');
+          err.statusCode = 404;
+          throw err;
+        }
+
+        const existingExtra =
+          candidate.extraData && typeof candidate.extraData === 'object' && !Array.isArray(candidate.extraData)
+            ? { ...candidate.extraData }
+            : {};
+
+        let targetUrl = fileUrl;
+        let targetFileIds = [];
+
+        if (fileId && !fileId.startsWith('stored-') && fileId !== '__primary_resume__') {
+          const row = await prisma.candidateFile.findFirst({
+            where: { id: fileId, candidateId },
+          });
+          if (row) {
+            targetUrl = String(row.fileUrl || targetUrl || '').trim();
+            targetFileIds.push(row.id);
+          }
+        }
+
+        const targetKey = normalizeUrlKey(targetUrl);
+        if (!targetKey && !targetFileIds.length) {
+          const err = new Error('CV version not found');
+          err.statusCode = 404;
+          throw err;
+        }
+
+        const currentOriginalUrl = String(
+          existingExtra.firstOriginalResumeUrl ||
+            existingExtra.originalResumeUrl ||
+            candidate.resumeUrl ||
+            candidate.resume ||
+            '',
+        ).trim();
+        const isOriginalTarget =
+          (targetKey && normalizeUrlKey(currentOriginalUrl) === targetKey) ||
+          (targetKey && normalizeUrlKey(existingExtra.originalResumeUrl) === targetKey) ||
+          (targetKey && normalizeUrlKey(existingExtra.firstOriginalResumeUrl) === targetKey) ||
+          (targetKey && normalizeUrlKey(candidate.resumeUrl) === targetKey) ||
+          (targetKey && normalizeUrlKey(candidate.resume) === targetKey);
+
+        if (isOriginalTarget) {
+          const err = new Error('Original CV cannot be deleted. Use Replace CV instead.');
+          err.statusCode = 400;
+          throw err;
+        }
+
+        // Also collect any CandidateFile rows that share this resume URL.
+        if (targetKey) {
+          const allFiles = await prisma.candidateFile.findMany({
+            where: { candidateId },
+            select: { id: true, fileUrl: true, fileType: true, fileName: true },
+          });
+          for (const row of allFiles) {
+            if (normalizeUrlKey(row.fileUrl) !== targetKey) continue;
+            const type = String(row.fileType || '').trim();
+            if (/^SAASA_CV$/i.test(type)) continue;
+            if (!targetFileIds.includes(row.id)) targetFileIds.push(row.id);
+          }
+        }
+
+        if (targetFileIds.length) {
+          await prisma.candidateFile.deleteMany({
+            where: { id: { in: targetFileIds }, candidateId },
+          });
+        }
+
+        const remainingFiles = await prisma.candidateFile.findMany({
+          where: { candidateId },
+          orderBy: { uploadDate: 'asc' },
+        });
+        const remainingResumes = remainingFiles.filter((row) => {
+          const type = String(row.fileType || '').trim();
+          if (/^SAASA_CV$/i.test(type)) return false;
+          if (/^resume$/i.test(type) || /^cv$/i.test(type)) return true;
+          const name = String(row.fileName || row.fileUrl || '');
+          const url = String(row.fileUrl || '');
+          if (/(?:SAASA|HRYantra|HRYANTRA)[\s_-]*CV/i.test(name)) return false;
+          return /\/resumes\/|\/cv-files\//i.test(url) || /\.(pdf|docx?)($|[?#])/i.test(url);
+        });
+
+        const nextOriginalUrl = String(
+          existingExtra.originalResumeUrl || candidate.resumeUrl || candidate.resume || '',
+        ).trim();
+        const nextOriginalName = String(existingExtra.originalResumeFileName || '').trim();
+        const nextFirstOriginalUrl = String(
+          existingExtra.firstOriginalResumeUrl || nextOriginalUrl,
+        ).trim();
+        const nextFirstOriginalName = String(
+          existingExtra.firstOriginalResumeFileName || nextOriginalName || '',
+        ).trim();
+        const primaryKey = normalizeUrlKey(nextOriginalUrl);
+
+        const priorVersions = Array.isArray(existingExtra.resumeVersions)
+          ? existingExtra.resumeVersions.filter((row) => row && typeof row === 'object')
+          : [];
+        const allowedKeys = new Set();
+        for (const row of priorVersions) {
+          const key = normalizeUrlKey(row.fileUrl);
+          if (!key || (targetKey && key === targetKey)) continue;
+          allowedKeys.add(key);
+        }
+        if (primaryKey) allowedKeys.add(primaryKey);
+        const useAllowedFilter = allowedKeys.size > 0;
+
+        // Rebuild from remaining files, but never re-introduce URLs that were not in
+        // the prior version list (orphan files after Replace must stay gone).
+        const versionByKey = new Map();
+        for (const row of remainingResumes) {
+          const fileUrl = String(row.fileUrl || '').trim();
+          const key = normalizeUrlKey(fileUrl);
+          if (!key || (targetKey && key === targetKey)) continue;
+          if (useAllowedFilter && !allowedKeys.has(key)) continue;
+          versionByKey.set(key, {
+            id: row.id,
+            fileUrl,
+            fileName: String(row.fileName || 'Resume').trim() || 'Resume',
+            uploadedAt: row.uploadDate ? new Date(row.uploadDate).toISOString() : null,
+            isPrimary: primaryKey ? key === primaryKey : false,
+          });
+        }
+
+        // Keep prior metadata for surviving versions (and original pointer).
+        for (const row of priorVersions) {
+          const fileUrl = String(row.fileUrl || '').trim();
+          const key = normalizeUrlKey(fileUrl);
+          if (!key || (targetKey && key === targetKey)) continue;
+          if (useAllowedFilter && !allowedKeys.has(key)) continue;
+          // Only keep if a file still exists, or it is the current original.
+          if (!versionByKey.has(key) && key !== primaryKey) continue;
+          const prev = versionByKey.get(key);
+          versionByKey.set(key, {
+            id: prev?.id || row.id || null,
+            fileUrl: prev?.fileUrl || fileUrl,
+            fileName: String(prev?.fileName || row.fileName || 'Resume').trim() || 'Resume',
+            uploadedAt: prev?.uploadedAt || row.uploadedAt || null,
+            isPrimary: primaryKey ? key === primaryKey : Boolean(row.isPrimary),
+          });
+        }
+
+        // Keep original pointer in history even if it is only on the candidate row.
+        if (nextOriginalUrl && normalizeUrlKey(nextOriginalUrl) !== targetKey) {
+          const key = normalizeUrlKey(nextOriginalUrl);
+          if (key && !versionByKey.has(key)) {
+            versionByKey.set(key, {
+              id: null,
+              fileUrl: nextOriginalUrl,
+              fileName: nextOriginalName || 'Original CV',
+              uploadedAt: null,
+              isPrimary: true,
+            });
+          }
+        }
+
+        const normalizedVersions = Array.from(versionByKey.values())
+          .sort((a, b) => {
+            const aIsPrimary = primaryKey && normalizeUrlKey(a.fileUrl) === primaryKey;
+            const bIsPrimary = primaryKey && normalizeUrlKey(b.fileUrl) === primaryKey;
+            if (aIsPrimary && !bIsPrimary) return -1;
+            if (!aIsPrimary && bIsPrimary) return 1;
+            const aHas = Boolean(a.uploadedAt && Date.parse(String(a.uploadedAt)));
+            const bHas = Boolean(b.uploadedAt && Date.parse(String(b.uploadedAt)));
+            if (!aHas && bHas) return -1;
+            if (aHas && !bHas) return 1;
+            const ta = Date.parse(String(a.uploadedAt || '')) || 0;
+            const tb = Date.parse(String(b.uploadedAt || '')) || 0;
+            if (ta !== tb) return ta - tb;
+            return String(a.fileName || '').localeCompare(String(b.fileName || ''));
+          })
+          .map((row) => ({
+            ...row,
+            isPrimary: primaryKey ? normalizeUrlKey(row.fileUrl) === primaryKey : Boolean(row.isPrimary),
+          }));
+
+        const updatedCandidate = await prisma.candidate.update({
+          where: { id: candidateId },
+          data: {
+            lastActivity: new Date(),
+            extraData: {
+              ...existingExtra,
+              firstOriginalResumeUrl: nextFirstOriginalUrl || null,
+              firstOriginalResumeFileName: nextFirstOriginalName || null,
+              originalResumeUrl: nextOriginalUrl || null,
+              originalResumeFileName: nextOriginalName || null,
+              resumeVersions: normalizedVersions,
+            },
+          },
+        });
+
+        await logActivity({
+          candidateId,
+          performedById: req.user.id,
+          action: 'Resume version deleted',
+          description: targetUrl
+            ? `Removed CV version ${targetUrl}`
+            : `Removed CV version ${fileId}`,
+          metadata: {
+            kind: 'candidate-resume-delete',
+            fileId: targetFileIds[0] || fileId || null,
+            fileUrl: targetUrl || null,
+            tenantDbName,
+            versionCount: normalizedVersions.length,
+          },
+        });
+
+        return {
+          ...updatedCandidate,
+          resumeVersions: normalizedVersions,
+          deletedFileIds: targetFileIds,
+        };
       });
 
       return res.status(200).json({
         success: true,
-        data: updatedCandidate,
+        data: result,
       });
     } catch (error) {
-      return res.status(500).json({
+      const status = Number(error?.statusCode) || 500;
+      return res.status(status).json({
         success: false,
         message: error.message,
       });

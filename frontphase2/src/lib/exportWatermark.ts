@@ -8,6 +8,8 @@ export type ExportWatermarkSettings = {
   text: string;
   /** Uploaded logo / image URL used as visual watermark on PDF / Excel. */
   imageUrl: string;
+  /** Optional preloaded logo (data URL) — used on public client-review exports. */
+  imageDataUrl?: string;
   opacity: number;
   applyToPdf: boolean;
   applyToExcel: boolean;
@@ -26,25 +28,67 @@ export const DEFAULT_EXPORT_WATERMARK: ExportWatermarkSettings = {
 
 export const ORG_WATERMARK_CACHE_KEY = 'orgExportWatermark';
 export const ORG_WATERMARK_CACHE_EVENT = 'ph2:org-export-watermark';
+/** Session cache of decoded logo PNG data-URLs keyed by imageUrl (avoids blank Excel embeds). */
+const ORG_WATERMARK_LOGO_DATA_KEY = 'orgExportWatermarkLogoData';
 
 export function normalizeExportWatermark(raw: unknown): ExportWatermarkSettings {
   const input = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
   const text = String(input.text || '').trim().slice(0, 120);
   const imageUrl = String(input.imageUrl || input.logoUrl || '').trim();
+  const imageDataUrl = String(input.imageDataUrl || '').trim();
   const opacityRaw = Number(input.opacity);
   const opacity = Number.isFinite(opacityRaw)
     ? Math.min(0.5, Math.max(0.05, opacityRaw))
     : DEFAULT_EXPORT_WATERMARK.opacity;
-  const hasContent = text.length > 0 || imageUrl.length > 0;
+  const hasContent = text.length > 0 || imageUrl.length > 0 || imageDataUrl.startsWith('data:image/');
   return {
     enabled: Boolean(input.enabled) && hasContent,
     text,
     imageUrl,
+    imageDataUrl: imageDataUrl.startsWith('data:image/') ? imageDataUrl : '',
     opacity,
     applyToPdf: input.applyToPdf !== false,
     applyToExcel: input.applyToExcel !== false,
     applyToCsv: input.applyToCsv !== false,
   };
+}
+
+function readTenantDbName(): string {
+  if (typeof window === 'undefined') return '';
+  try {
+    return String(window.localStorage.getItem('tenantDbName') || '').trim();
+  } catch {
+    return '';
+  }
+}
+
+export function cacheWatermarkLogoDataUrl(imageUrl: string, dataUrl: string): void {
+  if (typeof window === 'undefined') return;
+  const key = String(imageUrl || '').trim();
+  const value = String(dataUrl || '').trim();
+  if (!key || !value.startsWith('data:image/')) return;
+  try {
+    sessionStorage.setItem(
+      ORG_WATERMARK_LOGO_DATA_KEY,
+      JSON.stringify({ imageUrl: key, dataUrl: value, at: Date.now() }),
+    );
+  } catch {
+    /* quota — ignore */
+  }
+}
+
+function readCachedWatermarkLogoDataUrl(imageUrl: string): string {
+  if (typeof window === 'undefined') return '';
+  try {
+    const raw = sessionStorage.getItem(ORG_WATERMARK_LOGO_DATA_KEY);
+    if (!raw) return '';
+    const parsed = JSON.parse(raw) as { imageUrl?: string; dataUrl?: string };
+    if (String(parsed?.imageUrl || '').trim() !== String(imageUrl || '').trim()) return '';
+    const dataUrl = String(parsed?.dataUrl || '').trim();
+    return dataUrl.startsWith('data:image/') ? dataUrl : '';
+  } catch {
+    return '';
+  }
 }
 
 export function readCachedOrgWatermark(): ExportWatermarkSettings {
@@ -70,7 +114,7 @@ export function writeCachedOrgWatermark(settings: ExportWatermarkSettings): void
 
 export function watermarkHasContent(settings: ExportWatermarkSettings | null | undefined): boolean {
   const cfg = normalizeExportWatermark(settings);
-  return Boolean(cfg.text || cfg.imageUrl);
+  return Boolean(cfg.text || cfg.imageUrl || cfg.imageDataUrl);
 }
 
 export function watermarkTextForFormat(
@@ -82,10 +126,8 @@ export function watermarkTextForFormat(
   if (format === 'pdf' && !cfg.applyToPdf) return '';
   if (format === 'excel' && !cfg.applyToExcel) return '';
   if ((format === 'csv' || format === 'text') && !cfg.applyToCsv) return '';
-  // Real text stamp only — never return the image placeholder for Excel
-  // (logo is embedded as an image). CSV/text keep a short marker when logo-only.
   if (cfg.text) return cfg.text;
-  if (cfg.imageUrl && (format === 'csv' || format === 'text')) {
+  if ((cfg.imageUrl || cfg.imageDataUrl) && (format === 'csv' || format === 'text')) {
     return '[logo watermark]';
   }
   return '';
@@ -96,10 +138,11 @@ export function watermarkImageForFormat(
   format: 'pdf' | 'excel',
 ): string {
   const cfg = normalizeExportWatermark(settings);
-  if (!cfg.enabled || !cfg.imageUrl) return '';
+  if (!cfg.enabled) return '';
   if (format === 'pdf' && !cfg.applyToPdf) return '';
   if (format === 'excel' && !cfg.applyToExcel) return '';
-  return cfg.imageUrl;
+  if (cfg.imageDataUrl?.startsWith('data:image/')) return cfg.imageDataUrl;
+  return cfg.imageUrl || '';
 }
 
 /** Resolve a stored /uploads or absolute watermark image URL for fetch/display. */
@@ -107,32 +150,78 @@ export function resolveWatermarkImageSrc(imageUrl: string): string {
   const trimmed = String(imageUrl || '').trim();
   if (!trimmed) return '';
   if (trimmed.startsWith('data:')) return trimmed;
-  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+
+  const tenant = readTenantDbName();
+  const withTenant = (url: string): string => {
+    if (!tenant) return url;
+    try {
+      const absolute = /^https?:\/\//i.test(url)
+        ? new URL(url)
+        : new URL(url, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
+      if (
+        absolute.pathname.includes('/public/uploads/export-watermarks/') &&
+        !absolute.searchParams.get('tenantDbName')
+      ) {
+        absolute.searchParams.set('tenantDbName', tenant);
+      }
+      if (/^https?:\/\//i.test(url)) return absolute.toString();
+      return `${absolute.pathname}${absolute.search}`;
+    } catch {
+      return url;
+    }
+  };
+
+  if (/^https?:\/\//i.test(trimmed)) return withTenant(trimmed);
   if (typeof window === 'undefined') return trimmed;
 
   const apiBase = String(process.env.NEXT_PUBLIC_API_URL || '')
     .trim()
     .replace(/\/+$/, '');
   const origin = window.location.origin;
+  const apiRoot = apiBase ? apiBase.replace(/\/api\/v1\/?$/, '') : origin;
 
-  // Prefer absolute API origin so we never hit the Next.js HTML fallback.
   if (trimmed.startsWith('/api/v1/')) {
-    if (apiBase) {
-      const root = apiBase.replace(/\/api\/v1\/?$/, '');
-      return `${root}${trimmed}`;
-    }
-    return `${origin}${trimmed}`;
+    return withTenant(`${apiRoot}${trimmed}`);
   }
   if (trimmed.startsWith('/uploads/')) {
     const sub = trimmed.replace(/^\/uploads\//, '');
-    if (apiBase) return `${apiBase.replace(/\/api\/v1\/?$/, '')}/api/v1/public/uploads/${sub}`;
-    return `${origin}/api/v1/public/uploads/${sub}`;
+    return withTenant(`${apiRoot}/api/v1/public/uploads/${sub}`);
   }
-  if (trimmed.startsWith('/') && apiBase) {
-    const root = apiBase.replace(/\/api\/v1\/?$/, '');
-    return `${root}${trimmed}`;
+  if (trimmed.startsWith('/') && apiRoot) {
+    return withTenant(`${apiRoot}${trimmed}`);
   }
-  return trimmed;
+  return withTenant(trimmed);
+}
+
+function buildWatermarkImageFetchCandidates(imageUrl: string): string[] {
+  const primary = resolveWatermarkImageSrc(imageUrl);
+  const candidates = [primary];
+  const tenant = readTenantDbName();
+  const trimmed = String(imageUrl || '').trim();
+
+  // Also try same-origin proxy paths in case BACKEND_PUBLIC_URL pointed elsewhere.
+  if (trimmed.includes('/public/uploads/export-watermarks/') || trimmed.includes('/export-watermarks/')) {
+    try {
+      const parsed = new URL(primary, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
+      const filename = parsed.pathname.split('/').filter(Boolean).pop() || '';
+      if (filename && typeof window !== 'undefined') {
+        const local = new URL(
+          `/api/v1/public/uploads/export-watermarks/${encodeURIComponent(filename)}`,
+          window.location.origin,
+        );
+        if (tenant) local.searchParams.set('tenantDbName', tenant);
+        candidates.push(local.toString());
+      }
+      if (tenant && !parsed.searchParams.get('tenantDbName')) {
+        parsed.searchParams.set('tenantDbName', tenant);
+        candidates.push(parsed.toString());
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return [...new Set(candidates.filter(Boolean))];
 }
 
 function sniffImageFormat(bytes: Uint8Array): 'png' | 'jpeg' | null {
@@ -201,65 +290,96 @@ async function decodeBlobToPngDataUrl(
 async function fetchImageAsDataUrl(
   imageUrl: string,
 ): Promise<{ dataUrl: string; format: 'PNG' | 'JPEG'; width: number; height: number } | null> {
-  const src = resolveWatermarkImageSrc(imageUrl);
-  if (!src) return null;
-  try {
-    const token =
-      typeof window !== 'undefined' ? window.localStorage.getItem('accessToken') : null;
-    const response = await fetch(src, {
-      cache: 'no-store',
-      credentials: 'include',
-      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-    });
-    if (!response.ok) return null;
+  const trimmed = String(imageUrl || '').trim();
+  if (!trimmed) return null;
 
-    const contentType = String(response.headers.get('content-type') || '').toLowerCase();
-    if (contentType.includes('text/html') || contentType.includes('application/json')) {
-      return null;
+  // Prefer session-cached decoded logo from the Watermark settings upload/preview.
+  const cachedDataUrl = readCachedWatermarkLogoDataUrl(trimmed);
+  if (cachedDataUrl) {
+    try {
+      const res = await fetch(cachedDataUrl);
+      const blob = await res.blob();
+      const painted = await decodeBlobToPngDataUrl(blob);
+      if (painted) return painted;
+    } catch {
+      /* fall through to network */
     }
-
-    const buffer = await response.arrayBuffer();
-    if (!buffer.byteLength || buffer.byteLength < 32) return null;
-    const bytes = new Uint8Array(buffer);
-    const sniffed = sniffImageFormat(bytes);
-    const blobType =
-      sniffed === 'png'
-        ? 'image/png'
-        : sniffed === 'jpeg'
-          ? 'image/jpeg'
-          : contentType.startsWith('image/')
-            ? contentType
-            : 'application/octet-stream';
-
-    // Reject non-image payloads that somehow returned 200 (e.g. SPA HTML).
-    if (!sniffed && contentType && !contentType.startsWith('image/')) {
-      return null;
-    }
-
-    const blob = new Blob([buffer], { type: blobType });
-    const painted = await decodeBlobToPngDataUrl(blob);
-    if (painted) return painted;
-
-    // Last resort for already-valid PNG/JPEG if canvas decode was blocked.
-    if (sniffed) {
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result || ''));
-        reader.onerror = () => reject(new Error('read failed'));
-        reader.readAsDataURL(blob);
-      });
-      if (!dataUrl.startsWith('data:image/')) return null;
-      return {
-        dataUrl,
-        format: sniffed === 'png' ? 'PNG' : 'JPEG',
-        width: 180,
-        height: 64,
-      };
-    }
-    return null;
-  } catch {
-    return null;
   }
+
+  if (trimmed.startsWith('data:image/')) {
+    try {
+      const res = await fetch(trimmed);
+      const blob = await res.blob();
+      return await decodeBlobToPngDataUrl(blob);
+    } catch {
+      return null;
+    }
+  }
+
+  const token =
+    typeof window !== 'undefined' ? window.localStorage.getItem('accessToken') : null;
+  const candidates = buildWatermarkImageFetchCandidates(trimmed);
+
+  for (const src of candidates) {
+    try {
+      const response = await fetch(src, {
+        cache: 'no-store',
+        credentials: 'include',
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      if (!response.ok) continue;
+
+      const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+      if (contentType.includes('text/html') || contentType.includes('application/json')) {
+        continue;
+      }
+
+      const buffer = await response.arrayBuffer();
+      if (!buffer.byteLength || buffer.byteLength < 32) continue;
+      const bytes = new Uint8Array(buffer);
+      const sniffed = sniffImageFormat(bytes);
+      const blobType =
+        sniffed === 'png'
+          ? 'image/png'
+          : sniffed === 'jpeg'
+            ? 'image/jpeg'
+            : contentType.startsWith('image/')
+              ? contentType
+              : 'application/octet-stream';
+
+      if (!sniffed && contentType && !contentType.startsWith('image/')) {
+        continue;
+      }
+
+      const blob = new Blob([buffer], { type: blobType });
+      const painted = await decodeBlobToPngDataUrl(blob);
+      if (painted) {
+        cacheWatermarkLogoDataUrl(trimmed, painted.dataUrl);
+        return painted;
+      }
+
+      if (sniffed) {
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result || ''));
+          reader.onerror = () => reject(new Error('read failed'));
+          reader.readAsDataURL(blob);
+        });
+        if (!dataUrl.startsWith('data:image/')) continue;
+        cacheWatermarkLogoDataUrl(trimmed, dataUrl);
+        return {
+          dataUrl,
+          format: sniffed === 'png' ? 'PNG' : 'JPEG',
+          width: 180,
+          height: 64,
+        };
+      }
+    } catch {
+      /* try next candidate */
+    }
+  }
+
+  return null;
 }
 
 /** Prepend watermark line to plain text / HTML / CSV string content. */
@@ -308,15 +428,20 @@ type JsPdfLike = {
 };
 
 /** Stamp every page of a jsPDF document with text and/or logo image. */
-export async function applyOrgWatermarkToJsPdf(pdf: JsPdfLike): Promise<void> {
-  const cfg = readCachedOrgWatermark();
+export async function applyOrgWatermarkToJsPdf(
+  pdf: JsPdfLike,
+  settingsOverride?: ExportWatermarkSettings | null,
+): Promise<void> {
+  const cfg = normalizeExportWatermark(settingsOverride ?? readCachedOrgWatermark());
   if (!cfg.enabled) return;
   if (!cfg.applyToPdf) return;
   const opacity = Math.min(0.5, Math.max(0.05, cfg.opacity));
   const pages = pdf.getNumberOfPages();
-  let image: { dataUrl: string; format: 'PNG' | 'JPEG' } | null = null;
-  if (cfg.imageUrl) {
-    image = await fetchImageAsDataUrl(cfg.imageUrl);
+  let image: { dataUrl: string; format: 'PNG' | 'JPEG'; width: number; height: number } | null =
+    null;
+  const imageSrc = watermarkImageForFormat(cfg, 'pdf');
+  if (imageSrc) {
+    image = await fetchImageAsDataUrl(imageSrc);
   }
 
   for (let i = 1; i <= pages; i += 1) {
@@ -334,7 +459,7 @@ export async function applyOrgWatermarkToJsPdf(pdf: JsPdfLike): Promise<void> {
 
     if (image) {
       const imgW = Math.min(width * 0.45, 90);
-      const imgH = imgW * 0.55;
+      const imgH = (image.height / Math.max(1, image.width)) * imgW;
       try {
         pdf.addImage(
           image.dataUrl,
@@ -358,17 +483,15 @@ export async function applyOrgWatermarkToJsPdf(pdf: JsPdfLike): Promise<void> {
             imgH,
           );
         } catch {
-          /* ignore image stamp failure */
+          /* ignore */
         }
       }
     }
-
     if (cfg.text) {
       pdf.setTextColor(120, 120, 140);
       pdf.setFontSize(Math.max(18, Math.min(42, Math.floor(width / 6))));
-      pdf.text(cfg.text, width / 2, height / 2 + (image ? 28 : 0), { angle: 35, align: 'center' });
+      pdf.text(cfg.text, width / 2, height / 2, { angle: 35, align: 'center' });
     }
-
     try {
       pdf.restoreGraphicsState?.();
     } catch {
@@ -413,8 +536,9 @@ export function stampJsPdfWatermark(
 export async function stampDownloadBlob(
   blob: Blob,
   filename?: string,
+  settingsOverride?: ExportWatermarkSettings | null,
 ): Promise<Blob> {
-  const cfg = readCachedOrgWatermark();
+  const cfg = normalizeExportWatermark(settingsOverride ?? readCachedOrgWatermark());
   if (!cfg.enabled || !watermarkHasContent(cfg)) return blob;
 
   const name = String(filename || '').toLowerCase();
@@ -432,54 +556,82 @@ export async function stampDownloadBlob(
   if (isPdf) {
     if (!cfg.applyToPdf) return blob;
     try {
-      const { PDFDocument, rgb, degrees } = await import('pdf-lib');
+      const { PDFDocument, StandardFonts, rgb, degrees } = await import('pdf-lib');
       const pdfDoc = await PDFDocument.load(await blob.arrayBuffer(), {
         ignoreEncryption: true,
       });
       const pages = pdfDoc.getPages();
+      if (!pages.length) return blob;
       const opacity = Math.min(0.5, Math.max(0.05, cfg.opacity));
 
       let embeddedImage: Awaited<ReturnType<typeof pdfDoc.embedPng>> | null = null;
-      if (cfg.imageUrl) {
-        const image = await fetchImageAsDataUrl(cfg.imageUrl);
-        if (image) {
-          const base64 = image.dataUrl.split(',')[1] || '';
-          const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-          embeddedImage =
-            image.format === 'PNG'
-              ? await pdfDoc.embedPng(bytes)
-              : await pdfDoc.embedJpg(bytes);
+      const imageSrc = watermarkImageForFormat(cfg, 'pdf');
+      if (imageSrc) {
+        try {
+          const image = await fetchImageAsDataUrl(imageSrc);
+          if (image) {
+            const base64 = image.dataUrl.split(',')[1] || '';
+            const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+            embeddedImage =
+              image.format === 'PNG'
+                ? await pdfDoc.embedPng(bytes)
+                : await pdfDoc.embedJpg(bytes);
+          }
+        } catch {
+          embeddedImage = null;
+        }
+      }
+
+      let font: Awaited<ReturnType<typeof pdfDoc.embedFont>> | null = null;
+      if (cfg.text) {
+        try {
+          font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+        } catch {
+          font = null;
         }
       }
 
       for (const page of pages) {
         const { width, height } = page.getSize();
         if (embeddedImage) {
-          const imgW = Math.min(width * 0.4, 220);
-          const imgH = (embeddedImage.height / embeddedImage.width) * imgW;
-          page.drawImage(embeddedImage, {
-            x: (width - imgW) / 2,
-            y: (height - imgH) / 2,
-            width: imgW,
-            height: imgH,
-            opacity,
-            rotate: degrees(35),
-          });
+          try {
+            const imgW = Math.min(width * 0.4, 220);
+            const imgH = (embeddedImage.height / Math.max(1, embeddedImage.width)) * imgW;
+            page.drawImage(embeddedImage, {
+              x: (width - imgW) / 2,
+              y: (height - imgH) / 2,
+              width: imgW,
+              height: imgH,
+              opacity,
+              rotate: degrees(35),
+            });
+          } catch {
+            /* keep going — text may still stamp */
+          }
         }
-        if (cfg.text) {
-          const size = Math.max(18, Math.min(48, Math.floor(width / 8)));
-          page.drawText(cfg.text, {
-            x: width * 0.18,
-            y: height * 0.42 - (embeddedImage ? 40 : 0),
-            size,
-            rotate: degrees(35),
-            opacity,
-            color: rgb(0.45, 0.47, 0.55),
-          });
+        if (cfg.text && font) {
+          try {
+            const size = Math.max(18, Math.min(48, Math.floor(width / 8)));
+            page.drawText(cfg.text, {
+              x: width * 0.18,
+              y: height * 0.42 - (embeddedImage ? 40 : 0),
+              size,
+              font,
+              rotate: degrees(35),
+              opacity,
+              color: rgb(0.45, 0.47, 0.55),
+            });
+          } catch {
+            /* ignore text stamp failure */
+          }
         }
       }
       const out = await pdfDoc.save();
-      return new Blob([out], { type: 'application/pdf' });
+      // Copy into a fresh ArrayBuffer so BlobPart typing accepts it in DOM lib builds.
+      const bytes = out instanceof Uint8Array ? out : new Uint8Array(out);
+      const copy = new Uint8Array(bytes.byteLength);
+      copy.set(bytes);
+      return new Blob([copy.buffer], { type: 'application/pdf' });
     } catch {
       return blob;
     }
@@ -509,7 +661,16 @@ export async function stampDownloadBlob(
   return blob;
 }
 
-/** Prepend watermark note / embed logo image on exceljs workbook. */
+/** Warm session logo cache so the next export can embed without a race. */
+export async function preloadOrgWatermarkLogo(
+  settings?: ExportWatermarkSettings | null,
+): Promise<void> {
+  const cfg = normalizeExportWatermark(settings ?? readCachedOrgWatermark());
+  if (!cfg.enabled) return;
+  const src = watermarkImageForFormat(cfg, 'pdf') || cfg.imageUrl;
+  if (!src) return;
+  await fetchImageAsDataUrl(src);
+}
 export async function stampExcelJsWorkbook(
   workbook: {
     worksheets: Array<{
@@ -517,9 +678,11 @@ export async function stampExcelJsWorkbook(
         font?: unknown;
         alignment?: unknown;
         height?: number;
+        getCell?: (col: number) => { value?: unknown; font?: unknown };
       };
       addImage?: (imageId: number, range: unknown) => void;
       getRow?: (index: number) => { height?: number };
+      mergeCells?: (range: string) => void;
     }>;
     addImage?: (opts: {
       base64?: string;
@@ -528,23 +691,32 @@ export async function stampExcelJsWorkbook(
     }) => number;
   },
   text?: string,
+  settingsOverride?: ExportWatermarkSettings | null,
 ): Promise<void> {
-  const cfg = readCachedOrgWatermark();
+  const cfg = normalizeExportWatermark(settingsOverride ?? readCachedOrgWatermark());
   if (!cfg.enabled || !cfg.applyToExcel) return;
   if (!workbook?.worksheets?.length) return;
 
   const rawStamp = String(text || cfg.text || '').trim();
-  const textStamp =
+  const preferredText =
     rawStamp && rawStamp !== '[logo watermark]' ? rawStamp : String(cfg.text || '').trim();
   const imageUrl = watermarkImageForFormat(cfg, 'excel');
 
-  // Decode/convert first — never insert a blank spacer or broken white image box.
   let image: Awaited<ReturnType<typeof fetchImageAsDataUrl>> = null;
   if (imageUrl && workbook.addImage) {
     image = await fetchImageAsDataUrl(imageUrl);
   }
-
   const hasImage = Boolean(image?.dataUrl);
+
+  const textStamp = preferredText
+    ? preferredText
+    : hasImage
+      ? ''
+      : imageUrl
+        ? 'Organization watermark'
+        : cfg.enabled
+          ? 'Confidential'
+          : '';
 
   for (const sheet of workbook.worksheets) {
     if (textStamp) {
@@ -560,14 +732,12 @@ export async function stampExcelJsWorkbook(
 
   if (!image || !workbook.addImage) return;
   try {
-    const base64 = image.dataUrl.split(',')[1] || '';
+    const base64 = image.dataUrl.includes(',')
+      ? image.dataUrl.split(',')[1] || ''
+      : image.dataUrl;
     if (!base64) return;
-    // Prefer raw bytes — more reliable than base64 strings in exceljs browser builds.
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
     const imageId = workbook.addImage({
-      buffer: bytes,
+      base64,
       extension: 'png',
     });
     const maxW = 220;
@@ -586,8 +756,8 @@ export async function stampExcelJsWorkbook(
         editAs: 'oneCell',
       });
     }
-  } catch {
-    /* image optional on excel */
+  } catch (err) {
+    console.warn('[stampExcelJsWorkbook] image embed failed', err);
   }
 }
 
@@ -601,6 +771,14 @@ export async function downloadRowsAsWatermarkedXlsx<T>(
   rows: T[],
 ): Promise<void> {
   if (typeof window === 'undefined') return;
+
+  try {
+    const { fetchAndCacheOrgWatermark } = await import('./useOrgExportWatermark');
+    await fetchAndCacheOrgWatermark();
+  } catch {
+    /* cache optional */
+  }
+
   const ExcelJSMod = await import('exceljs');
   const ExcelJS = (ExcelJSMod as { default?: unknown }).default ?? ExcelJSMod;
   const workbook = new (ExcelJS as {
@@ -655,7 +833,8 @@ export async function downloadRowsAsWatermarkedXlsx<T>(
     );
   }
 
-  await stampExcelJsWorkbook(workbook, readCachedOrgWatermark().text);
+  const cfg = readCachedOrgWatermark();
+  await stampExcelJsWorkbook(workbook, cfg.text || undefined);
 
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([buffer], {

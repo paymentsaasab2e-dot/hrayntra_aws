@@ -265,6 +265,47 @@ export function isOurS3PdfUrl(urlString) {
 }
 
 /**
+ * Short-lived presigned GET URL for private objects.
+ * Requires optional dependency `@aws-sdk/s3-request-presigner`.
+ * Expiry seconds: AWS_S3_PRESIGN_EXPIRES_SECONDS (default 300, max 3600).
+ */
+export async function getPresignedGetUrl(key, { expiresIn } = {}) {
+  const safeKey = String(key || '').replace(/^\/+/, '');
+  if (!safeKey || safeKey.includes('..')) {
+    throw new Error('Invalid object key');
+  }
+  let getSignedUrl;
+  try {
+    ({ getSignedUrl } = await import('@aws-sdk/s3-request-presigner'));
+  } catch {
+    throw new Error(
+      'Presigned URLs require @aws-sdk/s3-request-presigner. Install it or serve via authenticated server proxy.'
+    );
+  }
+  const configured = Number(process.env.AWS_S3_PRESIGN_EXPIRES_SECONDS || expiresIn || 300);
+  const ttl = Math.min(Math.max(Number.isFinite(configured) ? configured : 300, 30), 3600);
+  const client = getS3Client();
+  const command = new GetObjectCommand({ Bucket: getS3Bucket(), Key: safeKey });
+  return getSignedUrl(client, command, { expiresIn: ttl });
+}
+
+/**
+ * Prefer storing `key` and minting temporary URLs at read time.
+ * When AWS_S3_USE_PRESIGNED_URLS=true, upload responses return a short-lived URL.
+ */
+export async function resolveReadableObjectUrl(keyOrUrl) {
+  const raw = String(keyOrUrl || '').trim();
+  if (!raw) return '';
+  const parsed = parseOurS3Url(raw);
+  const key = parsed?.key || (raw.startsWith('uploads/') ? raw : '');
+  if (key && String(process.env.AWS_S3_USE_PRESIGNED_URLS || '').toLowerCase() === 'true') {
+    return getPresignedGetUrl(key);
+  }
+  if (parsed) return publicUrlForS3Key(parsed.key);
+  return raw;
+}
+
+/**
  * Stream or buffer fetch for server-side PDF proxy (private buckets).
  */
 export async function getS3ObjectBodyBuffer(key) {

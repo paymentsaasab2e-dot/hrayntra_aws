@@ -182,6 +182,8 @@ export function PublicVisibilitySettings() {
   const [submitSaving, setSubmitSaving] = useState(false);
   const [stagesSaving, setStagesSaving] = useState(false);
   const [submitTab, setSubmitTab] = useState<'visible' | 'hidden' | 'table'>('visible');
+  const submitDirtyRef = useRef(false);
+  const jobDirtyRef = useRef(false);
 
   const current = mergeClientVisibility(
     parseJobPublicFieldVisibility(visibility),
@@ -192,8 +194,10 @@ export function PublicVisibilitySettings() {
     let cancelled = false;
     void loadJobVisibilityUserDefaults().then((defaults) => {
       if (cancelled) return;
-      setVisibility(defaults.visibility);
-      setShowClientNamePublicly(defaults.showClient);
+      if (!jobDirtyRef.current) {
+        setVisibility(defaults.visibility);
+        setShowClientNamePublicly(defaults.showClient);
+      }
       setSavedVisibility(defaults.visibility);
       setSavedShowClient(defaults.showClient);
       setLoading(false);
@@ -202,15 +206,21 @@ export function PublicVisibilitySettings() {
       if (cancelled) return;
       setSavedVisibility(defaults.visibility);
       setSavedShowClient(defaults.showClient);
+      if (!jobDirtyRef.current) {
+        setVisibility(defaults.visibility);
+        setShowClientNamePublicly(defaults.showClient);
+      }
     });
     void loadSubmitToClientVisibilityDefaults().then((defaults) => {
       if (cancelled) return;
-      setSubmitVisibility(defaults.visibility);
+      if (!submitDirtyRef.current) {
+        setSubmitVisibility(defaults.visibility);
+        setTableColumns(defaults.tableColumns);
+        setAllowedClientStages(defaults.allowedClientStages);
+        setClientStageCatalog(defaults.clientStageCatalog);
+      }
       setSavedSubmitVisibility(defaults.visibility);
-      setTableColumns(defaults.tableColumns);
       setSavedTableColumns(defaults.tableColumns);
-      setAllowedClientStages(defaults.allowedClientStages);
-      setClientStageCatalog(defaults.clientStageCatalog);
       setSavedAllowedClientStages(defaults.allowedClientStages);
       setSavedClientStageCatalog(defaults.clientStageCatalog);
     });
@@ -220,6 +230,12 @@ export function PublicVisibilitySettings() {
       setSavedTableColumns(defaults.tableColumns);
       setSavedAllowedClientStages(defaults.allowedClientStages);
       setSavedClientStageCatalog(defaults.clientStageCatalog);
+      if (!submitDirtyRef.current) {
+        setSubmitVisibility(defaults.visibility);
+        setTableColumns(defaults.tableColumns);
+        setAllowedClientStages(defaults.allowedClientStages);
+        setClientStageCatalog(defaults.clientStageCatalog);
+      }
     });
     return () => {
       cancelled = true;
@@ -311,6 +327,7 @@ export function PublicVisibilitySettings() {
       setSavedShowClient(next.showClient);
       setVisibility(next.visibility);
       setShowClientNamePublicly(next.showClient);
+      jobDirtyRef.current = false;
       if (notify) toast.success('Public Visibility defaults saved');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Could not save Public Visibility defaults');
@@ -335,6 +352,7 @@ export function PublicVisibilitySettings() {
       setClientStageCatalog(next.clientStageCatalog);
       setSavedAllowedClientStages(next.allowedClientStages);
       setSavedClientStageCatalog(next.clientStageCatalog);
+      submitDirtyRef.current = false;
       if (notify) toast.success('Submit to Client visibility saved');
     } catch (error) {
       toast.error(
@@ -361,6 +379,7 @@ export function PublicVisibilitySettings() {
       setClientStageCatalog(next.clientStageCatalog);
       setSavedAllowedClientStages(next.allowedClientStages);
       setSavedClientStageCatalog(next.clientStageCatalog);
+      submitDirtyRef.current = false;
       if (notify) toast.success('Client stages saved');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Could not save client stages');
@@ -371,6 +390,7 @@ export function PublicVisibilitySettings() {
   };
 
   const toggleField = (field: JobPublicVisibilityField) => {
+    jobDirtyRef.current = true;
     const nextVisibility = toggleJobPublicFieldVisibility(current, field);
     const nextShowClient = field === 'client' ? nextVisibility.client !== false : showClientNamePublicly;
     if (field === 'client') {
@@ -381,6 +401,7 @@ export function PublicVisibilitySettings() {
   };
 
   const toggleSubmitField = (field: SubmitToClientFieldId) => {
+    submitDirtyRef.current = true;
     const nextVisibility = toggleSubmitToClientFieldVisibility(
       parseSubmitToClientFieldVisibility(submitVisibility),
       field,
@@ -390,15 +411,18 @@ export function PublicVisibilitySettings() {
   };
 
   const addTableColumn = (field: SubmitToClientFieldId) => {
+    submitDirtyRef.current = true;
     setTableColumns(parseSubmitToClientTableColumns([...assignedTableColumns, field], submitVisibility));
   };
 
   const removeTableColumn = (field: SubmitToClientFieldId) => {
+    submitDirtyRef.current = true;
     setTableColumns(assignedTableColumns.filter((id) => id !== field));
   };
 
   const moveTableColumn = useCallback(
     (fromIndex: number, toIndex: number) => {
+      submitDirtyRef.current = true;
       setTableColumns((current) => {
         const list = parseSubmitToClientTableColumns(current, submitVisibility);
         if (

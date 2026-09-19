@@ -192,13 +192,15 @@ export function buildPhase1ClientReviewSections(
 
   if (isSectionVisible('personal', visible)) {
     const phone = [pi.phoneCode, pi.phone].map((v) => str(v)).filter(Boolean).join(' ');
+    const fullName = [pi.firstName, pi.middleName, pi.lastName]
+      .map((part) => str(part))
+      .filter(Boolean)
+      .join(' ');
     appendVisibleSection(
       sections,
       'personal',
       fieldsFromPairs([
-        ['First name', pi.firstName],
-        ['Middle name', pi.middleName],
-        ['Last name', pi.lastName],
+        ['Full Name', fullName],
         ['Email', pi.email],
         ['Phone code', pi.phoneCode],
         ['Mobile', phone],

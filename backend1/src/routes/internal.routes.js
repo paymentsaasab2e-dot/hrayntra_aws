@@ -6,11 +6,6 @@ const { collectJobFeedDiagnostics } = require('../services/job-feeds/diagnostics
 
 const router = Router();
 
-// Mirror of the secret used by backendphase2 for portal-sync.
-// Keeping the dev fallback in lock-step lets a fresh local clone work without
-// any extra .env wiring (production must set PHASE2_PORTAL_SYNC_SECRET).
-const DEV_FALLBACK_SECRET = 'phase2-portal-sync-2026-shared-secret';
-
 function maskSecret(value) {
   const s = String(value || '');
   if (!s) return '<empty>';
@@ -21,19 +16,13 @@ function maskSecret(value) {
 function sharedSecretMiddleware(req, res, next) {
   const envSecret = String(process.env.PHASE2_PORTAL_SYNC_SECRET || '').trim();
   const got = String(req.headers['x-phase2-portal-sync-secret'] || '').trim();
-  const isProd = process.env.NODE_ENV === 'production';
 
-  const accepted = new Set();
-  if (envSecret) accepted.add(envSecret);
-  if (!isProd) accepted.add(DEV_FALLBACK_SECRET);
-
-  if (isProd && !envSecret) {
+  if (!envSecret) {
     return res
       .status(503)
       .json({ success: false, message: 'Portal notifications not configured' });
   }
-  if (!isProd && !envSecret && !got) return next();
-  if (got && accepted.has(got)) return next();
+  if (got && got === envSecret) return next();
 
   console.warn('[internal] 401 secret mismatch on portal notification', {
     env: maskSecret(envSecret),

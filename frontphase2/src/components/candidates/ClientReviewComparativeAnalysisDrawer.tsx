@@ -18,6 +18,7 @@ import { isClientReviewFileHref } from '../../lib/clientReviewAssets';
 import {
   ageFromBirthDate,
   resolveClientReviewFieldValue,
+  resolveClientReviewFullName,
   resolveClientReviewLabelValue,
 } from '../../lib/clientReviewFieldFallbacks';
 
@@ -47,6 +48,8 @@ type Props = {
   clientName?: string;
   /** Page-level Submit-to-Client visibility (same flags as the client review link). */
   visibleFields?: Record<string, boolean> | null;
+  /** Org watermark from public review payload (works without login). */
+  exportWatermark?: ClientReviewData['exportWatermark'];
   onClose: () => void;
 };
 
@@ -219,7 +222,7 @@ function sectionsOf(row: ClientReviewBatchRow): ClientReviewSection[] {
 }
 
 function splitCandidateName(row: ClientReviewBatchRow): { first: string; last: string; full: string } {
-  const full = displayValue(row.candidateName || row.detail?.candidate?.name);
+  const full = displayValue(resolveClientReviewFullName(row));
   const parts = full.split(/\s+/).filter(Boolean);
   return {
     full,
@@ -339,6 +342,7 @@ function profileFallbackForLabel(row: ClientReviewBatchRow, label: string): stri
 
   switch (key) {
     case 'name':
+    case 'full name':
     case 'name of candidate':
       return names.full;
     case 'first name':
@@ -607,25 +611,22 @@ function buildCompareParams(
     Boolean(normalizeClientTrackerOptions(row.detail?.trackerOptions, true).changeStage),
   );
 
-  const nameVisible =
-    isFieldIdVisibleForClient('firstName', visibility) ||
-    isFieldIdVisibleForClient('middleName', visibility) ||
-    isFieldIdVisibleForClient('lastName', visibility);
+  const nameVisible = isFieldIdVisibleForClient('fullName', visibility);
 
   params.push({ kind: 'section', id: 'candidate-details', label: 'Candidate Details' });
   if (nameVisible) {
   const nameValues: Record<string, string> = {};
   for (const row of selectedRows) {
-    nameValues[row.matchId] = cell(row.candidateName || row.detail?.candidate?.name);
+    nameValues[row.matchId] = cell(resolveClientReviewFullName(row));
   }
   params.push({
     kind: 'field',
-    id: 'name',
-    label: 'Name of Candidate',
+    id: 'fullName',
+    label: 'Full Name',
     emphasize: true,
     valuesByMatchId: nameValues,
   });
-    seenFieldIds.add('name');
+    seenFieldIds.add('fullName');
   }
 
   if (showStage) {
@@ -820,7 +821,10 @@ function escapeHtml(value: string): string {
     .replace(/"/g, '&quot;');
 }
 
-function buildCompareExportHtml(model: ReturnType<typeof buildCompareExportModel>): string {
+function buildCompareExportHtml(
+  model: ReturnType<typeof buildCompareExportModel>,
+  watermark?: ClientReviewData['exportWatermark'],
+): string {
   const bodyRows = model.rows
     .map((row) => {
       if (row.kind === 'section') {
@@ -840,6 +844,15 @@ function buildCompareExportHtml(model: ReturnType<typeof buildCompareExportModel
     .map((header) => `<th>${escapeHtml(header)}</th>`)
     .join('');
 
+  const logoSrc = String(watermark?.imageDataUrl || watermark?.imageUrl || '').trim();
+  const stampText = String(watermark?.text || '').trim();
+  const showWm = Boolean(watermark?.enabled) && (Boolean(logoSrc) || Boolean(stampText));
+  const watermarkBanner = showWm
+    ? `<div class="wm">${
+        logoSrc ? `<img src="${escapeHtml(logoSrc)}" alt="Watermark logo" />` : ''
+      }${stampText ? `<span>${escapeHtml(stampText)}</span>` : ''}</div>`
+    : '';
+
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -853,6 +866,21 @@ function buildCompareExportHtml(model: ReturnType<typeof buildCompareExportModel
       font-family: Inter, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
       color: #0f172a;
       background: #fff;
+    }
+    .wm {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin: 0 0 14px;
+      padding: 8px 0 12px;
+      border-bottom: 1px dashed #cbd5e1;
+      color: #64748b;
+      font-size: 12px;
+    }
+    .wm img {
+      max-height: 48px;
+      max-width: 180px;
+      object-fit: contain;
     }
     h1 { font-size: 18px; margin: 0 0 4px; }
     p.sub { margin: 0 0 16px; color: #64748b; font-size: 12px; }
@@ -902,6 +930,7 @@ function buildCompareExportHtml(model: ReturnType<typeof buildCompareExportModel
   </style>
 </head>
 <body>
+  ${watermarkBanner}
   <h1>${escapeHtml(model.title)}</h1>
   <p class="sub">${escapeHtml(model.subtitle)}</p>
   <table>
@@ -923,7 +952,10 @@ function safeFileSlug(value: string): string {
   );
 }
 
-async function downloadCompareExcel(model: ReturnType<typeof buildCompareExportModel>) {
+async function downloadCompareExcel(
+  model: ReturnType<typeof buildCompareExportModel>,
+  watermark?: ClientReviewData['exportWatermark'],
+) {
   const ExcelJSMod: any = await import('exceljs');
   const ExcelJS = ExcelJSMod?.default ?? ExcelJSMod;
   const workbook = new ExcelJS.Workbook();
@@ -1103,11 +1135,15 @@ async function downloadCompareExcel(model: ReturnType<typeof buildCompareExportM
   }
 
   try {
-    const { fetchAndCacheOrgWatermark } = await import('../../lib/useOrgExportWatermark');
-    const { readCachedOrgWatermark, stampExcelJsWorkbook } = await import('../../lib/exportWatermark');
-    await fetchAndCacheOrgWatermark();
-    // Always stamp — logo-only configs have empty text but still need the image.
-    await stampExcelJsWorkbook(workbook as any, readCachedOrgWatermark().text);
+    const { normalizeExportWatermark, stampExcelJsWorkbook, cacheWatermarkLogoDataUrl } =
+      await import('../../lib/exportWatermark');
+    const cfg = normalizeExportWatermark(watermark);
+    if (cfg.imageDataUrl && cfg.imageUrl) {
+      cacheWatermarkLogoDataUrl(cfg.imageUrl, cfg.imageDataUrl);
+    }
+    if (cfg.enabled) {
+      await stampExcelJsWorkbook(workbook as any, cfg.text, cfg);
+    }
   } catch {
     /* watermark optional */
   }
@@ -1126,10 +1162,13 @@ async function downloadCompareExcel(model: ReturnType<typeof buildCompareExportM
   window.setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
 
-async function downloadComparePdf(model: ReturnType<typeof buildCompareExportModel>) {
+async function downloadComparePdf(
+  model: ReturnType<typeof buildCompareExportModel>,
+  watermark?: ClientReviewData['exportWatermark'],
+) {
   const html2canvas = (await import('html2canvas')).default;
   const { jsPDF } = await import('jspdf');
-  const html = buildCompareExportHtml(model);
+  const html = buildCompareExportHtml(model, watermark);
   const host = document.createElement('div');
   host.style.cssText =
     'position:fixed;left:-10000px;top:0;width:1400px;background:#fff;z-index:-1;pointer-events:none;';
@@ -1183,13 +1222,14 @@ async function downloadComparePdf(model: ReturnType<typeof buildCompareExportMod
     }
 
     try {
-      const { fetchAndCacheOrgWatermark } = await import('../../lib/useOrgExportWatermark');
-      const { applyOrgWatermarkToJsPdf, readCachedOrgWatermark } = await import(
-        '../../lib/exportWatermark'
-      );
-      await fetchAndCacheOrgWatermark();
-      if (readCachedOrgWatermark().enabled) {
-        await applyOrgWatermarkToJsPdf(pdf as any);
+      const { normalizeExportWatermark, applyOrgWatermarkToJsPdf, cacheWatermarkLogoDataUrl } =
+        await import('../../lib/exportWatermark');
+      const cfg = normalizeExportWatermark(watermark);
+      if (cfg.imageDataUrl && cfg.imageUrl) {
+        cacheWatermarkLogoDataUrl(cfg.imageUrl, cfg.imageDataUrl);
+      }
+      if (cfg.enabled) {
+        await applyOrgWatermarkToJsPdf(pdf as any, cfg);
       }
     } catch {
       /* watermark optional */
@@ -1201,8 +1241,11 @@ async function downloadComparePdf(model: ReturnType<typeof buildCompareExportMod
   }
 }
 
-function printCompareSheet(model: ReturnType<typeof buildCompareExportModel>) {
-  const html = buildCompareExportHtml(model);
+function printCompareSheet(
+  model: ReturnType<typeof buildCompareExportModel>,
+  watermark?: ClientReviewData['exportWatermark'],
+) {
+  const html = buildCompareExportHtml(model, watermark);
   const printWindow = window.open('', '_blank', 'noopener,noreferrer,width=1280,height=900');
   if (!printWindow) {
     throw new Error('Pop-up blocked. Allow pop-ups to print the comparative analysis.');
@@ -1231,6 +1274,7 @@ export function ClientReviewComparativeAnalysisDrawer({
   jobTitle,
   clientName,
   visibleFields = null,
+  exportWatermark = null,
   onClose,
 }: Props) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -1288,9 +1332,9 @@ export function ClientReviewComparativeAnalysisDrawer({
     setExportError('');
     setExporting(kind);
     try {
-      if (kind === 'excel') await downloadCompareExcel(exportModel);
-      else if (kind === 'pdf') await downloadComparePdf(exportModel);
-      else printCompareSheet(exportModel);
+      if (kind === 'excel') await downloadCompareExcel(exportModel, exportWatermark);
+      else if (kind === 'pdf') await downloadComparePdf(exportModel, exportWatermark);
+      else printCompareSheet(exportModel, exportWatermark);
     } catch (err: unknown) {
       setExportError(err instanceof Error ? err.message : 'Unable to export comparative analysis');
     } finally {

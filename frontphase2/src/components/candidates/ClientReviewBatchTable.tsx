@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
-import { Eye, FileText, Loader2, MessageSquareText } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { Check, ChevronDown, Eye, FileText, Loader2, MessageSquareText } from 'lucide-react';
 import {
   CLIENT_PIPELINE_STAGE_CHOICES,
   type ClientReviewBatchRow,
@@ -17,7 +18,7 @@ import {
   SUBMIT_TO_CLIENT_REVIEW_LABEL_FIELDS,
   type SubmitToClientFieldId,
 } from '../../lib/submitToClientFieldVisibility';
-import { ageFromBirthDate } from '../../lib/clientReviewFieldFallbacks';
+import { ageFromBirthDate, resolveClientReviewFullName } from '../../lib/clientReviewFieldFallbacks';
 
 type Props = {
   rows: ClientReviewBatchRow[];
@@ -50,7 +51,7 @@ const CHIP_FIELDS = new Set<SubmitToClientFieldId>([
   'p1WorkModes',
 ]);
 
-const NAME_FIELDS = new Set<SubmitToClientFieldId>(['firstName', 'middleName', 'lastName']);
+const NAME_FIELDS = new Set<SubmitToClientFieldId>(['fullName']);
 
 const LABEL_KEYS_BY_FIELD: Record<SubmitToClientFieldId, string[]> = (() => {
   const map = {} as Record<SubmitToClientFieldId, string[]>;
@@ -63,6 +64,12 @@ const LABEL_KEYS_BY_FIELD: Record<SubmitToClientFieldId, string[]> = (() => {
     if (ids.length !== 1) continue;
     const fieldId = ids[0];
     if (!fieldId) continue;
+    if (
+      fieldId === 'fullName' &&
+      (label === 'first name' || label === 'middle name' || label === 'last name')
+    ) {
+      continue;
+    }
     const next = map[fieldId] ?? [];
     if (!next.includes(label)) next.push(label);
     map[fieldId] = next;
@@ -104,7 +111,7 @@ function assignedColumnsForRows(rows: ClientReviewBatchRow[]): SubmitToClientFie
 }
 
 function nameParts(row: ClientReviewBatchRow) {
-  const name = String(row.detail?.candidate?.name || row.candidateName || '').trim();
+  const name = resolveClientReviewFullName(row);
   const parts = name.split(/\s+/).filter(Boolean);
   return {
     first: parts[0] || '',
@@ -114,7 +121,7 @@ function nameParts(row: ClientReviewBatchRow) {
 }
 
 function initialsFor(row: ClientReviewBatchRow) {
-  const name = String(row.detail?.candidate?.name || row.candidateName || 'C').trim() || 'C';
+  const name = resolveClientReviewFullName(row) || 'C';
   return (
     name
       .split(/\s+/)
@@ -231,18 +238,11 @@ function workEntriesValue(row: ClientReviewBatchRow): string {
 
 function resolveTableCell(row: ClientReviewBatchRow, fieldId: SubmitToClientFieldId): TableCellValue {
   const candidate = candidateOf(row);
-  const names = nameParts(row);
   let text = '';
 
   switch (fieldId) {
-    case 'firstName':
-      text = presentationValue(row, fieldId) || names.first;
-      break;
-    case 'middleName':
-      text = presentationValue(row, fieldId) || names.middle;
-      break;
-    case 'lastName':
-      text = presentationValue(row, fieldId) || names.last;
+    case 'fullName':
+      text = resolveClientReviewFullName(row);
       break;
     case 'email':
       text = String(candidate.email || '').trim() || presentationValue(row, fieldId);
@@ -368,12 +368,177 @@ function stageOptionsFor(row: ClientReviewBatchRow): Array<{ id: string; name: s
     Array.isArray(row.detail?.pipelineStages) && row.detail.pipelineStages.length
       ? row.detail.pipelineStages
       : CLIENT_PIPELINE_STAGE_CHOICES;
-  return fromDetail
-    .map((stage) => ({
-      id: String(stage.id || stage.name || '').trim(),
-      name: String(stage.name || '').trim(),
-    }))
-    .filter((stage) => stage.name);
+  const seen = new Set<string>();
+  const next: Array<{ id: string; name: string }> = [];
+  for (const stage of fromDetail) {
+    const name = String(stage.name || '').trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    next.push({
+      id: String(stage.id || stage.name || '').trim() || name,
+      name,
+    });
+  }
+  return next;
+}
+
+function StageSelectDropdown({
+  value,
+  options,
+  disabled,
+  saving,
+  ariaLabel,
+  onChange,
+}: {
+  value: string;
+  options: Array<{ id: string; name: string }>;
+  disabled?: boolean;
+  saving?: boolean;
+  ariaLabel: string;
+  onChange: (next: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({});
+
+  const selected = String(value || '').trim();
+  const triggerClass = selected
+    ? stageBadgeClass(selected)
+    : 'bg-white text-slate-600 ring-slate-200';
+
+  const placeMenu = () => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const menuWidth = Math.max(rect.width, 220);
+    const estimatedHeight = Math.min(320, 48 + options.length * 40);
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const openUp = spaceBelow < estimatedHeight + 12 && rect.top > spaceBelow;
+    const left = Math.min(
+      Math.max(12, rect.left),
+      Math.max(12, window.innerWidth - menuWidth - 12),
+    );
+    setMenuStyle({
+      position: 'fixed',
+      top: openUp ? undefined : rect.bottom + 6,
+      bottom: openUp ? window.innerHeight - rect.top + 6 : undefined,
+      left,
+      width: menuWidth,
+      zIndex: 80,
+    });
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    placeMenu();
+    const onReposition = () => placeMenu();
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (triggerRef.current?.contains(target) || menuRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    window.addEventListener('resize', onReposition);
+    window.addEventListener('scroll', onReposition, true);
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('resize', onReposition);
+      window.removeEventListener('scroll', onReposition, true);
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [open, options.length]);
+
+  return (
+    <div className="relative min-w-[10.5rem] max-w-[14rem]">
+      <button
+        ref={triggerRef}
+        type="button"
+        disabled={disabled || saving || !options.length}
+        aria-label={ariaLabel}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((prev) => !prev)}
+        className={`inline-flex w-full items-center gap-1.5 rounded-full py-1.5 pl-3 pr-2 text-left text-[11px] font-semibold outline-none ring-1 ring-inset transition hover:brightness-[0.98] focus-visible:ring-2 focus-visible:ring-indigo-300 disabled:cursor-not-allowed disabled:opacity-60 ${triggerClass}`}
+      >
+        <span className="min-w-0 flex-1 truncate">{selected || 'Select stage…'}</span>
+        {saving ? (
+          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin opacity-70" />
+        ) : (
+          <ChevronDown
+            className={`h-3.5 w-3.5 shrink-0 opacity-70 transition ${open ? 'rotate-180' : ''}`}
+          />
+        )}
+      </button>
+
+      {open && typeof document !== 'undefined'
+        ? createPortal(
+            <div
+              ref={menuRef}
+              style={menuStyle}
+              role="listbox"
+              aria-label={ariaLabel}
+              className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_18px_40px_-18px_rgba(15,23,42,0.45)] ring-1 ring-slate-900/5"
+            >
+              <div className="border-b border-slate-100 bg-slate-50/90 px-3 py-2">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                  Choose stage
+                </p>
+              </div>
+              <div className="max-h-72 overflow-y-auto p-1.5">
+                {options.map((option) => {
+                  const isActive = selected.toLowerCase() === option.name.toLowerCase();
+                  return (
+                    <button
+                      key={option.id || option.name}
+                      type="button"
+                      role="option"
+                      aria-selected={isActive}
+                      onClick={() => {
+                        setOpen(false);
+                        onChange(option.name);
+                      }}
+                      className={`flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left text-[12px] font-medium transition ${
+                        isActive
+                          ? 'bg-indigo-600 text-white shadow-sm'
+                          : 'text-slate-700 hover:bg-indigo-50 hover:text-indigo-900'
+                      }`}
+                    >
+                      <span
+                        className={`inline-flex h-2 w-2 shrink-0 rounded-full ${
+                          isActive ? 'bg-white/90' : stageDotClass(option.name)
+                        }`}
+                        aria-hidden="true"
+                      />
+                      <span className="min-w-0 flex-1 truncate">{option.name}</span>
+                      {isActive ? <Check className="h-3.5 w-3.5 shrink-0" /> : null}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+    </div>
+  );
+}
+
+function stageDotClass(stage: string): string {
+  const n = stage.toLowerCase();
+  if (n.includes('reject')) return 'bg-rose-500';
+  if (n.includes('hired') || n.includes('joined')) return 'bg-emerald-500';
+  if (n.includes('offer')) return 'bg-amber-500';
+  if (n.includes('shortlist') || n.includes('feedback')) return 'bg-sky-500';
+  if (n.includes('interview') || n.includes('screen')) return 'bg-violet-500';
+  if (n.includes('submit')) return 'bg-indigo-500';
+  return 'bg-teal-500';
 }
 
 function TableCellContent({
@@ -410,7 +575,7 @@ function TableCellContent({
 
   if (!showAvatar) return body;
 
-  const nameText = value.kind === 'text' ? value.text : nameParts(row).first || 'Candidate';
+  const nameText = value.kind === 'text' ? value.text : resolveClientReviewFullName(row) || 'Candidate';
   return (
     <div className="flex items-center gap-3">
       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-sky-500 text-xs font-bold text-white">
@@ -557,40 +722,25 @@ export function ClientReviewBatchTable({
                   {showStage ? (
                     <td className="px-4 py-4 sm:px-6" onClick={(event) => event.stopPropagation()}>
                       {canPickStage && token && apiBase ? (
-                        <div className="min-w-[10.5rem] max-w-[14rem]">
-                          <div className="relative">
-                            <select
-                              value={selectValue}
-                              disabled={saving || !stageOptions.length}
-                              aria-label={`Stage for ${row.candidateName || 'candidate'}`}
-                              onChange={(event) => {
-                                void saveStage(row, event.target.value);
-                              }}
-                              className={`w-full appearance-none rounded-full border-0 bg-slate-50 py-1.5 pl-3 pr-8 text-[11px] font-semibold outline-none ring-1 ring-inset focus:ring-2 focus:ring-indigo-300 disabled:opacity-60 ${
-                                stage
-                                  ? stageBadgeClass(stage)
-                                  : 'text-slate-500 ring-slate-200'
-                              }`}
-                            >
-                              <option value="" disabled>
-                                Select stage…
-                              </option>
-                              {selectValue &&
+                        <div>
+                          <StageSelectDropdown
+                            value={selectValue}
+                            options={
+                              selectValue &&
                               !stageOptions.some(
-                                (option) => option.name.toLowerCase() === selectValue.toLowerCase(),
-                              ) ? (
-                                <option value={selectValue}>{selectValue}</option>
-                              ) : null}
-                              {stageOptions.map((option) => (
-                                <option key={option.id || option.name} value={option.name}>
-                                  {option.name}
-                                </option>
-                              ))}
-                            </select>
-                            {saving ? (
-                              <Loader2 className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-slate-400" />
-                            ) : null}
-                          </div>
+                                (option) =>
+                                  option.name.toLowerCase() === selectValue.toLowerCase(),
+                              )
+                                ? [{ id: selectValue, name: selectValue }, ...stageOptions]
+                                : stageOptions
+                            }
+                            disabled={!stageOptions.length}
+                            saving={saving}
+                            ariaLabel={`Stage for ${row.candidateName || 'candidate'}`}
+                            onChange={(next) => {
+                              void saveStage(row, next);
+                            }}
+                          />
                           {stageError ? (
                             <p className="mt-1 text-[10px] font-medium text-rose-600">{stageError}</p>
                           ) : null}
