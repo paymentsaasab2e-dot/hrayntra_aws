@@ -28,6 +28,7 @@ import {
   type ActivityVisibilityCapabilities,
   type BackendGlobalActivity,
 } from '../../lib/api';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '../../lib/quickSearch';
 import { formatDateTimeDMY } from '../../utils/dateDisplay';
 import {
   activityKindTone,
@@ -475,21 +476,20 @@ export default function ActivityFeedPage() {
   }, [departmentIdFromUrl, departments]);
 
   const filteredMembers = useMemo(() => {
-    const needle = memberSearch.trim().toLowerCase();
+    const needle = memberSearch.trim();
     if (!needle) return members;
-    return members.filter((member) => {
-      const hay = [
-        memberDisplayName(member),
-        member.email,
-        member.designation,
-        member.role?.roleName,
-        member.department?.name,
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase();
-      return hay.includes(needle);
-    });
+    return members.filter((member) =>
+      matchesQuickSearch(
+        buildQuickSearchHaystack(
+          memberDisplayName(member),
+          member.email,
+          member.designation,
+          member.role?.roleName,
+          member.department?.name,
+        ),
+        needle,
+      ),
+    );
   }, [members, memberSearch]);
 
   const showTabs = Boolean(capabilities?.canViewMembers || capabilities?.canViewDepartments);

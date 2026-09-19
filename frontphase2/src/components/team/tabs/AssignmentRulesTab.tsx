@@ -12,6 +12,7 @@ import {
 } from '../../../lib/api/teamApi';
 import { apiGetAssignCompanies } from '../../../lib/org/orgApi';
 import { formatAssigneeDisplayName } from '../../../lib/assigneeDisplay';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '../../../lib/quickSearch';
 import { PH2_TABLE_CARD_CLASS } from '../../../components/layout/Ph2ModulePageLayout';
 import { getActiveOrgUnitId } from '../../../lib/org/orgWorkspaceStorage';
 
@@ -262,24 +263,34 @@ export const AssignmentRulesTab: React.FC = () => {
   })();
 
   const filteredMemberPicker = useMemo(() => {
-    const q = memberSearch.trim().toLowerCase();
+    const q = memberSearch.trim();
     if (!q) return sortedMembers;
-    return sortedMembers.filter((member) => {
-      const hay = `${memberLabel(member)} ${member.email || ''} ${member.role?.roleName || ''} ${
-        member.department?.name || ''
-      }`.toLowerCase();
-      return hay.includes(q);
-    });
+    return sortedMembers.filter((member) =>
+      matchesQuickSearch(
+        buildQuickSearchHaystack(
+          memberLabel(member),
+          member.email,
+          member.role?.roleName,
+          member.department?.name,
+        ),
+        q,
+      ),
+    );
   }, [sortedMembers, memberSearch]);
 
   const filteredAssignees = useMemo(() => {
-    const q = assigneeSearch.trim().toLowerCase();
+    const q = assigneeSearch.trim();
     return assigneePool.filter((member) => {
       if (!q) return true;
-      const hay = `${memberLabel(member)} ${member.email || ''} ${member.role?.roleName || ''} ${
-        member.department?.name || ''
-      }`.toLowerCase();
-      return hay.includes(q);
+      return matchesQuickSearch(
+        buildQuickSearchHaystack(
+          memberLabel(member),
+          member.email,
+          member.role?.roleName,
+          member.department?.name,
+        ),
+        q,
+      );
     });
   }, [assigneePool, assigneeSearch]);
 

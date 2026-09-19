@@ -34,6 +34,7 @@ import {
 } from '../../services/memberVisibility.service.js';
 import { assertCanAssignCrm } from '../../services/crmAssignmentScope.service.js';
 import { escapePrismaRegex } from '../../utils/escapePrismaRegex.js';
+import { buildTokenAndSearchWhere } from '../../utils/quickSearch.js';
 import {
   getDefaultPipelineTemplate,
   applyOrgPipelineTemplateToEmptyJobs,
@@ -1394,8 +1395,7 @@ export const jobService = {
       }
     }
     if (search) {
-      const escaped = escapePrismaRegex(search);
-      const searchOr = [
+      const searchWhere = buildTokenAndSearchWhere(search, (escaped, rawToken) => [
         { title: { contains: escaped, mode: 'insensitive' } },
         { description: { contains: escaped, mode: 'insensitive' } },
         { overview: { contains: escaped, mode: 'insensitive' } },
@@ -1411,17 +1411,18 @@ export const jobService = {
         { jobCategory: { contains: escaped, mode: 'insensitive' } },
         { workMode: { contains: escaped, mode: 'insensitive' } },
         { priority: { contains: escaped, mode: 'insensitive' } },
-        { skills: { hasSome: [search] } },
-        { requirements: { hasSome: [search] } },
-        { keyResponsibilities: { hasSome: [search] } },
-        { preferredSkills: { hasSome: [search] } },
-        { candidateRequirements: { hasSome: [search] } },
-        { benefits: { hasSome: [search] } },
+        // Partial skill match (hasSome is exact-only).
+        { skills: { hasSome: [rawToken] } },
+        { requirements: { hasSome: [rawToken] } },
+        { keyResponsibilities: { hasSome: [rawToken] } },
+        { preferredSkills: { hasSome: [rawToken] } },
+        { candidateRequirements: { hasSome: [rawToken] } },
+        { benefits: { hasSome: [rawToken] } },
         { client: { companyName: { contains: escaped, mode: 'insensitive' } } },
-      ];
+      ]);
       const andParts = [];
       if (visibilityOr.length) andParts.push({ OR: visibilityOr });
-      andParts.push({ OR: searchOr });
+      if (searchWhere) andParts.push(searchWhere);
       where.AND = [...(Array.isArray(where.AND) ? where.AND : []), ...andParts];
     } else if (visibilityOr.length) {
       where.OR = visibilityOr;

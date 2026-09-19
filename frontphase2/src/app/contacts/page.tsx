@@ -8,6 +8,7 @@ import { ExportColumnsModal } from '../../components/export/ExportColumnsModal';
 import { buildContactsCsvColumns, CONTACTS_EXPORT_COLUMNS } from '../../lib/export/contactsExportColumns';
 import { fetchAllPaginated, totalPagesFromPagination } from '../../lib/export/fetchAllPaginated';
 import { Toaster, toast } from 'sonner';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '../../lib/quickSearch';
 import {
   apiGetContacts,
   apiGetContact,
@@ -152,25 +153,28 @@ function ContactsPageContent() {
 
   const contactMatchesFilters = useCallback(
     (contact: BackendContact) => {
-      const search = filters.search?.trim().toLowerCase();
+      const search = filters.search?.trim();
       if (search) {
-        const haystack = [
-          contact.salutation,
-          contact.firstName,
-          contact.lastName,
-          contact.email,
-          contact.phone,
-          contact.designation,
-          contact.department,
-          contact.location,
-          contact.company?.companyName,
-          contact.status,
-          contact.contactType,
-        ]
-          .filter(Boolean)
-          .join(' ')
-          .toLowerCase();
-        if (!haystack.includes(search)) return false;
+        if (
+          !matchesQuickSearch(
+            buildQuickSearchHaystack(
+              contact.salutation,
+              contact.firstName,
+              contact.lastName,
+              contact.email,
+              contact.phone,
+              contact.designation,
+              contact.department,
+              contact.location,
+              contact.company?.companyName,
+              contact.status,
+              contact.contactType,
+            ),
+            search,
+          )
+        ) {
+          return false;
+        }
       }
 
       if (filters.contactType && contact.contactType !== filters.contactType) return false;

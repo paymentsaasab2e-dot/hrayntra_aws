@@ -157,7 +157,6 @@ async function postPhase2Internal(path, body) {
 }
 
 module.exports = {
-  DEV_FALLBACK_SECRET,
   PRODUCTION_PHASE2_API_ORIGIN,
   resolvePhase2InternalApiOrigin,
   resolvePhase2UploadUrl,

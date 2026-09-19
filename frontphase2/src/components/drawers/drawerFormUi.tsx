@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, Search, type LucideIcon } from 'lucide-react';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '../../lib/quickSearch';
 
 export type DrawerFormAccent = 'blue' | 'violet' | 'emerald' | 'amber' | 'sky' | 'rose' | 'indigo';
 
@@ -354,14 +355,11 @@ export function DrawerSelectDropdown({
 
   const filteredOptions = useMemo(() => {
     if (!searchable) return options;
-    const q = search.trim().toLowerCase();
+    const q = search.trim();
     if (!q) return options;
     return options.filter((option) => {
       if (!option.value && !option.label) return true;
-      return (
-        option.label.toLowerCase().includes(q) ||
-        option.value.toLowerCase().includes(q)
-      );
+      return matchesQuickSearch(buildQuickSearchHaystack(option.label, option.value), q);
     });
   }, [options, search, searchable]);
 

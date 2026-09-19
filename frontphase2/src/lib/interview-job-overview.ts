@@ -1,4 +1,5 @@
 import type { Interview } from '../types/interview.types';
+import { matchesQuickSearch, buildQuickSearchHaystack } from './quickSearch';
 
 const ACTIVE_STATUSES = new Set<Interview['status']>(['Scheduled', 'Accepted', 'Rescheduled']);
 const VISIBLE_STATUSES = new Set<Interview['status']>([
@@ -204,16 +205,16 @@ export function filterInterviewsForJobOverview(
       if (label !== params.clientJob) return false;
     }
     if (!search) return true;
-    const haystack = [
-      interview.candidate?.name,
-      interview.candidate?.email,
-      interview.job?.title,
-      interview.job?.client,
-      interview.notes,
-      interview.round,
-    ]
-      .join(' ')
-      .toLowerCase();
-    return haystack.includes(search);
+    return matchesQuickSearch(
+      buildQuickSearchHaystack(
+        interview.candidate?.name,
+        interview.candidate?.email,
+        interview.job?.title,
+        interview.job?.client,
+        interview.notes,
+        interview.round,
+      ),
+      search,
+    );
   });
 }

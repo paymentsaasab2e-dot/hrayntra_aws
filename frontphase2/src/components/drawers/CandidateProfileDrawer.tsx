@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '../../lib/quickSearch';
 import { AnimatePresence, motion } from 'motion/react';
 import { DetailsModalShell } from './DetailsModalShell';
 import { DrawerLinkActions } from './DrawerLinkActions';
@@ -505,9 +506,9 @@ function CandidateTagSystem({
   );
 
   const filteredTags = useMemo(() => {
-    const query = searchValue.trim().toLowerCase();
+    const query = searchValue.trim();
     if (!query) return availableTags;
-    return availableTags.filter((tag) => tag.label.toLowerCase().includes(query));
+    return availableTags.filter((tag) => matchesQuickSearch(tag.label, query));
   }, [availableTags, searchValue]);
 
   const handleCreateTag = async () => {
@@ -988,15 +989,14 @@ export function ScheduleInterviewModal({
 
   const filteredCandidateOptions = useMemo(() => {
     const options = Array.isArray(candidateOptions) ? candidateOptions : [];
-    const query = candidateSearch.trim().toLowerCase();
+    const query = candidateSearch.trim();
     if (!query) return options;
-    return options.filter((option) => {
-      const haystack = [option.name, option.phone, option.assignedJob]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase();
-      return haystack.includes(query);
-    });
+    return options.filter((option) =>
+      matchesQuickSearch(
+        buildQuickSearchHaystack(option.name, option.phone, option.assignedJob),
+        query,
+      ),
+    );
   }, [candidateOptions, candidateSearch]);
 
   const isEditingInterview = Boolean(editInterview);
@@ -1564,25 +1564,29 @@ export function ScheduleInterviewModal({
   }, [isOpen]);
 
   const filteredInterviewers = useMemo(() => {
-    const query = interviewerSearch.trim().toLowerCase();
+    const query = interviewerSearch.trim();
     if (!query) return panelMemberOptions;
-    return panelMemberOptions.filter(
-      (person) =>
-        person.name.toLowerCase().includes(query) ||
-        (person.role || '').toLowerCase().includes(query) ||
-        (person.department || '').toLowerCase().includes(query)
+    return panelMemberOptions.filter((person) =>
+      matchesQuickSearch(
+        buildQuickSearchHaystack(person.name, person.role, person.department),
+        query,
+      ),
     );
   }, [interviewerSearch, panelMemberOptions]);
 
   const filteredClientContacts = useMemo(() => {
-    const query = clientContactSearch.trim().toLowerCase();
+    const query = clientContactSearch.trim();
     if (!query) return clientContactOptions;
-    return clientContactOptions.filter(
-      (person) =>
-        person.name.toLowerCase().includes(query) ||
-        (person.designation || '').toLowerCase().includes(query) ||
-        (person.department || '').toLowerCase().includes(query) ||
-        (person.email || '').toLowerCase().includes(query)
+    return clientContactOptions.filter((person) =>
+      matchesQuickSearch(
+        buildQuickSearchHaystack(
+          person.name,
+          person.designation,
+          person.department,
+          person.email,
+        ),
+        query,
+      ),
     );
   }, [clientContactOptions, clientContactSearch]);
 
@@ -3185,20 +3189,20 @@ export function AddToPipelineModal({
   }, [selectedJobId]);
 
   const filteredJobs = useMemo(() => {
-    const q = jobSearch.trim().toLowerCase();
+    const q = jobSearch.trim();
     if (!q) return pipelineJobOptions;
-    return pipelineJobOptions.filter(
-      (job) =>
-        job.title.toLowerCase().includes(q) ||
-        (job.department || '').toLowerCase().includes(q) ||
-        (job.clientName || '').toLowerCase().includes(q)
+    return pipelineJobOptions.filter((job) =>
+      matchesQuickSearch(
+        buildQuickSearchHaystack(job.title, job.department, job.clientName),
+        q,
+      ),
     );
   }, [pipelineJobOptions, jobSearch]);
 
   const filteredRecruiters = useMemo(() => {
-    const q = recruiterSearch.trim().toLowerCase();
+    const q = recruiterSearch.trim();
     if (!q) return recruiters;
-    return recruiters.filter((recruiter) => recruiter.name.toLowerCase().includes(q));
+    return recruiters.filter((recruiter) => matchesQuickSearch(recruiter.name, q));
   }, [recruiters, recruiterSearch]);
 
   const selectedJob = pipelineJobOptions.find((job) => job.id === selectedJobId);

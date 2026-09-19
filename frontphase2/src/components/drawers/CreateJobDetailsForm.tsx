@@ -9,6 +9,7 @@ import { LanguageSuggestInput, ProficiencySuggestInput } from '../forms/Language
 import { JobLocationFields } from '../location/JobLocationFields';
 import { EditDateField } from '../candidates/EditDateField';
 import { isOwnCompanyWorkspaceClient, type BackendClient, type BackendUser } from '../../lib/api';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '../../lib/quickSearch';
 import { useAssignableMembers } from '../../hooks/useAssignableMembers';
 import { AssignCompanySelect } from '../assign/AssignCompanySelect';
 import {
@@ -568,22 +569,21 @@ export function CreateJobDetailsForm({
   const [currencyAddError, setCurrencyAddError] = useState('');
 
   const filteredClients = useMemo(() => {
-    const query = clientSearch.trim().toLowerCase();
+    const query = clientSearch.trim();
     if (!query) return clients;
     return clients.filter((client) => {
-      const name = client.companyName?.toLowerCase() || '';
-      const industry = client.industry?.toLowerCase() || '';
-      const location = client.location?.toLowerCase() || '';
-      const website = client.website?.toLowerCase() || '';
       const ownLabel = isOwnCompanyWorkspaceClient(client)
-        ? `own company ${ownCompanyDisplayName || ''}`.toLowerCase()
+        ? `own company ${ownCompanyDisplayName || ''}`
         : '';
-      return (
-        name.includes(query) ||
-        industry.includes(query) ||
-        location.includes(query) ||
-        website.includes(query) ||
-        ownLabel.includes(query)
+      return matchesQuickSearch(
+        buildQuickSearchHaystack(
+          client.companyName,
+          client.industry,
+          client.location,
+          client.website,
+          ownLabel,
+        ),
+        query,
       );
     });
   }, [clients, clientSearch, ownCompanyDisplayName]);
@@ -596,19 +596,19 @@ export function CreateJobDetailsForm({
   const customCurrencyCodeSet = useMemo(() => new Set(customCurrencies), [customCurrencies]);
 
   const filteredCurrencies = useMemo(() => {
-    const query = currencySearch.trim().toLowerCase();
+    const query = currencySearch.trim();
     if (!query) return currencyOptions;
-    return currencyOptions.filter((code) => {
-      const label = formatJobSalaryCurrencyOptionLabel(code).toLowerCase();
-      const name = getJobSalaryCurrencyDisplayName(code).toLowerCase();
-      const symbol = formatJobSalaryCurrencyLabel(code).toLowerCase();
-      return (
-        code.toLowerCase().includes(query) ||
-        label.includes(query) ||
-        name.includes(query) ||
-        symbol.includes(query)
-      );
-    });
+    return currencyOptions.filter((code) =>
+      matchesQuickSearch(
+        buildQuickSearchHaystack(
+          code,
+          formatJobSalaryCurrencyOptionLabel(code),
+          getJobSalaryCurrencyDisplayName(code),
+          formatJobSalaryCurrencyLabel(code),
+        ),
+        query,
+      ),
+    );
   }, [currencyOptions, currencySearch]);
 
   useEffect(() => {

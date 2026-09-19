@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { usePermissions } from '../hooks/usePermissions';
 import { MODULE_ACCESS_MAP } from '../lib/rbac/moduleAccess';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '../lib/quickSearch';
 import { useUser } from '../hooks/useUser';
 import { OrgWorkspaceSwitcher } from './org/OrgWorkspaceSwitcher';
 import { SuperAdminWorkSwitcher } from './org/SuperAdminWorkSwitcher';
@@ -1465,10 +1466,12 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
           // their first page client-side against the query.
           const lower = query.toLowerCase();
           const taskItems = extractListItems<any>(taskRes)
-            .filter((t: any) => {
-              const haystack = [t.title, t.description, t.linkedEntityType].filter(Boolean).join(' ').toLowerCase();
-              return haystack.includes(lower);
-            })
+            .filter((t: any) =>
+              matchesQuickSearch(
+                buildQuickSearchHaystack(t.title, t.description, t.linkedEntityType),
+                lower,
+              ),
+            )
             .slice(0, 3)
             .map((t: any) => ({
               id: String(t.id),
@@ -1483,11 +1486,16 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
           const placementItems = extractListItems<any>(placementRes)
             .filter((p: any) => {
               const candidateName = [p.candidate?.firstName, p.candidate?.lastName].filter(Boolean).join(' ');
-              const haystack = [candidateName, p.candidate?.email, p.job?.title, p.client?.companyName, p.status]
-                .filter(Boolean)
-                .join(' ')
-                .toLowerCase();
-              return haystack.includes(lower);
+              return matchesQuickSearch(
+                buildQuickSearchHaystack(
+                  candidateName,
+                  p.candidate?.email,
+                  p.job?.title,
+                  p.client?.companyName,
+                  p.status,
+                ),
+                lower,
+              );
             })
             .slice(0, 3)
             .map((p: any) => {

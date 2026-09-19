@@ -301,11 +301,6 @@ export function WatermarkSettings() {
                     PNG / JPG / WEBP · max 4 MB. After upload you should see the image in the box on
                     the left and a green <strong>Logo ready</strong> badge.
                   </p>
-                  {draft.imageUrl ? (
-                    <p className="truncate rounded-lg bg-slate-50 px-2 py-1 font-mono text-[10px] text-slate-500">
-                      {draft.imageUrl}
-                    </p>
-                  ) : null}
                 </div>
               </div>
             </div>

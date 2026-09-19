@@ -6,6 +6,7 @@ import { ChevronDown, Search } from 'lucide-react';
 import { useDrawerPortalDropdownPosition } from '../drawers/drawerFormUi';
 import { PH2_TOOLBAR_SELECT_CLASS } from '../layout/Ph2ModulePageLayout';
 import { dedupeByCompanyName } from '../../lib/companyNameKey';
+import { matchesQuickSearch } from '../../lib/quickSearch';
 
 export type SearchableToolbarFilterOption = {
   value: string;
@@ -94,12 +95,11 @@ export function SearchableToolbarFilterSelect({
   }, [allLabel, options, uniqueOptions, value]);
 
   const filteredOptions = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
+    const normalizedQuery = query.trim();
     if (!normalizedQuery) return uniqueOptions;
-    return uniqueOptions.filter((option) => {
-      const haystack = `${option.label} ${option.searchText || ''}`.toLowerCase();
-      return haystack.includes(normalizedQuery);
-    });
+    return uniqueOptions.filter((option) =>
+      matchesQuickSearch(`${option.label} ${option.searchText || ''}`, normalizedQuery),
+    );
   }, [uniqueOptions, query]);
 
   const listMaxHeight = useMemo(() => resolveListMaxHeight(menuPosition), [menuPosition]);

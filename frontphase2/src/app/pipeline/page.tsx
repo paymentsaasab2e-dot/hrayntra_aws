@@ -28,6 +28,7 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 import { DndProvider, useDrag, useDrop, DragSourceMonitor, DropTargetMonitor } from "react-dnd";
 import { HTML5Backend } from "react-dnd-html5-backend";
+import { matchesQuickSearch, buildQuickSearchHaystack } from "../../lib/quickSearch";
 import { useRouter } from "next/navigation";
 import { ImageWithFallback, initialsFromDisplayName } from "../../components/ImageWithFallback";
 import { formatDateDMY } from "../../utils/dateDisplay";
@@ -948,13 +949,14 @@ export default function App() {
   );
 
   const filteredCandidates = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
+    const query = searchQuery.trim();
     return boardCandidates.filter((candidate) => {
       const matchesSearch =
         !query ||
-        candidate.name.toLowerCase().includes(query) ||
-        candidate.jobTitle.toLowerCase().includes(query) ||
-        candidate.clientName.toLowerCase().includes(query);
+        matchesQuickSearch(
+          buildQuickSearchHaystack(candidate.name, candidate.jobTitle, candidate.clientName),
+          query,
+        );
       const matchesJob =
         !selectedJobId ||
         candidate.jobId === selectedJobId ||
