@@ -53,6 +53,7 @@ import {
   enrichListWithLastUpdater,
 } from '../../utils/listAuditMeta.js';
 import { escapePrismaRegex } from '../../utils/escapePrismaRegex.js';
+import { buildTokenAndSearchWhere } from '../../utils/quickSearch.js';
 import { ENTITY_TYPES } from '../../services/activityService.js';
 import {
   canViewAgreementTerms,
@@ -698,8 +699,7 @@ export const clientService = {
     if (status && String(status).toLowerCase() !== 'all') where.status = status;
     if (assignedToId) where.assignedToId = assignedToId;
     if (search) {
-      const escaped = escapePrismaRegex(search);
-      where.OR = [
+      const searchWhere = buildTokenAndSearchWhere(search, (escaped, rawToken) => [
         { companyName: { contains: escaped, mode: 'insensitive' } },
         { industry: { contains: escaped, mode: 'insensitive' } },
         { website: { contains: escaped, mode: 'insensitive' } },
@@ -719,9 +719,10 @@ export const clientService = {
         { agreementLevel: { contains: escaped, mode: 'insensitive' } },
         { agreementTimePeriod: { contains: escaped, mode: 'insensitive' } },
         { agreementsFileName: { contains: escaped, mode: 'insensitive' } },
-        { emails: { hasSome: [search] } },
-        { phones: { hasSome: [search] } },
-      ];
+        { emails: { hasSome: [rawToken] } },
+        { phones: { hasSome: [rawToken] } },
+      ]);
+      if (searchWhere) where.AND = [...(Array.isArray(where.AND) ? where.AND : []), searchWhere];
     }
     if (req.query.hot !== undefined) where.hot = req.query.hot === 'true';
     if (req.query.tags) where.tags = { hasSome: Array.isArray(req.query.tags) ? req.query.tags : [req.query.tags] };

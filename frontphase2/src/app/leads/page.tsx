@@ -39,6 +39,7 @@ import {
 import { useSmartSearch } from '../../hooks/useSmartSearch';
 import { mapAiToLeadsResult, parseSmartSearchWithAi } from '../../lib/smart-search/aiParser';
 import { keywordChipClass } from '../../lib/smart-search/core';
+import { matchesQuickSearch } from '../../lib/quickSearch';
 import { downloadCsv } from '../../utils/csv';
 import { buildLeadsCsvColumns, LEADS_EXPORT_COLUMNS } from '../../lib/leadsExportColumns';
 import { ExportColumnsModal } from '../../components/export/ExportColumnsModal';
@@ -467,10 +468,10 @@ function applyLeadClientFilters(
   recruiterFilter: string,
   recruiterNameById: Map<string, string> = new Map(),
 ): Lead[] {
-  const query = searchQuery.trim().toLowerCase();
+  const query = searchQuery.trim();
   return list.filter((lead) => {
     const matchesSearch =
-      !query || buildLeadSearchHaystack(lead, recruiterNameById).includes(query);
+      !query || matchesQuickSearch(buildLeadSearchHaystack(lead, recruiterNameById), query);
     const matchesRecruiter =
       !recruiterFilter ||
       lead.assignedToId === recruiterFilter ||

@@ -28,6 +28,7 @@ import {
   isOfferPipelineStage,
 } from '../../lib/candidateSubmitToClient';
 import { orEmpty, startAsyncLoad } from '../../lib/asyncLoadGuard';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '../../lib/quickSearch';
 import {
   X,
   Pencil,
@@ -1807,18 +1808,18 @@ export function JobDetailsDrawer({
         if (stageId !== candidatesStageFilterId) return false;
       }
       if (!query) return true;
-      const haystack = [
-        row.name,
-        row.email,
-        row.designation,
-        row.company,
-        row.location,
-        row.stage,
-        ...(Array.isArray(row.assignedJobs) ? row.assignedJobs : []),
-      ]
-        .map((value) => String(value || '').toLowerCase())
-        .join(' ');
-      return haystack.includes(query);
+      return matchesQuickSearch(
+        buildQuickSearchHaystack(
+          row.name,
+          row.email,
+          row.designation,
+          row.company,
+          row.location,
+          row.stage,
+          ...(Array.isArray(row.assignedJobs) ? row.assignedJobs : []),
+        ),
+        query,
+      );
     });
   }, [
     jobTableCandidates,
@@ -1892,10 +1893,12 @@ export function JobDetailsDrawer({
       list = list.filter((row) => scope.has(row.id));
     }
     if (!query) return list;
-    return list.filter((row) => {
-      const haystack = `${row.candidateName || ''} ${row.email || ''} ${row.currentStage || ''}`.toLowerCase();
-      return haystack.includes(query);
-    });
+    return list.filter((row) =>
+      matchesQuickSearch(
+        buildQuickSearchHaystack(row.candidateName, row.email, row.currentStage),
+        query,
+      ),
+    );
   }, [displayJobCandidates, pickerScopeIds, pickerSearch]);
 
   const openSubmitCandidatePicker = useCallback(() => {
@@ -2015,10 +2018,12 @@ export function JobDetailsDrawer({
     const query = schedulePickerSearch.trim().toLowerCase();
     const list = Array.isArray(displayJobCandidates) ? displayJobCandidates.filter((row) => row?.id) : [];
     if (!query) return list;
-    return list.filter((row) => {
-      const haystack = `${row.candidateName || ''} ${row.email || ''} ${row.currentStage || ''}`.toLowerCase();
-      return haystack.includes(query);
-    });
+    return list.filter((row) =>
+      matchesQuickSearch(
+        buildQuickSearchHaystack(row.candidateName, row.email, row.currentStage),
+        query,
+      ),
+    );
   }, [displayJobCandidates, schedulePickerSearch]);
 
   /** When rows are checked, only the selection-bar Submit shows — avoids two CTAs. */
@@ -2674,18 +2679,18 @@ export function JobDetailsDrawer({
   const filteredSortedAiMatchCandidates = useMemo(() => {
     const query = jobCandidatesSearch.trim().toLowerCase();
     if (!query) return sortedAiMatchCandidates;
-    return sortedAiMatchCandidates.filter((row) => {
-      const haystack = [
-        row.name,
-        row.email,
-        row.currentTitle,
-        row.currentCompany,
-        row.location,
-      ]
-        .map((value) => String(value || '').toLowerCase())
-        .join(' ');
-      return haystack.includes(query);
-    });
+    return sortedAiMatchCandidates.filter((row) =>
+      matchesQuickSearch(
+        buildQuickSearchHaystack(
+          row.name,
+          row.email,
+          row.currentTitle,
+          row.currentCompany,
+          row.location,
+        ),
+        query,
+      ),
+    );
   }, [sortedAiMatchCandidates, jobCandidatesSearch]);
 
   const aiTierStats = useMemo(

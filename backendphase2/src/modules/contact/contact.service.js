@@ -6,6 +6,7 @@ import { attachAuditMetaToEntity } from '../../utils/listAuditMeta.js';
 import activityService from '../../services/activityService.js';
 import { dbLogger } from '../../utils/db-logger.js';
 import { resolveContactCreateEmail } from '../../utils/resolveContactEmail.js';
+import { buildTokenAndSearchWhere } from '../../utils/quickSearch.js';
 import {
   collapseDuplicateContactsForCompany,
   collapseDuplicateContactsForAllCompanies,
@@ -29,22 +30,26 @@ export const contactService = {
 
     const where = {};
 
-    // Search filter (full text search)
+    // Google-like: each token can match any contact field (partial contains).
     if (search) {
-      where.OR = [
-        { firstName: { contains: search } },
-        { lastName: { contains: search } },
-        { salutation: { contains: search } },
-        { email: { contains: search } },
-      ];
-      
-      // Also search in company name if company relation exists
-      if (!companyId) {
-        where.OR.push({
-          company: {
-            companyName: { contains: search },
-          },
-        });
+      const searchWhere = buildTokenAndSearchWhere(search, (escaped) => {
+        const clauses = [
+          { firstName: { contains: escaped, mode: 'insensitive' } },
+          { lastName: { contains: escaped, mode: 'insensitive' } },
+          { salutation: { contains: escaped, mode: 'insensitive' } },
+          { email: { contains: escaped, mode: 'insensitive' } },
+        ];
+        if (!companyId) {
+          clauses.push({
+            company: {
+              companyName: { contains: escaped, mode: 'insensitive' },
+            },
+          });
+        }
+        return clauses;
+      });
+      if (searchWhere) {
+        where.AND = [...(Array.isArray(where.AND) ? where.AND : []), searchWhere];
       }
     }
 

@@ -803,14 +803,10 @@ function candidateMatchesSearch(candidate, search) {
     .map((value) => String(value || '').toLowerCase())
     .join(' ');
 
-  if (hay.includes(needle)) return true;
-
+  // Token AND (Google-like): "john bang" matches John in Bangalore.
   const tokens = needle.split(/\s+/).filter(Boolean);
-  if (tokens.length > 1) {
-    return tokens.every((token) => hay.includes(token));
-  }
-
-  return false;
+  if (tokens.length <= 1) return hay.includes(needle);
+  return tokens.every((token) => hay.includes(token));
 }
 
 function annotateCandidateListFlags(candidate, tenantJobIdSet = null) {

@@ -46,6 +46,7 @@ import {
   apiPurgeJob,
   apiBulkPurgeJobs,
 } from '../../lib/api';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '../../lib/quickSearch';
 import { requestConfirm, requestError, requestSuccess } from '../../lib/appDialog';
 import { formatDateTimeDMY } from '../../utils/dateDisplay';
 import { RECYCLE_BIN_SYNC_EVENT } from '../../constants/recycleBin';
@@ -616,14 +617,14 @@ export default function RecycleBinPage() {
     }
   };
 
-  const searchNorm = searchQuery.trim().toLowerCase();
+  const searchNorm = searchQuery.trim();
   const trashItemMatches = (it: TrashItem) => {
     if (!searchNorm) return true;
-    return `${it.primary} ${it.secondary || ''}`.toLowerCase().includes(searchNorm);
+    return matchesQuickSearch(buildQuickSearchHaystack(it.primary, it.secondary), searchNorm);
   };
   const failedBulkMatches = (row: TrashedFailedBulkResume) => {
     if (!searchNorm) return true;
-    return `${row.fileName} ${row.reason}`.toLowerCase().includes(searchNorm);
+    return matchesQuickSearch(buildQuickSearchHaystack(row.fileName, row.reason), searchNorm);
   };
 
   const totalDeleted =

@@ -12,6 +12,7 @@ import {
 import { AssignCompanySelect } from '../assign/AssignCompanySelect';
 import { assigneeCompanyId, formatAssigneeDisplayName, formatAssigneeOptionLabel, getStoredCurrentUserId } from '../../lib/assigneeDisplay';
 import { orEmpty } from '../../lib/asyncLoadGuard';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '../../lib/quickSearch';
 
 /** Role chip background classes — mirrors the existing palette used elsewhere. */
 const ROLE_COLOR_MAP: Record<string, string> = {
@@ -152,13 +153,14 @@ export function LeadAssigneesMultiSelect({
   );
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = query.trim();
     if (!q) return optionMembers;
     return optionMembers.filter((m) => {
       const named = formatAssigneeDisplayName(m);
-      const haystack =
-        `${named} ${m.firstName ?? ''} ${m.lastName ?? ''} ${m.email ?? ''} ${m.role?.roleName ?? ''}`.toLowerCase();
-      return haystack.includes(q);
+      return matchesQuickSearch(
+        buildQuickSearchHaystack(named, m.firstName, m.lastName, m.email, m.role?.roleName),
+        q,
+      );
     });
   }, [optionMembers, query]);
 

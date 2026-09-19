@@ -22,6 +22,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '../../lib/quickSearch';
 import { downloadCsv } from '../../utils/csv';
 import { ExportColumnsModal } from '../../components/export/ExportColumnsModal';
 import { buildTasksCsvColumns, TASKS_EXPORT_COLUMNS } from '../../lib/export/tasksExportColumns';
@@ -893,16 +894,27 @@ export default function App() {
             && (task as { participantIds?: string[] }).participantIds!.includes(currentUserId);
           if (!isCreator && !isParticipant) return false;
         }
-        const q = filters.search.trim().toLowerCase();
+        const q = filters.search.trim();
         if (q) {
           const relatedLabel =
             task.relatedTo.type === 'Job' && jobTitleById[task.relatedTo.id]
               ? jobTitleById[task.relatedTo.id]
               : task.relatedTo.name;
-          const hay = [task.title, relatedLabel, task.relatedTo.type, task.owner.name, task.type, task.status]
-            .join(' ')
-            .toLowerCase();
-          if (!hay.includes(q)) return false;
+          if (
+            !matchesQuickSearch(
+              buildQuickSearchHaystack(
+                task.title,
+                relatedLabel,
+                task.relatedTo.type,
+                task.owner.name,
+                task.type,
+                task.status,
+              ),
+              q,
+            )
+          ) {
+            return false;
+          }
         }
         return true;
       });

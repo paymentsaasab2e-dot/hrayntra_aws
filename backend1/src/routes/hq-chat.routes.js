@@ -1,5 +1,6 @@
 const express = require('express');
 const { requireSystemAdmin } = require('../middleware/system-admin.middleware');
+const { protect } = require('../middleware/auth.middleware');
 const {
   hqSendMessage,
   hqGetThread,
@@ -14,7 +15,6 @@ const router = express.Router();
 
 /**
  * HQ / admin (requires x-internal-admin-key in production)
- * Send & inspect HRYantra verified chats per user.
  */
 router.get('/inbox', requireSystemAdmin, hqListInbox);
 router.get('/users/:userId', requireSystemAdmin, hqGetThread);
@@ -22,12 +22,22 @@ router.post('/users/:userId/messages', requireSystemAdmin, hqSendMessage);
 router.post('/users/:userId/read', requireSystemAdmin, markHqRead);
 
 /**
- * App client sync (open in non-prod; still keyed in prod via same admin header
- * OR pass candidate self — for simplicity use admin key optional + userId path).
- * Client uses these to pull HQ pushes and push user replies for HQ visibility.
+ * App client sync — candidate JWT required; userId must match session candidate.
  */
-router.get('/users/:userId/pending', requireSystemAdmin, clientPending);
-router.post('/users/:userId/replies', requireSystemAdmin, clientIngestReply);
-router.post('/users/:userId/mark-read', requireSystemAdmin, markUserRead);
+function requireOwnUserId(req, res, next) {
+  const sessionId = String(req.user?.candidateId || req.user?.id || '').trim();
+  const target = String(req.params?.userId || '').trim();
+  if (!sessionId) {
+    return res.status(401).json({ success: false, message: 'Unauthorized' });
+  }
+  if (target && target !== sessionId) {
+    return res.status(403).json({ success: false, message: 'Forbidden: user mismatch' });
+  }
+  return next();
+}
+
+router.get('/users/:userId/pending', protect, requireOwnUserId, clientPending);
+router.post('/users/:userId/replies', protect, requireOwnUserId, clientIngestReply);
+router.post('/users/:userId/mark-read', protect, requireOwnUserId, markUserRead);
 
 module.exports = router;

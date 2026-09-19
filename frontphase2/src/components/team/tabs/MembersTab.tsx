@@ -20,6 +20,7 @@ import { usePersistedColumnVisibility } from '../../../hooks/usePersistedColumnV
 import { TEAM_TABLE_COLUMNS } from '../../../lib/tableColumns/moduleTableColumns';
 import { useFormatTableLocationCell } from '../../table/LocationColumnHeader';
 import { toast } from 'sonner';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '../../../lib/quickSearch';
 import useSWR from 'swr';
 import {
   getTeamMembers,
@@ -253,21 +254,24 @@ export const MembersTab: React.FC<MembersTabProps> = ({
 
   const memberMatchesFilters = useCallback(
     (member: TeamMember) => {
-      const query = debouncedSearch.trim().toLowerCase();
+      const query = debouncedSearch.trim();
       if (query) {
-        const haystack = [
-          member.firstName,
-          member.lastName,
-          member.email,
-          member.designation,
-          member.location,
-          member.role?.roleName,
-          member.department?.name,
-        ]
-          .filter(Boolean)
-          .join(' ')
-          .toLowerCase();
-        if (!haystack.includes(query)) return false;
+        if (
+          !matchesQuickSearch(
+            buildQuickSearchHaystack(
+              member.firstName,
+              member.lastName,
+              member.email,
+              member.designation,
+              member.location,
+              member.role?.roleName,
+              member.department?.name,
+            ),
+            query,
+          )
+        ) {
+          return false;
+        }
       }
 
       if (selectedDepartment !== 'all' && member.department?.id !== selectedDepartment) return false;
