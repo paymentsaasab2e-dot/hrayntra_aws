@@ -8,6 +8,7 @@ import { HqInfoTip } from '@/components/hq/analytics/HqPhase2DashboardParts';
 import { CrmStatNumber, sparkDelta, sparkValues } from '@/components/dashboard/crm/crmStatNumber';
 import { recCard, formatNum, relativeTime, useRecDashboard } from './recShared';
 import { buildRecFlagDrillDown, buildRecSliceDrillDown } from './recDrillDown';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '@/lib/quickSearch';
 import {
   REC_CARD,
   REC_CARD_COMPACT,
@@ -126,12 +127,15 @@ export function RecPipelineSection({ overview }: { overview: RecruitmentOverview
       else if (quick === 'active') rows = rows.filter((r) => /active/i.test(String((r as CandRow).status || '')));
       else if (quick === 'unassigned') rows = rows.filter((r) => !r.assignee || /unassigned/i.test(String(r.assignee)));
     }
-    const needle = q.trim().toLowerCase();
+    const needle = q.trim();
     if (!needle) return rows;
     return rows.filter((r) =>
-      Object.values(r)
-        .filter((v) => v != null && typeof v !== 'object')
-        .some((v) => String(v).toLowerCase().includes(needle)),
+      matchesQuickSearch(
+        buildQuickSearchHaystack(
+          ...Object.values(r).filter((v) => v != null && typeof v !== 'object'),
+        ),
+        needle,
+      ),
     );
   }, [jobs, cands, section, quick, q]);
 

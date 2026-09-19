@@ -18,6 +18,7 @@ import {
   mapPlacementStatusToCrmStageSync,
   updateCandidateStage,
 } from '../stage/candidateStage.service.js';
+import { buildTokenAndSearchWhere } from '../../utils/quickSearch.js';
 import { pushPortalNotification } from '../notification/notification.service.js';
 import {
   createAlertNotification,
@@ -410,29 +411,31 @@ async function allocatePlacementInvoiceNumber(tx) {
 async function buildSearchFilter(search) {
   if (!search) return null;
 
+  const candidateWhere = buildTokenAndSearchWhere(search, (escaped) => [
+    { firstName: { contains: escaped, mode: 'insensitive' } },
+    { lastName: { contains: escaped, mode: 'insensitive' } },
+    { email: { contains: escaped, mode: 'insensitive' } },
+  ]);
+  const clientWhere = buildTokenAndSearchWhere(search, (escaped) => [
+    { companyName: { contains: escaped, mode: 'insensitive' } },
+  ]);
+  const jobWhere = buildTokenAndSearchWhere(search, (escaped) => [
+    { title: { contains: escaped, mode: 'insensitive' } },
+  ]);
+
   const [candidates, clients, jobs] = await Promise.all([
     prisma.candidate.findMany({
-      where: {
-        OR: [
-          { firstName: { contains: search, mode: 'insensitive' } },
-          { lastName: { contains: search, mode: 'insensitive' } },
-          { email: { contains: search, mode: 'insensitive' } },
-        ],
-      },
+      where: candidateWhere || undefined,
       select: { id: true },
       take: 100,
     }),
     prisma.client.findMany({
-      where: {
-        companyName: { contains: search, mode: 'insensitive' },
-      },
+      where: clientWhere || undefined,
       select: { id: true },
       take: 100,
     }),
     prisma.job.findMany({
-      where: {
-        title: { contains: search, mode: 'insensitive' },
-      },
+      where: jobWhere || undefined,
       select: { id: true },
       take: 100,
     }),

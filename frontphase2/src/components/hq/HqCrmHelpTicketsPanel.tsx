@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '../../lib/quickSearch';
 import { Loader2, Mail, MessageSquareText, RefreshCw, Search, Ticket } from 'lucide-react';
 import {
   apiHqListHelpTickets,
@@ -202,7 +203,7 @@ export function HqCrmHelpTicketsPanel({ Panel, PanelTitle, lockedAudience }: Pro
         .filter(Boolean)
         .join(' ')
         .toLowerCase();
-      return hay.includes(q);
+      return matchesQuickSearch(hay, q);
     });
   }, [tickets, search]);
 

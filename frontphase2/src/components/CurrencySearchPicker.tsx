@@ -5,6 +5,7 @@ import { Check, Search, X } from 'lucide-react';
 import { SUPPORTED_CURRENCIES } from '@/utils/currency';
 import { WORLD_CURRENCIES } from '@/lib/hqWorldCurrencies';
 import { HQ_CURRENCY_FLAGS } from '@/lib/hqCurrency';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '@/lib/quickSearch';
 
 type CurrencySearchPickerProps = {
   value: string;
@@ -54,14 +55,11 @@ export function CurrencySearchPicker({
   }, [selected]);
 
   const listRows = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = search.trim();
     const rows = !q
       ? WORLD_CURRENCIES
-      : WORLD_CURRENCIES.filter(
-          (w) =>
-            w.code.toLowerCase().includes(q) ||
-            w.name.toLowerCase().includes(q) ||
-            w.countries.toLowerCase().includes(q),
+      : WORLD_CURRENCIES.filter((w) =>
+          matchesQuickSearch(buildQuickSearchHaystack(w.code, w.name, w.countries), q),
         );
     // Keep selected near the top when not searching.
     if (!q) {

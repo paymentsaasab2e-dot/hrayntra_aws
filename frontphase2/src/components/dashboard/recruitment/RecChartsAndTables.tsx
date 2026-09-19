@@ -7,6 +7,7 @@ import type { RecruitmentOverview } from '@/lib/dashboard/api';
 import { HqInfoTip } from '@/components/hq/analytics/HqPhase2DashboardParts';
 import { formatNum, recCard, relativeTime, useRecDashboard } from './recShared';
 import { buildRecPipelineDrillDown, buildRecSliceDrillDown } from './recDrillDown';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '@/lib/quickSearch';
 
 const COLORS = ['#D97706', '#059669', '#2563EB', '#7C3AED', '#E11D48', '#0891B2', '#4F46E5', '#64748B'];
 
@@ -176,40 +177,38 @@ export function RecChartsAndTables({ overview, loading }: Props) {
   const showTables = !hiddenSections.has('tables');
 
   const rows = useMemo(() => {
-    const needle = q.trim().toLowerCase();
+    const needle = q.trim();
     if (mode === 'jobs') {
       const source = overview?.jobsTable || [];
       if (!needle) return source;
       return source.filter((r) =>
-        [r.title, r.status, r.client, r.department, r.assignee, r.location]
-          .filter(Boolean)
-          .some((v) => String(v).toLowerCase().includes(needle)),
+        matchesQuickSearch(
+          buildQuickSearchHaystack(r.title, r.status, r.client, r.department, r.assignee, r.location),
+          needle,
+        ),
       );
     }
     if (mode === 'candidates') {
       const source = overview?.candidatesTable || [];
       if (!needle) return source;
       return source.filter((r) =>
-        [r.name, r.status, r.source, r.email, r.assignee, r.title]
-          .filter(Boolean)
-          .some((v) => String(v).toLowerCase().includes(needle)),
+        matchesQuickSearch(
+          buildQuickSearchHaystack(r.name, r.status, r.source, r.email, r.assignee, r.title),
+          needle,
+        ),
       );
     }
     if (mode === 'interviews') {
       const source = overview?.interviewsTable || [];
       if (!needle) return source;
       return source.filter((r) =>
-        [r.candidate, r.job, r.status, r.round]
-          .filter(Boolean)
-          .some((v) => String(v).toLowerCase().includes(needle)),
+        matchesQuickSearch(buildQuickSearchHaystack(r.candidate, r.job, r.status, r.round), needle),
       );
     }
     const source = overview?.placementsTable || [];
     if (!needle) return source;
     return source.filter((r) =>
-      [r.candidate, r.client, r.job, r.status]
-        .filter(Boolean)
-        .some((v) => String(v).toLowerCase().includes(needle)),
+      matchesQuickSearch(buildQuickSearchHaystack(r.candidate, r.client, r.job, r.status), needle),
     );
   }, [overview, mode, q]);
 

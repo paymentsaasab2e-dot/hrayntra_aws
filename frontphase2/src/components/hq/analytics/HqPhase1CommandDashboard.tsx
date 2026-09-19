@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '../../../lib/quickSearch';
 import { motion } from 'motion/react';
 import {
   Area,
@@ -710,7 +711,7 @@ export function HqPhase1CommandDashboard({
       const key = `${label}|${apply}`.toLowerCase();
       if (seen.has(key)) return;
       const hay = `${label} ${sub || ''} ${apply}`.toLowerCase();
-      if (!hay.includes(q)) return;
+      if (!matchesQuickSearch(hay, q)) return;
       seen.add(key);
       out.push({ id, label, sub, apply });
     };
@@ -789,7 +790,7 @@ export function HqPhase1CommandDashboard({
           .filter(Boolean)
           .join(' ')
           .toLowerCase();
-        if (!hay.includes(q)) return false;
+        if (!matchesQuickSearch(hay, q)) return false;
       }
       return true;
     });

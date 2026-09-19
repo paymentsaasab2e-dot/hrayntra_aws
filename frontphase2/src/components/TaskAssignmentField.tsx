@@ -6,6 +6,7 @@ import { ImageWithFallback } from './ImageWithFallback';
 import type { TaskAssignee } from '../app/Task&Activites/types';
 import { AssignCompanySelect } from './assign/AssignCompanySelect';
 import { formatAssigneeOptionLabel, getStoredCurrentUserId } from '../lib/assigneeDisplay';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '../lib/quickSearch';
 import type { AssignCompanyOption } from '../hooks/useAssignableMembers';
 
 export type AssignmentAuditEvent = {
@@ -75,8 +76,8 @@ export function TaskAssignmentField({
   const filteredAssignees = useMemo(() => {
     const list = !search.trim()
       ? assignees
-      : assignees.filter(
-          (a) => a.name.toLowerCase().includes(search.trim().toLowerCase()) || (a.role && a.role.toLowerCase().includes(search.trim().toLowerCase())),
+      : assignees.filter((a) =>
+          matchesQuickSearch(buildQuickSearchHaystack(a.name, a.role), search),
         );
     if (!currentUserId) return list;
     const self = list.filter((a) => a.id === currentUserId);

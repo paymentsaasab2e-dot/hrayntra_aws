@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '../../lib/quickSearch';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   ArrowLeft,
@@ -1330,21 +1331,19 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
     const recruitmentClients = filterClientsForAddJob(clients, {
       includeIds: [draft.clientId],
     });
-    const q = clientSearch.trim().toLowerCase();
+    const q = clientSearch.trim();
     if (!q) return recruitmentClients;
     return recruitmentClients.filter((c) =>
-      String(c.companyName || '')
-        .toLowerCase()
-        .includes(q),
+      matchesQuickSearch(c.companyName || '', q),
     );
   }, [clients, clientSearch, draft.clientId]);
 
   const ownCompanyVisible = useMemo(() => {
     if (!ownCompanyClient?.id) return false;
-    const q = clientSearch.trim().toLowerCase();
+    const q = clientSearch.trim();
     if (!q) return true;
-    const haystack = `own company ${ownCompanyDisplayName} ${ownCompanyClient.companyName || ''}`.toLowerCase();
-    return haystack.includes(q);
+    const haystack = `own company ${ownCompanyDisplayName} ${ownCompanyClient.companyName || ''}`;
+    return matchesQuickSearch(haystack, q);
   }, [ownCompanyClient, ownCompanyDisplayName, clientSearch]);
 
   const stepIndex = Math.max(0, wizardSteps.indexOf(step));

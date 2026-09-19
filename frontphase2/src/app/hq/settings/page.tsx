@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useMemo, useRef, useState } from 'react';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '../../lib/quickSearch';
 import {
   ArrowRight,
   Check,
@@ -96,9 +97,7 @@ export default function HqSettingsPage() {
 
     return WORLD_CURRENCIES.filter((w) => {
       return (
-        w.code.toLowerCase().includes(q) ||
-        w.name.toLowerCase().includes(q) ||
-        w.countries.toLowerCase().includes(q)
+        matchesQuickSearch(buildQuickSearchHaystack(w.code, w.name, w.countries), q)
       );
     })
       .slice(0, 30)

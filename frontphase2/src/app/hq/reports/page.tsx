@@ -4,6 +4,7 @@
  * HQ Reports — analytics control tower for Employees, Entrepreneurs, CRM, and HQ Operations.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '../../lib/quickSearch';
 import { BarChart3, Download, RefreshCw, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { HqModulePageLayout } from '@/components/hq/HqModulePageLayout';
@@ -488,7 +489,7 @@ export default function HqReportsPage() {
     try {
       const q = search.trim().toLowerCase();
       const rows = q
-        ? view.rows.filter((row) => Object.values(row).some((value) => String(value).toLowerCase().includes(q)))
+        ? view.rows.filter((row) => matchesQuickSearch(buildQuickSearchHaystack(...Object.values(row)), q))
         : view.rows;
       const isOverview = pageId.endsWith('-overview');
       if (isOverview) {

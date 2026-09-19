@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '../../../lib/quickSearch';
 import { useParams, useSearchParams } from 'next/navigation';
 import {
   Loader2,
@@ -294,7 +295,7 @@ export default function PublicLeadFormPage() {
         .filter(Boolean)
         .join(' ')
         .toLowerCase();
-      return haystack.includes(q);
+      return matchesQuickSearch(haystack, q);
     });
   }, [leads, searchQuery, statusFilter, sourceFilter, onlyMine, myLeadIds]);
 

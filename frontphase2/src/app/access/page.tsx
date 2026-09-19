@@ -10,6 +10,7 @@ import {
   type PortalAccessJobRow,
   type PortalAccessMember,
 } from '../../lib/api';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '../../lib/quickSearch';
 
 export const dynamic = 'force-dynamic';
 
@@ -80,13 +81,10 @@ export default function AccessPage() {
   }, [selectedMemberId, loadJobs]);
 
   const filteredMembers = useMemo(() => {
-    const q = memberQuery.trim().toLowerCase();
+    const q = memberQuery.trim();
     if (!q) return members;
-    return members.filter(
-      (m) =>
-        m.name.toLowerCase().includes(q) ||
-        m.email.toLowerCase().includes(q) ||
-        (m.roleName || '').toLowerCase().includes(q),
+    return members.filter((m) =>
+      matchesQuickSearch(buildQuickSearchHaystack(m.name, m.email, m.roleName), q),
     );
   }, [members, memberQuery]);
 

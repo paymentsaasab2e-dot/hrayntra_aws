@@ -22,6 +22,7 @@ import {
 } from '../utils/clientReviewLinkStore.js';
 import { sendMatchSubmissionEmail } from '../emails/email.service.js';
 import { isDeliverableEmail } from '../utils/emailDeliverability.js';
+import { buildTokenAndSearchWhere } from '../utils/quickSearch.js';
 import {
   sendInterviewCancelled,
   sendInterviewConfirmed,
@@ -1876,15 +1877,14 @@ export const interviewService = {
       if (dateTo) where.scheduledAt.lte = new Date(dateTo);
     }
     if (search) {
-      where.candidate = {
-        is: {
-          OR: [
-            { firstName: { contains: search } },
-            { lastName: { contains: search } },
-            { email: { contains: search } },
-          ],
-        },
-      };
+      const candidateSearch = buildTokenAndSearchWhere(search, (escaped) => [
+        { firstName: { contains: escaped, mode: 'insensitive' } },
+        { lastName: { contains: escaped, mode: 'insensitive' } },
+        { email: { contains: escaped, mode: 'insensitive' } },
+      ]);
+      if (candidateSearch) {
+        where.candidate = { is: candidateSearch };
+      }
     }
     if (ids) {
       const idList = String(ids)

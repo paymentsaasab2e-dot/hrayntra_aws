@@ -21,6 +21,7 @@ import {
 import { HqSecondaryButton, HqStatCard } from '@/components/hq/hqUi';
 import { formatBillingCycleLabel } from '@/components/hq/hqPackagePresentation';
 import { HqBillingEntityDrawer } from '@/components/hq/HqBillingEntityDrawer';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '@/lib/quickSearch';
 import {
   apiHqGetBilling,
   type HqBillingCandidateTransactionRow,
@@ -128,66 +129,72 @@ function formatTxAmount(row: { amount: number; direction: string; unit: string }
 function filterCandidateTransactions(rows: HqBillingCandidateTransactionRow[], needle: string) {
   if (!needle) return rows;
   return rows.filter((row) =>
-    [
-      row.candidateName,
-      row.candidateEmail,
-      row.candidatePhone,
-      row.packageName,
-      row.service,
-      row.reference,
-      row.description,
-      row.type,
-      row.label,
-    ]
-      .join(' ')
-      .toLowerCase()
-      .includes(needle),
+    matchesQuickSearch(
+      buildQuickSearchHaystack(
+        row.candidateName,
+        row.candidateEmail,
+        row.candidatePhone,
+        row.packageName,
+        row.service,
+        row.reference,
+        row.description,
+        row.type,
+        row.label,
+      ),
+      needle,
+    ),
   );
 }
 
 function filterEmployerTransactions(rows: HqBillingEmployerTransactionRow[], needle: string) {
   if (!needle) return rows;
   return rows.filter((row) =>
-    [
-      row.tenantName,
-      row.email,
-      row.tenantDbName,
-      row.type,
-      row.label,
-      row.reference,
-      row.description,
-      row.actorEmail,
-    ]
-      .join(' ')
-      .toLowerCase()
-      .includes(needle),
+    matchesQuickSearch(
+      buildQuickSearchHaystack(
+        row.tenantName,
+        row.email,
+        row.tenantDbName,
+        row.type,
+        row.label,
+        row.reference,
+        row.description,
+        row.actorEmail,
+      ),
+      needle,
+    ),
   );
 }
 
 function filterTenantCycles(rows: HqBillingTenantCycleRow[], needle: string) {
   if (!needle) return rows;
   return rows.filter((row) =>
-    [
-      row.tenantName,
-      row.email,
-      row.tenantDbName,
-      row.planName,
-      row.signupSource,
-      row.lastPaymentReference,
-    ]
-      .join(' ')
-      .toLowerCase()
-      .includes(needle),
+    matchesQuickSearch(
+      buildQuickSearchHaystack(
+        row.tenantName,
+        row.email,
+        row.tenantDbName,
+        row.planName,
+        row.signupSource,
+        row.lastPaymentReference,
+      ),
+      needle,
+    ),
   );
 }
 
 function filterPurchaseRequests(rows: HqBillingPurchaseRequestRow[], needle: string) {
   if (!needle) return rows;
   return rows.filter((row) =>
-    [row.fullName, row.email, row.organizationName, row.packageName, row.packageSlug]
-      .join(' ')
-      .toLowerCase()
-      .includes(needle),
+    matchesQuickSearch(
+      buildQuickSearchHaystack(
+        row.fullName,
+        row.email,
+        row.organizationName,
+        row.packageName,
+        row.packageSlug,
+      ),
+      needle,
+    ),
   );
 }
 

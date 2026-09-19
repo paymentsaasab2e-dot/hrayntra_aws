@@ -19,6 +19,7 @@ import { GenerateCredentialsDrawer } from '../GenerateCredentialsDrawer';
 import PaginationAll from '../../../components/PaginationAll';
 import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../../constants/tablePagination';
 import { formatDateDMY } from '../../../utils/dateDisplay';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '../../../lib/quickSearch';
 import {
   PH2_TABLE_CARD_CLASS,
   PH2_TABLE_BODY_SCROLL_CLASS,
@@ -177,16 +178,20 @@ export const CredentialsTab: React.FC = () => {
             : 'active';
 
       if (query) {
-        const matchesSearch =
-          fullName.includes(query) ||
-          email.includes(query) ||
-          phone.includes(query) ||
-          designation.includes(query) ||
-          location.includes(query) ||
-          roleName.includes(query) ||
-          departmentName.includes(query) ||
-          loginId.includes(query) ||
-          statusKey.includes(query);
+        const matchesSearch = matchesQuickSearch(
+          buildQuickSearchHaystack(
+            fullName,
+            email,
+            phone,
+            designation,
+            location,
+            roleName,
+            departmentName,
+            loginId,
+            statusKey,
+          ),
+          query,
+        );
 
         if (!matchesSearch) return false;
       }

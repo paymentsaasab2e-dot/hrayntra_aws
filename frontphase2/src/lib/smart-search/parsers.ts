@@ -1,4 +1,5 @@
 import { normalizeLeadSourceValue } from '../../app/leads/leadsSmartSearch';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '../quickSearch';
 import type { AssigneeOption, NamedOption, SmartSearchKeywordChip, SmartSearchParseBase } from './types';
 import {
   buildSummary,
@@ -947,7 +948,7 @@ export function candidateMatchesSmartKeywordChips(
     if (chip.value === 'phase1') {
       return String(candidate.source || '').toLowerCase().includes('phase1');
     }
-    return haystack.includes(value);
+    return matchesQuickSearch(haystack, value);
   });
 }
 
@@ -1057,7 +1058,7 @@ export function jobMatchesSmartKeywordChips(
     if (chip.kind === 'employment') {
       return String(job.employmentType || '').toLowerCase().replace(/_/g, ' ').includes(value.replace(/_/g, ' '));
     }
-    return haystack.includes(value);
+    return matchesQuickSearch(haystack, value);
   });
 }
 
@@ -1174,7 +1175,7 @@ export function clientMatchesSmartKeywordChips(
       const owner = client.owner?.name?.toLowerCase() || '';
       return owner.includes(value) || value.includes(owner);
     }
-    return haystack.includes(value);
+    return matchesQuickSearch(haystack, value);
   });
 }
 
