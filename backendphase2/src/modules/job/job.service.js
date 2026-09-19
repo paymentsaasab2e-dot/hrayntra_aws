@@ -33,7 +33,11 @@ import {
   stampVisibilityOnAssigneeChange,
 } from '../../services/memberVisibility.service.js';
 import { assertCanAssignCrm } from '../../services/crmAssignmentScope.service.js';
-import { buildTokenAndSearchWhere } from '../../utils/quickSearch.js';
+import {
+  buildTokenAndSearchWhere,
+  compareRelevanceThenDate,
+  scoreFieldRelevance,
+} from '../../utils/quickSearch.js';
 import {
   getDefaultPipelineTemplate,
   applyOrgPipelineTemplateToEmptyJobs,
@@ -62,6 +66,90 @@ import {
   buildEntitySnapshot,
 } from '../../services/aiEntryRecommendation.service.js';
 
+/** Cap ranked search window — score in memory, then page. */
+const JOB_SEARCH_RANK_WINDOW = Math.min(
+  1200,
+  Math.max(200, Number(process.env.JOB_SEARCH_RANK_WINDOW || 800) || 800),
+);
+
+function buildJobListSearchWhere(search) {
+  // Prefer high-signal fields; keep description/overview for recall but rank them low.
+  return buildTokenAndSearchWhere(search, (escaped, rawToken) => [
+    { title: { contains: escaped, mode: 'insensitive' } },
+    { location: { contains: escaped, mode: 'insensitive' } },
+    { country: { contains: escaped, mode: 'insensitive' } },
+    { state: { contains: escaped, mode: 'insensitive' } },
+    { city: { contains: escaped, mode: 'insensitive' } },
+    { department: { contains: escaped, mode: 'insensitive' } },
+    { jobCategory: { contains: escaped, mode: 'insensitive' } },
+    { experienceRequired: { contains: escaped, mode: 'insensitive' } },
+    { hiringManager: { contains: escaped, mode: 'insensitive' } },
+    { skills: { hasSome: [rawToken] } },
+    { preferredSkills: { hasSome: [rawToken] } },
+    { requirements: { hasSome: [rawToken] } },
+    { client: { companyName: { contains: escaped, mode: 'insensitive' } } },
+    { description: { contains: escaped, mode: 'insensitive' } },
+    { overview: { contains: escaped, mode: 'insensitive' } },
+  ]);
+}
+
+function scoreJobRowForSearch(search, row) {
+  return scoreFieldRelevance(search, {
+    primary: row?.title,
+    secondary: [row?.client?.companyName, ...(Array.isArray(row?.skills) ? row.skills : [])],
+    tertiary: [
+      row?.location,
+      row?.city,
+      row?.country,
+      row?.state,
+      row?.department,
+      row?.jobCategory,
+      row?.hiringManager,
+      row?.experienceRequired,
+    ],
+  });
+}
+
+async function loadRankedJobPage(scopedWhere, search, { skip, limit }) {
+  const [candidates, total] = await Promise.all([
+    prisma.job.findMany({
+      where: scopedWhere,
+      select: {
+        id: true,
+        title: true,
+        location: true,
+        city: true,
+        country: true,
+        state: true,
+        department: true,
+        jobCategory: true,
+        hiringManager: true,
+        experienceRequired: true,
+        skills: true,
+        updatedAt: true,
+        createdAt: true,
+        client: { select: { companyName: true } },
+      },
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+      take: JOB_SEARCH_RANK_WINDOW,
+    }),
+    prisma.job.count({ where: scopedWhere }),
+  ]);
+
+  const ranked = candidates
+    .map((row) => ({
+      id: row.id,
+      score: scoreJobRowForSearch(search, row),
+      updatedAt: row.updatedAt,
+      createdAt: row.createdAt,
+    }))
+    .sort((a, b) =>
+      compareRelevanceThenDate(a.score, b.score, a.updatedAt || a.createdAt, b.updatedAt || b.createdAt),
+    );
+
+  const pageIds = ranked.slice(skip, skip + limit).map((row) => row.id);
+  return { pageIds, total };
+}
 async function enrichJobWithApplyLink(job) {
   if (!job?.id) return job;
   let token = job.applyLinkToken || null;
@@ -1351,7 +1439,8 @@ export const jobService = {
   },
 
   async getAll(req) {
-    await mergeDuplicateClientsByCompanyName().catch((err) => {
+    // Never block Jobs list/search on client dedupe (was a major latency source).
+    void mergeDuplicateClientsByCompanyName().catch((err) => {
       console.warn('Client duplicate merge skipped:', err?.message || err);
     });
     const { page, limit, skip } = getPaginationParams(req);
@@ -1394,31 +1483,7 @@ export const jobService = {
       }
     }
     if (search) {
-      const searchWhere = buildTokenAndSearchWhere(search, (escaped, rawToken) => [
-        { title: { contains: escaped, mode: 'insensitive' } },
-        { description: { contains: escaped, mode: 'insensitive' } },
-        { overview: { contains: escaped, mode: 'insensitive' } },
-        { location: { contains: escaped, mode: 'insensitive' } },
-        { country: { contains: escaped, mode: 'insensitive' } },
-        { state: { contains: escaped, mode: 'insensitive' } },
-        { city: { contains: escaped, mode: 'insensitive' } },
-        { nationality: { contains: escaped, mode: 'insensitive' } },
-        { experienceRequired: { contains: escaped, mode: 'insensitive' } },
-        { education: { contains: escaped, mode: 'insensitive' } },
-        { hiringManager: { contains: escaped, mode: 'insensitive' } },
-        { department: { contains: escaped, mode: 'insensitive' } },
-        { jobCategory: { contains: escaped, mode: 'insensitive' } },
-        { workMode: { contains: escaped, mode: 'insensitive' } },
-        { priority: { contains: escaped, mode: 'insensitive' } },
-        // Partial skill match (hasSome is exact-only).
-        { skills: { hasSome: [rawToken] } },
-        { requirements: { hasSome: [rawToken] } },
-        { keyResponsibilities: { hasSome: [rawToken] } },
-        { preferredSkills: { hasSome: [rawToken] } },
-        { candidateRequirements: { hasSome: [rawToken] } },
-        { benefits: { hasSome: [rawToken] } },
-        { client: { companyName: { contains: escaped, mode: 'insensitive' } } },
-      ]);
+      const searchWhere = buildJobListSearchWhere(search);
       const andParts = [];
       if (visibilityOr.length) andParts.push({ OR: visibilityOr });
       if (searchWhere) andParts.push(searchWhere);
@@ -1434,12 +1499,14 @@ export const jobService = {
     // the soft-delete column existed) without tripping Prisma's "Argument isDeleted is missing".
     scopedWhere = { AND: [scopedWhere, { isDeleted: { not: true } }] };
 
+    let idListOrder = null;
     if (ids) {
       const idList = String(ids)
         .split(',')
         .map((value) => value.trim())
         .filter((value) => /^[a-fA-F0-9]{24}$/.test(value));
       if (idList.length) {
+        idListOrder = idList;
         scopedWhere = { AND: [scopedWhere, { id: { in: idList } }] };
       }
     }
@@ -1499,7 +1566,42 @@ export const jobService = {
         }),
         prisma.job.count({ where: scopedWhere }),
       ]);
-    if (!isOrgCompanyScoped(orgScope)) {
+    const loadJobsByOrderedIds = async (pageIds, pageTotal) => {
+      total = pageTotal;
+      jobs = pageIds.length
+        ? await prisma.job.findMany({
+            where: { id: { in: pageIds } },
+            include: jobListInclude,
+          })
+        : [];
+      const order = new Map(pageIds.map((id, index) => [id, index]));
+      jobs.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+    };
+
+    // Search search: rank title/client/skills hits above description-only matches.
+    if (search && String(search).trim()) {
+      try {
+        const ranked = await loadRankedJobPage(scopedWhere, String(search).trim(), { skip, limit });
+        await loadJobsByOrderedIds(ranked.pageIds, ranked.total);
+      } catch (error) {
+        console.error('[jobs] ranked search failed, using standard list', error);
+        [jobs, total] = await loadPagedJobs();
+      }
+    } else if (idListOrder?.length) {
+      // Smart Search ids arrive pre-ranked — preserve that sequence across pages.
+      try {
+        const existing = await prisma.job.findMany({
+          where: scopedWhere,
+          select: { id: true },
+        });
+        const existingSet = new Set(existing.map((row) => row.id));
+        const ordered = idListOrder.filter((id) => existingSet.has(id));
+        await loadJobsByOrderedIds(ordered.slice(skip, skip + limit), ordered.length);
+      } catch (error) {
+        console.error('[jobs] ordered ids page load failed, using standard list', error);
+        [jobs, total] = await loadPagedJobs();
+      }
+    } else if (!isOrgCompanyScoped(orgScope)) {
       try {
         const uniqueResult = await uniqueJobIdsForAllCompanies(scopedWhere, { skip, limit });
         const uniqueIds = uniqueResult.ids;
@@ -1514,14 +1616,7 @@ export const jobService = {
         if (skip >= uniqueIds.length && uniqueResult.capped) {
           [jobs, total] = await loadPagedJobs();
         } else {
-          jobs = pageIds.length
-            ? await prisma.job.findMany({
-                where: { id: { in: pageIds } },
-                include: jobListInclude,
-              })
-            : [];
-          const order = new Map(pageIds.map((id, index) => [id, index]));
-          jobs.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+          await loadJobsByOrderedIds(pageIds, total);
         }
       } catch (error) {
         console.error('[jobs] unique page load failed, using standard list', error);

@@ -99,6 +99,7 @@ import { useSmartSearch } from '../../hooks/useSmartSearch';
 import { mapAiToJobsResult, parseSmartSearchWithAi } from '../../lib/smart-search/aiParser';
 import { buildJobsListApiParams } from '../../lib/smart-search/entitySmartSearch';
 import { parseJobsSmartSearchPrompt, JOBS_SMART_SEARCH_EXAMPLES, jobMatchesSmartKeywordChips, mergeJobsSmartSearchResult } from '../../lib/smart-search/parsers';
+import { sortByQuickSearchRelevance } from '../../lib/quickSearch';
 import { StatusChangeService } from '../../components/StatusChangeService';
 import {
   apiAddCandidateNote,
@@ -1914,9 +1915,31 @@ export default function JobsPage() {
       ...job,
       recruiterAssignees: buildJobRecruiterAssignees(job, recruiterOptions),
     }));
-    if (jobSmartSearch.activeKeywords.length === 0) return enriched;
-    return enriched.filter((job) => jobMatchesSmartKeywordChips(job, jobSmartSearch.activeKeywords));
-  }, [jobs, jobSmartSearch.activeKeywords, recruiterOptions]);
+    const filtered =
+      jobSmartSearch.activeKeywords.length === 0
+        ? enriched
+        : enriched.filter((job) => jobMatchesSmartKeywordChips(job, jobSmartSearch.activeKeywords));
+
+    const relevanceQuery =
+      debouncedSearchFilter ||
+      jobSmartSearch.activeKeywords
+        .filter((chip) => chip.kind === 'text')
+        .map((chip) => chip.value)
+        .join(' ');
+
+    if (!String(relevanceQuery || '').trim()) return filtered;
+
+    return sortByQuickSearchRelevance(
+      filtered,
+      relevanceQuery,
+      (job) => ({
+        primary: job.title,
+        secondary: [job.client, ...(Array.isArray(job.skills) ? job.skills : [])],
+        tertiary: [job.location, job.city, job.country, job.owner],
+      }),
+      (job) => job.updatedAt || job.createdAt,
+    );
+  }, [jobs, jobSmartSearch.activeKeywords, recruiterOptions, debouncedSearchFilter]);
 
   const hasActiveFilters = Boolean(
     smartSearchJobIds.length > 0 ||
