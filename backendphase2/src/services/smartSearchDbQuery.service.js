@@ -15,6 +15,10 @@ import {
   SCHEMA_ENUMS,
 } from './smartSearchSchema.config.js';
 import { buildAssigneeVisibilityOr } from './memberVisibility.service.js';
+import {
+  compareRelevanceThenDate,
+  scoreFieldRelevance,
+} from '../utils/quickSearch.js';
 
 /** When more matches exist, return filters only (avoid huge ?ids= URLs). */
 export const SMART_SEARCH_MAX_IDS_IN_RESPONSE = 500;
@@ -209,15 +213,43 @@ async function queryLeadIds(filters, req) {
       ],
     });
   }
-  const searchFilter = buildSchemaTextSearchWhere('leads', filters.searchText);
+  const searchText = String(filters.searchText || '').trim();
+  const searchFilter = buildSchemaTextSearchWhere('leads', searchText);
   if (searchFilter) andParts.push(searchFilter);
 
   const rows = await prisma.lead.findMany({
     where: buildWhereFromAndParts(andParts),
-    select: { id: true },
+    select: {
+      id: true,
+      companyName: true,
+      contactPerson: true,
+      contactName: true,
+      email: true,
+      industry: true,
+      city: true,
+      country: true,
+      createdAt: true,
+    },
     orderBy: { createdAt: 'desc' },
+    take: SMART_SEARCH_MAX_IDS_IN_RESPONSE,
   });
-  return rows.map((row) => row.id);
+
+  if (!searchText) {
+    return rows.map((row) => row.id);
+  }
+
+  return rows
+    .map((row) => ({
+      id: row.id,
+      score: scoreFieldRelevance(searchText, {
+        primary: row.companyName || row.contactPerson || row.contactName,
+        secondary: [row.contactPerson, row.contactName, row.email, row.industry],
+        tertiary: [row.city, row.country],
+      }),
+      createdAt: row.createdAt,
+    }))
+    .sort((a, b) => compareRelevanceThenDate(a.score, b.score, a.createdAt, b.createdAt))
+    .map((row) => row.id);
 }
 
 async function queryJobIds(filters, req) {
@@ -239,15 +271,46 @@ async function queryJobIds(filters, req) {
     const jobType = normalizeEnumToken(filters.employmentType, 'JobType');
     if (jobType) andParts.push({ type: jobType });
   }
-  const searchFilter = buildSchemaTextSearchWhere('jobs', filters.searchText);
+  const searchText = String(filters.searchText || '').trim();
+  const searchFilter = buildSchemaTextSearchWhere('jobs', searchText);
   if (searchFilter) andParts.push(searchFilter);
 
   const rows = await prisma.job.findMany({
     where: buildWhereFromAndParts(andParts),
-    select: { id: true },
+    select: {
+      id: true,
+      title: true,
+      location: true,
+      city: true,
+      country: true,
+      skills: true,
+      updatedAt: true,
+      createdAt: true,
+      client: { select: { companyName: true } },
+    },
     orderBy: { createdAt: 'desc' },
+    take: SMART_SEARCH_MAX_IDS_IN_RESPONSE,
   });
-  return rows.map((row) => row.id);
+
+  if (!searchText) {
+    return rows.map((row) => row.id);
+  }
+
+  return rows
+    .map((row) => ({
+      id: row.id,
+      score: scoreFieldRelevance(searchText, {
+        primary: row.title,
+        secondary: [row.client?.companyName, ...(Array.isArray(row.skills) ? row.skills : [])],
+        tertiary: [row.location, row.city, row.country],
+      }),
+      updatedAt: row.updatedAt,
+      createdAt: row.createdAt,
+    }))
+    .sort((a, b) =>
+      compareRelevanceThenDate(a.score, b.score, a.updatedAt || a.createdAt, b.updatedAt || b.createdAt),
+    )
+    .map((row) => row.id);
 }
 
 async function queryClientIds(filters, req) {
@@ -263,15 +326,42 @@ async function queryClientIds(filters, req) {
       OR: buildAssigneeVisibilityOr(req.user.id),
     });
   }
-  const searchFilter = buildSchemaTextSearchWhere('clients', filters.searchText);
+  const searchText = String(filters.searchText || '').trim();
+  const searchFilter = buildSchemaTextSearchWhere('clients', searchText);
   if (searchFilter) andParts.push(searchFilter);
 
   const rows = await prisma.client.findMany({
     where: buildWhereFromAndParts(andParts),
-    select: { id: true },
+    select: {
+      id: true,
+      companyName: true,
+      industry: true,
+      location: true,
+      city: true,
+      country: true,
+      emails: true,
+      createdAt: true,
+    },
     orderBy: { createdAt: 'desc' },
+    take: SMART_SEARCH_MAX_IDS_IN_RESPONSE,
   });
-  return rows.map((row) => row.id);
+
+  if (!searchText) {
+    return rows.map((row) => row.id);
+  }
+
+  return rows
+    .map((row) => ({
+      id: row.id,
+      score: scoreFieldRelevance(searchText, {
+        primary: row.companyName,
+        secondary: [row.industry, ...(Array.isArray(row.emails) ? row.emails : [])],
+        tertiary: [row.location, row.city, row.country],
+      }),
+      createdAt: row.createdAt,
+    }))
+    .sort((a, b) => compareRelevanceThenDate(a.score, b.score, a.createdAt, b.createdAt))
+    .map((row) => row.id);
 }
 
 async function queryCandidateIds(filters, req) {
@@ -280,15 +370,43 @@ async function queryCandidateIds(filters, req) {
     andParts.push({ assignedToId: filters.ownerId });
   }
   appendCandidateFilterParts(andParts, filters);
-  const searchFilter = buildSchemaTextSearchWhere('candidates', filters.searchText);
+  const searchText = String(filters.searchText || '').trim();
+  const searchFilter = buildSchemaTextSearchWhere('candidates', searchText);
   if (searchFilter) andParts.push(searchFilter);
 
   const rows = await prisma.candidate.findMany({
     where: buildWhereFromAndParts(andParts),
-    select: { id: true },
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      email: true,
+      currentTitle: true,
+      skills: true,
+      city: true,
+      country: true,
+      createdAt: true,
+    },
     orderBy: { createdAt: 'desc' },
+    take: SMART_SEARCH_MAX_IDS_IN_RESPONSE,
   });
-  return rows.map((row) => row.id);
+
+  if (!searchText) {
+    return rows.map((row) => row.id);
+  }
+
+  return rows
+    .map((row) => ({
+      id: row.id,
+      score: scoreFieldRelevance(searchText, {
+        primary: `${row.firstName || ''} ${row.lastName || ''}`.trim() || row.email,
+        secondary: [row.email, row.currentTitle, ...(Array.isArray(row.skills) ? row.skills : [])],
+        tertiary: [row.city, row.country],
+      }),
+      createdAt: row.createdAt,
+    }))
+    .sort((a, b) => compareRelevanceThenDate(a.score, b.score, a.createdAt, b.createdAt))
+    .map((row) => row.id);
 }
 
 async function queryInterviewIds(filters, req) {

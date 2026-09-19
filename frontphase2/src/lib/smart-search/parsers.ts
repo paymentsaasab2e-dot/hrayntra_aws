@@ -992,7 +992,8 @@ export function jobMatchesSmartKeywordChips(
 
   const asTextList = (value: unknown): string[] =>
     Array.isArray(value) ? value.map((item) => String(item ?? '')).filter(Boolean) : [];
-  const haystack = [
+  // Keep text-chip matching on high-signal fields so JD body noise does not keep weak rows.
+  const haystack = buildQuickSearchHaystack(
     job.title,
     job.client,
     job.location,
@@ -1006,25 +1007,15 @@ export function jobMatchesSmartKeywordChips(
     job.state,
     job.city,
     job.industry,
-    job.description,
     job.experienceRequired,
     job.education,
     job.hiringManager,
     job.managerName,
     job.workMode,
     ...asTextList(job.skills),
-    ...asTextList(job.requirements),
-    ...asTextList(job.keyResponsibilities),
     ...asTextList(job.preferredSkills),
-    ...asTextList(job.candidateRequirements),
-    ...asTextList(job.benefits),
-    ...(Array.isArray(job.languages) ? job.languages : []).map(
-      (item) => `${item?.language || ''} ${item?.proficiency || ''}`,
-    ),
-  ]
-    .filter(Boolean)
-    .join(' ')
-    .toLowerCase();
+    ...asTextList(job.requirements),
+  );
 
   return keywords.every((chip) => {
     const value = chip.value.toLowerCase();
