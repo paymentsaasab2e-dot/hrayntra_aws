@@ -37,6 +37,7 @@ import {
   SmartSearchToggleButton,
 } from '../../components/smart-search/SmartSearchToolbar';
 import { useSmartSearch } from '../../hooks/useSmartSearch';
+import { useDebouncedValue } from '../../hooks/useListRequestGate';
 import { mapAiToLeadsResult, parseSmartSearchWithAi } from '../../lib/smart-search/aiParser';
 import { keywordChipClass } from '../../lib/smart-search/core';
 import { matchesQuickSearch } from '../../lib/quickSearch';
@@ -554,6 +555,7 @@ export default function RecruitmentAgencyDashboard() {
   const [recycleBinDrawerOpen, setRecycleBinDrawerOpen] = useState(false);
   const [showSummaryCards, setShowSummaryCards] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const debouncedSearchQuery = useDebouncedValue(searchQuery, 500);
   const [statusFilter, setStatusFilter] = useState<LeadStatus | 'All'>('All');
   const [leadStatusOptions, setLeadStatusOptions] = useState<LeadStatus[]>(DEFAULT_LEAD_STATUS_OPTIONS);
   const [sourceFilter, setSourceFilter] = useState('');
@@ -834,7 +836,7 @@ export default function RecruitmentAgencyDashboard() {
             sourceFilter,
             recruiterFilter,
             priorityFilter,
-            searchQuery,
+            searchQuery: debouncedSearchQuery,
             matchingLeadIds: smartSearchLeadIds,
             currentPage,
             pageSize,
@@ -889,7 +891,11 @@ export default function RecruitmentAgencyDashboard() {
     };
 
     fetchLeads();
-  }, [statusFilter, sourceFilter, searchQuery, currentPage, recruiterFilter, priorityFilter, smartSearchLeadIds, pageSize]);
+  }, [statusFilter, sourceFilter, debouncedSearchQuery, currentPage, recruiterFilter, priorityFilter, smartSearchLeadIds, pageSize]);
+
+  useEffect(() => {
+    setCurrentPage((page) => (page === 1 ? page : 1));
+  }, [debouncedSearchQuery]);
 
   useEffect(() => {
     void loadLeadMetrics();

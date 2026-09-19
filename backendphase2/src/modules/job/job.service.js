@@ -66,14 +66,14 @@ import {
   buildEntitySnapshot,
 } from '../../services/aiEntryRecommendation.service.js';
 
-/** Cap ranked search window — score in memory, then page. */
+/** Cap ranked search window — score in memory, then page. Keep small for typing latency. */
 const JOB_SEARCH_RANK_WINDOW = Math.min(
-  1200,
-  Math.max(200, Number(process.env.JOB_SEARCH_RANK_WINDOW || 800) || 800),
+  400,
+  Math.max(80, Number(process.env.JOB_SEARCH_RANK_WINDOW || 200) || 200),
 );
 
+/** Fast typed-search: title / client / location / skills only (no long JD body). */
 function buildJobListSearchWhere(search) {
-  // Prefer high-signal fields; keep description/overview for recall but rank them low.
   return buildTokenAndSearchWhere(search, (escaped, rawToken) => [
     { title: { contains: escaped, mode: 'insensitive' } },
     { location: { contains: escaped, mode: 'insensitive' } },
@@ -82,14 +82,9 @@ function buildJobListSearchWhere(search) {
     { city: { contains: escaped, mode: 'insensitive' } },
     { department: { contains: escaped, mode: 'insensitive' } },
     { jobCategory: { contains: escaped, mode: 'insensitive' } },
-    { experienceRequired: { contains: escaped, mode: 'insensitive' } },
-    { hiringManager: { contains: escaped, mode: 'insensitive' } },
     { skills: { hasSome: [rawToken] } },
     { preferredSkills: { hasSome: [rawToken] } },
-    { requirements: { hasSome: [rawToken] } },
     { client: { companyName: { contains: escaped, mode: 'insensitive' } } },
-    { description: { contains: escaped, mode: 'insensitive' } },
-    { overview: { contains: escaped, mode: 'insensitive' } },
   ]);
 }
 
@@ -104,13 +99,12 @@ function scoreJobRowForSearch(search, row) {
       row?.state,
       row?.department,
       row?.jobCategory,
-      row?.hiringManager,
-      row?.experienceRequired,
     ],
   });
 }
 
 async function loadRankedJobPage(scopedWhere, search, { skip, limit }) {
+  const take = Math.min(JOB_SEARCH_RANK_WINDOW, Math.max(skip + limit * 8, limit * 10, 80));
   const [candidates, total] = await Promise.all([
     prisma.job.findMany({
       where: scopedWhere,
@@ -123,20 +117,51 @@ async function loadRankedJobPage(scopedWhere, search, { skip, limit }) {
         state: true,
         department: true,
         jobCategory: true,
-        hiringManager: true,
-        experienceRequired: true,
         skills: true,
         updatedAt: true,
         createdAt: true,
         client: { select: { companyName: true } },
       },
+      // Prefer title hits in the candidate window via two cheap queries merged below.
       orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
-      take: JOB_SEARCH_RANK_WINDOW,
+      take,
     }),
     prisma.job.count({ where: scopedWhere }),
   ]);
 
-  const ranked = candidates
+  // Pull an extra title-focused slice so older exact title matches are not buried
+  // behind recently-updated rows outside the recency window.
+  const titleClause = buildTokenAndSearchWhere(search, (escaped) => [
+    { title: { contains: escaped, mode: 'insensitive' } },
+  ]);
+  const titleHits = titleClause
+    ? await prisma.job.findMany({
+        where: { AND: [scopedWhere, titleClause] },
+        select: {
+          id: true,
+          title: true,
+          location: true,
+          city: true,
+          country: true,
+          state: true,
+          department: true,
+          jobCategory: true,
+          skills: true,
+          updatedAt: true,
+          createdAt: true,
+          client: { select: { companyName: true } },
+        },
+        take: Math.min(100, skip + limit * 5),
+        orderBy: [{ updatedAt: 'desc' }],
+      })
+    : [];
+
+  const byId = new Map();
+  for (const row of [...titleHits, ...candidates]) {
+    if (!byId.has(row.id)) byId.set(row.id, row);
+  }
+
+  const ranked = [...byId.values()]
     .map((row) => ({
       id: row.id,
       score: scoreJobRowForSearch(search, row),
@@ -1446,7 +1471,12 @@ export const jobService = {
     const { page, limit, skip } = getPaginationParams(req);
     const { status, clientId, assignedToId, search, mine, ids } = req.query;
 
-    await ensureOrgPipelineTemplateRepairOnce();
+    const hasSearch = Boolean(String(search || '').trim());
+    const hasIds = Boolean(String(ids || '').trim());
+    // Pipeline repair is one-time and expensive — skip on search/id list requests.
+    if (!hasSearch && !hasIds) {
+      await ensureOrgPipelineTemplateRepairOnce();
+    }
 
     const where = {};
     // Default Jobs page: keep working pipeline only (hide Closed / Closed Won / Closed not Won / Duplicate).
@@ -1519,12 +1549,17 @@ export const jobService = {
           logo: true,
           emails: true,
           teamMemberEmail: true,
-          contacts: {
-            where: { status: 'ACTIVE' },
-            orderBy: { updatedAt: 'desc' },
-            take: 10,
-            select: { email: true, contactType: true },
-          },
+          // Skip nested contacts on search — big latency win while typing.
+          ...(hasSearch || hasIds
+            ? {}
+            : {
+                contacts: {
+                  where: { status: 'ACTIVE' },
+                  orderBy: { updatedAt: 'desc' },
+                  take: 10,
+                  select: { email: true, contactType: true },
+                },
+              }),
         },
       },
       assignedTo: {
@@ -1570,7 +1605,7 @@ export const jobService = {
       total = pageTotal;
       jobs = pageIds.length
         ? await prisma.job.findMany({
-            where: { id: { in: pageIds } },
+            where: { AND: [scopedWhere, { id: { in: pageIds } }] },
             include: jobListInclude,
           })
         : [];
@@ -1588,15 +1623,11 @@ export const jobService = {
         [jobs, total] = await loadPagedJobs();
       }
     } else if (idListOrder?.length) {
-      // Smart Search ids arrive pre-ranked — preserve that sequence across pages.
+      // Smart Search ids arrive pre-ranked — page from the ordered list (no full-id scan).
       try {
-        const existing = await prisma.job.findMany({
-          where: scopedWhere,
-          select: { id: true },
-        });
-        const existingSet = new Set(existing.map((row) => row.id));
-        const ordered = idListOrder.filter((id) => existingSet.has(id));
-        await loadJobsByOrderedIds(ordered.slice(skip, skip + limit), ordered.length);
+        const pageIds = idListOrder.slice(skip, skip + limit);
+        const [pageCount] = await Promise.all([prisma.job.count({ where: scopedWhere })]);
+        await loadJobsByOrderedIds(pageIds, pageCount);
       } catch (error) {
         console.error('[jobs] ordered ids page load failed, using standard list', error);
         [jobs, total] = await loadPagedJobs();
