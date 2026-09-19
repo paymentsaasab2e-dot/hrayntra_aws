@@ -190,7 +190,7 @@ import type { InterviewPanelMember } from '../../types/interview.types';
 import { getAllTeamMembersForAssign, getAllTeamMembersForDirectory, teamMembersToBackendUsers } from '../../lib/api/teamApi';
 import { formatAssigneeDisplayName, stripAssigneeCompanySuffix } from '../../lib/assigneeDisplay';
 import { AssigneeAvatars } from '../leads/AssigneeAvatars';
-import { useDebouncedValue } from '../../hooks/useListRequestGate';
+import { useDebouncedValue, useListRequestGate } from '../../hooks/useListRequestGate';
 import { getActiveOrgUnitId } from '../../lib/org/orgWorkspaceStorage';
 import { formatJobSalaryDisplay } from '../../constants/jobSalary';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -1674,7 +1674,10 @@ export default function JobsPage() {
   ]);
   const jobAiGate = useAiCoinGate('ai.job_from_prompt');
   const [searchFilter, setSearchFilter] = useState('');
-  const debouncedSearchFilter = useDebouncedValue(searchFilter, 350);
+  const debouncedSearchFilter = useDebouncedValue(searchFilter, 500);
+  const jobsRequestGate = useListRequestGate();
+  const jobsRequestGateRef = useRef(jobsRequestGate);
+  jobsRequestGateRef.current = jobsRequestGate;
   const jobTableColumnsFlat = useMemo(
     () => flattenTableColumns(JOB_TABLE_COLUMNS, { includeChildren: false }),
     [],
@@ -2243,12 +2246,19 @@ export default function JobsPage() {
   const loadJobsPageData = useCallback(
     async (opts?: { silent?: boolean }) => {
       const silent = opts?.silent === true;
+      const gate = jobsRequestGateRef.current;
+      const isSearchRequest = Boolean(String(debouncedSearchFilter || '').trim()) || smartSearchJobIds.length > 0;
+      const { requestId, signal } = gate.beginRequest();
       if (!silent) {
         if (!hasVisibleJobsRef.current) setLoading(true);
         setError(null);
       }
       try {
-        const jobsRes = await apiGetJobs(buildJobsQueryParams());
+        const jobsRes = await apiGetJobs({
+          ...buildJobsQueryParams(),
+          signal,
+        });
+        if (!gate.isCurrent(requestId)) return;
 
         const parsed = parseJobsApiPayload(jobsRes);
         if (!Array.isArray(parsed.jobs)) {
@@ -2276,6 +2286,7 @@ export default function JobsPage() {
           });
         }
       } catch (err: any) {
+        if (gate.isAbortError(err) || !gate.isCurrent(requestId)) return;
         if (!silent) {
           setError(err?.message || 'Failed to load jobs from API.');
           setJobs([]);
@@ -2284,24 +2295,18 @@ export default function JobsPage() {
           console.warn('[jobs] background refresh failed:', err);
         }
       } finally {
-        if (!silent) setLoading(false);
+        if (!silent && gate.isCurrent(requestId)) setLoading(false);
       }
 
-      if (silent) {
-        try {
-          const response = await apiGetJobMetrics({});
-          const metrics = (response as any).data?.data || (response as any).data || response;
-          setJobMetrics(metrics);
-          writeJobsMetricsCache(metrics as Record<string, unknown>);
-        } catch {
-          /* keep cached metrics */
-        }
+      // Skip metrics refetch while typing/searching — keeps the table snappy.
+      if (silent || isSearchRequest || !gate.isCurrent(requestId)) {
         return;
       }
 
       try {
         setLoadingMetrics(true);
         const response = await apiGetJobMetrics({});
+        if (!gate.isCurrent(requestId)) return;
         const metrics = (response as any).data?.data || (response as any).data || response;
         setJobMetrics(metrics);
         writeJobsMetricsCache(metrics as Record<string, unknown>);
@@ -2316,15 +2321,23 @@ export default function JobsPage() {
           closedThisMonth: 0,
         });
       } finally {
-        setLoadingMetrics(false);
+        if (gate.isCurrent(requestId)) setLoadingMetrics(false);
       }
     },
-    [buildJobsQueryParams, currentPage, hasActiveFilters, pageSize]
+    [buildJobsQueryParams, currentPage, debouncedSearchFilter, hasActiveFilters, pageSize, smartSearchJobIds.length]
   );
+
+  // Reset to page 1 when search text settles so results aren't on an empty deep page.
+  useEffect(() => {
+    setCurrentPage((page) => (page === 1 ? page : 1));
+  }, [debouncedSearchFilter]);
 
   useEffect(() => {
     const cached = readJobsListCache(currentPage, pageSize);
-    void loadJobsPageData({ silent: Boolean(cached?.data?.jobs?.length) });
+    const searching = Boolean(String(debouncedSearchFilter || '').trim()) || smartSearchJobIds.length > 0;
+    void loadJobsPageData({
+      silent: Boolean(cached?.data?.jobs?.length) || (searching && hasVisibleJobsRef.current),
+    });
   }, [loadJobsPageData]);
 
   // Reusable auto-refresh: polls while visible, refreshes on focus and on

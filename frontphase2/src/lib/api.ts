@@ -5758,9 +5758,11 @@ export async function apiGetJobs(params: {
   ids?: string;
   /** When true, backend returns only jobs created by the logged-in user */
   mine?: boolean;
+  signal?: AbortSignal;
 }) {
+  const { signal, ...queryParams } = params;
   const query = new URLSearchParams();
-  Object.entries(params).forEach(([key, value]) => {
+  Object.entries(queryParams).forEach(([key, value]) => {
     if (value === undefined || value === null || value === '') return;
     if (typeof value === 'boolean') {
       if (value) query.set(key, 'true');
@@ -5770,7 +5772,7 @@ export async function apiGetJobs(params: {
   });
   const qs = query.toString();
   const path = `/jobs${qs ? `?${qs}` : ''}`;
-  return apiFetch<BackendJob[]>(path, { auth: true });
+  return apiFetch<BackendJob[]>(path, { auth: true, signal });
 }
 
 export type PortalAccessMember = {

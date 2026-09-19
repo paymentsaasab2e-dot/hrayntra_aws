@@ -122,7 +122,9 @@ const protect = async (req, res, next) => {
         }
       }
 
-      // 4. Reject closed / logout-everywhere sessions (history retained for HQ)
+      // 4. Reject closed / logout-everywhere sessions (history retained for HQ).
+      //    Soft-closed rows normally rewrite `token` to `revoked_*` so this path
+      //    is rare; when it does happen, do NOT self-heal — that would undo logout.
       if (session.isActive === false) {
         return res.status(401).json({
           success: false,
