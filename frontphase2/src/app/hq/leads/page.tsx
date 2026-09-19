@@ -5,6 +5,7 @@
  * Data stored only in headquarters DB via /hq/leads.
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '../../lib/quickSearch';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
   CalendarClock,
@@ -474,13 +475,7 @@ export default function HqLeadsPage() {
       }
       if (!q) return true;
       return (
-        (lead.name || '').toLowerCase().includes(q) ||
-        (lead.company || '').toLowerCase().includes(q) ||
-        (lead.email || '').toLowerCase().includes(q) ||
-        (lead.contactPerson || '').toLowerCase().includes(q) ||
-        (lead.owner || '').toLowerCase().includes(q) ||
-        (lead.leadSource || '').toLowerCase().includes(q) ||
-        (lead.phone || '').toLowerCase().includes(q)
+        matchesQuickSearch(buildQuickSearchHaystack(lead.name, lead.company, lead.email, lead.contactPerson, lead.owner, lead.leadSource, lead.phone), q)
       );
     });
   }, [statusFilter, sourceFilter, search, leads]);
@@ -495,9 +490,7 @@ export default function HqLeadsPage() {
     if (!q) return demos;
     return demos.filter(
       (d) =>
-        d.fullName.toLowerCase().includes(q) ||
-        d.email.toLowerCase().includes(q) ||
-        d.organizationName.toLowerCase().includes(q),
+        matchesQuickSearch(buildQuickSearchHaystack(d.fullName, d.email, d.organizationName), q),
     );
   }, [demos, search]);
 

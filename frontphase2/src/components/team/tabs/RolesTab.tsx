@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '../../../lib/quickSearch';
 import { Edit, Trash2, Users, Search } from 'lucide-react';
 import { SHOW_TABLE_ROW_EDIT_ICON } from '../../../constants/tableUi';
 import { motion, AnimatePresence } from 'motion/react';
@@ -117,7 +118,7 @@ export const RolesTab: React.FC = () => {
       ]
         .join(' ')
         .toLowerCase();
-      return haystack.includes(q);
+      return matchesQuickSearch(haystack, q);
     });
   }, [roles, searchQuery]);
 

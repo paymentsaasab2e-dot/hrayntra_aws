@@ -1,4 +1,5 @@
 import type { Lead } from './types';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '../../lib/quickSearch';
 import type { LeadStatus } from './types';
 import { formatDirectorDisplay } from '../../constants/salutations';
 import { normalizeContactList } from '../../lib/contact-channels';
@@ -589,7 +590,7 @@ export function leadMatchesSmartKeywordChips(
     if (chip.kind === 'priority') {
       return String(lead.priority || '').toLowerCase() === value;
     }
-    return haystack.includes(value);
+    return matchesQuickSearch(haystack, value);
   });
 }
 

@@ -33,7 +33,6 @@ import {
   stampVisibilityOnAssigneeChange,
 } from '../../services/memberVisibility.service.js';
 import { assertCanAssignCrm } from '../../services/crmAssignmentScope.service.js';
-import { escapePrismaRegex } from '../../utils/escapePrismaRegex.js';
 import { buildTokenAndSearchWhere } from '../../utils/quickSearch.js';
 import {
   getDefaultPipelineTemplate,

@@ -5,6 +5,7 @@ import { Search, Trophy, TrendingUp, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { getTeamMembers, getTargets, saveTargets } from '../../../lib/api/teamApi';
 import type { TeamMember, TeamTarget } from '../../../types/team';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '../../../lib/quickSearch';
 
 // Color mapping for role colors
 const roleColorMap: Record<string, string> = {
@@ -139,14 +140,9 @@ export const TargetsTab: React.FC = () => {
 
   const filteredMembers = members.filter((member) => {
     if (!searchQuery) return true;
-    const query = searchQuery.toLowerCase();
-    const firstName = asSafeString(member?.firstName).toLowerCase();
-    const lastName = asSafeString(member?.lastName).toLowerCase();
-    const email = asSafeString(member?.email).toLowerCase();
-    return (
-      firstName.includes(query) ||
-      lastName.includes(query) ||
-      email.includes(query)
+    return matchesQuickSearch(
+      buildQuickSearchHaystack(member?.firstName, member?.lastName, member?.email),
+      searchQuery,
     );
   });
 

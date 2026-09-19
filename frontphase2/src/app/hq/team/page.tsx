@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '../../lib/quickSearch';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   GitBranch,
@@ -195,26 +196,29 @@ export default function HqTeamPage() {
   }, [loadAll]);
 
   const filteredMembers = useMemo(() => {
-    const query = search.trim().toLowerCase();
+    const query = search.trim();
     if (!query) return members;
     return members.filter((member) =>
-      [
-        member.name,
-        member.email,
-        member.phone,
-        member.role,
-        member.department,
-        member.designation,
-        member.status,
-      ].some((value) => value?.toLowerCase().includes(query)),
+      matchesQuickSearch(
+        buildQuickSearchHaystack(
+          member.name,
+          member.email,
+          member.phone,
+          member.role,
+          member.department,
+          member.designation,
+          member.status,
+        ),
+        query,
+      ),
     );
   }, [members, search]);
 
   const filteredRoles = useMemo(() => {
-    const query = search.trim().toLowerCase();
+    const query = search.trim();
     if (!query) return roles;
     return roles.filter((role) =>
-      [role.roleName, role.description].some((value) => value?.toLowerCase().includes(query)),
+      matchesQuickSearch(buildQuickSearchHaystack(role.roleName, role.description), query),
     );
   }, [roles, search]);
 

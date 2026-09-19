@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '../../../lib/quickSearch';
 import { RefreshCw, Search, UserRound } from 'lucide-react';
 import {
   HqModulePageLayout,
@@ -133,7 +134,7 @@ export default function HqCandidatesPage() {
       ]
         .join(' ')
         .toLowerCase();
-      return hay.includes(needle);
+      return matchesQuickSearch(hay, needle);
     });
   }, [candidates, needle, originFilter]);
 

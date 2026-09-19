@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '../../lib/quickSearch';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   ArrowDownUp,
@@ -154,9 +155,7 @@ export default function HqCompanyPage() {
       if (activeTab !== 'all' && company.status !== activeTab) return false;
       if (!q) return true;
       return (
-        company.name.toLowerCase().includes(q) ||
-        company.contact.toLowerCase().includes(q) ||
-        company.owner.toLowerCase().includes(q)
+        matchesQuickSearch(buildQuickSearchHaystack(company.name, company.contact, company.owner), q)
       );
     });
   }, [activeTab, search, companies]);

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '../../lib/quickSearch';
 import { createPortal } from 'react-dom';
 import { Building2, Check, Loader2, Send, Users, X } from 'lucide-react';
 import { toast } from 'sonner';
@@ -69,7 +70,7 @@ export function SendToRecruitmentModal({ isOpen, clientId, clientName, onClose, 
         ...org,
         members: org.members.filter((member) => {
           const haystack = `${member.name} ${member.email || ''} ${org.name}`.toLowerCase();
-          return haystack.includes(query);
+          return matchesQuickSearch(haystack, query);
         }),
       }))
       .filter((org) => org.members.length > 0);

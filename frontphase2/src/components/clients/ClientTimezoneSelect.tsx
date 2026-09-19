@@ -9,6 +9,7 @@ import {
   resolveIanaFromTimezoneValue,
 } from '../../utils/inferTimezone';
 import { useDrawerPortalDropdownPosition } from '../drawers/drawerFormUi';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '../../lib/quickSearch';
 
 const TRIGGER_CLASS =
   'flex w-full items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-left text-sm text-slate-900 ' +
@@ -58,13 +59,13 @@ export function ClientTimezoneSelect({
     placeholder;
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = query.trim();
     if (!q) return options;
-    return options.filter(
-      (opt) =>
-        opt.label.toLowerCase().includes(q) ||
-        opt.value.toLowerCase().includes(q) ||
-        opt.value.replace(/_/g, ' ').toLowerCase().includes(q),
+    return options.filter((opt) =>
+      matchesQuickSearch(
+        buildQuickSearchHaystack(opt.label, opt.value, opt.value.replace(/_/g, ' ')),
+        q,
+      ),
     );
   }, [options, query]);
 

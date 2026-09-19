@@ -5,6 +5,7 @@
  * data stored only in headquarters DB via /hq/companies.
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '../../lib/quickSearch';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
   BadgeInfo,
@@ -207,11 +208,7 @@ export default function HqClientsPage() {
       if (activeTab === 'hot' && company.score !== 'Hot') return false;
       if (!q) return true;
       return (
-        company.name.toLowerCase().includes(q) ||
-        (company.contact || '').toLowerCase().includes(q) ||
-        (company.owner || '').toLowerCase().includes(q) ||
-        (company.email || '').toLowerCase().includes(q) ||
-        (company.industry || '').toLowerCase().includes(q)
+        matchesQuickSearch(buildQuickSearchHaystack(company.name, company.contact, company.owner, company.email, company.industry), q)
       );
     });
   }, [activeTab, search, companies]);

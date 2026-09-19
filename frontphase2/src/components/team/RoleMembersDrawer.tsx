@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { getRoleById, getRoles, updateTeamMember, getTeamMembers } from '../../lib/api/teamApi';
 import type { SystemRole, Role, TeamMember } from '../../types/team';
 import { PortalHost } from './PortalHost';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '../../lib/quickSearch';
 
 interface RoleMembersDrawerProps {
   isOpen: boolean;
@@ -83,11 +84,9 @@ export const RoleMembersDrawer: React.FC<RoleMembersDrawerProps> = ({ isOpen, ro
   // Filter members by search
   const filteredMembers = members.filter((member) => {
     if (!searchQuery) return true;
-    const query = searchQuery.toLowerCase();
-    return (
-      member.firstName?.toLowerCase().includes(query) ||
-      member.lastName?.toLowerCase().includes(query) ||
-      member.designation?.toLowerCase().includes(query)
+    return matchesQuickSearch(
+      buildQuickSearchHaystack(member.firstName, member.lastName, member.designation),
+      searchQuery,
     );
   });
 

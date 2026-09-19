@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '../../lib/quickSearch';
 import { HQ_REPORTS_BTN_SECONDARY, HQ_REPORTS_CARD } from './hqReportsChrome';
 
 export type HqReportTableColumn = {
@@ -59,7 +60,7 @@ export function HqReportRecordsTable({
   const searched = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return rows;
-    return rows.filter((row) => Object.values(row).some((value) => String(value).toLowerCase().includes(q)));
+    return rows.filter((row) => matchesQuickSearch(buildQuickSearchHaystack(...Object.values(row)), q));
   }, [rows, search]);
 
   const sorted = useMemo(() => {

@@ -17,6 +17,7 @@ import {
   apiHqVerifyKycInterviewer,
   type HqKycInterviewerRow,
 } from '@/lib/api';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '@/lib/quickSearch';
 
 type KindFilter = 'all' | 'applicant' | 'interviewer';
 
@@ -264,14 +265,22 @@ export default function HqKycVerifiedPage() {
   }, [load]);
 
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = search.trim();
     return rows.filter((row) => {
       if (kindFilter !== 'all' && rowKind(row) !== kindFilter) return false;
       if (!q) return true;
-      return [row.name, row.email, row.phone, row.currentRole, row.currentCompany, row.applicationStatus, rowKind(row)]
-        .join(' ')
-        .toLowerCase()
-        .includes(q);
+      return matchesQuickSearch(
+        buildQuickSearchHaystack(
+          row.name,
+          row.email,
+          row.phone,
+          row.currentRole,
+          row.currentCompany,
+          row.applicationStatus,
+          rowKind(row),
+        ),
+        q,
+      );
     });
   }, [rows, search, kindFilter]);
 

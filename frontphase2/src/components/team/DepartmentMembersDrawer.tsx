@@ -8,6 +8,7 @@ import { getDepartmentById, getDepartments, updateTeamMember } from '../../lib/a
 import type { Department, TeamMember } from '../../types/team';
 import { PortalHost } from './PortalHost';
 import { EntityWorkspaceAlertsPanel } from '../ai/EntityWorkspaceAlertsPanel';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '../../lib/quickSearch';
 
 interface DepartmentMembersDrawerProps {
   isOpen: boolean;
@@ -115,11 +116,9 @@ export const DepartmentMembersDrawer: React.FC<DepartmentMembersDrawerProps> = (
   // Filter members by search
   const filteredMembers = departmentData?.users?.filter((member) => {
     if (!searchQuery) return true;
-    const query = searchQuery.toLowerCase();
-    return (
-      member.firstName?.toLowerCase().includes(query) ||
-      member.lastName?.toLowerCase().includes(query) ||
-      member.designation?.toLowerCase().includes(query)
+    return matchesQuickSearch(
+      buildQuickSearchHaystack(member.firstName, member.lastName, member.designation),
+      searchQuery,
     );
   }) || [];
 

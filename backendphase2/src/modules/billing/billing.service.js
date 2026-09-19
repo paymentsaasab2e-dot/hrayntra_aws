@@ -21,6 +21,7 @@ import {
   prependWatermarkRows,
   prependWatermarkCsv,
 } from '../setting/exportWatermark.service.js';
+import { matchesQuickSearch } from '../../utils/quickSearch.js';
 
 const EXPORT_DIR = path.join(process.cwd(), 'uploads', 'reports');
 const DEFAULT_SETTINGS = {
@@ -296,10 +297,6 @@ function lower(value) {
   return String(value || '').trim().toLowerCase();
 }
 
-function containsText(value, search) {
-  return lower(value).includes(lower(search));
-}
-
 function sumBy(items, selector) {
   return items.reduce((total, item) => total + Number(selector(item) || 0), 0);
 }
@@ -454,9 +451,12 @@ function recruiterScopedCommissionWhere(user, recruiterId, clientId, dateRange) 
 }
 
 function applySearch(rows, search, fields) {
-  const term = String(search || '').trim().toLowerCase();
+  const term = String(search || '').trim();
   if (!term) return rows;
-  return rows.filter((row) => fields.some((field) => containsText(row?.[field], term)));
+  return rows.filter((row) => {
+    const hay = fields.map((field) => row?.[field]).join(' ');
+    return matchesQuickSearch(hay, term);
+  });
 }
 
 function getInvoiceExportRows(summary) {

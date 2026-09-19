@@ -7,6 +7,7 @@ import {
 import { listCrmAssigneeCandidates } from '../../services/crmAssignmentScope.service.js';
 import { resolveAssignmentModulesFromReq } from '../../services/assigneeModuleAccess.service.js';
 import { resolveTenantOrganizationName } from '../setting/recruitmentMode.service.js';
+import { buildTokenAndSearchWhere, matchesQuickSearch } from '../../utils/quickSearch.js';
 import {
   CLIENT_PREVIEW_STAGE_CATALOG,
   normalizeAllowedClientStages,
@@ -312,11 +313,12 @@ export const userService = {
       });
       let filtered = candidates;
       if (search) {
-        const q = String(search).trim().toLowerCase();
-        filtered = filtered.filter((u) => {
-          const name = `${u.firstName || ''} ${u.lastName || ''} ${u.name || ''} ${u.email || ''}`.toLowerCase();
-          return name.includes(q);
-        });
+        filtered = filtered.filter((u) =>
+          matchesQuickSearch(
+            `${u.firstName || ''} ${u.lastName || ''} ${u.name || ''} ${u.email || ''}`,
+            search,
+          ),
+        );
       }
       // Legacy `role=RECRUITER` enum is ignored for assignable pickers — tenants use
       // custom system roles. All non-HQ tenant members from the assignment scope are returned.
@@ -349,10 +351,15 @@ export const userService = {
     }
     if (isActive !== undefined) where.isActive = isActive === 'true';
     if (search) {
-      where.OR = [
-        { name: { contains: search } },
-        { email: { contains: search } },
-      ];
+      const searchWhere = buildTokenAndSearchWhere(search, (escaped) => [
+        { name: { contains: escaped, mode: 'insensitive' } },
+        { firstName: { contains: escaped, mode: 'insensitive' } },
+        { lastName: { contains: escaped, mode: 'insensitive' } },
+        { email: { contains: escaped, mode: 'insensitive' } },
+      ]);
+      if (searchWhere) {
+        where.AND = [...(Array.isArray(where.AND) ? where.AND : []), searchWhere];
+      }
     }
 
     const [users, total] = await Promise.all([

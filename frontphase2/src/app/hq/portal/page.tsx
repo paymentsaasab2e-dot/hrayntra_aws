@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '../../../lib/quickSearch';
 import {
   Building2,
   CheckSquare,
@@ -191,7 +192,7 @@ export default function HqPortalPage() {
       ]
         .join(' ')
         .toLowerCase();
-      return hay.includes(needle);
+      return matchesQuickSearch(hay, needle);
     });
   }, [jobs, needle, activeTenantDb, tenantNameByDb]);
 

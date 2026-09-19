@@ -156,10 +156,16 @@ const protect = async (req, res, next) => {
       
       next();
     } catch (error) {
-      console.error('JWT verification failed:', error.message);
+      const reason = String(error?.message || error || '');
+      console.error('JWT verification failed:', reason);
+      const isBadSignature =
+        /invalid signature|invalid token|jwt malformed|jwt expired/i.test(reason);
       return res.status(401).json({
         success: false,
-        message: 'Not authorized, token failed',
+        message: isBadSignature
+          ? 'Session is invalid. Please log in again.'
+          : 'Not authorized, token failed',
+        code: isBadSignature ? 'TOKEN_INVALID' : 'TOKEN_FAILED',
       });
     }
   } catch (error) {
