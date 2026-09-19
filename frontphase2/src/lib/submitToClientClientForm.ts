@@ -157,21 +157,25 @@ export function submitFormToUpdatePayload(form: SubmitToClientClientFormState): 
   const website = links.find((link) => !isLinkedInCompanyUrl(link)) || links[0];
 
   return {
-    companyName: form.companyName.trim(),
+    companyName: String(form.companyName || '').trim(),
     website: website || undefined,
     linkedin: linkedin || undefined,
-    location: form.location.trim() || undefined,
-    city: form.city.trim() || undefined,
-    state: form.state.trim() || undefined,
-    country: form.country.trim() || undefined,
-    timezone: form.timezone.trim() || undefined,
-    industry: form.industry.trim() || undefined,
-    leadStatus: form.leadStatus.trim() || undefined,
-    priority: form.priority.trim() || undefined,
-    servicesNeeded: form.servicesNeeded.trim() || undefined,
-    expectedBusinessValue: form.expectedBusinessValue.trim() || undefined,
-    emails: form.directorEmail.trim() ? [form.directorEmail.trim()] : undefined,
-    phones: form.directorPhone.trim() ? [form.directorPhone.trim()] : undefined,
+    location: String(form.location || '').trim() || undefined,
+    city: String(form.city || '').trim() || undefined,
+    state: String(form.state || '').trim() || undefined,
+    country: String(form.country || '').trim() || undefined,
+    timezone: String(form.timezone || '').trim() || undefined,
+    industry: String(form.industry || '').trim() || undefined,
+    leadStatus: String(form.leadStatus || '').trim() || undefined,
+    priority: String(form.priority || '').trim() || undefined,
+    servicesNeeded: String(form.servicesNeeded || '').trim() || undefined,
+    expectedBusinessValue: String(form.expectedBusinessValue || '').trim() || undefined,
+    emails: String(form.directorEmail || '').trim()
+      ? [String(form.directorEmail || '').trim()]
+      : undefined,
+    phones: String(form.directorPhone || '').trim()
+      ? [String(form.directorPhone || '').trim()]
+      : undefined,
   };
 }
 
@@ -179,9 +183,9 @@ export function submitFormToUpdatePayload(form: SubmitToClientClientFormState): 
 export function submitFormToDirectorContactPatch(
   form: SubmitToClientClientFormState,
 ): Partial<CreateContactData> | null {
-  const name = form.directorName.trim();
-  const email = form.directorEmail.trim();
-  const phone = form.directorPhone.trim();
+  const name = String(form.directorName || '').trim();
+  const email = String(form.directorEmail || '').trim();
+  const phone = String(form.directorPhone || '').trim();
   if (!name && !email && !phone) return null;
   const [firstName = '', ...lastParts] = name.split(/\s+/).filter(Boolean);
   const patch: Partial<CreateContactData> = {};

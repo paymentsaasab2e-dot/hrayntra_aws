@@ -1,8 +1,13 @@
+const crypto = require('crypto');
+
+const MAX_VERIFY_ATTEMPTS = 5;
+const RESEND_COOLDOWN_MS = 60 * 1000;
+
 /**
- * Generate a 6-digit OTP
+ * Generate a 6-digit OTP using cryptographically strong randomness.
  */
 function generateOTP() {
-  return Math.floor(100000 + Math.random() * 900000).toString();
+  return String(crypto.randomInt(100000, 1000000));
 }
 
 /**
@@ -14,13 +19,50 @@ function normalizeOtpInput(value) {
   return digits.length >= 6 ? digits.slice(-6) : digits.padStart(6, '0');
 }
 
+function otpPepper() {
+  return String(process.env.OTP_PEPPER || process.env.JWT_SECRET || '').trim();
+}
+
 /**
- * Compare stored vs submitted OTP (handles legacy numeric storage in MongoDB).
+ * Hash OTP at rest (sha256 + pepper). Never log the plaintext OTP.
+ */
+function hashOtp(otp) {
+  const normalized = normalizeOtpInput(otp);
+  const pepper = otpPepper();
+  return crypto.createHash('sha256').update(`${pepper}:${normalized}`).digest('hex');
+}
+
+function looksLikeHash(stored) {
+  return /^[a-f0-9]{64}$/i.test(String(stored || ''));
+}
+
+/**
+ * Compare stored vs submitted OTP.
+ * Supports hashed (preferred) and legacy plaintext rows during migration.
  */
 function otpMatches(storedOtp, submittedOtp) {
-  const expected = normalizeOtpInput(storedOtp);
   const received = normalizeOtpInput(submittedOtp);
-  return Boolean(expected && received && expected === received);
+  if (!received) return false;
+  const stored = String(storedOtp ?? '');
+  if (!stored) return false;
+
+  if (looksLikeHash(stored)) {
+    const expected = hashOtp(received);
+    try {
+      return crypto.timingSafeEqual(Buffer.from(stored, 'utf8'), Buffer.from(expected, 'utf8'));
+    } catch {
+      return stored === expected;
+    }
+  }
+
+  // Legacy plaintext — constant-time-ish compare on normalized forms
+  const expected = normalizeOtpInput(stored);
+  if (expected.length !== received.length) return false;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(expected, 'utf8'), Buffer.from(received, 'utf8'));
+  } catch {
+    return expected === received;
+  }
 }
 
 /**
@@ -43,6 +85,9 @@ module.exports = {
   generateOTP,
   normalizeOtpInput,
   otpMatches,
+  hashOtp,
   getOTPExpiration,
   isOTPExpired,
+  MAX_VERIFY_ATTEMPTS,
+  RESEND_COOLDOWN_MS,
 };

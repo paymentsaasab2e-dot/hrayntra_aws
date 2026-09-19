@@ -26,8 +26,8 @@ router.post('/users/:userId/read', requireSystemAdmin, markHqRead);
  * OR pass candidate self — for simplicity use admin key optional + userId path).
  * Client uses these to pull HQ pushes and push user replies for HQ visibility.
  */
-router.get('/users/:userId/pending', clientPending);
-router.post('/users/:userId/replies', clientIngestReply);
-router.post('/users/:userId/mark-read', markUserRead);
+router.get('/users/:userId/pending', requireSystemAdmin, clientPending);
+router.post('/users/:userId/replies', requireSystemAdmin, clientIngestReply);
+router.post('/users/:userId/mark-read', requireSystemAdmin, markUserRead);
 
 module.exports = router;

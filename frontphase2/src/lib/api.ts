@@ -6879,15 +6879,43 @@ export const apiCheckCandidateDuplicate = async (params: { email?: string; phone
 export const apiUploadCandidateResumeFile = async (
   candidateId: string,
   file: File,
-  options: { signal?: AbortSignal } = {}
+  options: { signal?: AbortSignal; replacePrimary?: boolean } = {}
 ) => {
   const formData = new FormData();
   formData.append('resume', file);
-  return apiFetchFormData<BackendCandidate>(`/candidates/${candidateId}/files`, formData, {
-    method: 'POST',
-    auth: true,
-    signal: options.signal,
-  });
+  formData.append('replacePrimary', options.replacePrimary === false ? 'false' : 'true');
+  return apiFetchFormData<BackendCandidate & { resumeFileId?: string | null; resumeFileUrl?: string }>(
+    `/candidates/${candidateId}/files`,
+    formData,
+    {
+      method: 'POST',
+      auth: true,
+      signal: options.signal,
+    }
+  );
+};
+
+export const apiDeleteCandidateResumeVersion = async (
+  candidateId: string,
+  payload: { fileId?: string | null; fileUrl?: string | null },
+  options: { signal?: AbortSignal } = {}
+) => {
+  const params = new URLSearchParams();
+  if (payload.fileId) params.set('fileId', String(payload.fileId));
+  if (payload.fileUrl) params.set('fileUrl', String(payload.fileUrl));
+  const qs = params.toString();
+  return apiFetch<BackendCandidate & { resumeVersions?: unknown[]; deletedFileIds?: string[] }>(
+    `/candidates/${candidateId}/resume-versions${qs ? `?${qs}` : ''}`,
+    {
+      method: 'DELETE',
+      auth: true,
+      body: {
+        fileId: payload.fileId || undefined,
+        fileUrl: payload.fileUrl || undefined,
+      },
+      signal: options.signal,
+    }
+  );
 };
 
 export const apiBulkImportCandidates = async (file: File) => {
@@ -7557,6 +7585,7 @@ export const apiSubmitInterviewToClient = async (
     message?: string;
     submissionType?: string;
     cvShareMode?: 'edited' | 'original' | 'saasa';
+    resumeFileId?: string;
   }
 ) => {
   return apiFetch<{
@@ -8259,6 +8288,7 @@ export const apiSubmitMatch = async (
     previewOnly?: boolean;
     submissionType?: string;
     cvShareMode?: 'edited' | 'original' | 'saasa';
+    resumeFileId?: string;
     toEmail?: string;
     additionalClients?: Array<{ clientId: string; toEmail?: string }>;
     batchMatchIds?: string[];

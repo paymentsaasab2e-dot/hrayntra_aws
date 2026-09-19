@@ -50,6 +50,7 @@ const buildClientReviewUrl = async (
   cvShareMode = null,
   batchMatchIds = null,
   trackerOptions = null,
+  resumeFileId = null,
 ) => {
   const normalizedBatch = Array.isArray(batchMatchIds)
     ? Array.from(new Set(batchMatchIds.map((id) => String(id || '').trim()).filter(Boolean)))
@@ -61,6 +62,7 @@ const buildClientReviewUrl = async (
     clientId: match.job?.clientId || match.job?.client?.id || null,
     submissionType,
     cvShareMode,
+    resumeFileId,
     batchMatchIds: normalizedBatch.length > 1 ? normalizedBatch : undefined,
     trackerOptions,
   });
@@ -1121,6 +1123,7 @@ export const matchService = {
       cvShareModeRaw === 'edited' || cvShareModeRaw === 'original' || cvShareModeRaw === 'saasa'
         ? cvShareModeRaw
         : null;
+    const resumeFileId = String(data?.resumeFileId || '').trim() || null;
 
     const batchMatchIds = Array.isArray(data?.batchMatchIds)
       ? data.batchMatchIds.map((id) => String(id || '').trim()).filter(Boolean)
@@ -1141,6 +1144,7 @@ export const matchService = {
       cvShareMode || 'edited',
       normalizedBatchMatchIds.length > 1 ? normalizedBatchMatchIds : null,
       trackerOptions,
+      resumeFileId,
     );
     console.info(
       `[match.submit] client-review url for ${env.NODE_ENV}: ${reviewUrl} (FRONTEND_URL=${env.FRONTEND_URL})`,
@@ -1165,6 +1169,16 @@ export const matchService = {
       const snapshot = cvShareMode
         ? buildCvSubmissionSnapshot(freshCandidate, match.job?.title || '')
         : existingSubmission.snapshot;
+      if (cvShareMode === 'original' && resumeFileId && snapshot && typeof snapshot === 'object') {
+        const versionFile = await prisma.candidateFile.findFirst({
+          where: { id: resumeFileId, candidateId: match.candidateId },
+          select: { fileUrl: true },
+        });
+        const versionUrl = String(versionFile?.fileUrl || '').trim();
+        if (versionUrl) {
+          snapshot.resume = versionUrl;
+        }
+      }
       await prisma.candidate.update({
         where: { id: match.candidateId },
         data: {
@@ -1173,6 +1187,11 @@ export const matchService = {
             cvSubmission: {
               ...existingSubmission,
               ...(cvShareMode ? { shareMode: cvShareMode, snapshot } : {}),
+              ...(cvShareMode === 'original' && resumeFileId
+                ? { resumeFileId }
+                : cvShareMode && cvShareMode !== 'original'
+                  ? { resumeFileId: null }
+                  : {}),
               trackerOptions,
               allowedClientStages: allowedClientStages.map((row) => row.name),
               clientStageCatalog: clientStageCatalog.map((row) => row.name),

@@ -17,12 +17,92 @@ const LABEL_KEYS_BY_FIELD: Record<SubmitToClientFieldId, string[]> = (() => {
     if (ids.length !== 1) continue;
     const fieldId = ids[0];
     if (!fieldId) continue;
+    // Split name labels must not satisfy the Full Name cell by themselves
+    // (otherwise "First Name" = "R." wins over "R. Lamkhade").
+    if (
+      fieldId === 'fullName' &&
+      (label === 'first name' || label === 'middle name' || label === 'last name')
+    ) {
+      continue;
+    }
     const next = map[fieldId] ?? [];
     if (!next.includes(label)) next.push(label);
     map[fieldId] = next;
   }
   return map;
 })();
+
+function presentationFieldValue(
+  detail: ClientReviewData | null | undefined,
+  labels: string[],
+): string {
+  const wanted = new Set(labels.map((label) => label.trim().toLowerCase()).filter(Boolean));
+  if (!wanted.size) return '';
+  for (const section of sectionsOf(detail)) {
+    for (const field of section.fields || []) {
+      const label = String(field.label || '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, ' ');
+      if (!wanted.has(label)) continue;
+      const value = String(field.value ?? '').trim();
+      if (!isBlankResolvedValue(value)) return value;
+    }
+  }
+  return '';
+}
+
+function nameTokenCount(value: string): number {
+  return String(value || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean).length;
+}
+
+function pickRichestName(...candidates: Array<string | null | undefined>): string {
+  const ranked = candidates
+    .map((value) => String(value || '').trim())
+    .filter((value) => !isBlankResolvedValue(value))
+    .sort((a, b) => {
+      const tokenDiff = nameTokenCount(b) - nameTokenCount(a);
+      if (tokenDiff !== 0) return tokenDiff;
+      return b.length - a.length;
+    });
+  return ranked[0] || '';
+}
+
+/** Combined first + middle + last (or stored display name) for client table / drawer. */
+export function resolveClientReviewFullName(row: ClientReviewBatchRow): string {
+  const detail = row.detail;
+  const candidate = detail?.candidate || {};
+  const fromCandidateParts = [
+    String(candidate.firstName || '').trim(),
+    String(candidate.middleName || '').trim(),
+    String(candidate.lastName || '').trim(),
+  ]
+    .filter(Boolean)
+    .join(' ');
+  const fromStoredName = String(candidate.name || row.candidateName || '').trim();
+  const fromPresentationFull = presentationFieldValue(detail, [
+    'full name',
+    'name',
+    'name of candidate',
+  ]);
+  const fromPresentationParts = [
+    presentationFieldValue(detail, ['first name']),
+    presentationFieldValue(detail, ['middle name']),
+    presentationFieldValue(detail, ['last name']),
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  return pickRichestName(
+    fromCandidateParts,
+    fromStoredName,
+    fromPresentationParts,
+    fromPresentationFull,
+  );
+}
 
 function candidateExtra(candidate: ClientReviewData['candidate']): Record<string, unknown> {
   return (candidate || {}) as Record<string, unknown>;
@@ -187,10 +267,6 @@ export function clientReviewFieldFallbacks(
   detail: ClientReviewData | null | undefined,
 ): Partial<Record<SubmitToClientFieldId, string>> {
   const candidate = detail?.candidate || {};
-  const parts = String(candidate.name || '')
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean);
   const scoreHidden = detail?.trackerOptions?.showScore === false;
   const rawScore = detail?.matchScore;
   const score =
@@ -203,9 +279,11 @@ export function clientReviewFieldFallbacks(
   const extra = candidateExtra(candidate);
 
   return {
-    firstName: parts[0] || String(candidate.firstName || '').trim(),
-    middleName: String(candidate.middleName || '').trim(),
-    lastName: parts.length > 1 ? parts[parts.length - 1] || '' : String(candidate.lastName || '').trim(),
+    fullName: resolveClientReviewFullName({
+      matchId: String(detail?.matchId || detail?.interviewId || 'candidate'),
+      candidateName: String(candidate.name || '').trim(),
+      detail,
+    } as ClientReviewBatchRow),
     email: String(candidate.email || '').trim(),
     phoneCode: String(candidate.phoneCode || '').trim(),
     phone: String(candidate.phone || '').trim(),
@@ -289,26 +367,17 @@ export function resolveClientReviewFieldValue(
   }
 
   const fromPresentation = presentationValueForField(detail, fieldId);
-  if (fromPresentation) return fromPresentation;
+  if (fieldId !== 'fullName' && fromPresentation) return fromPresentation;
+
+  if (fieldId === 'fullName') {
+    return resolveClientReviewFullName(row);
+  }
 
   const fallbacks = clientReviewFieldFallbacks(mergedDetail);
   const fromFallback = fallbacks[fieldId];
   if (fromFallback) return fromFallback;
 
-  const fullName = String(row.candidateName || candidate.name || '').trim();
-  const nameParts = fullName.split(/\s+/).filter(Boolean);
-
   switch (fieldId) {
-    case 'firstName':
-      return nameParts[0] || '';
-    case 'middleName':
-      return nameParts.length > 2
-        ? nameParts.slice(1, -1).join(' ')
-        : String(candidate.middleName || '').trim();
-    case 'lastName':
-      return nameParts.length > 1
-        ? nameParts[nameParts.length - 1]
-        : String(candidate.lastName || '').trim();
     case 'currentTitle':
       return String(row.designation || candidate.designation || candidate.currentTitle || '').trim();
     case 'experience': {

@@ -269,6 +269,7 @@ export function buildCandidateEditForm(candidate: CandidateProfileDrawerData): C
 
   return {
     firstName: nameParts.firstName,
+    middleName: str(candidate.middleName) || str(resolvedPersonal.middleName) || '',
     lastName: nameParts.lastName,
     email: candidate.email || '',
     phone: candidate.phone && candidate.phone !== 'â€”' ? candidate.phone : '',
@@ -475,13 +476,14 @@ export function buildExtraDataFromEditForm(
   const eduEntries = parseEducationEntriesEditorValue(editForm.cvEducationEntries);
   const courses = parseSemicolonList(editForm.educationCourses);
   const educationSummary =
-    editForm.educationSummary.trim() ||
+    str(editForm.educationSummary) ||
     buildEducationSummaryFromCvEntries(eduEntries as Array<Record<string, unknown>>);
 
   const languageProficiency = parseLanguageProficiencyEditorValue(editForm.languageProficiency);
   const honours = parseSemicolonList(editForm.honours);
   const projects = parseSemicolonList(editForm.projects);
   const hackathons = parseSemicolonList(editForm.hackathons);
+  const birthDateRaw = str(editForm.birthDate);
 
   return {
     ...prev,
@@ -489,18 +491,18 @@ export function buildExtraDataFromEditForm(
       personal: {
         age: parseOptionalNumber(editForm.age),
         candidateScore: parseOptionalNumber(editForm.candidateScore),
-        state: editForm.state.trim() || null,
-        currentAddress: editForm.address.trim() || null,
-        zip: editForm.zip.trim() || null,
-        nationality: editForm.nationality.trim() || null,
-        currentCompanyWebsite: editForm.currentCompanyWebsite.trim() || null,
-        maritalStatus: editForm.maritalStatus.trim() || null,
+        state: str(editForm.state) || null,
+        currentAddress: str(editForm.address) || null,
+        zip: str(editForm.zip) || null,
+        nationality: str(editForm.nationality) || null,
+        currentCompanyWebsite: str(editForm.currentCompanyWebsite) || null,
+        maritalStatus: str(editForm.maritalStatus) || null,
         birthDate:
-          /^\d{4}-\d{2}-\d{2}$/.test(editForm.birthDate.trim())
-            ? editForm.birthDate.trim()
-            : parseDMYToYMD(editForm.birthDate.trim()) || editForm.birthDate.trim() || null,
-        gender: editForm.gender.trim() || null,
-        passportNumber: editForm.passportNumber.trim() || null,
+          /^\d{4}-\d{2}-\d{2}$/.test(birthDateRaw)
+            ? birthDateRaw
+            : parseDMYToYMD(birthDateRaw) || birthDateRaw || null,
+        gender: str(editForm.gender) || null,
+        passportNumber: str(editForm.passportNumber) || null,
       },
       education: {
         entries: eduEntries,
@@ -508,26 +510,26 @@ export function buildExtraDataFromEditForm(
         summaryText: educationSummary || null,
       },
       professional: {
-        remarks: editForm.remarks.trim() || null,
-        currentBenefits: editForm.currentBenefits.trim() || null,
-        expectedBenefits: editForm.expectedBenefits.trim() || null,
-        currentSalaryCurrency: editForm.currentSalaryCurrency.trim() || null,
-        expectedSalaryCurrency: editForm.expectedSalaryCurrency.trim() || null,
+        remarks: str(editForm.remarks) || null,
+        currentBenefits: str(editForm.currentBenefits) || null,
+        expectedBenefits: str(editForm.expectedBenefits) || null,
+        currentSalaryCurrency: str(editForm.currentSalaryCurrency) || null,
+        expectedSalaryCurrency: str(editForm.expectedSalaryCurrency) || null,
         courses,
         extracurricularActivities: parseSemicolonList(editForm.extracurricular),
         volunteers: parseSemicolonList(editForm.volunteers),
       },
       social: {
-        linkedIn: editForm.linkedIn.trim() || null,
-        twitter: editForm.twitter.trim() || null,
-        xing: editForm.xing.trim() || null,
-        skypeId: editForm.skypeId.trim() || null,
-        facebook: editForm.facebook.trim() || null,
-        stackOverflow: editForm.stackOverflow.trim() || null,
-        website: editForm.website.trim() || editForm.portfolio.trim() || null,
+        linkedIn: str(editForm.linkedIn) || null,
+        twitter: str(editForm.twitter) || null,
+        xing: str(editForm.xing) || null,
+        skypeId: str(editForm.skypeId) || null,
+        facebook: str(editForm.facebook) || null,
+        stackOverflow: str(editForm.stackOverflow) || null,
+        website: str(editForm.website) || str(editForm.portfolio) || null,
       },
       summary: {
-        workHistory: editForm.workHistoryText.trim() || null,
+        workHistory: str(editForm.workHistoryText) || null,
         educationSummary: educationSummary || null,
         honoursAndAwards: honours,
         languageProficiency,
@@ -539,7 +541,7 @@ export function buildExtraDataFromEditForm(
     volunteers: parseSemicolonList(editForm.volunteers),
     projects,
     hackathons,
-    remarks: editForm.remarks.trim() || undefined,
+    remarks: str(editForm.remarks) || undefined,
   };
 }
 
@@ -563,8 +565,8 @@ export function buildUpdatePayloadFromEditForm(
 ): UpdateCandidatePayload {
   const eduEntries = parseEducationEntriesEditorValue(editForm.cvEducationEntries);
   const education =
-    editForm.education.trim() ||
-    editForm.educationSummary.trim() ||
+    str(editForm.education) ||
+    str(editForm.educationSummary) ||
     buildEducationSummaryFromCvEntries(eduEntries as Array<Record<string, unknown>>);
 
   const langProf = parseLanguageProficiencyEditorValue(editForm.languageProficiency);
@@ -574,22 +576,22 @@ export function buildUpdatePayloadFromEditForm(
   return {
     assignedToId: editForm.recruiterId || null,
     assignedJobs: editForm.assignedJobId ? [editForm.assignedJobId] : [],
-    firstName: editForm.firstName.trim(),
-    lastName: editForm.lastName.trim(),
-    email: editForm.email.trim(),
-    phone: editForm.phone.trim() || undefined,
-    linkedIn: editForm.linkedIn.trim() || undefined,
-    currentTitle: editForm.currentTitle.trim() || undefined,
-    currentCompany: editForm.currentCompany.trim() || undefined,
-    designation: editForm.currentTitle.trim() || undefined,
+    firstName: str(editForm.firstName),
+    lastName: str(editForm.lastName),
+    email: str(editForm.email),
+    phone: str(editForm.phone) || undefined,
+    linkedIn: str(editForm.linkedIn) || undefined,
+    currentTitle: str(editForm.currentTitle) || undefined,
+    currentCompany: str(editForm.currentCompany) || undefined,
+    designation: str(editForm.currentTitle) || undefined,
     experience: parseOptionalNumber(editForm.experience),
-    location: editForm.location.trim() || undefined,
-    stage: editForm.stage.trim() || undefined,
-    status: editForm.status.trim() || undefined,
-    source: editForm.source.trim() || undefined,
-    resume: editForm.resumeUrl.trim() || undefined,
-    noticePeriod: editForm.noticePeriod.trim() || undefined,
-    availability: editForm.availability.trim() || undefined,
+    location: str(editForm.location) || undefined,
+    stage: str(editForm.stage) || undefined,
+    status: str(editForm.status) || undefined,
+    source: str(editForm.source) || undefined,
+    resume: str(editForm.resumeUrl) || undefined,
+    noticePeriod: str(editForm.noticePeriod) || undefined,
+    availability: str(editForm.availability) || undefined,
     salary: {
       currency: editForm.salaryCurrency || 'INR',
       min: parseOptionalNumber(editForm.currentSalary),
@@ -597,19 +599,19 @@ export function buildUpdatePayloadFromEditForm(
     },
     expectedSalary: parseOptionalNumber(editForm.expectedSalary),
     currentSalary: parseOptionalNumber(editForm.currentSalary),
-    address: editForm.address.trim() || undefined,
-    city: editForm.city.trim() || undefined,
-    country: editForm.country.trim() || undefined,
-    gender: editForm.gender.trim() || undefined,
-    preferredLocation: editForm.preferredLocation.trim() || undefined,
+    address: str(editForm.address) || undefined,
+    city: str(editForm.city) || undefined,
+    country: str(editForm.country) || undefined,
+    gender: str(editForm.gender) || undefined,
+    preferredLocation: str(editForm.preferredLocation) || undefined,
     education: education || undefined,
-    portfolio: editForm.portfolio.trim() || undefined,
-    website: editForm.website.trim() || undefined,
+    portfolio: str(editForm.portfolio) || undefined,
+    website: str(editForm.website) || undefined,
     skills: parseCsvValues(editForm.skills),
     languages: languagesFromProf.length ? languagesFromProf : languagesCsv,
     certifications: parseLineValues(editForm.certifications),
-    cvSummary: editForm.cvSummary.trim() || undefined,
-    notes: editForm.remarks.trim() || editForm.notes.trim() || undefined,
+    cvSummary: str(editForm.cvSummary) || undefined,
+    notes: str(editForm.remarks) || str(editForm.notes) || undefined,
     cvEducationEntries: eduEntries as UpdateCandidatePayload['cvEducationEntries'],
     cvWorkExperienceEntries: parseWorkExperienceEditorValue(
       editForm.cvWorkExperienceEntries
@@ -617,7 +619,7 @@ export function buildUpdatePayloadFromEditForm(
     cvPortfolioLinks: parsePortfolioLinksEditorValue(
       editForm.cvPortfolioLinks
     ) as UpdateCandidatePayload['cvPortfolioLinks'],
-    avatar: editForm.avatar.trim() || null,
+    avatar: str(editForm.avatar) || null,
     extraData: buildExtraDataFromEditForm(editForm, existingExtra),
   };
 }
@@ -850,10 +852,13 @@ export function CandidateEditAtsSections({
         onToggleClientVisibility={onToggleClientSectionVisibility}
         hideWhenEmpty={isClientSubmit}
       >
-        {showField('firstName') ? (
+        {showField('fullName') ? (
           <EditField label="First Name" value={form.firstName} onChange={(v) => onChange('firstName', v)} />
         ) : null}
-        {showField('lastName') ? (
+        {showField('fullName') ? (
+          <EditField label="Middle Name" value={form.middleName || ''} onChange={(v) => onChange('middleName', v)} />
+        ) : null}
+        {showField('fullName') ? (
           <EditField label="Last Name" value={form.lastName} onChange={(v) => onChange('lastName', v)} />
         ) : null}
         {showField('email') ? (

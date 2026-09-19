@@ -1,5 +1,7 @@
+const { protect } = require('../middleware/auth.middleware');
 const express = require('express');
 const router = express.Router();
+router.use(protect);
 const MockInterviewService = require('../services/mockInterviewService');
 
 // Optional auth to link to candidate, else guest

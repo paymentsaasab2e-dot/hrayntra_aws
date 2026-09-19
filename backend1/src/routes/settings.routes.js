@@ -1,6 +1,8 @@
 const { Router } = require('express');
 const { protect } = require('../middleware/auth.middleware');
-const {  getSettings,
+const { requireOwnCandidate } = require('../middleware/requireOwnCandidate.middleware');
+const {
+  getSettings,
   updateAccountSettings,
   updateNotificationSettings,
   updatePrivacySettings,
@@ -12,18 +14,14 @@ const {  getSettings,
 
 const router = Router();
 
-// Get all settings
-router.get('/:candidateId', protect, getSettings);
-
-// Update specific settings sections
-router.put('/account/:candidateId', updateAccountSettings);
-router.put('/notifications/:candidateId', updateNotificationSettings);
-router.put('/privacy/:candidateId', updatePrivacySettings);
-router.put('/preferences/:candidateId', updatePreferences);
-router.put('/application/:candidateId', updateApplicationSettings);
-
-// Danger zone actions
-router.post('/logout-all/:candidateId', protect, logoutAllSessions);
-router.delete('/account/:candidateId', protect, deleteAccount);
+router.get('/:candidateId', protect, requireOwnCandidate, getSettings);
+router.put('/account/:candidateId', protect, requireOwnCandidate, updateAccountSettings);
+router.put('/notifications/:candidateId', protect, requireOwnCandidate, updateNotificationSettings);
+router.put('/privacy/:candidateId', protect, requireOwnCandidate, updatePrivacySettings);
+router.put('/preferences/:candidateId', protect, requireOwnCandidate, updatePreferences);
+router.put('/application/:candidateId', protect, requireOwnCandidate, updateApplicationSettings);
+router.post('/logout-all/:candidateId', protect, requireOwnCandidate, logoutAllSessions);
+router.delete('/account/:candidateId', protect, requireOwnCandidate, deleteAccount);
 
 module.exports = router;
+

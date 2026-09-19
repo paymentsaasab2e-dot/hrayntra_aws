@@ -175,7 +175,11 @@ export function stagesDefaultsEqual(
   a: Pick<SubmitToClientVisibilityUserDefaults, 'allowedClientStages' | 'clientStageCatalog'>,
   b: Pick<SubmitToClientVisibilityUserDefaults, 'allowedClientStages' | 'clientStageCatalog'>,
 ): boolean {
-  const norm = (list: string[]) => list.map((s) => s.trim().toLowerCase()).filter(Boolean).join('\0');
+  const norm = (list: string[]) =>
+    (Array.isArray(list) ? list : [])
+      .map((s) => String(s || '').trim().toLowerCase())
+      .filter(Boolean)
+      .join('\0');
   return (
     norm(a.allowedClientStages) === norm(b.allowedClientStages) &&
     norm(a.clientStageCatalog) === norm(b.clientStageCatalog)
@@ -230,7 +234,15 @@ export async function saveSubmitToClientVisibilityDefaults(
     updatedAt: optimistic.updatedAt,
   })
     .then((res) => {
-      writeCachedSubmitToClientVisibilityDefaults(normalizeDefaults(res.data));
+      const server = normalizeDefaults(res.data);
+      // Keep the values we just saved so a lagging/older server schema cannot
+      // silently rewrite Visible / Hidden / Table back to defaults.
+      const merged: SubmitToClientVisibilityUserDefaults = {
+        ...optimistic,
+        updatedAt: server.updatedAt || optimistic.updatedAt,
+      };
+      writeCachedSubmitToClientVisibilityDefaults(merged);
+      emitSubmitToClientVisibilityDefaultsChanged(merged);
     })
     .catch(() => {
       /* local defaults already stored — server sync can retry next save */

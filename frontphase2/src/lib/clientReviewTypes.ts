@@ -97,6 +97,17 @@ export interface ClientReviewData {
   visibleFields?: Record<string, boolean> | null;
   /** Ordered table columns from Settings → Submit to Client → Table. */
   tableColumns?: string[] | null;
+  /** Org export watermark for Comparative Analysis Excel/PDF/Print (public review). */
+  exportWatermark?: {
+    enabled?: boolean;
+    text?: string;
+    imageUrl?: string;
+    imageDataUrl?: string;
+    opacity?: number;
+    applyToPdf?: boolean;
+    applyToExcel?: boolean;
+    applyToCsv?: boolean;
+  } | null;
   matchScore?: number | null;
   recruiterNotes?: string;
   pipelineStages?: Array<{ id: string; name: string }>;

@@ -20,6 +20,11 @@ export async function fetchAndCacheOrgWatermark(): Promise<ExportWatermarkSettin
       const res = await apiGetOrgWatermark();
       const next = normalizeExportWatermark(res.data?.watermark);
       writeCachedOrgWatermark(next);
+      if (next.enabled && next.imageUrl) {
+        void import('./exportWatermark')
+          .then((m) => m.preloadOrgWatermarkLogo(next))
+          .catch(() => undefined);
+      }
       return next;
     } catch {
       return readCachedOrgWatermark();

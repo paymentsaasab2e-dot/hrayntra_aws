@@ -470,6 +470,30 @@ const readCandidateCvShareMode = (candidate) => {
   return normalizeCvShareMode(extra.cvSubmission?.shareMode);
 };
 
+const readCandidateResumeFileId = (candidate, decoded = null) => {
+  const fromToken = String(decoded?.resumeFileId || '').trim();
+  if (fromToken) return fromToken;
+  const extra = candidate?.extraData;
+  if (!extra || typeof extra !== 'object' || Array.isArray(extra)) return '';
+  return String(extra.cvSubmission?.resumeFileId || '').trim();
+};
+
+async function resolveSharedResumeFileUrl(candidateId, resumeFileId, files = []) {
+  const id = String(resumeFileId || '').trim();
+  if (!id) return '';
+  const fromList = (Array.isArray(files) ? files : []).find(
+    (file) => String(file?.id || '').trim() === id,
+  );
+  const listedUrl = toPublicFileUrl(fromList?.fileUrl);
+  if (listedUrl) return listedUrl;
+  if (!candidateId) return '';
+  const row = await prisma.candidateFile.findFirst({
+    where: { id, candidateId },
+    select: { fileUrl: true },
+  });
+  return toPublicFileUrl(row?.fileUrl);
+}
+
 function inferSubmissionTypeFromNotes(notes) {
   const lines = String(notes || '').split('\n');
   for (let i = lines.length - 1; i >= 0; i -= 1) {
@@ -699,14 +723,29 @@ async function persistCvSubmissionForCandidate(
   cvShareMode,
   jobTitle = '',
   trackerOptions = null,
+  resumeFileId = null,
 ) {
   const fresh = await prisma.candidate.findUnique({ where: { id: candidateId } });
   if (!fresh) return;
   const snapshot = buildCvSubmissionSnapshot(fresh, jobTitle);
+  const normalizedResumeFileId = String(resumeFileId || '').trim();
+  if (cvShareMode === 'original' && normalizedResumeFileId && snapshot) {
+    const versionFile = await prisma.candidateFile.findFirst({
+      where: { id: normalizedResumeFileId, candidateId },
+      select: { fileUrl: true },
+    });
+    const versionUrl = String(versionFile?.fileUrl || '').trim();
+    if (versionUrl) snapshot.resume = versionUrl;
+  }
   const patch = {
     shareMode: cvShareMode,
     snapshot,
   };
+  if (normalizedResumeFileId) {
+    patch.resumeFileId = normalizedResumeFileId;
+  } else if (cvShareMode !== 'original') {
+    patch.resumeFileId = null;
+  }
   if (trackerOptions) {
     patch.trackerOptions = normalizeClientTrackerOptions(trackerOptions, { useNewDefaults: true });
   }
@@ -1038,6 +1077,7 @@ export const createClientReviewToken = ({
   clientId = null,
   submissionType = 'GENERAL',
   cvShareMode = null,
+  resumeFileId = null,
   batchMatchIds = null,
   trackerOptions = null,
 } = {}) => {
@@ -1049,6 +1089,7 @@ export const createClientReviewToken = ({
   const storedTrackerOptions = trackerOptions
     ? normalizeClientTrackerOptions(trackerOptions, { useNewDefaults: true })
     : undefined;
+  const normalizedResumeFileId = String(resumeFileId || '').trim() || undefined;
 
   return jwt.sign(
     {
@@ -1060,6 +1101,7 @@ export const createClientReviewToken = ({
       tenantDbName: getActiveTenantDbName() || undefined,
       submissionType: submissionType || 'GENERAL',
       cvShareMode: normalizeCvShareMode(cvShareMode) || undefined,
+      resumeFileId: normalizedResumeFileId,
       batchMatchIds: batchPayload,
       trackerOptions: storedTrackerOptions,
       type: 'INTERVIEW_CLIENT_REVIEW',
@@ -1514,6 +1556,7 @@ async function serializeInterviewForClientReview(
   {
     submissionType,
     cvShareMode,
+    resumeFileId = null,
     offerLetterFile = null,
     matchId = null,
     trackerOptions = null,
@@ -1619,6 +1662,26 @@ async function serializeInterviewForClientReview(
     readSaasaCvFileUrl(candidateExtra) || submissionSnapshot?.saasaCvUrl || '',
   ).trim();
 
+  const resolvedResumeFileId =
+    String(resumeFileId || '').trim() ||
+    readCandidateResumeFileId(cRaw) ||
+    '';
+  const versionResumeUrl =
+    cvShareMode === 'original' && resolvedResumeFileId
+      ? await resolveSharedResumeFileUrl(
+          interview.candidateId || cRaw?.id,
+          resolvedResumeFileId,
+          candidateFiles,
+        )
+      : '';
+  const originalResumeUrl = String(
+    versionResumeUrl ||
+      c.resume ||
+      c.resumeUrl ||
+      submissionSnapshot?.resume ||
+      '',
+  ).trim();
+
   let candidateForClient;
   if (cvShareMode === 'saasa') {
     candidateForClient = {
@@ -1629,7 +1692,7 @@ async function serializeInterviewForClientReview(
     // Original CV link mode — still show tenant profile fields in table/comparative.
     candidateForClient = {
       ...baseCandidate,
-      resume: baseCandidate.resume,
+      resume: originalResumeUrl || baseCandidate.resume,
     };
   } else {
     candidateForClient = {
@@ -1658,7 +1721,9 @@ async function serializeInterviewForClientReview(
   const sharedResumeUrl =
     cvShareMode === 'saasa'
       ? saasaCvUrl
-      : String(c.resume || c.resumeUrl || submissionSnapshot?.resume || '').trim();
+      : cvShareMode === 'original'
+        ? originalResumeUrl
+        : String(c.resume || c.resumeUrl || submissionSnapshot?.resume || '').trim();
   presentationSections = attachSharedResumeToClientReviewSections(
     presentationSections,
     sharedResumeUrl,
@@ -1669,6 +1734,7 @@ async function serializeInterviewForClientReview(
     interviewId: interview.id,
     submissionType,
     cvShareMode,
+    resumeFileId: resolvedResumeFileId || null,
     offerLetterUrl: offerLetterFile?.fileUrl || null,
     candidate: candidateForClient,
     presentationSections,
@@ -2883,6 +2949,10 @@ export const interviewService = {
       normalizeCvShareMode(payload?.cvShareMode) ||
       readCandidateCvShareMode(interview.candidate) ||
       'edited';
+    const resumeFileId =
+      String(payload?.resumeFileId || '').trim() ||
+      readCandidateResumeFileId(interview.candidate) ||
+      '';
     const trackerOptions = normalizeClientTrackerOptions(payload?.trackerOptions, {
       useNewDefaults: true,
     });
@@ -2893,6 +2963,7 @@ export const interviewService = {
         cvShareMode,
         interview.job?.title || '',
         trackerOptions,
+        resumeFileId || null,
       );
     }
 
@@ -2903,6 +2974,7 @@ export const interviewService = {
       clientId: interview.clientId,
       submissionType,
       cvShareMode,
+      resumeFileId: resumeFileId || null,
       trackerOptions,
     });
     const reviewUrl = await toClientReviewUrl(token, {
@@ -3009,6 +3081,7 @@ export const interviewService = {
     const tenantDbName = await resolveReviewTenant(decoded);
     const submissionType = normalizeSubmissionType(decoded?.submissionType) || 'GENERAL';
     const cvShareMode = normalizeCvShareMode(decoded?.cvShareMode) || 'edited';
+    const tokenResumeFileId = String(decoded?.resumeFileId || '').trim();
     const batchMatchIds = normalizeBatchMatchIds(decoded);
     const isBatchReview = !decoded.interviewId && batchMatchIds.length > 1;
 
@@ -3042,6 +3115,8 @@ export const interviewService = {
               submissionType,
               cvShareMode:
                 readCandidateCvShareMode(match.candidate) || cvShareMode,
+              resumeFileId:
+                readCandidateResumeFileId(match.candidate, decoded) || tokenResumeFileId,
               offerLetterFile: offerFile,
               matchId: match.id,
               trackerOptions: resolveReviewTrackerOptions(match.candidate, decoded),
@@ -3078,7 +3153,24 @@ export const interviewService = {
           detail,
         })),
       };
-      return maskStorage ? maskClientReviewStorageUrls(result, publicToken) : result;
+      let exportWatermark = null;
+      try {
+        const { getPublicClientReviewExportWatermark } = await import(
+          '../modules/setting/publicClientReviewWatermark.util.js'
+        );
+        exportWatermark = await runWithTenantContext(tenantDbName, () =>
+          getPublicClientReviewExportWatermark(),
+        );
+      } catch (err) {
+        console.warn(
+          '[interview.service] public review watermark attach failed:',
+          err?.message || err,
+        );
+      }
+      const withWatermark = { ...result, exportWatermark };
+      return maskStorage
+        ? maskClientReviewStorageUrls(withWatermark, publicToken)
+        : withWatermark;
     }
 
     const { interview, offerLetterFile, matchRow, candidateFiles, pipelineStages, liveVisibleFields, liveTableColumns } =
@@ -3119,6 +3211,8 @@ export const interviewService = {
     const payload = await serializeInterviewForClientReview(interview, {
       submissionType,
       cvShareMode: readCandidateCvShareMode(interview.candidate) || cvShareMode,
+      resumeFileId:
+        readCandidateResumeFileId(interview.candidate, decoded) || tokenResumeFileId,
       offerLetterFile,
       matchId: decoded.matchId || interview.id,
       trackerOptions: resolveReviewTrackerOptions(interview.candidate, decoded),
@@ -3150,7 +3244,24 @@ export const interviewService = {
         },
       ],
     };
-    return maskStorage ? maskClientReviewStorageUrls(result, publicToken) : result;
+    let exportWatermark = null;
+    try {
+      const { getPublicClientReviewExportWatermark } = await import(
+        '../modules/setting/publicClientReviewWatermark.util.js'
+      );
+      exportWatermark = await runWithTenantContext(tenantDbName, () =>
+        getPublicClientReviewExportWatermark(),
+      );
+    } catch (err) {
+      console.warn(
+        '[interview.service] public review watermark attach failed:',
+        err?.message || err,
+      );
+    }
+    const withWatermark = { ...result, exportWatermark };
+    return maskStorage
+      ? maskClientReviewStorageUrls(withWatermark, publicToken)
+      : withWatermark;
   },
 
   async streamPublicClientReviewAsset(token, { kind = 'resume', fileId = '', matchId = '' } = {}) {
@@ -3168,7 +3279,34 @@ export const interviewService = {
       const baseName = safeDownloadFilename(
         `${detail?.candidate?.name || 'Candidate'}_Resume.pdf`,
       );
-      return { ...loaded, filename: baseName };
+      try {
+        const { getPublicClientReviewExportWatermark } = await import(
+          '../modules/setting/publicClientReviewWatermark.util.js'
+        );
+        const { stampPdfBufferWithExportWatermark } = await import(
+          '../utils/stampPdfExportWatermark.js'
+        );
+        const watermark = await getPublicClientReviewExportWatermark();
+        const stamped = await stampPdfBufferWithExportWatermark(loaded.buffer, watermark);
+        const didStamp =
+          stamped !== loaded.buffer &&
+          Buffer.isBuffer(stamped) &&
+          stamped.subarray(0, 5).toString('utf8').startsWith('%PDF');
+        return {
+          ...loaded,
+          buffer: stamped,
+          contentType: didStamp ? 'application/pdf' : loaded.contentType,
+          filename: didStamp
+            ? baseName.replace(/\.[^.]+$/, '') + '.pdf'
+            : baseName,
+        };
+      } catch (err) {
+        console.warn(
+          '[interview.service] resume watermark stamp failed:',
+          err?.message || err,
+        );
+        return { ...loaded, filename: baseName };
+      }
     }
 
     if (!tracker.downloadFiles && fileId !== 'offer') {

@@ -533,13 +533,13 @@ export function CandidatePhase1SubmitEditSections({
         clientVisible={sectionVisible('personal')}
       >
         <div className="grid gap-3 sm:grid-cols-2">
-          {showField('firstName') ? (
+          {showField('fullName') ? (
             <EditField label="First name" value={str(candidate.firstName || pi.firstName)} onChange={(v) => patchPersonal({ firstName: v })} />
           ) : null}
-          {showField('middleName') ? (
+          {showField('fullName') ? (
             <EditField label="Middle name" value={str(candidate.middleName || pi.middleName)} onChange={(v) => patchPersonal({ middleName: v })} />
           ) : null}
-          {showField('lastName') ? (
+          {showField('fullName') ? (
             <EditField label="Last name" value={str(candidate.lastName || pi.lastName)} onChange={(v) => patchPersonal({ lastName: v })} />
           ) : null}
           {showField('email') ? (

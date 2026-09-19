@@ -153,15 +153,19 @@ export function resolveSubmitToClientEditForm(
   candidate: BackendCandidate,
   seed?: CandidateEditFormState | null
 ): CandidateEditFormState {
-  const saved = readClientPresentation(candidate.extraData);
-  if (saved?.editForm) return saved.editForm;
   const fromProfile = buildCandidateEditForm(mapCandidateProfile(candidate));
-  if (!seed) return fromProfile;
+  const saved = readClientPresentation(candidate.extraData);
+  // Merge over a full form so older / partial saved editForm never leaves fields undefined
+  // (undefined.trim() crashes Client preview link generation).
+  const merged: CandidateEditFormState = saved?.editForm
+    ? { ...fromProfile, ...saved.editForm }
+    : fromProfile;
+  if (!seed) return merged;
   return {
-    ...fromProfile,
-    firstName: fromProfile.firstName || seed.firstName,
-    lastName: fromProfile.lastName || seed.lastName,
-    email: fromProfile.email || seed.email,
+    ...merged,
+    firstName: merged.firstName || seed.firstName,
+    lastName: merged.lastName || seed.lastName,
+    email: merged.email || seed.email,
   };
 }
 

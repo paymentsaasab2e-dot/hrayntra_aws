@@ -47,14 +47,16 @@ const fileFilter = (req, file, cb) => {
     'image/jpg',
     'image/png',
     'image/webp',
+    'application/octet-stream',
   ];
-
-  if (!allowedMimeTypes.includes(file.mimetype)) {
-    cb(new Error('Unsupported file type'));
+  const name = String(file.originalname || '').toLowerCase();
+  const mime = String(file.mimetype || '').toLowerCase();
+  const allowedByExt = /\.(pdf|docx?|txt|csv|jpe?g|png|webp)$/i.test(name);
+  if (allowedMimeTypes.includes(mime) || allowedByExt) {
+    cb(null, true);
     return;
   }
-
-  cb(null, true);
+  cb(new Error('Unsupported file type. Use PDF, DOC, or DOCX.'));
 };
 
 const resumeUpload = multer({
@@ -123,7 +125,25 @@ router.post('/candidates/repair-bad-names', addCandidateController.repairBadName
 router.post('/candidates/import-linkedin', addCandidateController.importLinkedIn);
 router.get('/candidates/check-duplicate', addCandidateController.checkDuplicate);
 router.post('/candidates/bulk-import', csvUpload.single('csvFile'), addCandidateController.bulkImport);
-router.post('/candidates/:candidateId/files', candidateFileUpload.single('resume'), addCandidateController.uploadCandidateFile);
+router.post(
+  '/candidates/:candidateId/files',
+  (req, res, next) => {
+    candidateFileUpload.single('resume')(req, res, (err) => {
+      if (err) {
+        return res.status(400).json({
+          success: false,
+          message: err.message || 'Resume upload failed',
+        });
+      }
+      next();
+    });
+  },
+  addCandidateController.uploadCandidateFile
+);
+router.delete(
+  '/candidates/:candidateId/resume-versions',
+  addCandidateController.deleteCandidateResumeVersion
+);
 router.get('/tags', addCandidateController.getTags);
 
 export default router;

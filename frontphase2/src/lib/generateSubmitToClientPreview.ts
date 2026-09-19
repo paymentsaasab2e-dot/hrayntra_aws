@@ -45,6 +45,8 @@ export type BulkSubmitCandidateEntry = {
   matchScore?: number;
   /** Which CV the client should see: original resume, edited profile CV, or HRYantra annotated CV. */
   cvShareMode?: 'edited' | 'original' | 'saasa';
+  /** Specific uploaded resume file when cvShareMode is original. */
+  resumeFileId?: string;
 };
 
 export type SubmitToClientPreviewResult = {
@@ -163,22 +165,28 @@ async function persistVisibleClientPresentation(
       ? { ...(candidate.extraData as Record<string, unknown>) }
       : {};
 
-  const extraData = isPhase1PortalCandidate(candidate)
-    ? buildClientPresentationExtraDataForPhase1(
-        resolveSubmitPhase1Snapshot(candidate),
-        candidate,
-        extra,
-        {
-          phase1VisibleSections: phase1SectionVisibilityFromSubmitFields(visibleFields),
+  try {
+    const extraData = isPhase1PortalCandidate(candidate)
+      ? buildClientPresentationExtraDataForPhase1(
+          resolveSubmitPhase1Snapshot(candidate),
+          candidate,
+          extra,
+          {
+            phase1VisibleSections: phase1SectionVisibilityFromSubmitFields(visibleFields),
+            visibleFields,
+          },
+        )
+      : buildClientPresentationExtraData(resolveSubmitToClientEditForm(candidate), extra, {
+          visibleSections: sectionVisibilityFromSubmitFields(visibleFields),
           visibleFields,
-        },
-      )
-    : buildClientPresentationExtraData(resolveSubmitToClientEditForm(candidate), extra, {
-        visibleSections: sectionVisibilityFromSubmitFields(visibleFields),
-        visibleFields,
-      });
+        });
 
-  await apiUpdateCandidate(candidateId, { extraData });
+    await apiUpdateCandidate(candidateId, { extraData });
+  } catch (err) {
+    // Still allow link generation if presentation draft write fails.
+    console.warn('[generateSubmitToClientPreview] presentation persist failed:', err);
+  }
+
   return {
     candidate,
     candidateName: candidateDisplayName(candidate, fallbackName),
@@ -311,6 +319,7 @@ export async function generateSubmitToClientPreview(
       allowedClientStages,
       clientStageCatalog,
       ...(item.entry.cvShareMode ? { cvShareMode: item.entry.cvShareMode } : {}),
+      ...(item.entry.resumeFileId ? { resumeFileId: item.entry.resumeFileId } : {}),
     });
     return readSubmitMatchReviewUrl(submittedRaw);
   });

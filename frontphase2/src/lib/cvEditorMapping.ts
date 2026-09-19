@@ -51,6 +51,8 @@ export type ResumeCvViewMode = 'original' | 'saasa' | 'ai' | 'updated' | 'edited
 
 export interface CvSubmissionStored {
   shareMode: CvShareMode;
+  /** Specific CandidateFile id when shareMode is original (multi-version CV). */
+  resumeFileId?: string | null;
   updatedAt?: string;
 }
 
@@ -155,7 +157,14 @@ export function readCvSubmission(candidate: BackendCandidate | null): CvSubmissi
   if (!submission || typeof submission !== 'object' || Array.isArray(submission)) return null;
   const mode = (submission as CvSubmissionStored).shareMode;
   if (mode !== 'edited' && mode !== 'original' && mode !== 'saasa') return null;
-  return submission as CvSubmissionStored;
+  const resumeFileIdRaw = (submission as CvSubmissionStored).resumeFileId;
+  const resumeFileId =
+    typeof resumeFileIdRaw === 'string' && resumeFileIdRaw.trim() ? resumeFileIdRaw.trim() : null;
+  return {
+    ...(submission as CvSubmissionStored),
+    shareMode: mode,
+    resumeFileId,
+  };
 }
 
 export function hasEditedCvAvailable(candidate: BackendCandidate | null): boolean {

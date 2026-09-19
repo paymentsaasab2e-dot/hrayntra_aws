@@ -99,14 +99,21 @@ export function normalizeAllowedClientStages(
   catalog: Array<{ id: string; name: string }>,
   fallbackAll = true,
 ): string[] {
-  const byName = new Map(
-    catalog.map((row) => [row.name.toLowerCase(), row.name] as const),
+  const safeCatalog = (Array.isArray(catalog) ? catalog : []).filter(
+    (row) => row && String(row.name || '').trim(),
   );
-  const byId = new Map(catalog.map((row) => [row.id.toLowerCase(), row.name] as const));
+  const byName = new Map(
+    safeCatalog.map((row) => [String(row.name).trim().toLowerCase(), String(row.name).trim()] as const),
+  );
+  const byId = new Map(
+    safeCatalog.map(
+      (row) => [String(row.id || '').trim().toLowerCase(), String(row.name).trim()] as const,
+    ),
+  );
   const incoming = Array.isArray(raw)
     ? raw
     : typeof raw === 'string'
-      ? raw.split(',').map((part) => part.trim())
+      ? raw.split(',').map((part) => String(part || '').trim())
       : [];
   const picked: string[] = [];
   for (const item of incoming) {
@@ -117,7 +124,7 @@ export function normalizeAllowedClientStages(
     if (!picked.some((p) => p.toLowerCase() === name.toLowerCase())) picked.push(name);
   }
   if (picked.length) return picked;
-  return fallbackAll ? catalog.map((row) => row.name) : [];
+  return fallbackAll ? safeCatalog.map((row) => String(row.name).trim()).filter(Boolean) : [];
 }
 
 export function stageIdFromName(name: string): string {

@@ -1,11 +1,21 @@
 const dotenv = require('dotenv');
 dotenv.config(); // Load env variables early so they are available to imported modules
+
+// Fail closed if JWT_SECRET is missing (no hardcoded fallback).
+try {
+  require('./config/secrets').requireJwtSecret();
+} catch (err) {
+  console.error('[startup]', err.message);
+  process.exit(1);
+}
+
 const express = require('express');
 const cors = require('cors');
 const http = require('http');
 const path = require('path');
 const { Server: SocketServer } = require('socket.io');
 const { prisma } = require('./lib/prisma');
+const { securityHeaders } = require('./middleware/securityHeaders.middleware');
 const authRoutes = require('./routes/auth.routes');
 const cvRoutes = require('./routes/cv.routes');
 const profileRoutes = require('./routes/profile.routes');
@@ -98,6 +108,7 @@ app.use(cors({
   credentials: true,
   exposedHeaders: ['X-Token-Balance', 'X-Tokens-Spent'],
 }));
+app.use(securityHeaders);
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 

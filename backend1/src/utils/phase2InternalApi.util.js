@@ -3,8 +3,8 @@
  * In production, never call localhost — default to api2.hryantra.com when env is missing.
  */
 
-const DEV_FALLBACK_SECRET = 'phase2-portal-sync-2026-shared-secret';
 const PRODUCTION_PHASE2_API_ORIGIN = 'https://api2.hryantra.com';
+const { getPhase2PortalSyncSecretOrEmpty } = require('../config/secrets');
 
 function stripTrailingSlashes(value) {
   return String(value || '').trim().replace(/\/+$/, '');
@@ -110,12 +110,7 @@ function resolvePhase2UploadUrl(rawUrl, relativeUrl) {
 }
 
 function resolvePhase2PortalSyncSecret() {
-  const configured = String(process.env.PHASE2_PORTAL_SYNC_SECRET || '').trim();
-  if (configured) return configured;
-  if (process.env.NODE_ENV === 'production') {
-    return '';
-  }
-  return DEV_FALLBACK_SECRET;
+  return getPhase2PortalSyncSecretOrEmpty();
 }
 
 function buildPhase2InternalUrl(path) {

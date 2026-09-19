@@ -107,10 +107,12 @@ export function buildClientReviewSections(
   const sections: ClientReviewSection[] = [];
 
   if (isSectionVisible('personal', visible)) {
+    const fullName = [form.firstName, form.middleName, form.lastName]
+      .map((part) => String(part || '').trim())
+      .filter(Boolean)
+      .join(' ');
     pushVisibleSection(sections, 'personal', [
-      ['First Name', form.firstName],
-      ['Middle Name', form.middleName],
-      ['Last Name', form.lastName],
+      ['Full Name', fullName],
       ['E-mail', form.email],
       ['Phone code', form.phoneCode],
       ['Mobile No', form.phone],

@@ -90,12 +90,13 @@ export const CLIENT_PREVIEW_STAGE_CATALOG = Object.freeze([
 
 export function normalizeAllowedClientStages(raw, { fallbackAll = true, catalog = null } = {}) {
   const baseCatalog = Array.isArray(catalog) && catalog.length ? catalog : CLIENT_PREVIEW_STAGE_CATALOG;
-  const byName = new Map(baseCatalog.map((row) => [row.name.toLowerCase(), row]));
-  const byId = new Map(baseCatalog.map((row) => [row.id.toLowerCase(), row]));
+  const safeCatalog = baseCatalog.filter((row) => row && String(row?.name || '').trim());
+  const byName = new Map(safeCatalog.map((row) => [String(row.name).toLowerCase(), row]));
+  const byId = new Map(safeCatalog.map((row) => [String(row.id || '').toLowerCase(), row]));
   const incoming = Array.isArray(raw)
     ? raw
     : typeof raw === 'string'
-      ? raw.split(',').map((part) => part.trim())
+      ? raw.split(',').map((part) => String(part || '').trim())
       : [];
   const picked = [];
   for (const item of incoming) {
@@ -111,12 +112,12 @@ export function normalizeAllowedClientStages(raw, { fallbackAll = true, catalog 
         .replace(/^_|_$/g, '') || `CUSTOM_${picked.length + 1}`,
       name: key,
     };
-    if (!picked.some((p) => p.name.toLowerCase() === row.name.toLowerCase())) {
+    if (!picked.some((p) => String(p.name || '').toLowerCase() === String(row.name || '').toLowerCase())) {
       picked.push({ id: row.id, name: row.name });
     }
   }
   if (picked.length) return picked;
-  return fallbackAll ? baseCatalog.map((row) => ({ id: row.id, name: row.name })) : [];
+  return fallbackAll ? safeCatalog.map((row) => ({ id: row.id, name: row.name })) : [];
 }
 
 export function normalizeClientStageCatalog(raw, fallbackCatalog = CLIENT_PREVIEW_STAGE_CATALOG) {

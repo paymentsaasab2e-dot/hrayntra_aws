@@ -1,6 +1,16 @@
 const { prisma, retryQuery } = require('../lib/prisma');
 const { scheduleCandidateCommonSync } = require('../services/candidateCommonSync.service');
-const { generateOTP, getOTPExpiration, isOTPExpired, normalizeOtpInput, otpMatches } = require('../utils/otp.util');
+const {
+  generateOTP,
+  getOTPExpiration,
+  isOTPExpired,
+  normalizeOtpInput,
+  otpMatches,
+  hashOtp,
+  MAX_VERIFY_ATTEMPTS,
+  RESEND_COOLDOWN_MS,
+} = require('../utils/otp.util');
+const { requireJwtSecret } = require('../config/secrets');
 const { generateCandidateIdFromEmail } = require('../utils/candidate.util');
 const { sendOTPEmail } = require('../services/email.service');
 const {
@@ -27,7 +37,7 @@ function issueCandidateToken(candidate) {
       whatsappNumber: candidate.whatsappNumber,
       isVerified: true,
     },
-    process.env.JWT_SECRET || 'saasa_jwt_secret_key_2024',
+    requireJwtSecret(),
     { expiresIn: '30d' }
   );
 }
@@ -777,16 +787,16 @@ async function sendOTP(req, res) {
     });
     await expirePendingOtpsForCandidates([...linkedForOtp.keys()]);
 
-    // Generate new OTP
+    // Generate new OTP (store hashed; email plaintext only to Resend)
     const otp = generateOTP();
     const expiresAt = getOTPExpiration();
 
-    // Save OTP to database
+    // Save OTP to database (hashed at rest)
     const otpVerification = await retryQuery(async () => {
       return await prisma.otpVerification.create({
         data: {
           candidateId: candidate.id,
-          otp: normalizeOtpInput(otp),
+          otp: hashOtp(otp),
           status: OtpStatus.PENDING,
           expiresAt: expiresAt,
         },
@@ -1070,7 +1080,7 @@ async function resendOTP(req, res) {
     });
     await expirePendingOtpsForCandidates([...linkedForOtp.keys()]);
 
-    // Generate new OTP
+    // Generate new OTP (hashed at rest)
     const otp = generateOTP();
     const expiresAt = getOTPExpiration();
 
@@ -1078,7 +1088,7 @@ async function resendOTP(req, res) {
     await prisma.otpVerification.create({
       data: {
         candidateId: candidate.id,
-        otp: normalizeOtpInput(otp),
+        otp: hashOtp(otp),
         status: OtpStatus.PENDING,
         expiresAt: expiresAt,
       },
@@ -1677,7 +1687,7 @@ async function forgotPassword(req, res) {
       return await prisma.otpVerification.create({
         data: {
           candidateId: otpCandidate.id,
-          otp: normalizeOtpInput(otp),
+          otp: hashOtp(otp),
           status: OtpStatus.PENDING,
           expiresAt,
         },
@@ -1694,9 +1704,11 @@ async function forgotPassword(req, res) {
       console.error('Failed to send password reset OTP email:', emailResult.error);
     }
 
-    const allowOtpFallback = process.env.ALLOW_OTP_FALLBACK !== 'false';
+    // Never return OTP in API responses outside explicit local debug.
     const showOTP =
-      process.env.NODE_ENV === 'development' || (!emailResult.success && allowOtpFallback);
+      process.env.NODE_ENV === 'development' &&
+      process.env.ALLOW_OTP_FALLBACK === 'true' &&
+      !emailResult.success;
 
     return res.json({
       success: true,

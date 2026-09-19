@@ -1,4 +1,6 @@
 const { Router } = require('express');
+const { protect } = require('../middleware/auth.middleware');
+const { requireOwnCandidate } = require('../middleware/requireOwnCandidate.middleware');
 const {
   createApplication,
   getApplications,
@@ -10,16 +12,13 @@ const {
 
 const router = Router();
 
-// Create a new application
-router.post('/', createApplication);
+router.use(protect);
 
-// Specific paths must be registered before /:candidateId (otherwise "check" is treated as candidateId)
-router.get('/check/:candidateId/:jobId', checkApplication);
+router.post('/', createApplication);
+router.get('/check/:candidateId/:jobId', requireOwnCandidate, checkApplication);
 router.get('/detail/:applicationId', getApplicationById);
 router.post('/detail/:applicationId/offer-response', respondToOfferLetter);
 router.delete('/detail/:applicationId', withdrawApplication);
-
-// Get all applications for a candidate
-router.get('/:candidateId', getApplications);
+router.get('/:candidateId', requireOwnCandidate, getApplications);
 
 module.exports = router;

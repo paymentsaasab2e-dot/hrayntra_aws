@@ -1,4 +1,5 @@
 const { Router } = require('express');
+const { protect } = require('../middleware/auth.middleware');
 const {
   askProfileQuestions,
   suggestJobTitles,
@@ -9,6 +10,7 @@ const {
 } = require('../controllers/ai.controller');
 
 const router = Router();
+router.use(protect);
 
 router.post('/chat', generalChat);
 router.post('/profile-questions', askProfileQuestions);

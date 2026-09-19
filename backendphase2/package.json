@@ -25,6 +25,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
     "db:validate": "prisma validate",
+    "test:security": "node --test src/security/tenant-isolation.test.js",
     "create:super-admin": "node scripts/create-super-admin.js",
     "seed:hq-admin": "node scripts/seed-hq-platform-admin.js",
     "create:role-users": "node scripts/create-role-users.js",

@@ -233,17 +233,31 @@ function findExistingFieldValue(
 ): string {
   const preferredKey = preferredLabel.trim().toLowerCase();
   let fallback = '';
+  const byLabel = new Map<string, string>();
   for (const row of fields) {
     const labelKey = String(row.label || '')
       .trim()
       .toLowerCase()
       .replace(/\s+/g, ' ');
     const value = display(row.value);
+    byLabel.set(labelKey, value);
     if (labelKey === preferredKey && value) return value;
     const mapped = SUBMIT_TO_CLIENT_REVIEW_LABEL_FIELDS[labelKey];
     if (mapped?.length === 1 && mapped[0] === fieldId && value) return value;
     if (mapped?.includes(fieldId) && mapped.length === 1 && value) return value;
     if (!fallback && labelKey === preferredKey) fallback = value;
+  }
+  if (fieldId === 'fullName') {
+    const combined = [
+      byLabel.get('full name') || byLabel.get('name') || byLabel.get('name of candidate') || '',
+      byLabel.get('first name') || '',
+      byLabel.get('middle name') || '',
+      byLabel.get('last name') || '',
+    ];
+    const fromFull = combined[0];
+    if (fromFull) return fromFull;
+    const fromParts = combined.slice(1).filter(Boolean).join(' ');
+    if (fromParts) return fromParts;
   }
   return fallback;
 }
@@ -269,8 +283,10 @@ function dedupeReviewFields(fields: Array<{ label: string; value: string }>) {
     if (
       !key ||
       key === 'name' ||
-      key === 'full name' ||
       key === 'name of candidate' ||
+      key === 'first name' ||
+      key === 'middle name' ||
+      key === 'last name' ||
       key === 'city & state' ||
       key === 'salary expectation' ||
       key === 'location (display)' ||

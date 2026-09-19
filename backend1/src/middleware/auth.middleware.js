@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const { prisma } = require('../lib/prisma');
 const { buildSessionTrackingFields } = require('../utils/session-tracking.util');
+const { requireJwtSecret } = require('../config/secrets');
 
 /**
  * Middleware to protect routes and verify session exists in database
@@ -25,7 +26,7 @@ const protect = async (req, res, next) => {
 
     try {
       // 1. Verify JWT token
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'saasa_jwt_secret_key_2024');
+      const decoded = jwt.verify(token, requireJwtSecret());
 
       // Defense-in-depth: if the generated Prisma client doesn't expose the
       // `Session` model (e.g. `prisma generate` hasn't been re-run after the

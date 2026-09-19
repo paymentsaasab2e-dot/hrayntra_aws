@@ -14,9 +14,7 @@ import {
 } from './phase1ClientPresentationSections';
 
 export const SUBMIT_TO_CLIENT_FIELDS = [
-  'firstName',
-  'middleName',
-  'lastName',
+  'fullName',
   'email',
   'phoneCode',
   'phone',
@@ -107,9 +105,7 @@ export const SUBMIT_TO_CLIENT_FIELD_GROUPS: SubmitToClientFieldGroup[] = [
     title: 'Personal Information',
     description: 'Name, contact, and identity fields on the client review.',
     fields: [
-      { id: 'firstName', label: 'First Name' },
-      { id: 'middleName', label: 'Middle Name' },
-      { id: 'lastName', label: 'Last Name' },
+      { id: 'fullName', label: 'Full Name' },
       { id: 'email', label: 'E-mail' },
       { id: 'phoneCode', label: 'Phone code' },
       { id: 'phone', label: 'Mobile No' },
@@ -223,15 +219,14 @@ export const SUBMIT_TO_CLIENT_FIELD_LABELS: Record<SubmitToClientFieldId, string
   ) as Record<SubmitToClientFieldId, string>;
 
 export const DEFAULT_SUBMIT_TO_CLIENT_TABLE_COLUMNS: SubmitToClientFieldId[] = [
-  'firstName',
-  'lastName',
+  'fullName',
   'email',
   'phone',
   'currentTitle',
   'currentCompany',
 ];
 
-/** Previous factory lists — treat as unset so tenants pick up First Name + 5 other columns. */
+/** Previous factory lists — treat as unset so tenants pick up Full Name + 5 other columns. */
 const LEGACY_DEFAULT_SUBMIT_TO_CLIENT_TABLE_COLUMNS: readonly string[] = [
   'firstName',
   'lastName',
@@ -257,17 +252,39 @@ const PREVIOUS_FIVE_COLUMN_SUBMIT_TO_CLIENT_TABLE: readonly string[] = [
   'currentCompany',
 ];
 
+const PREVIOUS_SPLIT_NAME_SUBMIT_TO_CLIENT_TABLE: readonly string[] = [
+  'firstName',
+  'lastName',
+  'email',
+  'phone',
+  'currentTitle',
+  'currentCompany',
+];
+
+const LEGACY_NAME_FIELD_IDS = new Set(['firstName', 'middleName', 'lastName']);
+
 const SUBMIT_TO_CLIENT_FIELD_ID_SET = new Set<string>(SUBMIT_TO_CLIENT_FIELDS);
+
+function normalizeSubmitToClientTableColumnId(raw: unknown): SubmitToClientFieldId | null {
+  const id = String(raw || '').trim();
+  if (!id) return null;
+  if (LEGACY_NAME_FIELD_IDS.has(id)) return 'fullName';
+  if (SUBMIT_TO_CLIENT_FIELD_ID_SET.has(id)) return id as SubmitToClientFieldId;
+  return null;
+}
 
 function isLegacyUncustomizedTableColumns(raw: unknown): boolean {
   if (!Array.isArray(raw) || raw.length === 0) return true;
   const ids = raw.map((item) => String(item || '').trim()).filter(Boolean);
   if (ids.join(',') === LEGACY_DEFAULT_SUBMIT_TO_CLIENT_TABLE_COLUMNS.join(',')) return true;
   if (ids.join(',') === PREVIOUS_FIVE_COLUMN_SUBMIT_TO_CLIENT_TABLE.join(',')) return true;
+  if (ids.join(',') === PREVIOUS_SPLIT_NAME_SUBMIT_TO_CLIENT_TABLE.join(',')) return true;
   if (ids.length <= DEFAULT_SUBMIT_TO_CLIENT_TABLE_COLUMNS.length) return false;
   const legacy = LEGACY_DEFAULT_SUBMIT_TO_CLIENT_TABLE_COLUMNS;
   const legacySet = new Set(legacy);
-  if (ids.some((id) => !legacySet.has(id))) return false;
+  if (ids.some((id) => !legacySet.has(id) && !LEGACY_NAME_FIELD_IDS.has(id) && id !== 'fullName')) {
+    return false;
+  }
   let index = 0;
   for (const id of ids) {
     while (index < legacy.length && legacy[index] !== id) index += 1;
@@ -290,8 +307,8 @@ export function parseSubmitToClientTableColumns(
   const seen = new Set<SubmitToClientFieldId>();
   const next: SubmitToClientFieldId[] = [];
   for (const item of source) {
-    const id = String(item || '').trim() as SubmitToClientFieldId;
-    if (!SUBMIT_TO_CLIENT_FIELD_ID_SET.has(id) || seen.has(id)) continue;
+    const id = normalizeSubmitToClientTableColumnId(item);
+    if (!id || seen.has(id)) continue;
     if (parsedVisibility[id] === false) continue;
     seen.add(id);
     next.push(id);
@@ -324,12 +341,12 @@ const GROUP_SECTION_FIELDS: Record<ClientPresentationSectionId, SubmitToClientFi
 
 /** Client-review labels → settings field ids (any visible id keeps the row). */
 export const SUBMIT_TO_CLIENT_REVIEW_LABEL_FIELDS: Record<string, SubmitToClientFieldId[]> = {
-  name: ['firstName', 'lastName'],
-  'first name': ['firstName'],
-  'last name': ['lastName'],
-  'middle name': ['middleName'],
-  'full name': ['firstName', 'middleName', 'lastName'],
-  'name of candidate': ['firstName', 'middleName', 'lastName'],
+  name: ['fullName'],
+  'first name': ['fullName'],
+  'last name': ['fullName'],
+  'middle name': ['fullName'],
+  'full name': ['fullName'],
+  'name of candidate': ['fullName'],
   'e-mail': ['email'],
   email: ['email'],
   'mobile no': ['phone'],
@@ -475,6 +492,15 @@ export function parseSubmitToClientFieldVisibility(raw: unknown): SubmitToClient
     if (source[key] === false) merged[key] = false;
     else if (source[key] === true) merged[key] = true;
   }
+  // Migrate legacy First / Middle / Last flags into Full Name.
+  if (typeof source.fullName !== 'boolean') {
+    const legacyFlags = ['firstName', 'middleName', 'lastName']
+      .map((key) => source[key])
+      .filter((value): value is boolean => typeof value === 'boolean');
+    if (legacyFlags.length) {
+      merged.fullName = legacyFlags.some((value) => value !== false);
+    }
+  }
   return merged;
 }
 
@@ -484,7 +510,9 @@ export function coerceSubmitToClientFieldVisibility(
 ): SubmitToClientFieldVisibility | null {
   const source = readSubmitToClientVisibilitySource(raw);
   if (!source) return null;
-  const hasFlag = SUBMIT_TO_CLIENT_FIELDS.some((key) => typeof source[key] === 'boolean');
+  const hasFlag =
+    SUBMIT_TO_CLIENT_FIELDS.some((key) => typeof source[key] === 'boolean') ||
+    ['firstName', 'middleName', 'lastName'].some((key) => typeof source[key] === 'boolean');
   if (!hasFlag) return null;
   return parseSubmitToClientFieldVisibility(raw);
 }
@@ -586,9 +614,6 @@ function normalizeReviewLabel(label: string): string {
 }
 
 const COMPOSITE_REVIEW_LABELS = new Set([
-  'name',
-  'full name',
-  'name of candidate',
   'city & state',
   'salary expectation',
   'location (display)',
@@ -609,7 +634,7 @@ export function isSubmitToClientCandidateNameVisible(
 ): boolean {
   if (!visibility) return true;
   const parsed = parseSubmitToClientFieldVisibility(visibility);
-  return parsed.firstName !== false || parsed.middleName !== false || parsed.lastName !== false;
+  return parsed.fullName !== false;
 }
 
 export function isSubmitToClientReviewFieldVisible(

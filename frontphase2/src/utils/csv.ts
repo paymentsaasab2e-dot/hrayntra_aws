@@ -92,37 +92,36 @@ export function downloadCsv<T>(filename: string, columns: CsvColumn<T>[], rows: 
       readCachedOrgWatermark,
       watermarkImageForFormat,
       watermarkTextForFormat,
+      watermarkHasContent,
       downloadRowsAsWatermarkedXlsx,
     } = require('../lib/exportWatermark') as typeof import('../lib/exportWatermark');
 
     const run = async () => {
+      let cfg = readCachedOrgWatermark();
       try {
         const { fetchAndCacheOrgWatermark } = require('../lib/useOrgExportWatermark') as typeof import('../lib/useOrgExportWatermark');
-        await fetchAndCacheOrgWatermark();
+        cfg = await fetchAndCacheOrgWatermark();
       } catch {
-        /* cache optional */
+        cfg = readCachedOrgWatermark();
       }
 
-      const cfg = readCachedOrgWatermark();
       const imageUrl = watermarkImageForFormat(cfg, 'excel');
-      // Logo watermark → real Excel with embedded image (not "WATERMARK: [logo watermark]").
-      if (cfg.enabled && imageUrl) {
+      const textStamp = watermarkTextForFormat(cfg, 'csv');
+      // Any enabled watermark content → .xlsx so logo (and/or text) is visible in Excel.
+      if (cfg.enabled && watermarkHasContent(cfg) && (imageUrl || cfg.applyToExcel)) {
         try {
           await downloadRowsAsWatermarkedXlsx(filename, columns, rows);
+          return;
         } catch (err) {
           console.warn('[downloadCsv] watermarked xlsx failed', err);
-          downloadCsvAsText(filename, columns, rows);
         }
-        return;
       }
 
       const headerIds = columns.map((column) => column.id);
       const rowMatrix = rows.map((row) => columns.map((column) => column.accessor(row)));
       let text = buildCsvText(headerIds, rowMatrix);
-      const stamp = watermarkTextForFormat(cfg, 'csv');
-      if (stamp) {
-        // Keep BOM at the very start so Excel does not show ï»¿ on the header row.
-        text = `\ufeff"WATERMARK: ${stamp.replace(/"/g, '""')}"\r\n${text.replace(/^\ufeff/, '')}`;
+      if (textStamp) {
+        text = `\ufeff"WATERMARK: ${textStamp.replace(/"/g, '""')}"\r\n${text.replace(/^\ufeff/, '')}`;
       }
       triggerCsvDownload(filename, text);
     };

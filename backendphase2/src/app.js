@@ -9,6 +9,11 @@ import {
   publicApplyTenantMiddleware,
 } from './middleware/tenant-context.middleware.js';
 import { requestLoggerMiddleware, responseTimingMiddleware } from './middleware/request-logger.middleware.js';
+import { securityHeaders } from './middleware/securityHeaders.middleware.js';
+import {
+  publicFormRateLimit,
+  publicTokenRateLimit,
+} from './middleware/publicRateLimit.middleware.js';
 import { env } from './config/env.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -124,6 +129,7 @@ app.use(
   }),
 );
 const jsonBodyLimit = process.env.JSON_BODY_LIMIT || '15mb';
+app.use(securityHeaders);
 app.use(express.json({ limit: jsonBodyLimit }));
 app.use(express.urlencoded({ extended: true, limit: jsonBodyLimit }));
 app.use(compression());
@@ -236,11 +242,11 @@ app.get('/api/v1/auth/test', (req, res) => {
 // before our shared-secret middleware ever sees the request.
 app.use('/api/v1/internal', portalSyncRoutes);
 // Public document proxies — must be registered before `/api/v1` routers that apply authMiddleware globally
-app.use('/api/v1/pdf-proxy', pdfProxyRoutes);
-app.use('/api/v1/public/uploads', publicUploadsRoutes);
-app.use('/api/v1/resume-preview', resumePreviewRoutes);
-app.use('/api/v1/public/tenant-jobs', publicTenantJobsRoutes);
-app.use('/api/v1/public', publicLandingRoutes);
+app.use('/api/v1/pdf-proxy', publicTokenRateLimit, pdfProxyRoutes);
+app.use('/api/v1/public/uploads', publicTokenRateLimit, publicUploadsRoutes);
+app.use('/api/v1/resume-preview', publicTokenRateLimit, resumePreviewRoutes);
+app.use('/api/v1/public/tenant-jobs', publicFormRateLimit, publicTenantJobsRoutes);
+app.use('/api/v1/public', publicFormRateLimit, publicLandingRoutes);
 app.use('/api/v1/auth', authRoutes);
 // HQ routes include a public pricing endpoint and must be mounted before
 // router-level auth middlewares mounted on generic /api/v1 routers.
@@ -253,9 +259,10 @@ app.use('/api/v1/tenant-behavior', tenantBehaviorRoutes);
 app.use('/api/v1/adzuna', adzunaFeedRoutes);
 app.use('/api/v1/careerjet', careerjetFeedRoutes);
 // Public job apply — register before any `/api/v1` router with router-level authMiddleware
-app.get('/api/v1/jobs/public/apply/:token', jobPublicApplyController.getPublicApplyPage);
+app.get('/api/v1/jobs/public/apply/:token', publicFormRateLimit, jobPublicApplyController.getPublicApplyPage);
 app.post(
   '/api/v1/jobs/public/apply/:token/submit',
+  publicFormRateLimit,
   publicApplyUpload,
   publicApplyTenantMiddleware,
   jobPublicApplyController.submitPublicApply
@@ -263,26 +270,31 @@ app.post(
 // Public lead intake form — before auth routers
 app.get(
   '/api/v1/leads/public/form/:token',
+  publicFormRateLimit,
   publicApplyTenantMiddleware,
   leadPublicFormController.getPublicForm
 );
 app.get(
   '/api/v1/leads/public/form/:token/submissions',
+  publicFormRateLimit,
   publicApplyTenantMiddleware,
   leadPublicFormController.listPublicSubmissions
 );
 app.post(
   '/api/v1/leads/public/form/:token/submit',
+  publicFormRateLimit,
   publicApplyTenantMiddleware,
   leadPublicFormController.submitPublicForm
 );
 app.patch(
   '/api/v1/leads/public/form/:token/leads/:id',
+  publicFormRateLimit,
   publicApplyTenantMiddleware,
   leadPublicFormController.updatePublicFormLead
 );
 app.delete(
   '/api/v1/leads/public/form/:token/leads/:id',
+  publicFormRateLimit,
   publicApplyTenantMiddleware,
   leadPublicFormController.deletePublicFormLead
 );

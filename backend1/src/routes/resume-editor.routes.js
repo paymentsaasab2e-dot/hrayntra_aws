@@ -1,4 +1,5 @@
 const { Router } = require('express');
+const { protect } = require('../middleware/auth.middleware');
 const {
   getResumeJSON,
   updateResumeJSON,
@@ -8,6 +9,7 @@ const {
 } = require('../controllers/resume-editor.controller');
 
 const router = Router();
+router.use(protect);
 
 // Get resume JSON for editing
 router.get('/:candidateId', getResumeJSON);

@@ -4,12 +4,17 @@ import { env } from '../config/env.js';
 const TOKEN_TYPE = 'interview_rsvp';
 
 function secret() {
-  return (
+  const configured =
     process.env.INTERVIEW_RSVP_EMAIL_SECRET ||
     env.JWT_ACCESS_SECRET ||
     env.JWT_SECRET ||
-    'interview-rsvp-email-dev'
-  );
+    '';
+  if (!String(configured || '').trim()) {
+    throw new Error(
+      'INTERVIEW_RSVP_EMAIL_SECRET (or JWT_ACCESS_SECRET / JWT_SECRET) is required for RSVP tokens'
+    );
+  }
+  return configured;
 }
 
 /** Signed public link for candidate accept / reject / reschedule (no login). */
