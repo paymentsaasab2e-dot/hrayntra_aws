@@ -4,7 +4,7 @@
  * HQ Reports — analytics control tower for Employees, Entrepreneurs, CRM, and HQ Operations.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { matchesQuickSearch, buildQuickSearchHaystack } from '../../lib/quickSearch';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '@/lib/quickSearch';
 import { BarChart3, Download, RefreshCw, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { HqModulePageLayout } from '@/components/hq/HqModulePageLayout';

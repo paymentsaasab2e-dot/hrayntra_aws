@@ -5,7 +5,7 @@
  * data stored only in headquarters DB via /hq/companies.
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { matchesQuickSearch, buildQuickSearchHaystack } from '../../lib/quickSearch';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '@/lib/quickSearch';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
   BadgeInfo,

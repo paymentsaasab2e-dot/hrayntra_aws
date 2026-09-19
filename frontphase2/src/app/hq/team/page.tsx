@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { matchesQuickSearch, buildQuickSearchHaystack } from '../../lib/quickSearch';
+import { matchesQuickSearch, buildQuickSearchHaystack } from '@/lib/quickSearch';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   GitBranch,
