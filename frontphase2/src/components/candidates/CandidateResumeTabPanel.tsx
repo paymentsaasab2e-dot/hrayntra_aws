@@ -6,6 +6,7 @@ import { Download, Eye, Loader2, Pencil, RefreshCw, Trash2, Upload } from 'lucid
 import { ResumeInlinePreview } from './ResumeInlinePreview';
 import { ResumePreviewModal } from './ResumePreviewModal';
 import { SaasaCvSavedPreview } from './SaasaCvSavedPreview';
+import { SaasaCvCompositePreview } from './SaasaCvCompositePreview';
 import type { CandidateProfileDrawerData } from '../drawers/CandidateProfileDrawer';
 import {
   apiDeleteCandidateResumeVersion,
@@ -33,13 +34,15 @@ import {
   resolveCandidateResumeUrlFromSources,
 } from '../../lib/phase1ProfileSnapshot';
 import {
+  hasSaasaCvDocumentTextEdits,
   readSaasaCvAnnotations,
+  resolveSaasaCvBaseResumeUrl,
   resolveSaasaCvPreviewUrl,
   type SaasaCvFileRef,
 } from '../../lib/saasaCvAnnotations';
 import { buildFileHref } from '../../utils/cloudinaryUrls';
 import { getResumeExtension, isResumeHttpUrl, normalizeResumeHref } from '../../lib/resumePreview';
-import { triggerFileDownload } from '../../utils/triggerFileDownload';
+import { triggerBlobDownload, triggerFileDownload } from '../../utils/triggerFileDownload';
 import { requestConfirm, SYSTEM_ALERT_TITLE } from '../../lib/appDialog';
 import { startAsyncLoad } from '../../lib/asyncLoadGuard';
 import { downloadCvEditorPlainText, printCvEditorAsPdf } from '../../lib/cvEditorExport';
@@ -790,11 +793,31 @@ export function CandidateResumeTabPanel({
   }, [saasaPreviewRaw, saasaStored?.fileUrl, saasaSavedFileUrl, uploadsBase]);
 
   const saasaBaseResumeHref = useMemo(() => {
-    const raw = String(saasaStored?.resumeUrl || effectiveResumeHref || '').trim();
+    const raw = resolveSaasaCvBaseResumeUrl({
+      storedResumeUrl: saasaStored?.resumeUrl,
+      originalResumeUrl: String(
+        (backendCandidate?.extraData as Record<string, unknown> | null | undefined)?.originalResumeUrl ||
+          (candidate.extraData as Record<string, unknown> | null | undefined)?.originalResumeUrl ||
+          filesResumeUrl ||
+          '',
+      ),
+      fallbackResumeUrl: effectiveResumeHref || filesResumeUrl,
+      saasaFileUrl: saasaStored?.fileUrl || saasaSavedFileUrl || saasaPreviewRaw,
+    });
     if (!raw) return '';
     if (isResumeHttpUrl(raw)) return normalizeResumeHref(raw);
     return buildFileHref(raw, uploadsBase);
-  }, [saasaStored?.resumeUrl, effectiveResumeHref, uploadsBase]);
+  }, [
+    saasaStored?.resumeUrl,
+    saasaStored?.fileUrl,
+    saasaSavedFileUrl,
+    saasaPreviewRaw,
+    backendCandidate?.extraData,
+    candidate.extraData,
+    effectiveResumeHref,
+    filesResumeUrl,
+    uploadsBase,
+  ]);
 
   useEffect(() => {
     if (!enabled || !candidate.id) {
@@ -994,14 +1017,42 @@ export function CandidateResumeTabPanel({
   };
 
   const handleDownloadSaasaCv = async () => {
-    const source = saasaPreviewRaw || saasaStored?.fileUrl || saasaSavedFileUrl || effectiveSaasaPreviewHref;
-    if (!source || downloadingSaasa) return;
+    if (downloadingSaasa) return;
     setDownloadingSaasa(true);
     try {
-      const namedFile = candidateFiles.find((file) => file.fileUrl && file.fileUrl === source);
-      await triggerFileDownload(source, {
-        uploadsBase,
-        filename: namedFile?.fileName || buildResumeFilename(source, 'saasa-cv'),
+      const filename =
+        candidateFiles.find((file) => file.fileUrl && file.fileUrl === (saasaStored?.fileUrl || ''))
+          ?.fileName ||
+        saasaStored?.fileName ||
+        buildResumeFilename(
+          saasaPreviewRaw || saasaStored?.fileUrl || saasaSavedFileUrl || effectiveSaasaPreviewHref || 'hryantra-cv.pdf',
+          'saasa-cv',
+        );
+
+      const baseResume = saasaBaseResumeHref || effectiveResumeHref;
+      if (!baseResume) throw new Error('No original resume found to rebuild HRYantra CV');
+
+      const { exportSaasaCvFromStoredData, withExportTimeout } = await import(
+        '../../lib/saasaCvExport'
+      );
+      const blob = await withExportTimeout(
+        exportSaasaCvFromStoredData({
+          resumeUrl: baseResume,
+          annotations: saasaStored?.items ?? [],
+          companyLogo: saasaStored?.companyLogo ?? null,
+          pdfTextLayerHtml: saasaStored?.pdfTextLayerHtml ?? null,
+          width: 800,
+        }),
+        60000,
+        'HRYantra CV download',
+      );
+      if (!blob || blob.size < 5000) {
+        throw new Error(
+          'Could not build HRYantra CV PDF. Open Edit HRYantra CV, wait for the CV to load, Save, then download again.',
+        );
+      }
+      await triggerBlobDownload(blob, filename.endsWith('.pdf') ? filename : `${filename}.pdf`, {
+        skipWatermark: true,
       });
     } catch (error) {
       onToast?.(error instanceof Error ? error.message : 'Failed to download HRYantra CV');
@@ -1011,10 +1062,25 @@ export function CandidateResumeTabPanel({
   };
 
   const showOriginalPreview = viewMode === 'original' && Boolean(effectiveResumeHref);
-  /** Resume tab HRYantra CV mode: only the saved export (never live annotation overlay). */
-  const showSaasaSavedFile = viewMode === 'saasa' && Boolean(effectiveSaasaPreviewHref);
+  /**
+   * When scribbles / logo / text edits exist, preview the same live composite as Edit
+   * so every teammate sees marks — not only the person who saved (or Super Admin).
+   * Fall back to the exported snapshot file when there are no live overlays.
+   */
+  const hasLiveSaasaOverlays = Boolean(
+    (saasaStored?.items && saasaStored.items.length > 0) ||
+      saasaStored?.companyLogo?.url ||
+      hasSaasaCvDocumentTextEdits(saasaStored),
+  );
+  const showSaasaComposite =
+    viewMode === 'saasa' && Boolean(saasaBaseResumeHref) && hasLiveSaasaOverlays;
+  const showSaasaSavedFile =
+    viewMode === 'saasa' && !showSaasaComposite && Boolean(effectiveSaasaPreviewHref);
   const showSaasaEmpty =
-    viewMode === 'saasa' && !effectiveSaasaPreviewHref && Boolean(onOpenSaasaCv);
+    viewMode === 'saasa' &&
+    !showSaasaComposite &&
+    !effectiveSaasaPreviewHref &&
+    Boolean(onOpenSaasaCv);
   const portalTailoredCvHtml = useMemo(
     () => readPortalTailoredCvHtml(resumeSourceCandidate),
     [resumeSourceCandidate],
@@ -1363,6 +1429,19 @@ export function CandidateResumeTabPanel({
                 minHeightClass="h-full min-h-0"
                 className="h-full"
               />
+            ) : showSaasaComposite && saasaBaseResumeHref ? (
+              <SaasaCvCompositePreview
+                key={`saasa-live-${saasaStored?.updatedAt ?? ''}-${saasaStored?.items?.length ?? 0}-${saasaBaseResumeHref}`}
+                baseResumeUrl={saasaBaseResumeHref}
+                annotations={saasaStored?.items ?? []}
+                companyLogo={saasaStored?.companyLogo ?? null}
+                documentHtml={saasaStored?.documentHtml ?? null}
+                pdfTextLayerHtml={saasaStored?.pdfTextLayerHtml ?? null}
+                candidateName={candidate.name}
+                enabled={enabled && viewMode === 'saasa'}
+                minHeightClass="h-full min-h-0"
+                className="h-full"
+              />
             ) : showSaasaSavedFile ? (
               <SaasaCvSavedPreview
                 fileUrl={effectiveSaasaPreviewHref}
@@ -1456,7 +1535,20 @@ export function CandidateResumeTabPanel({
                   </button>
                 </div>
                 <div className="min-h-0 flex-1">
-                  {effectiveSaasaPreviewHref ? (
+                  {showSaasaComposite && saasaBaseResumeHref ? (
+                    <SaasaCvCompositePreview
+                      key={`saasa-preview-modal-${saasaStored?.updatedAt ?? ''}-${saasaStored?.items?.length ?? 0}`}
+                      baseResumeUrl={saasaBaseResumeHref}
+                      annotations={saasaStored?.items ?? []}
+                      companyLogo={saasaStored?.companyLogo ?? null}
+                      documentHtml={saasaStored?.documentHtml ?? null}
+                      pdfTextLayerHtml={saasaStored?.pdfTextLayerHtml ?? null}
+                      candidateName={candidate.name}
+                      enabled={saasaPreviewOpen}
+                      minHeightClass="h-full min-h-0"
+                      className="h-full"
+                    />
+                  ) : effectiveSaasaPreviewHref ? (
                     <SaasaCvSavedPreview
                       fileUrl={effectiveSaasaPreviewHref}
                       cacheKey={saasaStored?.updatedAt ?? saasaStored?.fileId ?? null}

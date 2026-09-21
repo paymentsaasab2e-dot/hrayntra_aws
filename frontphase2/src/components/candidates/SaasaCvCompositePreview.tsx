@@ -105,7 +105,9 @@ export function SaasaCvCompositePreview({
       const host = pdfHostRef.current;
       if (!host) return false;
 
-      void renderSaasaPdfPages(host, buildResumeViewerUrl(href))
+      void renderSaasaPdfPages(host, buildResumeViewerUrl(href), {
+          isCurrent: () => !cancelled && gen === pdfLoadGenRef.current,
+        })
         .then((meta) => {
           if (cancelled || gen !== pdfLoadGenRef.current) return;
           enforcePdfPageLayout(host);
@@ -120,8 +122,9 @@ export function SaasaCvCompositePreview({
           });
           host.style.minHeight = `${totalHeight}px`;
         })
-        .catch(() => {
+        .catch((e: unknown) => {
           if (cancelled || gen !== pdfLoadGenRef.current) return;
+          if (e instanceof DOMException && e.name === 'AbortError') return;
           setPdfDocMeta(null);
           setPdfRenderFailed(true);
         })

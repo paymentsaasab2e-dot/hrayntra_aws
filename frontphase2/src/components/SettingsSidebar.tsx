@@ -107,7 +107,6 @@ const baseSettingsNav: SettingsNavItem[] = [
     id: 'watermark',
     label: 'Watermark',
     icon: Droplets,
-    superAdminOnly: true,
   },
   { id: 'customization', label: 'Customization', icon: Sliders },
 ];

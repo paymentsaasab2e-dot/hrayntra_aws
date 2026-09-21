@@ -11,6 +11,8 @@ export const RECRUITER_CV_EXTRA_KEYS = [
   'portalAiCvSaved',
   'portalAiCvSavedAt',
   'recruiterCvEditorSaved',
+  // HRYantra CV scribbles / export — must survive portal merges for every teammate.
+  'saasaCvAnnotations',
 ];
 
 function parseExtra(extraData) {

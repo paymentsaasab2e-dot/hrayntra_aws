@@ -9,6 +9,7 @@ import {
   setExportWatermark,
   DEFAULT_EXPORT_WATERMARK,
 } from './exportWatermark.service.js';
+import { getPublicClientReviewExportWatermark } from './publicClientReviewWatermark.util.js';
 import { storeExportWatermarkLogoFile } from './exportWatermarkLogo.service.js';
 import {
   getRecruitmentMode,
@@ -385,10 +386,12 @@ router.get('/commission-slabs/resolve', async (req, res) => {
   }
 });
 
-/** Any authenticated member — used when stamping exports. */
+/** Any authenticated member — used when stamping exports. Embeds logo as data URL. */
 router.get('/watermark', async (req, res) => {
   try {
-    const watermark = await getExportWatermark();
+    // Include imageDataUrl so every tenant member can stamp PDFs/Excel without
+    // relying on a browser session that only Super Admin warmed up in Settings.
+    const watermark = await getPublicClientReviewExportWatermark();
     sendResponse(res, 200, 'OK', { watermark, defaults: DEFAULT_EXPORT_WATERMARK });
   } catch (error) {
     sendError(res, 500, error.message || 'Failed to load watermark', error);

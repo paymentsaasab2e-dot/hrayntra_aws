@@ -812,6 +812,9 @@ html {
 }
 
 .saasa-pdf-inplace-line {
+  /* Invisible until edited — avoids double-text / ghosting over the PDF canvas */
+  color: transparent;
+  background: transparent;
   outline: none;
   box-sizing: border-box;
   font-synthesis: weight style;
@@ -826,8 +829,12 @@ html {
 .saasa-pdf-inplace-line.saasa-pdf-inplace-line--cleared {
   background: #ffffff !important;
   color: #111827 !important;
-  overflow: hidden;
+  overflow: hidden !important;
+  line-height: 1 !important;
+  white-space: pre !important;
   z-index: 3;
+  display: flex !important;
+  align-items: center;
 }
 
 .saasa-pdf-inplace-line.saasa-pdf-inplace-line--cleared {

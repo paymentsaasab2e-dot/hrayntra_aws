@@ -32,6 +32,14 @@ import { compositeCompanyLogoOnCanvas } from '../lib/saasaCvPaintCanvas';
 import { exportPaintLayerPdf } from '../lib/saasaCvExport';
 import { SaasaCvAnnotationModal } from '../components/candidates/SaasaCvAnnotationModal';
 
+function normalizeUrl(url: string): string {
+  return String(url || '')
+    .trim()
+    .replace(/[?#].*$/, '')
+    .replace(/\/+$/, '')
+    .toLowerCase();
+}
+
 interface UseSaasaCvAnnotationsOptions {
   candidateId?: string | null;
   candidateName?: string;
@@ -72,17 +80,23 @@ export function useSaasaCvAnnotations({
   const effectiveResumeUrl =
     resolvedResumeUrl?.trim() || resumeUrl?.trim() || null;
 
-  const stored = useMemo(
-    () => readSaasaCvAnnotations(extraData ?? backendCandidate?.extraData ?? null),
-    [extraData, backendCandidate?.extraData]
-  );
+  const stored = useMemo(() => {
+    const fromBackend = readSaasaCvAnnotations(backendCandidate?.extraData ?? null);
+    const fromDrawer = readSaasaCvAnnotations(extraData ?? null);
+    if (fromBackend && fromDrawer) {
+      const tb = Date.parse(fromBackend.updatedAt || '') || 0;
+      const td = Date.parse(fromDrawer.updatedAt || '') || 0;
+      return tb >= td ? fromBackend : fromDrawer;
+    }
+    return fromBackend ?? fromDrawer;
+  }, [extraData, backendCandidate?.extraData]);
 
   const initialCompanyLogo = useMemo(
     () =>
-      readSaasaCvCompanyLogo(extraData ?? backendCandidate?.extraData ?? null) ??
       stored?.companyLogo ??
+      readSaasaCvCompanyLogo(backendCandidate?.extraData ?? extraData ?? null) ??
       null,
-    [extraData, backendCandidate?.extraData, stored?.companyLogo]
+    [backendCandidate?.extraData, extraData, stored?.companyLogo]
   );
 
   const openModal = useCallback(() => {
@@ -180,71 +194,89 @@ export function useSaasaCvAnnotations({
 
         let savedFullSnapshot = fullSnapshot;
         let savedSnapshotFormat: 'pdf' | 'png' | undefined;
+        let uploadWarning: string | null = null;
+
+        // Keep previous file if this save cannot produce a new snapshot.
+        // Never delete the existing file just because export failed — that wiped marks + CV.
         if (shouldUploadSnapshot && exportPayload) {
           let blob: Blob | null = null;
           if (exportPayload instanceof Blob) {
             blob = exportPayload;
           } else if (exportPayload instanceof HTMLCanvasElement) {
-            if (fullSnapshot) {
-              throw new Error(
-                'Full CV PDF export failed. Wait for the CV to load completely, then save again.'
-              );
+            if (!fullSnapshot) {
+              if (resolvedLogo?.url) {
+                await compositeCompanyLogoOnCanvas(exportPayload, resolvedLogo);
+              }
+              blob = await exportPaintLayerPdf(exportPayload);
+              savedFullSnapshot = false;
             }
-            if (resolvedLogo?.url) {
-              await compositeCompanyLogoOnCanvas(exportPayload, resolvedLogo);
-            }
-            blob = await exportPaintLayerPdf(exportPayload);
-            savedFullSnapshot = false;
           }
-          if (fullSnapshot && !blob) {
-            throw new Error(
-              'Full CV PDF export failed. Wait for the CV to load completely, then save again.'
-            );
-          }
-          if (blob) {
+
+          if (blob && blob.size >= 5000) {
             savedSnapshotFormat =
               blob.type === 'application/pdf' || blob.type.includes('pdf') ? 'pdf' : 'png';
-            if (fileId) {
-              try {
-                await filesApiDelete('candidate', candidateId, fileId);
-              } catch {
-                /* replace previous export */
+            try {
+              if (fileId) {
+                try {
+                  await filesApiDelete('candidate', candidateId, fileId);
+                } catch {
+                  /* replace previous export */
+                }
               }
+              const safeName =
+                (candidateName || 'Candidate').replace(/[^\w\s-]/g, '').trim() || 'Candidate';
+              const isPdf = blob.type === 'application/pdf' || blob.type.includes('pdf');
+              const file = new File(
+                [blob],
+                `HRYantra CV - ${safeName}.${isPdf ? 'pdf' : 'png'}`,
+                { type: isPdf ? 'application/pdf' : 'image/png' }
+              );
+              const uploadRes = await filesApiUpload(
+                'candidate',
+                candidateId,
+                file,
+                SAASA_CV_FILE_TYPE
+              );
+              const uploaded = extractApiData<{
+                id?: string;
+                fileUrl?: string | null;
+                fileName?: string;
+              }>(uploadRes);
+              if (uploaded?.id) {
+                fileId = uploaded.id;
+                fileUrl = uploaded.fileUrl ?? null;
+                fileName = uploaded.fileName || file.name;
+              }
+            } catch (uploadErr: unknown) {
+              uploadWarning =
+                uploadErr instanceof Error
+                  ? uploadErr.message
+                  : 'Could not upload HRYantra CV PDF file.';
+              // Keep previous fileId/fileUrl — annotations still save below.
             }
-            const safeName = (candidateName || 'Candidate').replace(/[^\w\s-]/g, '').trim() || 'Candidate';
-            const isPdf = blob.type === 'application/pdf' || blob.type.includes('pdf');
-            const file = new File(
-              [blob],
-              `HRYantra CV - ${safeName}.${isPdf ? 'pdf' : 'png'}`,
-              { type: isPdf ? 'application/pdf' : 'image/png' }
-            );
-            const uploadRes = await filesApiUpload('candidate', candidateId, file, SAASA_CV_FILE_TYPE);
-            const uploaded = extractApiData<{
-              id?: string;
-              fileUrl?: string | null;
-              fileName?: string;
-            }>(uploadRes);
-            if (uploaded?.id) {
-              fileId = uploaded.id;
-              fileUrl = uploaded.fileUrl ?? null;
-              fileName = uploaded.fileName || file.name;
-            }
+          } else if (exportPayload) {
+            uploadWarning =
+              'CV PDF export looked empty — marks and text edits were still saved. Try Save again after the CV finishes loading.';
           }
-        } else if (!shouldUploadSnapshot && fileId) {
-          try {
-            await filesApiDelete('candidate', candidateId, fileId);
-          } catch {
-            /* ignore */
-          }
-          fileId = undefined;
-          fileUrl = null;
-          fileName = undefined;
         }
 
+        const pinnedOriginal = String(
+          (existingExtra as Record<string, unknown> | null)?.originalResumeUrl || ''
+        ).trim();
+        let safeResumeUrl = String(effectiveResumeUrl || prevStored?.resumeUrl || '').trim();
+        if (fileUrl && safeResumeUrl && normalizeUrl(safeResumeUrl) === normalizeUrl(fileUrl)) {
+          safeResumeUrl = pinnedOriginal || String(prevStored?.resumeUrl || '').trim();
+        }
+        if (fileUrl && safeResumeUrl && normalizeUrl(safeResumeUrl) === normalizeUrl(fileUrl)) {
+          safeResumeUrl = '';
+        }
+        if (!safeResumeUrl) safeResumeUrl = pinnedOriginal || String(effectiveResumeUrl || '').trim();
+
+        // Always persist scribbles + text edits — even when PDF upload failed.
         const nextExtra = buildSaasaCvSaveExtra(
           existingExtra,
           {
-            resumeUrl: effectiveResumeUrl,
+            resumeUrl: safeResumeUrl || effectiveResumeUrl,
             items,
             companyLogo: resolvedLogo,
             fileId,
@@ -267,17 +299,21 @@ export function useSaasaCvAnnotations({
           extractApiData<BackendCandidate>(response) ?? ({} as BackendCandidate)
         );
         if (updated?.id) setBackendCandidate(updated);
-        if (fileUrl || items.length > 0 || resolvedLogo?.url) {
+        if (fileUrl || items.length > 0 || resolvedLogo?.url || hasTextEdits) {
           setPreferredResumeViewMode('saasa');
           onViewModeChange?.('saasa');
         }
         await onCandidateUpdated?.();
         await onFilesRefresh?.();
-        onToast?.(
-          fileId
-            ? 'HRYantra CV saved and added to Files.'
-            : 'HRYantra CV annotations saved.'
-        );
+        if (uploadWarning) {
+          onToast?.(uploadWarning);
+        } else {
+          onToast?.(
+            fileId
+              ? 'HRYantra CV saved and added to Files.'
+              : 'HRYantra CV annotations saved.'
+          );
+        }
         closeModal();
         return true;
       } catch (error: unknown) {

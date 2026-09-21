@@ -74,7 +74,8 @@ export default function SettingsPage() {
         case 'activity-log':
           return isSuperAdmin();
         case 'watermark':
-          return isSuperAdmin();
+          // Everyone can see the active org watermark; only Super Admin can edit.
+          return true;
         default:
           return true;
       }

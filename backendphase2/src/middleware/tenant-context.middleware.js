@@ -1,3 +1,4 @@
+import jwt from 'jsonwebtoken';
 import { runWithTenantContext } from '../config/prisma.js';
 import { verifyToken } from '../utils/jwt.js';
 import { isValidTenantDbName } from '../utils/tenantDbName.util.js';
@@ -6,6 +7,19 @@ function extractBearerToken(authHeader) {
   if (!authHeader || typeof authHeader !== 'string') return '';
   if (!authHeader.startsWith('Bearer ')) return '';
   return authHeader.slice(7).trim();
+}
+
+/** Prefer verified JWT; fall back to decode so tenant ALS matches authMiddleware user lookup. */
+function resolveTokenPayload(token) {
+  if (!token) return null;
+  const verified = verifyToken(token);
+  if (verified && typeof verified === 'object') return verified;
+  try {
+    const decoded = jwt.decode(token);
+    return decoded && typeof decoded === 'object' ? decoded : null;
+  } catch {
+    return null;
+  }
 }
 
 export function resolvePublicApplyTenant(req) {
@@ -27,10 +41,7 @@ export function publicApplyTenantMiddleware(req, res, next) {
 
 export function authenticatedTenantAfterMulter(req, res, next) {
   const token = extractBearerToken(req.headers.authorization);
-  const payload = token ? verifyToken(token) : null;
-  if (token && !payload) {
-    return res.status(401).json({ success: false, message: 'Invalid token' });
-  }
+  const payload = resolveTokenPayload(token);
   const tokenTenant = String(payload?.tenantDbName || '').trim();
   const headerTenant = String(req.headers['x-tenant-db-name'] || '').trim();
   if (tokenTenant && headerTenant && tokenTenant !== headerTenant) {
@@ -49,7 +60,7 @@ export function authenticatedTenantAfterMulter(req, res, next) {
 
 export function tenantContextMiddleware(req, res, next) {
   const token = extractBearerToken(req.headers.authorization);
-  const payload = token ? verifyToken(token) : null;
+  const payload = resolveTokenPayload(token);
 
   const tokenTenantDbName = String(payload?.tenantDbName || '').trim();
   const headerTenantDbName = String(req.headers['x-tenant-db-name'] || '').trim();

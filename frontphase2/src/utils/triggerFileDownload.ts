@@ -150,6 +150,21 @@ async function downloadBlob(
   window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
 }
 
+/** Download an in-memory blob (e.g. freshly built HRYantra CV). */
+export async function triggerBlobDownload(
+  blob: Blob,
+  filename: string,
+  options?: {
+    watermark?: import('../lib/exportWatermark').ExportWatermarkSettings | null;
+    skipWatermark?: boolean;
+  },
+): Promise<void> {
+  if (!blob) throw new Error('No file to download');
+  await downloadBlob(blob, sanitizeFilename(filename || 'download.pdf'), options?.watermark ?? null, {
+    skipWatermark: options?.skipWatermark,
+  });
+}
+
 /** Start a browser file download without opening a new tab. */
 export async function triggerFileDownload(
   fileUrl: string | null | undefined,

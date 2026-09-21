@@ -194,25 +194,68 @@ function isStrayPdfFragment(str: string, fontSize: number): boolean {
 function syncLineMask(mask: HTMLDivElement, span: HTMLSpanElement): void {
   const scale = parseFloat(span.dataset.saasaScale || '1') || 1;
   const top = parseFloat(span.dataset.saasaTop || '0') * scale;
-  const height = parseFloat(span.dataset.saasaHeight || '12') * scale;
+  const height = resolveSpanBoxHeightPx(span);
+  // Cover the PDF glyphs under this line only — do not bleed into the next line.
+  const padY = Math.min(2, Math.max(1, height * 0.08));
   mask.style.position = 'absolute';
   mask.style.left = '0';
-  mask.style.top = `${Math.max(0, top - 2)}px`;
+  mask.style.top = `${Math.max(0, top - padY)}px`;
   mask.style.width = '100%';
-  mask.style.height = `${height * 1.4 + 4}px`;
+  mask.style.height = `${height + padY * 2}px`;
   mask.style.background = '#ffffff';
   mask.style.zIndex = '1';
   mask.style.pointerEvents = 'none';
+}
+
+/** Available vertical slot for this line before the next overlay line (display px). */
+function resolveSpanBoxHeightPx(el: HTMLSpanElement): number {
+  const scale = parseFloat(el.dataset.saasaScale || '1') || 1;
+  const rawH = Math.max(6, parseFloat(el.dataset.saasaHeight || '12') || 12) * scale;
+  const top = parseFloat(el.dataset.saasaTop || '0') * scale;
+
+  let nextTop = Number.POSITIVE_INFINITY;
+  const parent = el.parentElement;
+  if (parent) {
+    parent.querySelectorAll(`.${TEXT_SPAN_CLASS}`).forEach((node) => {
+      if (!(node instanceof HTMLSpanElement) || node === el) return;
+      const otherTop = parseFloat(node.dataset.saasaTop || '0') * scale;
+      if (otherTop > top + 0.5 && otherTop < nextTop) nextTop = otherTop;
+    });
+  }
+
+  if (Number.isFinite(nextTop)) {
+    const gap = nextTop - top;
+    if (gap > 2) {
+      // Leave a hairline between lines so saved/exported text never stacks on itself.
+      return Math.max(6, Math.min(rawH, gap * 0.9));
+    }
+  }
+  return rawH;
+}
+
+/**
+ * Keep each line box shorter than the distance to the next PDF line so
+ * edited overlays (white bg + black text) do not collide after save/export.
+ */
+function clampLineBoxesToNeighbors(lines: TextLineGroup[]): TextLineGroup[] {
+  if (lines.length < 2) return lines;
+  const sorted = [...lines].sort((a, b) => a.top - b.top || a.left - b.left);
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const cur = sorted[i];
+    const next = sorted[i + 1];
+    const gap = next.top - cur.top;
+    if (gap > 2 && cur.fontSize > gap * 0.9) {
+      cur.fontSize = Math.max(6, gap * 0.88);
+    }
+  }
+  return sorted;
 }
 
 function updateLineMaskVisibility(span: HTMLSpanElement): void {
   const mask = span.previousElementSibling;
   if (!(mask instanceof HTMLDivElement) || !mask.classList.contains(LINE_MASK_CLASS)) return;
   syncLineMask(mask, span);
-  const show =
-    span.classList.contains('saasa-pdf-inplace-line--cleared') ||
-    span.classList.contains('saasa-pdf-inplace-line--edited') ||
-    span.classList.contains('saasa-pdf-inplace-line--focused');
+  const show = isInPlaceSpanEdited(span);
   mask.style.display = show ? 'block' : 'none';
 }
 
@@ -347,12 +390,40 @@ function groupTextItemsIntoLines(
   return lines.filter((line) => line.text.trim().length > 0);
 }
 
+function isInPlaceSpanEdited(el: HTMLSpanElement): boolean {
+  return (
+    el.classList.contains('saasa-pdf-inplace-line--edited') ||
+    el.classList.contains('saasa-pdf-inplace-line--cleared') ||
+    el.classList.contains('saasa-pdf-inplace-line--focused') ||
+    el.getAttribute('data-saasa-touched') === '1'
+  );
+}
+
+/** Unedited lines stay invisible so the PDF canvas shows through (no double text). */
+function applyInPlaceSpanVisibility(el: HTMLSpanElement): void {
+  if (isInPlaceSpanEdited(el)) {
+    if (el.classList.contains('saasa-pdf-inplace-line--cleared') && !el.textContent?.trim()) {
+      el.style.background = '#ffffff';
+      el.style.color = 'transparent';
+    } else {
+      el.style.background = '#ffffff';
+      el.style.color = '#111827';
+    }
+  } else {
+    el.style.background = 'transparent';
+    el.style.color = 'transparent';
+  }
+}
+
 function maintainSpanBox(el: HTMLSpanElement): void {
   const width = el.dataset.saasaWidth;
-  const height = el.dataset.saasaHeight;
   const left = el.dataset.saasaLeft;
   const top = el.dataset.saasaTop;
   const scale = parseFloat(el.dataset.saasaScale || '1') || 1;
+  const boxH = resolveSpanBoxHeightPx(el);
+  // Glyph size must stay inside the box — fontSize === box height + line-height 1.1
+  // was colliding with the next resume line after save.
+  const fontPx = Math.max(5, boxH * 0.82);
 
   if (left != null) el.style.left = `${parseFloat(left) * scale}px`;
   if (top != null) el.style.top = `${parseFloat(top) * scale}px`;
@@ -361,12 +432,15 @@ function maintainSpanBox(el: HTMLSpanElement): void {
     el.style.width = `${w}px`;
     el.style.minWidth = `${w}px`;
   }
-  if (height != null) {
-    const h = parseFloat(height) * scale;
-    el.style.height = `${h}px`;
-    el.style.minHeight = `${h}px`;
-    el.style.fontSize = `${h}px`;
-  }
+
+  el.style.height = `${boxH}px`;
+  el.style.minHeight = `${boxH}px`;
+  el.style.fontSize = `${fontPx}px`;
+  el.style.lineHeight = '1';
+  el.style.display = 'flex';
+  el.style.alignItems = 'center';
+  el.style.overflow = 'hidden';
+  el.style.whiteSpace = 'pre';
 
   if (el.dataset.saasaFontFamily) el.style.fontFamily = el.dataset.saasaFontFamily;
   if (el.dataset.saasaFontWeight) el.style.fontWeight = el.dataset.saasaFontWeight;
@@ -374,22 +448,28 @@ function maintainSpanBox(el: HTMLSpanElement): void {
 
   if (!el.textContent?.length) {
     el.classList.add('saasa-pdf-inplace-line--cleared');
-    el.style.background = '#ffffff';
-    const h = height != null ? parseFloat(height) * scale : 12;
-    el.style.minHeight = `${h}px`;
+    el.style.minHeight = `${boxH}px`;
   } else {
     el.classList.remove('saasa-pdf-inplace-line--cleared');
   }
 
+  applyInPlaceSpanVisibility(el);
   updateLineMaskVisibility(el);
 }
 
 function wireSpanEditHandlers(el: HTMLSpanElement, readOnly: boolean): void {
+  // Always restore correct visibility first (clears bad saved inline colors
+  // that used to paint every line black and cause ghosting).
+  applyInPlaceSpanVisibility(el);
+
   if (readOnly) {
-    el.style.background = '#ffffff';
-    el.style.color = '#111827';
+    el.contentEditable = 'false';
+    el.style.cursor = 'default';
     return;
   }
+
+  if (el.dataset.saasaWired === '1') return;
+  el.dataset.saasaWired = '1';
 
   el.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') e.preventDefault();
@@ -410,12 +490,20 @@ function wireSpanEditHandlers(el: HTMLSpanElement, readOnly: boolean): void {
 
   el.addEventListener('focus', () => {
     ensureLineMask(el);
+    if (!el.dataset.saasaOriginal) {
+      el.dataset.saasaOriginal = String(el.textContent || '');
+    }
     el.classList.add('saasa-pdf-inplace-line--focused');
     maintainSpanBox(el);
   });
 
   el.addEventListener('blur', () => {
     el.classList.remove('saasa-pdf-inplace-line--focused');
+    const original = el.dataset.saasaOriginal;
+    if (original != null && String(el.textContent || '') !== original) {
+      el.setAttribute('data-saasa-touched', '1');
+      el.classList.add('saasa-pdf-inplace-line--edited');
+    }
     maintainSpanBox(el);
   });
 }
@@ -423,6 +511,8 @@ function wireSpanEditHandlers(el: HTMLSpanElement, readOnly: boolean): void {
 function buildLineSpan(line: TextLineGroup, displayScale: number, readOnly: boolean): HTMLSpanElement {
   const padX = 2;
   const lineWidth = Math.max(line.right - line.left + padX * 2, line.fontSize * 0.75);
+  const boxH = Math.max(6, line.fontSize);
+  const fontPx = Math.max(5, boxH * 0.82);
 
   const el = document.createElement('span');
   el.className = TEXT_SPAN_CLASS;
@@ -433,26 +523,29 @@ function buildLineSpan(line: TextLineGroup, displayScale: number, readOnly: bool
   el.dataset.saasaLeft = String(line.left);
   el.dataset.saasaTop = String(line.top);
   el.dataset.saasaWidth = String(lineWidth);
-  el.dataset.saasaHeight = String(line.fontSize);
+  el.dataset.saasaHeight = String(boxH);
   el.dataset.saasaScale = String(displayScale);
   el.dataset.saasaFontFamily = line.fontFamily;
   el.dataset.saasaFontWeight = line.fontWeight;
   el.dataset.saasaFontStyle = line.fontStyle;
+  el.dataset.saasaOriginal = line.text;
   el.style.position = 'absolute';
   el.style.left = `${Math.max(0, line.left - padX) * displayScale}px`;
   el.style.top = `${line.top * displayScale}px`;
   el.style.width = `${lineWidth * displayScale}px`;
   el.style.minWidth = `${lineWidth * displayScale}px`;
-  el.style.height = `${line.fontSize * displayScale}px`;
-  el.style.minHeight = `${line.fontSize * displayScale}px`;
-  el.style.fontSize = `${line.fontSize * displayScale}px`;
+  el.style.height = `${boxH * displayScale}px`;
+  el.style.minHeight = `${boxH * displayScale}px`;
+  el.style.fontSize = `${fontPx * displayScale}px`;
   el.style.fontFamily = line.fontFamily;
   el.style.fontWeight = line.fontWeight;
   el.style.fontStyle = line.fontStyle;
-  el.style.lineHeight = '1.1';
+  el.style.lineHeight = '1';
   el.style.letterSpacing = 'normal';
-  el.style.whiteSpace = 'pre-wrap';
+  el.style.whiteSpace = 'pre';
   el.style.overflow = 'hidden';
+  el.style.display = 'flex';
+  el.style.alignItems = 'center';
   el.style.margin = '0';
   el.style.padding = `0 ${padX}px`;
   el.style.border = 'none';
@@ -484,12 +577,14 @@ function populateLayer(
 ): void {
   layer.innerHTML = '';
   const pageFallbackFamily = detectDominantFontFamily(items, styles);
-  const lines = groupTextItemsIntoLines(
-    items,
-    viewportTransform,
-    util,
-    styles,
-    pageFallbackFamily
+  const lines = clampLineBoxesToNeighbors(
+    groupTextItemsIntoLines(
+      items,
+      viewportTransform,
+      util,
+      styles,
+      pageFallbackFamily
+    )
   );
   for (const line of lines) {
     const span = buildLineSpan(line, displayScale, readOnly);
@@ -535,10 +630,16 @@ function wireSavedSpanNodes(layer: HTMLDivElement, canvas: HTMLCanvasElement, re
     }
     node.contentEditable = readOnly ? 'false' : 'true';
     node.spellcheck = false;
-    node.style.whiteSpace = 'pre-wrap';
+    if (!node.dataset.saasaOriginal) {
+      node.dataset.saasaOriginal = String(node.textContent || '');
+    }
+    node.style.whiteSpace = 'pre';
     node.style.overflow = 'hidden';
     node.style.position = 'absolute';
     node.style.boxSizing = 'border-box';
+    node.style.display = 'flex';
+    node.style.alignItems = 'center';
+    node.style.lineHeight = '1';
     wireSpanEditHandlers(node, readOnly);
     ensureLineMask(node);
     maintainSpanBox(node);
@@ -700,21 +801,85 @@ export function setInPlacePdfTextEditing(host: HTMLElement | null, editing: bool
   });
 }
 
+/** Strip accidental visible styles from unedited lines before persist. */
+/** Embed page canvas size so download can map text edits without re-rendering PDF.js. */
+function pageSizeMarkerForLayer(layer: Element): string {
+  const page = layer.closest(PAGE_SELECTOR);
+  const canvas = page?.querySelector('canvas');
+  if (!(canvas instanceof HTMLCanvasElement) || canvas.width < 1 || canvas.height < 1) {
+    return '';
+  }
+  const scale = getCanvasDisplayScale(canvas);
+  return `<!--saasa-page:${canvas.width}x${canvas.height}:${scale}-->`;
+}
+
+function sanitizeInPlaceLayerHtmlForPersist(layer: Element): string {
+  const clone = layer.cloneNode(true) as HTMLElement;
+  clone.querySelectorAll(`.${TEXT_SPAN_CLASS}, span`).forEach((node) => {
+    if (!(node instanceof HTMLSpanElement)) return;
+    if (!node.classList.contains(TEXT_SPAN_CLASS)) node.classList.add(TEXT_SPAN_CLASS);
+    node.classList.remove('saasa-pdf-inplace-line--focused');
+    delete node.dataset.saasaWired;
+    if (!isInPlaceSpanEdited(node)) {
+      node.style.color = 'transparent';
+      node.style.background = 'transparent';
+      node.classList.remove('saasa-pdf-inplace-line--edited');
+      node.classList.remove('saasa-pdf-inplace-line--cleared');
+      node.removeAttribute('data-saasa-touched');
+    } else {
+      // Persist only touch markers + cleaned visibility
+      if (node.classList.contains('saasa-pdf-inplace-line--cleared') && !node.textContent?.trim()) {
+        node.style.background = '#ffffff';
+        node.style.color = 'transparent';
+      } else {
+        node.style.background = '#ffffff';
+        node.style.color = '#111827';
+      }
+    }
+  });
+  clone.querySelectorAll(`.${LINE_MASK_CLASS}`).forEach((mask) => {
+    const next = mask.nextElementSibling;
+    if (!(next instanceof HTMLSpanElement) || !isInPlaceSpanEdited(next)) {
+      mask.remove();
+    } else if (mask instanceof HTMLElement) {
+      mask.style.display = 'block';
+    }
+  });
+  const marker = pageSizeMarkerForLayer(layer);
+  return `${marker}${clone.innerHTML.trim()}`;
+}
+
 export function collectInPlacePdfTextHtml(host: HTMLElement | null): string[] {
   if (!host) return [];
   const layers = Array.from(host.querySelectorAll(`${PAGE_SELECTOR} .${TEXT_LAYER_CLASS}`));
+  if (!layers.length) return [];
+
+  // Mark lines whose text diverged from the original even if input events were missed.
+  layers.forEach((layer) => {
+    layer.querySelectorAll(`.${TEXT_SPAN_CLASS}`).forEach((node) => {
+      if (!(node instanceof HTMLSpanElement)) return;
+      const original = node.dataset.saasaOriginal;
+      if (original != null && String(node.textContent || '') !== original) {
+        node.setAttribute('data-saasa-touched', '1');
+        node.classList.add('saasa-pdf-inplace-line--edited');
+      }
+    });
+  });
+
   const hasTouched = layers.some((layer) =>
-    layer.querySelector(`[data-saasa-touched='1']`)
+    layer.querySelector(
+      `[data-saasa-touched='1'], .saasa-pdf-inplace-line--edited, .saasa-pdf-inplace-line--cleared`,
+    ),
   );
   if (!hasTouched) return [];
-  return layers.map((el) => el.innerHTML.trim());
+  return layers.map((el) => sanitizeInPlaceLayerHtmlForPersist(el));
 }
 
 export function collectInPlacePdfTextHtmlRaw(host: HTMLElement | null): string[] | null {
   if (!host) return null;
   const layers = Array.from(host.querySelectorAll(`${PAGE_SELECTOR} .${TEXT_LAYER_CLASS}`));
   if (!layers.length) return null;
-  return layers.map((el) => el.innerHTML.trim());
+  return layers.map((el) => sanitizeInPlaceLayerHtmlForPersist(el));
 }
 
 export function applyInPlacePdfTextHtmlToHost(
@@ -732,6 +897,60 @@ export function applyInPlacePdfTextHtmlToHost(
     wireSavedSpanNodes(layer, canvas, readOnly);
   });
   enforcePdfPageLayout(host);
+}
+
+/**
+ * Paint edited/cleared in-place text onto each page canvas so exports/downloads
+ * include the same text the user sees in preview (without overlapping).
+ */
+export function burnInPlaceTextOntoPageCanvases(host: HTMLElement | null): void {
+  if (!host) return;
+  host.querySelectorAll(PAGE_SELECTOR).forEach((pageWrap) => {
+    const canvas = pageWrap.querySelector('canvas.saasa-pdf-page-canvas, canvas');
+    const layer = pageWrap.querySelector(`.${TEXT_LAYER_CLASS}`);
+    if (!(canvas instanceof HTMLCanvasElement) || !(layer instanceof HTMLDivElement)) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const displayW = Math.max(1, canvas.clientWidth || layer.clientWidth || canvas.width);
+    const displayH = Math.max(1, canvas.clientHeight || layer.clientHeight || canvas.height);
+    const scaleX = canvas.width / displayW;
+    const scaleY = canvas.height / displayH;
+    const layerRect = layer.getBoundingClientRect();
+
+    layer.querySelectorAll(`.${TEXT_SPAN_CLASS}`).forEach((node) => {
+      if (!(node instanceof HTMLSpanElement)) return;
+      const edited = isInPlaceSpanEdited(node);
+      if (!edited) return;
+
+      const rect = node.getBoundingClientRect();
+      const left = (rect.left - layerRect.left) * scaleX;
+      const top = (rect.top - layerRect.top) * scaleY;
+      const w = Math.max(1, rect.width * scaleX);
+      const h = Math.max(1, rect.height * scaleY);
+
+      ctx.save();
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(Math.max(0, left - 2), Math.max(0, top - 2), w + 4, h + 4);
+
+      const text = String(node.textContent || '');
+      if (!text.trim() || node.classList.contains('saasa-pdf-inplace-line--cleared')) {
+        ctx.restore();
+        return;
+      }
+
+      const styles = window.getComputedStyle(node);
+      const fontSize = Math.max(5, (parseFloat(styles.fontSize) || 12) * scaleY);
+      ctx.fillStyle = '#111827';
+      ctx.font = `${styles.fontStyle || 'normal'} ${styles.fontWeight || '400'} ${fontSize}px ${
+        styles.fontFamily || 'Arial, sans-serif'
+      }`;
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'left';
+      ctx.fillText(text, left + 2 * scaleX, top + h / 2, Math.max(4, w - 4 * scaleX));
+      ctx.restore();
+    });
+  });
 }
 
 export const attachPdfTextLayersToHost = attachInPlacePdfTextToHost;

@@ -41,6 +41,7 @@ import {
   saasaCvDocYFromPageLocal,
   saasaCvLogoDocPositions,
   saasaCvPageLocalYFromDocY,
+  pdfTextLayerHtmlHasEdits,
   type SaasaCvAnnotation,
   type SaasaCvAnnotationType,
   type SaasaCvCompanyLogo,
@@ -482,7 +483,9 @@ export function SaasaCvAnnotationModal({
       const host = pdfHostRef.current;
       if (!host) return false;
 
-      void renderSaasaPdfPages(host, viewerUrl)
+      void renderSaasaPdfPages(host, viewerUrl, {
+          isCurrent: () => !cancelled && gen === pdfLoadGenRef.current,
+        })
         .then((meta) => {
           if (cancelled || gen !== pdfLoadGenRef.current) return;
           enforcePdfPageLayout(host);
@@ -503,6 +506,7 @@ export function SaasaCvAnnotationModal({
         })
         .catch((e: unknown) => {
           if (cancelled || gen !== pdfLoadGenRef.current) return;
+          if (e instanceof DOMException && e.name === 'AbortError') return;
           setPdfError(e instanceof Error ? e.message : 'Failed to load CV');
           setPdfDocMeta(null);
         })
@@ -575,6 +579,13 @@ export function SaasaCvAnnotationModal({
       pdfHostRef.current,
       activeTool === 'editText' || forcePdfEditorCapture
     );
+    // When leaving Edit Text, snapshot edits into React state so Save still has them.
+    if (activeTool !== 'editText' && !forcePdfEditorCapture) {
+      const layers = collectInPlacePdfTextHtml(pdfHostRef.current);
+      if (layers.some((h) => h.trim())) {
+        setPdfTextLayerHtml(layers);
+      }
+    }
   }, [activeTool, forcePdfEditorCapture, canPdf, pdfTextEditReady]);
 
   useEffect(() => {
@@ -1155,7 +1166,7 @@ export function SaasaCvAnnotationModal({
 
   const collectDocumentEdits = useCallback(() => {
     let nextDocumentHtml = documentHtml;
-    let nextPdfTextLayerHtml: string[] | null = null;
+    let nextPdfTextLayerHtml: string[] | null = pdfTextLayerHtml;
 
     if (canWord && surfaceRef.current) {
       const body = surfaceRef.current.querySelector('.resume-docx-body');
@@ -1165,10 +1176,17 @@ export function SaasaCvAnnotationModal({
     }
 
     if (canPdf && pdfHostRef.current) {
+      // Prefer live collect (includes freshly typed edits). Fall back to state.
       const layers = collectInPlacePdfTextHtml(pdfHostRef.current);
       if (layers.some((h) => h.trim())) {
         nextPdfTextLayerHtml = layers;
         nextDocumentHtml = null;
+      } else {
+        const raw = collectInPlacePdfTextHtmlRaw(pdfHostRef.current);
+        if (raw?.some((h) => h.trim()) && pdfTextLayerHtmlHasEdits(raw)) {
+          nextPdfTextLayerHtml = raw;
+          nextDocumentHtml = null;
+        }
       }
     }
 
@@ -1183,7 +1201,7 @@ export function SaasaCvAnnotationModal({
       documentHtml: nextDocumentHtml,
       pdfTextLayerHtml: nextPdfTextLayerHtml,
     };
-  }, [canWord, canText, canPdf, documentHtml]);
+  }, [canWord, canText, canPdf, documentHtml, pdfTextLayerHtml]);
 
   const handleSave = async () => {
     if (!onSave || saving || exporting) return;
@@ -1198,7 +1216,11 @@ export function SaasaCvAnnotationModal({
     paintRedraw();
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 
+    // Capture text edits before any export work (and while layers still exist).
     const documentEdits = collectDocumentEdits();
+    if (documentEdits.pdfTextLayerHtml?.some((h) => h.trim())) {
+      setPdfTextLayerHtml(documentEdits.pdfTextLayerHtml);
+    }
     const hasTextEdits = Boolean(
       documentEdits.documentHtml?.trim() ||
         documentEdits.pdfTextLayerHtml?.some((h) => h.trim())
@@ -1212,37 +1234,36 @@ export function SaasaCvAnnotationModal({
       let exportPayload: Blob | HTMLCanvasElement | null = null;
       let fullSnapshot = false;
 
-      const { exportSaasaCvDocumentPdf, captureSaasaCvSurfacePdf, withExportTimeout } =
-        await import('../../lib/saasaCvExport');
+      const {
+        exportSaasaCvDocumentPdf,
+        buildSaasaCvPdfSnapshotBlob,
+        captureSaasaCvSurfacePdf,
+        withExportTimeout,
+      } = await import('../../lib/saasaCvExport');
 
-      if (
-        hasTextEdits &&
-        surfaceRef.current &&
-        surfaceReady &&
-        (canWord || canPdf || canImage || canText)
-      ) {
-        if (canPdf && documentEdits.pdfTextLayerHtml?.some((h) => h.trim())) {
-          setForcePdfEditorCapture(true);
-          setInPlacePdfTextEditing(pdfHostRef.current, true);
-          await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-        }
+      // Most reliable: re-render original PDF with PDF.js + composite marks (no DOM host).
+      if (canPdf && href) {
         try {
-          const blob = await captureSaasaCvSurfacePdf(
-            surfaceRef.current,
-            canPdf ? pdfDocMeta?.pageHeightsPx : undefined,
+          const blob = await withExportTimeout(
+            buildSaasaCvPdfSnapshotBlob({
+              pdfUrl: buildResumeViewerUrl(href),
+              width: pdfDocMeta?.width || 800,
+              annotations: items,
+              companyLogo: logoPayload,
+            }),
+            45000,
+            'CV export'
           );
-          if (blob) {
+          if (blob && blob.size > 5000) {
             exportPayload = blob;
             fullSnapshot = true;
           }
         } catch {
           /* fall through */
-        } finally {
-          setForcePdfEditorCapture(false);
         }
       }
 
-      if (!exportPayload && canPdf && pdfDocMeta?.totalHeight && href) {
+      if (!exportPayload && canPdf && pdfDocMeta?.totalHeight && href && pdfHostRef.current) {
         try {
           const blob = await withExportTimeout(
             exportSaasaCvDocumentPdf({
@@ -1257,7 +1278,7 @@ export function SaasaCvAnnotationModal({
             45000,
             'CV export'
           );
-          if (blob) {
+          if (blob && blob.size > 5000) {
             exportPayload = blob;
             fullSnapshot = true;
           }
@@ -1266,18 +1287,21 @@ export function SaasaCvAnnotationModal({
         }
       }
 
-      if (
-        !exportPayload &&
-        surfaceRef.current &&
-        surfaceReady &&
-        (canWord || canPdf || canImage || canText)
-      ) {
+      if (!exportPayload && surfaceRef.current && surfaceReady) {
         try {
-          const blob = await captureSaasaCvSurfacePdf(
-            surfaceRef.current,
-            canPdf ? pdfDocMeta?.pageHeightsPx : undefined,
+          if (canPdf && pdfHostRef.current && hasTextEdits) {
+            setInPlacePdfTextEditing(pdfHostRef.current, true);
+            await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+          }
+          const blob = await withExportTimeout(
+            captureSaasaCvSurfacePdf(
+              surfaceRef.current,
+              canPdf ? pdfDocMeta?.pageHeightsPx : undefined,
+            ),
+            45000,
+            'CV export'
           );
-          if (blob) {
+          if (blob && blob.size > 5000) {
             exportPayload = blob;
             fullSnapshot = true;
           }
@@ -1286,18 +1310,7 @@ export function SaasaCvAnnotationModal({
         }
       }
 
-      const needsFullDocument =
-        (canPdf && Boolean(pdfDocMeta?.totalHeight)) ||
-        (canWord && surfaceReady) ||
-        (canImage && imagePreviewReady) ||
-        (canText && textPreviewReady);
-      if (needsFullDocument && !exportPayload) {
-        onExportError?.(
-          'Could not build a full HRYantra CV PDF (resume text did not export). Wait for the CV to finish loading, then save again.'
-        );
-        return;
-      }
-
+      // Always call onSave — annotations + text edits must persist even if PDF export failed.
       await onSave(items, exportPayload, logoPayload, fullSnapshot, documentEdits);
     } catch (error: unknown) {
       console.error('[HRYantra CV] save failed:', error);

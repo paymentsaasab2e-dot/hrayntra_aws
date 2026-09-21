@@ -391,6 +391,60 @@ export function hasSaasaCvDocumentTextEdits(stored: SaasaCvAnnotationsStored | n
   );
 }
 
+/** True when saved PDF text-layer HTML contains real edits (not just an empty scaffold). */
+export function pdfTextLayerHtmlHasEdits(pages: string[] | null | undefined): boolean {
+  if (!pages?.length) return false;
+  return pages.some((h) =>
+    /saasa-pdf-inplace-line--edited|saasa-pdf-inplace-line--cleared|data-saasa-touched\s*=\s*['"]?1['"]?/.test(
+      String(h || ''),
+    ),
+  );
+}
+
+/**
+ * Pick the original candidate resume for rebuild/download — never the HRYantra CV
+ * export file (that file can be a blank raster from a failed save).
+ */
+export function resolveSaasaCvBaseResumeUrl(options: {
+  storedResumeUrl?: string | null;
+  originalResumeUrl?: string | null;
+  fallbackResumeUrl?: string | null;
+  saasaFileUrl?: string | null;
+}): string {
+  const saasaFile = String(options.saasaFileUrl || '').trim();
+  const normalize = (u: string) => u.replace(/[?#].*$/, '').trim().toLowerCase();
+  const saasaNorm = saasaFile ? normalize(saasaFile) : '';
+
+  const looksLikeSaasaExport = (url: string) => {
+    const n = normalize(url);
+    if (!n) return true;
+    if (saasaNorm && n === saasaNorm) return true;
+    // Filename / path markers for exported HRYantra CV files
+    if (/hryantra[\s_-]*cv|saasa[\s_-]*cv/i.test(url)) return true;
+    if (/\/saasa[_-]?cv\//i.test(n)) return true;
+    return false;
+  };
+
+  const score = (url: string) => {
+    let s = 0;
+    if (/\/resumes\//i.test(url)) s += 10;
+    if (/resume|cv/i.test(url) && !looksLikeSaasaExport(url)) s += 3;
+    if (/\.pdf($|\?)/i.test(url)) s += 1;
+    return s;
+  };
+
+  const candidates = [
+    options.storedResumeUrl,
+    options.originalResumeUrl,
+    options.fallbackResumeUrl,
+  ]
+    .map((u) => String(u || '').trim())
+    .filter((u) => u && !looksLikeSaasaExport(u));
+
+  candidates.sort((a, b) => score(b) - score(a));
+  return candidates[0] || '';
+}
+
 export function buildSaasaCvAnnotationsExtra(
   existingExtraData: Record<string, unknown> | null | undefined,
   payload: SaasaCvAnnotationsStored

@@ -105,7 +105,15 @@ export function readCachedOrgWatermark(): ExportWatermarkSettings {
 export function writeCachedOrgWatermark(settings: ExportWatermarkSettings): void {
   if (typeof window === 'undefined') return;
   try {
-    localStorage.setItem(ORG_WATERMARK_CACHE_KEY, JSON.stringify(normalizeExportWatermark(settings)));
+    // Never persist large data-URLs in localStorage (quota). Logo lives in session cache.
+    const forStorage = normalizeExportWatermark(settings);
+    const { imageDataUrl: _drop, ...rest } = forStorage;
+    localStorage.setItem(ORG_WATERMARK_CACHE_KEY, JSON.stringify(rest));
+    if (forStorage.imageDataUrl && forStorage.imageUrl) {
+      cacheWatermarkLogoDataUrl(forStorage.imageUrl, forStorage.imageDataUrl);
+    } else if (forStorage.imageDataUrl) {
+      cacheWatermarkLogoDataUrl('embedded-logo', forStorage.imageDataUrl);
+    }
     window.dispatchEvent(new CustomEvent(ORG_WATERMARK_CACHE_EVENT));
   } catch {
     /* ignore */
@@ -142,6 +150,10 @@ export function watermarkImageForFormat(
   if (format === 'pdf' && !cfg.applyToPdf) return '';
   if (format === 'excel' && !cfg.applyToExcel) return '';
   if (cfg.imageDataUrl?.startsWith('data:image/')) return cfg.imageDataUrl;
+  const fromSession = cfg.imageUrl ? readCachedWatermarkLogoDataUrl(cfg.imageUrl) : '';
+  if (fromSession) return fromSession;
+  const embedded = readCachedWatermarkLogoDataUrl('embedded-logo');
+  if (embedded) return embedded;
   return cfg.imageUrl || '';
 }
 
@@ -427,6 +439,24 @@ type JsPdfLike = {
   ) => void;
 };
 
+/** Logo / text watermark size relative to page — matches settings preview (~38% width). */
+function resolvePdfWatermarkImageSize(
+  pageWidth: number,
+  imageWidth: number,
+  imageHeight: number,
+): { imgW: number; imgH: number } {
+  const w = Math.max(1, pageWidth);
+  // ~38% of page width (settings preview uses max-w ~220 on a ~580 card ≈ 38%).
+  // No tiny hard pixel caps — those made logos look microscopic on px-unit jsPDF pages.
+  const imgW = Math.min(w * 0.42, w * 0.5);
+  const imgH = (Math.max(1, imageHeight) / Math.max(1, imageWidth)) * imgW;
+  return { imgW, imgH };
+}
+
+function resolvePdfWatermarkFontSize(pageWidth: number): number {
+  return Math.max(22, Math.min(56, Math.floor(Math.max(1, pageWidth) / 7)));
+}
+
 /** Stamp every page of a jsPDF document with text and/or logo image. */
 export async function applyOrgWatermarkToJsPdf(
   pdf: JsPdfLike,
@@ -458,8 +488,7 @@ export async function applyOrgWatermarkToJsPdf(
     }
 
     if (image) {
-      const imgW = Math.min(width * 0.45, 90);
-      const imgH = (image.height / Math.max(1, image.width)) * imgW;
+      const { imgW, imgH } = resolvePdfWatermarkImageSize(width, image.width, image.height);
       try {
         pdf.addImage(
           image.dataUrl,
@@ -489,7 +518,7 @@ export async function applyOrgWatermarkToJsPdf(
     }
     if (cfg.text) {
       pdf.setTextColor(120, 120, 140);
-      pdf.setFontSize(Math.max(18, Math.min(42, Math.floor(width / 6))));
+      pdf.setFontSize(resolvePdfWatermarkFontSize(width));
       pdf.text(cfg.text, width / 2, height / 2, { angle: 35, align: 'center' });
     }
     try {
@@ -595,8 +624,11 @@ export async function stampDownloadBlob(
         const { width, height } = page.getSize();
         if (embeddedImage) {
           try {
-            const imgW = Math.min(width * 0.4, 220);
-            const imgH = (embeddedImage.height / Math.max(1, embeddedImage.width)) * imgW;
+            const { imgW, imgH } = resolvePdfWatermarkImageSize(
+              width,
+              embeddedImage.width,
+              embeddedImage.height,
+            );
             page.drawImage(embeddedImage, {
               x: (width - imgW) / 2,
               y: (height - imgH) / 2,
@@ -611,7 +643,7 @@ export async function stampDownloadBlob(
         }
         if (cfg.text && font) {
           try {
-            const size = Math.max(18, Math.min(48, Math.floor(width / 8)));
+            const size = resolvePdfWatermarkFontSize(width);
             page.drawText(cfg.text, {
               x: width * 0.18,
               y: height * 0.42 - (embeddedImage ? 40 : 0),

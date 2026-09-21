@@ -1,9 +1,10 @@
 import { verifyToken } from '../utils/jwt.js';
 import { sendError } from '../utils/response.js';
-import { prisma, setTenantAuditUser } from '../config/prisma.js';
+import { prisma, setTenantAuditUser, runWithTenantContext, getActiveTenantDbName } from '../config/prisma.js';
 import { sessionService } from '../modules/session/session.service.js';
 import { env } from '../config/env.js';
 import jwt from 'jsonwebtoken';
+import { isValidTenantDbName } from '../utils/tenantDbName.util.js';
 
 export const authMiddleware = async (req, res, next) => {
   try {
@@ -53,50 +54,70 @@ export const authMiddleware = async (req, res, next) => {
 
     // If we have a userId (from valid or expired token), validate user in database
     if (userId) {
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        select: {
-          id: true,
-          email: true,
-          name: true,
-          firstName: true,
-          lastName: true,
-          role: true,
-          isActive: true,
-          systemRole: { select: { roleName: true } },
-        },
-      });
-
-      // If user exists and is active, allow access
-      // Token expiration is now set to 10 years, but even if expired,
-      // we validate against database to ensure user still exists and is active
-      if (user && user.isActive) {
-        if (env.SINGLE_ACTIVE_SESSION_ENABLED && tokenPayload?.sessionId) {
-          const sessionCheck = await sessionService.validateSessionFromToken(tokenPayload);
-          if (!sessionCheck.ok) {
-            return sendError(res, 401, sessionCheck.message, { code: sessionCheck.code });
+      const ensureTenantThenLookup = async () => {
+        // Uploads that omit x-tenant-db-name still carry tenantDbName in the JWT.
+        // Without ALS, prisma falls back to the default DB → "User not found or inactive".
+        if (!getActiveTenantDbName()) {
+          const fromToken = String(tokenPayload?.tenantDbName || '').trim();
+          const fromHeader = String(req.headers['x-tenant-db-name'] || '').trim();
+          const tenantDbName = fromToken || fromHeader;
+          if (tenantDbName && isValidTenantDbName(tenantDbName)) {
+            return runWithTenantContext(tenantDbName, lookupUser);
           }
         }
+        return lookupUser();
+      };
 
-        req.user = {
-          ...user,
-          orgId: tokenPayload?.orgId || tokenPayload?.tenantDbName || null,
-          tenantDbName: tokenPayload?.tenantDbName || null,
-          sessionId: tokenPayload?.sessionId || null,
-          hqTeamMemberId: tokenPayload?.hqTeamMemberId || null,
-          hqPermissionIds: Array.isArray(tokenPayload?.hqPermissionIds)
-            ? tokenPayload.hqPermissionIds.map(String)
-            : null,
-          isHqTeamMember: Boolean(tokenPayload?.hqTeamMemberId),
-          hqImpersonation: Boolean(tokenPayload?.hqImpersonation),
-          tenantImpersonation: Boolean(tokenPayload?.tenantImpersonation),
-          impersonatedByUserId: tokenPayload?.impersonatedByUserId
-            ? String(tokenPayload.impersonatedByUserId)
-            : null,
-        };
-        setTenantAuditUser(user);
-        return next();
-      }
+      const lookupUser = async () => {
+        const user = await prisma.user.findUnique({
+          where: { id: userId },
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            firstName: true,
+            lastName: true,
+            role: true,
+            isActive: true,
+            systemRole: { select: { roleName: true } },
+          },
+        });
+
+        // If user exists and is active, allow access
+        // Token expiration is now set to 10 years, but even if expired,
+        // we validate against database to ensure user still exists and is active
+        if (user && user.isActive) {
+          if (env.SINGLE_ACTIVE_SESSION_ENABLED && tokenPayload?.sessionId) {
+            const sessionCheck = await sessionService.validateSessionFromToken(tokenPayload);
+            if (!sessionCheck.ok) {
+              return sendError(res, 401, sessionCheck.message, { code: sessionCheck.code });
+            }
+          }
+
+          req.user = {
+            ...user,
+            orgId: tokenPayload?.orgId || tokenPayload?.tenantDbName || null,
+            tenantDbName: tokenPayload?.tenantDbName || null,
+            sessionId: tokenPayload?.sessionId || null,
+            hqTeamMemberId: tokenPayload?.hqTeamMemberId || null,
+            hqPermissionIds: Array.isArray(tokenPayload?.hqPermissionIds)
+              ? tokenPayload.hqPermissionIds.map(String)
+              : null,
+            isHqTeamMember: Boolean(tokenPayload?.hqTeamMemberId),
+            hqImpersonation: Boolean(tokenPayload?.hqImpersonation),
+            tenantImpersonation: Boolean(tokenPayload?.tenantImpersonation),
+            impersonatedByUserId: tokenPayload?.impersonatedByUserId
+              ? String(tokenPayload.impersonatedByUserId)
+              : null,
+          };
+          setTenantAuditUser(user);
+          return next();
+        }
+
+        return sendError(res, 401, 'User not found or inactive');
+      };
+
+      return ensureTenantThenLookup();
     }
 
     // If no valid user found, reject

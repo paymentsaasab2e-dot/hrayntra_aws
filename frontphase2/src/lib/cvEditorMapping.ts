@@ -2,6 +2,7 @@ import { filesApiUpload, type BackendCandidate } from './api';
 import { CLIENT_PRESENTATION_KEY, readClientPresentation } from './clientPresentationDraft';
 import {
   buildSaasaCvAnnotationsExtra,
+  hasSaasaCvSaved,
   readSaasaCvAnnotations,
   type SaasaCvAnnotationsStored,
 } from './saasaCvAnnotations';
@@ -171,8 +172,8 @@ export function hasEditedCvAvailable(candidate: BackendCandidate | null): boolea
   if (!candidate) return false;
   if (readCvEditorLayout(candidate)?.updatedAt) return true;
   if (String(candidate.cvSummary || '').trim()) return true;
-  if ((candidate.cvWorkExperienceEntries || []).length > 0) return true;
-  if ((candidate.cvEducationEntries || []).length > 0) return true;
+  if (asCvEntryArray(candidate.cvWorkExperienceEntries).length > 0) return true;
+  if (asCvEntryArray(candidate.cvEducationEntries).length > 0) return true;
   return false;
 }
 
@@ -250,12 +251,11 @@ export function readPortalStudioTemplateId(candidate: BackendCandidate | null): 
   return typeof fromLayout === 'string' && fromLayout.trim() ? fromLayout.trim() : null;
 }
 
-/** Saved HRYantra CV export (PNG/PDF in Files) is available for the Resume tab. */
+/** Saved HRYantra CV is available on the Resume tab (export file and/or live marks). */
 export function hasSaasaCvResumeTabMode(candidate: BackendCandidate | null): boolean {
   const extra = candidate?.extraData;
   if (!extra || typeof extra !== 'object' || Array.isArray(extra)) return false;
-  const stored = readSaasaCvAnnotations(extra as Record<string, unknown>);
-  return Boolean(stored?.fileUrl?.trim() || stored?.fileId);
+  return hasSaasaCvSaved(readSaasaCvAnnotations(extra as Record<string, unknown>));
 }
 
 /** Recruiter CV editor keys that must survive HRYantra CV saves and partial drawer refreshes. */
@@ -275,6 +275,9 @@ export function pickRecruiterCvExtraFieldsFrontend(
   if (extraData.portalTailoredCv != null) picked.portalTailoredCv = extraData.portalTailoredCv;
   if (extraData.portalAiCvSaved === true) picked.portalAiCvSaved = true;
   if (extraData.recruiterCvEditorSaved === true) picked.recruiterCvEditorSaved = true;
+  // Do NOT copy saasaCvAnnotations here — buildSaasaCvSaveExtra must win with the
+  // freshly saved payload. Spreading a stale copy was wiping scribbles/text edits.
+  if (extraData.resumeCvViewMode != null) picked.resumeCvViewMode = extraData.resumeCvViewMode;
   return picked;
 }
 
@@ -296,7 +299,29 @@ export function mergeResumeTabExtraData(
     cvEditorLayout: backendExtra.cvEditorLayout ?? drawerExtra.cvEditorLayout,
     cvSubmission: backendExtra.cvSubmission ?? drawerExtra.cvSubmission,
   });
-  return { ...merged, ...recruiter };
+
+  // Prefer the newer HRYantra CV annotation bag by updatedAt.
+  const drawerSaasa = drawerExtra.saasaCvAnnotations;
+  const backendSaasa = backendExtra.saasaCvAnnotations;
+  let saasaCvAnnotations = backendSaasa ?? drawerSaasa;
+  if (
+    drawerSaasa &&
+    typeof drawerSaasa === 'object' &&
+    !Array.isArray(drawerSaasa) &&
+    backendSaasa &&
+    typeof backendSaasa === 'object' &&
+    !Array.isArray(backendSaasa)
+  ) {
+    const td = Date.parse(String((drawerSaasa as { updatedAt?: string }).updatedAt || '')) || 0;
+    const tb = Date.parse(String((backendSaasa as { updatedAt?: string }).updatedAt || '')) || 0;
+    saasaCvAnnotations = td > tb ? drawerSaasa : backendSaasa;
+  }
+
+  return {
+    ...merged,
+    ...recruiter,
+    ...(saasaCvAnnotations != null ? { saasaCvAnnotations } : {}),
+  };
 }
 
 /** Save HRYantra CV annotations without clearing recruiter CV editor state. */
@@ -310,9 +335,11 @@ export function buildSaasaCvSaveExtra(
       ? existingExtraData
       : {};
   const recruiter = pickRecruiterCvExtraFieldsFrontend(existing);
+  // Payload LAST so new scribbles / text edits always overwrite any stale copy.
   const next: Record<string, unknown> = {
-    ...buildSaasaCvAnnotationsExtra(existing, payload),
+    ...existing,
     ...recruiter,
+    ...buildSaasaCvAnnotationsExtra(existing, payload),
   };
   if (options?.resumeCvViewMode) {
     next.resumeCvViewMode = options.resumeCvViewMode;
@@ -830,6 +857,19 @@ function splitPeriod(period: string): { start: string; end: string } {
   return { start: '', end: '' };
 }
 
+/** Some API/portal payloads send objects/strings instead of arrays — never crash resume open. */
+function asCvEntryArray<T>(value: unknown): T[] {
+  if (Array.isArray(value)) return value as T[];
+  if (typeof value === 'string') {
+    return value
+      .split(/[\n,]/)
+      .map((s) => s.trim())
+      .filter(Boolean) as T[];
+  }
+  if (value && typeof value === 'object') return Object.values(value as Record<string, T>);
+  return [];
+}
+
 export function candidateToCvEditorData(
   candidate: BackendCandidate | null,
   formOverrides?: {
@@ -853,38 +893,47 @@ export function candidateToCvEditorData(
         .filter(Boolean)
     : null;
 
-  const experiences = (candidate?.cvWorkExperienceEntries || []).map((entry) => ({
+  const experiences = asCvEntryArray<{
+    title?: string;
+    company?: string;
+    startDate?: string;
+    endDate?: string;
+    responsibilities?: unknown;
+  }>(candidate?.cvWorkExperienceEntries).map((entry) => ({
     id: nextCvEditorId(),
-    role: entry.title || '',
-    company: entry.company || '',
-    period: formatPeriod(entry.startDate, entry.endDate),
-    desc: (entry.responsibilities || []).join('\n'),
+    role: entry?.title || '',
+    company: entry?.company || '',
+    period: formatPeriod(entry?.startDate, entry?.endDate),
+    desc: asCvEntryArray<string>(entry?.responsibilities).join('\n'),
   }));
 
-  const education = (candidate?.cvEducationEntries || []).map((entry) => {
-    const ext = entry as {
-      educationLevel?: string;
-      startMonth?: string;
-      endMonth?: string;
-      currentlyStudying?: boolean;
-      period?: string;
-    };
+  const education = asCvEntryArray<{
+    degree?: string;
+    institution?: string;
+    startYear?: string;
+    endYear?: string;
+    educationLevel?: string;
+    startMonth?: string;
+    endMonth?: string;
+    currentlyStudying?: boolean;
+    period?: string;
+  }>(candidate?.cvEducationEntries).map((entry) => {
     const period =
-      (ext.period && String(ext.period).trim()) ||
+      (entry?.period && String(entry.period).trim()) ||
       formatEducationDateLine(
-        ext.educationLevel || '',
-        entry.degree || '',
-        entry.startYear || '',
-        ext.startMonth || '',
-        entry.endYear || '',
-        ext.endMonth || '',
-        Boolean(ext.currentlyStudying),
+        entry?.educationLevel || '',
+        entry?.degree || '',
+        entry?.startYear || '',
+        entry?.startMonth || '',
+        entry?.endYear || '',
+        entry?.endMonth || '',
+        Boolean(entry?.currentlyStudying),
       ) ||
-      formatYearPeriod(entry.startYear, entry.endYear);
+      formatYearPeriod(entry?.startYear, entry?.endYear);
     return {
       id: nextCvEditorId(),
-      degree: entry.degree || '',
-      school: entry.institution || '',
+      degree: entry?.degree || '',
+      school: entry?.institution || '',
       period,
     };
   });
@@ -893,6 +942,10 @@ export function candidateToCvEditorData(
   const candidatePhotoUrl = resolveCandidatePhotoUrl(candidate);
   const companyLogoUrl =
     (layout?.companyLogoUrl && String(layout.companyLogoUrl).trim()) || null;
+
+  const skillsFromCandidate = asCvEntryArray<string>(candidate?.skills)
+    .map((s) => String(s || '').trim())
+    .filter(Boolean);
 
   return {
     name: `${firstName} ${lastName}`.trim() || 'Candidate',
@@ -904,7 +957,7 @@ export function candidateToCvEditorData(
     summary: formOverrides?.cvSummary ?? candidate?.cvSummary ?? '',
     experiences: experiences.length > 0 ? experiences : [],
     education: education.length > 0 ? education : [],
-    skills: skillsFromForm ?? candidate?.skills ?? [],
+    skills: skillsFromForm ?? skillsFromCandidate,
     candidatePhotoUrl,
     initialCandidatePhotoUrl: candidatePhotoUrl,
     companyLogoUrl,

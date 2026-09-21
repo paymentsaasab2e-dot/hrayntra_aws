@@ -188,23 +188,48 @@ export function clearSaasaCvPdfBytesCache(): void {
 /** Render all PDF pages into host — same scroll box as the paint canvas (MS Paint style). */
 export async function renderSaasaPdfPages(
   host: HTMLElement,
-  pdfUrl: string
+  pdfUrl: string,
+  options?: {
+    signal?: AbortSignal;
+    /** Return false when a newer load superseded this one (prevents double pages). */
+    isCurrent?: () => boolean;
+  }
 ): Promise<SaasaCvPdfDocumentMeta> {
+  const isCurrent = () => {
+    if (options?.signal?.aborted) return false;
+    if (options?.isCurrent && !options.isCurrent()) return false;
+    return true;
+  };
+
   host.innerHTML = '';
   const pdfjs = await loadSaasaPdfJs();
+  if (!isCurrent()) {
+    throw new DOMException('PDF render superseded', 'AbortError');
+  }
   const data = await fetchSaasaCvPdfBytes(pdfUrl);
+  if (!isCurrent()) {
+    throw new DOMException('PDF render superseded', 'AbortError');
+  }
   const pdf = await pdfjs.getDocument(saasaPdfJsDocumentOptions(data)).promise;
+  if (!isCurrent()) {
+    throw new DOMException('PDF render superseded', 'AbortError');
+  }
 
   const parentW =
-    host.parentElement?.clientWidth ||
-    host.parentElement?.offsetWidth ||
+    host.clientWidth ||
     host.offsetWidth ||
-    host.clientWidth;
+    host.parentElement?.clientWidth ||
+    host.parentElement?.offsetWidth;
   const width = Math.max(320, Math.floor(parentW) || 800);
   let totalHeight = 0;
   const pageHeightsPx: number[] = [];
 
   for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+    if (!isCurrent()) {
+      host.innerHTML = '';
+      throw new DOMException('PDF render superseded', 'AbortError');
+    }
+
     const page = await pdf.getPage(pageNum);
     const base = page.getViewport({ scale: 1 });
     const scale = width / base.width;
@@ -239,6 +264,10 @@ export async function renderSaasaPdfPages(
     canvas.className = 'saasa-pdf-page-canvas';
 
     await page.render({ canvasContext: ctx, viewport }).promise;
+    if (!isCurrent()) {
+      host.innerHTML = '';
+      throw new DOMException('PDF render superseded', 'AbortError');
+    }
 
     pageWrap.appendChild(canvas);
     host.appendChild(pageWrap);

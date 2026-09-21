@@ -229,9 +229,13 @@ export function redrawPaintCanvas(
   height: number,
   annotations: SaasaCvAnnotation[],
   draft: DraftPaint | null,
-  brush: { color: string; opacity: number; sizePx: number }
+  brush: { color: string; opacity: number; sizePx: number },
+  options?: { clear?: boolean }
 ): void {
-  ctx.clearRect(0, 0, width, height);
+  // clear:false keeps prior pixels (e.g. burned text edits on download overlays).
+  if (options?.clear !== false) {
+    ctx.clearRect(0, 0, width, height);
+  }
 
   for (const ann of annotations) {
     if (ann.type === 'draw' || ann.type === 'highlight') {

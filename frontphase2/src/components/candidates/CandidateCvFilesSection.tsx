@@ -13,8 +13,12 @@ import {
 } from '../../lib/cvEditorMapping';
 import { downloadCvEditorPlainText, printCvEditorAsPdf } from '../../lib/cvEditorExport';
 import { getResumeExtension } from '../../lib/resumePreview';
-import { triggerFileDownload } from '../../utils/triggerFileDownload';
+import { triggerBlobDownload, triggerFileDownload } from '../../utils/triggerFileDownload';
 import { requestConfirm, SYSTEM_ALERT_TITLE } from '../../lib/appDialog';
+import {
+  readSaasaCvAnnotations,
+  resolveSaasaCvBaseResumeUrl,
+} from '../../lib/saasaCvAnnotations';
 
 interface SaasaCvFileEntry {
   id?: string;
@@ -109,15 +113,56 @@ export function CandidateCvFilesSection({
   };
 
   const handleDownloadSaasa = async () => {
-    const source = String(saasaCvFileEntry?.fileUrl || '').trim();
-    if (!source || downloadingSaasa) return;
+    if (downloadingSaasa) return;
     setDownloadingSaasa(true);
     try {
-      await triggerFileDownload(source, {
-        uploadsBase,
-        filename:
-          saasaCvFileEntry?.fileName ||
-          buildDownloadFilename(source, candidate.name, 'saasa-cv'),
+      const stored = readSaasaCvAnnotations(resumeSource?.extraData ?? candidate.extraData ?? null);
+      const filename =
+        saasaCvFileEntry?.fileName ||
+        buildDownloadFilename(
+          String(saasaCvFileEntry?.fileUrl || originalResumeUrl || 'hryantra-cv.pdf'),
+          candidate.name,
+          'saasa-cv',
+        );
+
+      const savedUrl = String(saasaCvFileEntry?.fileUrl || stored?.fileUrl || '').trim();
+      if (savedUrl) {
+        await triggerFileDownload(savedUrl, {
+          uploadsBase,
+          filename: filename.endsWith('.pdf') ? filename : `${filename}.pdf`,
+        });
+        return;
+      }
+
+      const baseResume = resolveSaasaCvBaseResumeUrl({
+        storedResumeUrl: stored?.resumeUrl,
+        originalResumeUrl: originalResumeUrl,
+        fallbackResumeUrl: originalResumeUrl,
+        saasaFileUrl: saasaCvFileEntry?.fileUrl || stored?.fileUrl,
+      });
+      if (!baseResume) throw new Error('No HRYantra CV file to download');
+
+      const { exportSaasaCvFromStoredData, withExportTimeout } = await import(
+        '../../lib/saasaCvExport'
+      );
+      const blob = await withExportTimeout(
+        exportSaasaCvFromStoredData({
+          resumeUrl: baseResume,
+          annotations: stored?.items ?? [],
+          companyLogo: stored?.companyLogo ?? null,
+          pdfTextLayerHtml: stored?.pdfTextLayerHtml ?? null,
+          width: 800,
+        }),
+        60000,
+        'HRYantra CV download',
+      );
+      if (!blob || blob.size < 2000) {
+        throw new Error(
+          'Could not build HRYantra CV PDF. Open Edit HRYantra CV and Save again, then download.',
+        );
+      }
+      await triggerBlobDownload(blob, filename.endsWith('.pdf') ? filename : `${filename}.pdf`, {
+        skipWatermark: true,
       });
     } catch (error) {
       onToast?.(error instanceof Error ? error.message : 'Failed to download HRYantra CV');

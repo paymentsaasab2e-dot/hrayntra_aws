@@ -10465,20 +10465,12 @@ export const filesApiUpload = async (
   formData.append('entityId', entityId);
   formData.append('fileType', fileType);
 
-  const token = getAccessToken();
-  if (!token) throw new Error('No access token found');
-
-  const response = await fetch(`${API_BASE}/files`, {
+  // Must use apiFetchFormData so x-tenant-db-name is sent — raw fetch hits the
+  // default DB and auth returns "User not found or inactive".
+  return apiFetchFormData<EntityFile>('/files', formData, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
-    body: formData,
+    auth: true,
   });
-
-  if (!response.ok) {
-    const json = await response.json().catch(() => ({}));
-    throw new Error(json?.message || `Upload failed: ${response.status}`);
-  }
-  return response.json() as Promise<ApiResponse<EntityFile>>;
 };
 
 /** Delete a file by ID. */

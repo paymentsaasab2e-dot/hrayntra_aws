@@ -26,17 +26,13 @@ export function WatermarkSettings() {
   const [previewBroken, setPreviewBroken] = useState(false);
 
   const remotePreviewSrc = useMemo(
-    () => resolveWatermarkImageSrc(draft.imageUrl),
-    [draft.imageUrl],
+    () => resolveWatermarkImageSrc(draft.imageUrl) || draft.imageDataUrl || '',
+    [draft.imageUrl, draft.imageDataUrl],
   );
   const previewSrc = localPreviewUrl || remotePreviewSrc;
-  const hasLogo = Boolean(draft.imageUrl || localPreviewUrl);
+  const hasLogo = Boolean(draft.imageUrl || draft.imageDataUrl || localPreviewUrl);
 
   const load = useCallback(async () => {
-    if (!canEdit) {
-      setLoading(false);
-      return;
-    }
     setLoading(true);
     try {
       const res = await apiGetOrgWatermark();
@@ -44,12 +40,15 @@ export function WatermarkSettings() {
       setDraft(next);
       setPreviewBroken(false);
       writeCachedOrgWatermark(next);
+      if (next.imageDataUrl?.startsWith('data:image/') && next.imageUrl) {
+        cacheWatermarkLogoDataUrl(next.imageUrl, next.imageDataUrl);
+      }
     } catch (error: any) {
       toast.error(error?.message || 'Failed to load watermark');
     } finally {
       setLoading(false);
     }
-  }, [canEdit]);
+  }, []);
 
   useEffect(() => {
     void load();
@@ -159,8 +158,48 @@ export function WatermarkSettings() {
 
   if (!canEdit) {
     return (
-      <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
-        Only Super Admin can configure the organization export watermark.
+      <div className="space-y-6">
+        <SettingsPageHero
+          eyebrow="Organization"
+          title="Export watermark"
+          description="Configured by Super Admin. This stamp is applied automatically when any team member exports PDFs, Excel, or CSV."
+          icon={<Droplets className="h-3.5 w-3.5" />}
+        />
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+          {loading ? (
+            <div className="flex items-center gap-2 text-sm text-slate-500">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <p className="text-sm text-slate-600">
+                Status:{' '}
+                <span className="font-semibold text-slate-900">
+                  {draft.enabled ? 'Enabled for all exports' : 'Disabled'}
+                </span>
+              </p>
+              {draft.text ? (
+                <p className="text-sm text-slate-600">
+                  Text: <span className="font-medium text-slate-900">{draft.text}</span>
+                </p>
+              ) : null}
+              {previewSrc && !previewBroken ? (
+                <div className="max-w-xs rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={previewSrc}
+                    alt="Watermark logo"
+                    className="max-h-24 w-auto object-contain"
+                    onError={() => setPreviewBroken(true)}
+                  />
+                </div>
+              ) : null}
+              <p className="text-xs text-slate-500">
+                Only Super Admin can change watermark settings. Your downloads and HRYantra CV exports already use this stamp.
+              </p>
+            </div>
+          )}
+        </div>
       </div>
     );
   }
