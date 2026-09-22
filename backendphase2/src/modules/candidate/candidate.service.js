@@ -901,14 +901,12 @@ async function attachPlacementsToCandidates(candidates) {
   });
 }
 
-/** Prisma scope: non-phase1 OR phase1 with a real job/application/pipeline link. */
+/** Prisma scope: non-phase1 OR phase1 with assigned job(s). Avoid nested `some` — hangs Atlas. */
 function buildCrmCandidatesListScopeClause() {
   return {
     OR: [
       { NOT: { source: 'phase1' } },
       { assignedJobs: { isEmpty: false } },
-      { applications: { some: {} } },
-      { pipelineEntries: { some: {} } },
     ],
   };
 }
@@ -3726,7 +3724,7 @@ async function getMyJobIds(userId, { take } = {}) {
       ? resolveMineJobTake()
       : Number(take) > 0
         ? Number(take)
-        : null;
+        : resolveMineJobTake();
   const myJobs = await prisma.job.findMany({
     where: buildMyJobsWhereClause(userId),
     select: { id: true },
@@ -3736,92 +3734,86 @@ async function getMyJobIds(userId, { take } = {}) {
   return myJobs.map((j) => String(j.id));
 }
 
-/** Default My Candidates job window — high enough for enterprise tenants (env override). */
+/**
+ * My Candidates must stay fast. Large job windows + nested `some` on Candidate
+ * starve Atlas (~300s). Keep a bounded window; raise via env only if needed.
+ * CANDIDATE_MINE_JOB_TAKE=0 is ignored (force a cap) to avoid pool death.
+ */
 function resolveMineJobTake() {
   const raw = Number(process.env.CANDIDATE_MINE_JOB_TAKE);
-  if (Number.isFinite(raw) && raw === 0) return null; // 0 = no cap
-  if (Number.isFinite(raw) && raw > 0) return Math.min(10_000, Math.max(500, raw));
-  return 2500;
+  if (Number.isFinite(raw) && raw > 0) return Math.min(500, Math.max(50, raw));
+  return 200;
 }
 
-function chunkIds(ids, size = 400) {
-  const list = Array.isArray(ids) ? ids : [];
-  const out = [];
-  for (let i = 0; i < list.length; i += size) {
-    out.push(list.slice(i, i + size));
-  }
-  return out;
+function resolveMineLinkTake() {
+  const raw = Number(process.env.CANDIDATE_MINE_LINK_TAKE);
+  if (Number.isFinite(raw) && raw > 0) return Math.min(5000, Math.max(300, raw));
+  return 2000;
 }
 
 async function prefetchMineLinkedCandidateIds(jobIds) {
-  const capped = (Array.isArray(jobIds) ? jobIds : []).map((id) => String(id || '').trim()).filter(Boolean);
+  const capped = (Array.isArray(jobIds) ? jobIds : [])
+    .map((id) => String(id || '').trim())
+    .filter(Boolean)
+    .slice(0, resolveMineJobTake());
   if (!capped.length) return [];
-  const LINK_TAKE = Math.min(
-    20_000,
-    Math.max(2000, Number(process.env.CANDIDATE_MINE_LINK_TAKE || 8000) || 8000),
-  );
-  const perChunk = Math.max(200, Math.floor(LINK_TAKE / Math.max(1, Math.ceil(capped.length / 400))));
-  const linked = new Set();
-  for (const chunk of chunkIds(capped, 400)) {
-    if (linked.size >= LINK_TAKE) break;
-    const take = Math.min(perChunk, LINK_TAKE - linked.size);
-    const [apps, matches, pipes, interviews, placements] = await Promise.all([
-      prisma.application
-        .findMany({
-          where: { jobId: { in: chunk } },
-          select: { candidateId: true },
-          take,
-          orderBy: { appliedAt: 'desc' },
-        })
-        .catch(() => []),
-      prisma.match
-        .findMany({
-          where: { jobId: { in: chunk } },
-          select: { candidateId: true },
-          take,
-          orderBy: { createdAt: 'desc' },
-        })
-        .catch(() => []),
-      prisma.pipelineEntry
-        .findMany({
-          where: { jobId: { in: chunk } },
-          select: { candidateId: true },
-          take,
-          orderBy: { movedAt: 'desc' },
-        })
-        .catch(() => []),
-      prisma.interview
-        .findMany({
-          where: { jobId: { in: chunk } },
-          select: { candidateId: true },
-          take,
-          orderBy: { scheduledAt: 'desc' },
-        })
-        .catch(() => []),
-      prisma.placement
-        .findMany({
-          where: { jobId: { in: chunk }, deletedAt: null },
-          select: { candidateId: true },
-          take,
-          orderBy: { updatedAt: 'desc' },
-        })
-        .catch(() => []),
-    ]);
-    for (const row of [...apps, ...matches, ...pipes, ...interviews, ...placements]) {
-      const id = String(row?.candidateId || '').trim();
-      if (id) linked.add(id);
-      if (linked.size >= LINK_TAKE) break;
-    }
-  }
-  return Array.from(linked).slice(0, LINK_TAKE);
+  const LINK_TAKE = resolveMineLinkTake();
+  const take = LINK_TAKE;
+  const [apps, matches, pipes, interviews, placements] = await Promise.all([
+    prisma.application
+      .findMany({
+        where: { jobId: { in: capped } },
+        select: { candidateId: true },
+        take,
+        orderBy: { appliedAt: 'desc' },
+      })
+      .catch(() => []),
+    prisma.match
+      .findMany({
+        where: { jobId: { in: capped } },
+        select: { candidateId: true },
+        take,
+        orderBy: { createdAt: 'desc' },
+      })
+      .catch(() => []),
+    prisma.pipelineEntry
+      .findMany({
+        where: { jobId: { in: capped } },
+        select: { candidateId: true },
+        take,
+        orderBy: { movedAt: 'desc' },
+      })
+      .catch(() => []),
+    prisma.interview
+      .findMany({
+        where: { jobId: { in: capped } },
+        select: { candidateId: true },
+        take,
+        orderBy: { scheduledAt: 'desc' },
+      })
+      .catch(() => []),
+    prisma.placement
+      .findMany({
+        where: { jobId: { in: capped } },
+        select: { candidateId: true },
+        take,
+        orderBy: { updatedAt: 'desc' },
+      })
+      .catch(() => []),
+  ]);
+  return [
+    ...new Set(
+      [...apps, ...matches, ...pipes, ...interviews, ...placements]
+        .map((row) => String(row?.candidateId || '').trim())
+        .filter(Boolean),
+    ),
+  ].slice(0, LINK_TAKE);
 }
 
 /**
- * Candidates the user may see when mine=true: created by them, assigned to them,
- * or linked to jobs they own (apply / match / pipeline / interview / placement).
- *
- * Prefer id prefetch over nested `some` scans — correlated relation filters can
- * starve the Mongo pool. Nest only as a safety net when prefetch is thin.
+ * Candidates the user may see when mine=true.
+ * NEVER use nested Candidate.applications/pipeline/interviews.some here —
+ * those correlated scans hang the Mongo pool for ~5 minutes.
  */
 async function buildMineCandidatesScope(userId, knownJobIds) {
   if (!userId) {
@@ -3830,34 +3822,17 @@ async function buildMineCandidatesScope(userId, knownJobIds) {
   const myJobIds = Array.isArray(knownJobIds)
     ? knownJobIds.map((id) => String(id || '').trim()).filter(Boolean)
     : await getMyJobIds(userId);
-  const jobCap = resolveMineJobTake() || myJobIds.length;
-  const cappedJobIds = myJobIds.slice(0, jobCap || myJobIds.length);
+  const cappedJobIds = myJobIds.slice(0, resolveMineJobTake());
   const orClause = buildAssigneeVisibilityOr(userId);
   if (cappedJobIds.length > 0) {
-    // Mongo hasSome is fine with large arrays; chunk only relation prefetches.
     orClause.push({ assignedJobs: { hasSome: cappedJobIds } });
     try {
       const linkedIds = await prefetchMineLinkedCandidateIds(cappedJobIds);
       if (linkedIds.length) {
         orClause.push({ id: { in: linkedIds } });
       }
-      // Safety net when prefetch is empty/thin so My Candidates is not missing applicants.
-      if (linkedIds.length < 100) {
-        const relationJobIds = cappedJobIds.slice(0, 120);
-        orClause.push({ applications: { some: { jobId: { in: relationJobIds } } } });
-        orClause.push({ pipelineEntries: { some: { jobId: { in: relationJobIds } } } });
-        orClause.push({ matches: { some: { jobId: { in: relationJobIds } } } });
-        orClause.push({ interviews: { some: { jobId: { in: relationJobIds } } } });
-        orClause.push({ placements: { some: { jobId: { in: relationJobIds } } } });
-      }
     } catch (err) {
       console.warn('[candidate.service] mine link prefetch failed:', err?.message || err);
-      const relationJobIds = cappedJobIds.slice(0, 80);
-      orClause.push({ applications: { some: { jobId: { in: relationJobIds } } } });
-      orClause.push({ pipelineEntries: { some: { jobId: { in: relationJobIds } } } });
-      orClause.push({ matches: { some: { jobId: { in: relationJobIds } } } });
-      orClause.push({ interviews: { some: { jobId: { in: relationJobIds } } } });
-      orClause.push({ placements: { some: { jobId: { in: relationJobIds } } } });
     }
   }
   return { OR: orClause };
@@ -4138,8 +4113,9 @@ function parseCandidateListFilters(query = {}) {
 }
 
 /**
- * Stage filter SoT matches the table badge: candidate.stage OR pipeline stage name
- * OR interviews / placements for Interviewing / Offered / Hired / Rejected.
+ * Stage filter SoT: candidate.stage OR ids prefetched from pipeline / interviews /
+ * placements / matches. Never put nested `some` on the Candidate query — with mine
+ * scope that hung Atlas for ~300s (empty My Candidates UI).
  */
 async function buildStageFilterWhereAsync(stageParam) {
   const key = normalizeStageFilterKey(stageParam);
@@ -4157,91 +4133,125 @@ async function buildStageFilterWhereAsync(stageParam) {
     [String(stageParam || '').trim()];
   const unique = [...new Set(variants.map((v) => String(v).trim()).filter(Boolean))];
   const orParts = [{ stage: { in: unique } }];
+  const STAGE_ID_TAKE = 2500;
+  const extraIds = new Set();
+
+  const addIds = (rows) => {
+    for (const row of rows || []) {
+      const id = String(row?.candidateId || '').trim();
+      if (id) extraIds.add(id);
+    }
+  };
 
   try {
     const pipelineStages = await prisma.pipelineStage.findMany({
       select: { id: true, name: true },
-      take: 1200,
+      take: 800,
     });
     const matchingStageIds = pipelineStages
       .filter((row) => stageMatchesFilter(row?.name, stageParam))
       .map((row) => String(row.id))
       .filter(Boolean);
     if (matchingStageIds.length) {
-      orParts.push({
-        pipelineEntries: { some: { stageId: { in: matchingStageIds } } },
-      });
+      const pipeRows = await prisma.pipelineEntry
+        .findMany({
+          where: { stageId: { in: matchingStageIds } },
+          select: { candidateId: true },
+          take: STAGE_ID_TAKE,
+          orderBy: { movedAt: 'desc' },
+        })
+        .catch(() => []);
+      addIds(pipeRows);
     }
   } catch (err) {
     console.warn('[candidate.service] pipeline stage filter lookup failed:', err?.message || err);
   }
 
   if (key === 'interviewing') {
-    orParts.push({
-      interviews: {
-        some: {
-          status: { in: ACTIVE_INTERVIEW_STATUSES },
-        },
-      },
-    });
+    const interviewRows = await prisma.interview
+      .findMany({
+        where: { status: { in: ACTIVE_INTERVIEW_STATUSES } },
+        select: { candidateId: true },
+        take: STAGE_ID_TAKE,
+        orderBy: { scheduledAt: 'desc' },
+      })
+      .catch(() => []);
+    addIds(interviewRows);
   }
 
   if (key === 'applied') {
-    orParts.push({
-      AND: [
-        { OR: [{ applications: { some: {} } }, { assignedJobs: { isEmpty: false } }] },
-        {
-          NOT: {
-            interviews: {
-              some: { status: { in: ACTIVE_INTERVIEW_STATUSES } },
-            },
-          },
-        },
-      ],
-    });
+    const appRows = await prisma.application
+      .findMany({
+        select: { candidateId: true },
+        take: STAGE_ID_TAKE,
+        orderBy: { appliedAt: 'desc' },
+      })
+      .catch(() => []);
+    addIds(appRows);
   }
 
   if (key === 'offered') {
-    orParts.push({
-      placements: {
-        some: {
-          status: { in: OFFERED_PLACEMENT_STATUSES },
-          deletedAt: null,
-        },
-      },
-    });
+    const rows = await prisma.placement
+      .findMany({
+        where: { status: { in: OFFERED_PLACEMENT_STATUSES } },
+        select: { candidateId: true },
+        take: STAGE_ID_TAKE,
+        orderBy: { updatedAt: 'desc' },
+      })
+      .catch(() => []);
+    addIds(rows);
   }
 
   if (key === 'hired') {
     orParts.push({ status: 'PLACED' });
-    orParts.push({
-      placements: {
-        some: {
-          status: { in: HIRED_PLACEMENT_STATUSES },
-          deletedAt: null,
-        },
-      },
-    });
+    const rows = await prisma.placement
+      .findMany({
+        where: { status: { in: HIRED_PLACEMENT_STATUSES } },
+        select: { candidateId: true },
+        take: STAGE_ID_TAKE,
+        orderBy: { updatedAt: 'desc' },
+      })
+      .catch(() => []);
+    addIds(rows);
   }
 
   if (key === 'rejected') {
-    orParts.push({
-      placements: {
-        some: {
-          status: { in: REJECTED_PLACEMENT_STATUSES },
-          deletedAt: null,
-        },
-      },
-    });
-    orParts.push({
-      matches: { some: { status: 'REJECTED' } },
-    });
+    const [placementRows, matchRows] = await Promise.all([
+      prisma.placement
+        .findMany({
+          where: { status: { in: REJECTED_PLACEMENT_STATUSES } },
+          select: { candidateId: true },
+          take: STAGE_ID_TAKE,
+          orderBy: { updatedAt: 'desc' },
+        })
+        .catch(() => []),
+      prisma.match
+        .findMany({
+          where: { status: 'REJECTED' },
+          select: { candidateId: true },
+          take: STAGE_ID_TAKE,
+          orderBy: { updatedAt: 'desc' },
+        })
+        .catch(() => []),
+    ]);
+    addIds(placementRows);
+    addIds(matchRows);
   }
 
   if (key === 'shortlist') {
-    orParts.push({
-      matches: { some: { status: 'SHORTLISTED' } },
-    });
+    const matchRows = await prisma.match
+      .findMany({
+        where: { status: 'SHORTLISTED' },
+        select: { candidateId: true },
+        take: STAGE_ID_TAKE,
+        orderBy: { updatedAt: 'desc' },
+      })
+      .catch(() => []);
+    addIds(matchRows);
+  }
+
+  if (extraIds.size) {
+    orParts.push({ id: { in: Array.from(extraIds).slice(0, STAGE_ID_TAKE) } });
   }
 
   return { OR: orParts };
@@ -4267,13 +4277,12 @@ async function appendCandidateListFilterAndParts(andParts, filters) {
     });
   }
   if (jobId) {
+    // Prefer assignedJobs index; single-job relation lookups are OK (not a huge $in).
     andParts.push({
       OR: [
         { assignedJobs: { has: jobId } },
         { applications: { some: { jobId } } },
         { matches: { some: { jobId } } },
-        { pipelineEntries: { some: { jobId } } },
-        { interviews: { some: { jobId } } },
       ],
     });
   }
@@ -4933,7 +4942,8 @@ export const candidateService = {
     // the soft-delete column existed) without tripping Prisma's "Argument isDeleted is missing".
     andParts.push({ isDeleted: { not: true } });
     // Phase 1 discovery rows (no job link) appear on "All candidates" via includeCommonPool + candidatecommon merge.
-    if (!loadCommonPool) {
+    // Skip this clause for mine=true — mine scope already limits to owned/linked rows; nesting here hung ~300s.
+    if (!loadCommonPool && !mine) {
       andParts.push(buildCrmCandidatesListScopeClause());
     }
     const superAdminScope = buildSuperAdminOwnerScope(req, ['createdById', 'assignedToId']);
@@ -7591,9 +7601,9 @@ export const candidateService = {
   },
 
   async getStats(req = {}) {
-    const loadCommonPool = await resolveLoadCommonPool(req.query || {});
     const mine =
       req.query?.mine === 'true' || req.query?.mine === '1' || req.query?.mine === true;
+    const loadCommonPool = mine ? false : await resolveLoadCommonPool(req.query || {});
     const userId = req.user?.id;
     const myJobIds = mine && userId ? await getMyJobIds(userId) : [];
     const tenantJobIdSet = isTenantScopedRequest()
@@ -7640,7 +7650,7 @@ export const candidateService = {
       AND: [
         scopeWhere || {},
         { isDeleted: { not: true } },
-        ...(loadCommonPool ? [] : [buildCrmCandidatesListScopeClause()]),
+        ...(loadCommonPool || mine ? [] : [buildCrmCandidatesListScopeClause()]),
       ],
     };
     let scopedCandidates = await prisma.candidate.findMany({
