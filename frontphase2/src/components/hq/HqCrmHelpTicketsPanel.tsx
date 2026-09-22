@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { matchesQuickSearch, buildQuickSearchHaystack } from '../../lib/quickSearch';
-import { Loader2, Mail, MessageSquareText, RefreshCw, Search, Ticket } from 'lucide-react';
+import { KeyRound, Loader2, Mail, MessageSquareText, RefreshCw, Search, Ticket } from 'lucide-react';
 import {
   apiHqListHelpTickets,
   apiHqListTickets,
@@ -27,6 +28,7 @@ type UnifiedTicket = {
   meta?: string;
   priority?: string;
   userId?: string | null;
+  tenantDbName?: string | null;
   audience: Audience;
 };
 
@@ -157,6 +159,7 @@ export function HqCrmHelpTicketsPanel({ Panel, PanelTitle, lockedAudience }: Pro
           meta: t.organizationName || t.tenantDbName || undefined,
           priority: t.priority,
           userId: t.raisedByUserId || null,
+          tenantDbName: t.tenantDbName || null,
           audience: 'employer' as const,
         }));
         setTickets(list);
@@ -519,6 +522,32 @@ export function HqCrmHelpTicketsPanel({ Panel, PanelTitle, lockedAudience }: Pro
                 </p>
               ) : audience === 'employee' ? (
                 <p className="mt-1 text-[10px] text-slate-400">Guest ticket (no userId)</p>
+              ) : null}
+              {audience === 'employer' && (selected.email || selected.tenantDbName) ? (
+                <Link
+                  href={`/hq/account-support?${new URLSearchParams(
+                    selected.email
+                      ? { email: selected.email }
+                      : { customerId: String(selected.tenantDbName) },
+                  ).toString()}`}
+                  className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] font-semibold text-emerald-800 hover:bg-emerald-100"
+                >
+                  <KeyRound className="h-3.5 w-3.5" />
+                  Check account / regenerate password
+                </Link>
+              ) : null}
+              {audience === 'employee' && (selected.email || selected.userId) ? (
+                <Link
+                  href={`/hq/account-support?${new URLSearchParams(
+                    selected.email
+                      ? { email: selected.email }
+                      : { q: String(selected.userId) },
+                  ).toString()}`}
+                  className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-[11px] font-semibold text-sky-800 hover:bg-sky-100"
+                >
+                  <KeyRound className="h-3.5 w-3.5" />
+                  Check candidate / login as
+                </Link>
               ) : null}
             </div>
 

@@ -103,6 +103,23 @@ router.patch('/tickets/:id', authMiddleware, hqController.updateSupportTicket);
 router.get('/tickets/:id/messages', authMiddleware, hqController.listSupportTicketMessages);
 router.post('/tickets/:id/messages', authMiddleware, hqController.addSupportTicketMessage);
 
+router.get('/account-support', authMiddleware, hqController.lookupAccountSupport);
+router.post(
+  '/account-support/regenerate-password',
+  authMiddleware,
+  hqController.regenerateAccountSupportPassword,
+);
+router.post(
+  '/account-support/impersonate-employer',
+  authMiddleware,
+  hqController.impersonateAccountSupportEmployer,
+);
+router.post(
+  '/account-support/impersonate-employee',
+  authMiddleware,
+  hqController.impersonateAccountSupportEmployee,
+);
+
 router.get('/help-tickets', authMiddleware, hqController.listHelpTickets);
 router.get('/help-tickets/:id/messages', authMiddleware, hqController.listHelpTicketMessages);
 router.post('/help-tickets/:id/messages', authMiddleware, hqController.addHelpTicketMessage);

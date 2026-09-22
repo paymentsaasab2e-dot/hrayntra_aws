@@ -325,45 +325,129 @@ function highlightHitByEraser(
 }
 
 /** Export paint layer as PNG (white background) for Files upload. */
-function loadImageElement(src: string): Promise<HTMLImageElement> {
+function loadImageElement(src: string, useCors = true): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.crossOrigin = 'anonymous';
+    if (useCors && !src.startsWith('blob:') && !src.startsWith('data:')) {
+      img.crossOrigin = 'anonymous';
+    }
     img.onload = () => resolve(img);
     img.onerror = () => reject(new Error('Failed to load company logo'));
     img.src = src;
   });
 }
 
+/** Fetch logo bytes via same-origin proxy (avoids S3 CORS killing canvas stamp). */
+export async function fetchSaasaCvLogoBytes(
+  url: string
+): Promise<{ bytes: Uint8Array; mime: string } | null> {
+  const raw = String(url || '').trim();
+  if (!raw) return null;
+
+  const candidates: string[] = [];
+  if (raw.startsWith('data:') || raw.startsWith('blob:') || raw.startsWith('/')) {
+    candidates.push(raw);
+  } else {
+    try {
+      const { buildResumeInlineAssetUrl } = await import('./resumePreview');
+      const proxied = buildResumeInlineAssetUrl(raw);
+      if (proxied) candidates.push(proxied);
+    } catch {
+      /* ignore */
+    }
+    if (/^https?:\/\//i.test(raw)) {
+      candidates.push(`/api/pdf-proxy?url=${encodeURIComponent(raw)}`);
+    }
+    candidates.push(raw);
+  }
+
+  for (const src of candidates.filter((u, i, arr) => u && arr.indexOf(u) === i)) {
+    try {
+      if (src.startsWith('data:')) {
+        const res = await fetch(src);
+        const buf = new Uint8Array(await res.arrayBuffer());
+        const mime = src.slice(5, src.indexOf(';')) || 'image/png';
+        if (buf.byteLength > 32) return { bytes: buf, mime };
+        continue;
+      }
+      const res = await fetch(src, { credentials: 'same-origin', cache: 'no-store' });
+      if (!res.ok) continue;
+      const buf = new Uint8Array(await res.arrayBuffer());
+      if (buf.byteLength < 32) continue;
+      const mime =
+        res.headers.get('content-type')?.split(';')[0]?.trim() ||
+        (/\.jpe?g($|\?)/i.test(src) ? 'image/jpeg' : 'image/png');
+      return { bytes: buf, mime };
+    } catch {
+      /* try next */
+    }
+  }
+  return null;
+}
+
+async function loadLogoImageForCanvas(url: string): Promise<HTMLImageElement | null> {
+  const fetched = await fetchSaasaCvLogoBytes(url);
+  if (fetched) {
+    const blob = new Blob([fetched.bytes], { type: fetched.mime });
+    const objectUrl = URL.createObjectURL(blob);
+    try {
+      return await loadImageElement(objectUrl, false);
+    } catch {
+      URL.revokeObjectURL(objectUrl);
+    }
+  }
+
+  // Direct / proxied URL fallback
+  const tryUrls: string[] = [];
+  try {
+    const { buildResumeInlineAssetUrl } = await import('./resumePreview');
+    const proxied = buildResumeInlineAssetUrl(url);
+    if (proxied) tryUrls.push(proxied);
+  } catch {
+    /* ignore */
+  }
+  if (/^https?:\/\//i.test(url)) {
+    tryUrls.push(`/api/pdf-proxy?url=${encodeURIComponent(url)}`);
+  }
+  tryUrls.push(url);
+
+  for (const src of tryUrls.filter((u, i, arr) => u && arr.indexOf(u) === i)) {
+    try {
+      return await loadImageElement(src, !src.startsWith('blob:'));
+    } catch {
+      /* next */
+    }
+  }
+  return null;
+}
+
 /** Draw company logo onto the export canvas (paint layer) before PNG upload. */
 export async function compositeCompanyLogoOnCanvas(
   canvas: HTMLCanvasElement,
   logo: SaasaCvCompanyLogo
-): Promise<void> {
+): Promise<boolean> {
   const url = (logo.url || '').trim();
-  if (!url) return;
+  if (!url) return false;
 
   const ctx = canvas.getContext('2d');
-  if (!ctx || canvas.width < 1 || canvas.height < 1) return;
+  if (!ctx || canvas.width < 1 || canvas.height < 1) return false;
 
-  try {
-    const img = await loadImageElement(url);
-    const w = canvas.width;
-    const h = canvas.height;
-    const lw = (logo.width / 100) * w;
-    const aspect =
-      img.naturalWidth > 0 ? img.naturalHeight / img.naturalWidth : 1;
-    const lh =
-      logo.height != null ? (logo.height / 100) * h : Math.min(lw * aspect, h * 0.25);
-    const lx = (logo.x / 100) * w;
-    const ly = (logo.y / 100) * h;
-    ctx.save();
-    ctx.globalAlpha = clampOpacity(logo.opacity, 1);
-    ctx.drawImage(img, lx, ly, lw, lh);
-    ctx.restore();
-  } catch {
-    /* skip logo if image cannot load (CORS, etc.) */
-  }
+  const img = await loadLogoImageForCanvas(url);
+  if (!img || img.naturalWidth < 1) return false;
+
+  const w = canvas.width;
+  const h = canvas.height;
+  const lw = (logo.width / 100) * w;
+  const aspect = img.naturalWidth > 0 ? img.naturalHeight / img.naturalWidth : 1;
+  const lh =
+    logo.height != null ? (logo.height / 100) * h : Math.min(lw * aspect, h * 0.25);
+  const lx = (logo.x / 100) * w;
+  const ly = (logo.y / 100) * h;
+  ctx.save();
+  ctx.globalAlpha = clampOpacity(logo.opacity, 1);
+  ctx.drawImage(img, lx, ly, lw, lh);
+  ctx.restore();
+  return true;
 }
 
 export function exportPaintCanvasPng(canvas: HTMLCanvasElement): Promise<Blob | null> {

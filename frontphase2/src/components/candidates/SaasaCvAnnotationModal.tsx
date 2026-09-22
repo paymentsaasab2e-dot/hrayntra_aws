@@ -22,6 +22,7 @@ import {
   X,
 } from 'lucide-react';
 import {
+  buildResumeInlineAssetUrl,
   buildResumeViewerUrl,
   canPreviewResumeAsHtml,
   getResumeExtension,
@@ -1722,7 +1723,12 @@ export function SaasaCvAnnotationModal({
                             >
                               {/* eslint-disable-next-line @next/next/no-img-element */}
                               <img
-                                src={companyLogo.url}
+                                src={
+                                  buildResumeInlineAssetUrl(companyLogo.url) ||
+                                  (/^https?:\/\//i.test(companyLogo.url)
+                                    ? `/api/pdf-proxy?url=${encodeURIComponent(companyLogo.url)}`
+                                    : companyLogo.url)
+                                }
                                 alt="Company logo"
                                 className="h-auto w-full object-contain"
                                 draggable={false}

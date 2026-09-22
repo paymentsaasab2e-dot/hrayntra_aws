@@ -1747,6 +1747,123 @@ export async function apiHqListTenants() {
   }>('/hq/tenants', { auth: true });
 }
 
+export type HqAccountSupportLookup = {
+  exists: boolean;
+  accountKind?: 'employer' | 'employee' | string;
+  email?: string | null;
+  loginId?: string | null;
+  name?: string | null;
+  organizationName?: string | null;
+  customerId?: string | null;
+  tenantDbName?: string | null;
+  status?: string | null;
+  signupSource?: string | null;
+  createdAt?: string | null;
+  accountExists?: boolean;
+  passwordGenerated?: boolean;
+  tempPasswordPending?: boolean;
+  hasLoggedInToCrm?: boolean;
+  hasLoggedInToPortal?: boolean;
+  lastLoginAt?: string | null;
+  inviteSentAt?: string | null;
+  crmUserExists?: boolean;
+  loginUrl?: string | null;
+  relatedTickets?: Array<{
+    id: string;
+    subject: string;
+    status: string;
+    priority?: string;
+    raisedByEmail?: string;
+    tenantDbName?: string;
+    createdAt?: string;
+    audience?: 'employer' | 'employee';
+  }>;
+  ticketCount?: number;
+  tenantStatusError?: string | null;
+  query?: { email?: string | null; customerId?: string | null };
+  employer?: HqAccountSupportLookup | null;
+  employee?: {
+    exists?: boolean;
+    candidateId?: string;
+    email?: string | null;
+    name?: string | null;
+    status?: string | null;
+    isVerified?: boolean;
+    passwordGenerated?: boolean;
+    hasLoggedInToPortal?: boolean;
+    lastLoginAt?: string | null;
+    createdAt?: string | null;
+    portalFrontendUrl?: string;
+    relatedTickets?: HqAccountSupportLookup['relatedTickets'];
+    ticketCount?: number;
+  } | null;
+};
+
+export async function apiHqAccountSupportLookup(params: {
+  email?: string;
+  customerId?: string;
+  tenantDbName?: string;
+  q?: string;
+}) {
+  const q = new URLSearchParams();
+  if (params.email) q.set('email', params.email);
+  if (params.customerId) q.set('customerId', params.customerId);
+  if (params.tenantDbName) q.set('tenantDbName', params.tenantDbName);
+  if (params.q) q.set('q', params.q);
+  return apiFetch<HqAccountSupportLookup>(`/hq/account-support?${q.toString()}`, {
+    auth: true,
+  });
+}
+
+export async function apiHqAccountSupportRegeneratePassword(body: {
+  email?: string;
+  customerId?: string;
+  tenantDbName?: string;
+}) {
+  return apiFetch<{
+    email: string;
+    loginId: string;
+    tenantDbName: string;
+    customerId?: string;
+    credentialEmailSent: boolean;
+    credentialEmailError?: string | null;
+    loginUrl?: string;
+    passwordEmailed?: boolean;
+  }>('/hq/account-support/regenerate-password', {
+    method: 'POST',
+    auth: true,
+    body,
+  });
+}
+
+export async function apiHqAccountSupportImpersonateEmployer(body: {
+  email: string;
+}) {
+  return apiFetch<HqTenantImpersonationAccess>('/hq/account-support/impersonate-employer', {
+    method: 'POST',
+    auth: true,
+    body,
+  });
+}
+
+export async function apiHqAccountSupportImpersonateEmployee(body: {
+  email?: string;
+  candidateId?: string;
+}) {
+  return apiFetch<{
+    candidateId: string;
+    email?: string | null;
+    name?: string | null;
+    loginUrl: string;
+    token?: string | null;
+    expiresIn?: string;
+  }>('/hq/account-support/impersonate-employee', {
+    method: 'POST',
+    auth: true,
+    body,
+  });
+}
+
 export type HqTenantImpersonationAccess = {
   token: string;
   loginUrl: string;

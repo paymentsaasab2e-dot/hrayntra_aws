@@ -1033,6 +1033,57 @@ export const hqController = {
     }
   },
 
+  async lookupAccountSupport(req, res) {
+    try {
+      const result = await hqService.lookupAccountSupport(
+        {
+          email: req.query?.email,
+          customerId: req.query?.customerId,
+          tenantDbName: req.query?.tenantDbName,
+          q: req.query?.q,
+        },
+        req.user,
+      );
+      sendResponse(res, 200, result.exists ? 'Account found' : 'Account not found', result);
+    } catch (error) {
+      sendError(res, error.statusCode || 400, error.message, error);
+    }
+  },
+
+  async regenerateAccountSupportPassword(req, res) {
+    try {
+      const result = await hqService.regenerateAccountSupportPassword(req.body || {}, req.user);
+      sendResponse(
+        res,
+        200,
+        result.credentialEmailSent
+          ? 'Password regenerated and emailed'
+          : 'Password regenerated (email may have failed)',
+        result,
+      );
+    } catch (error) {
+      sendError(res, error.statusCode || 400, error.message, error);
+    }
+  },
+
+  async impersonateAccountSupportEmployer(req, res) {
+    try {
+      const result = await hqService.impersonateAccountSupportEmployer(req.body || {}, req.user);
+      sendResponse(res, 200, 'Entrepreneur login link created', result);
+    } catch (error) {
+      sendError(res, error.statusCode || 400, error.message, error);
+    }
+  },
+
+  async impersonateAccountSupportEmployee(req, res) {
+    try {
+      const result = await hqService.impersonateAccountSupportEmployee(req.body || {}, req.user);
+      sendResponse(res, 200, 'Candidate login link created', result);
+    } catch (error) {
+      sendError(res, error.statusCode || 400, error.message, error);
+    }
+  },
+
   async passCourseCheckpoint(req, res) {
     try {
       const result = await hqService.passCourseCheckpoint(

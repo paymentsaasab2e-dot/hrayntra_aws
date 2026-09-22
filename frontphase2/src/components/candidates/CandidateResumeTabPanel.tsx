@@ -1035,11 +1035,14 @@ export function CandidateResumeTabPanel({
       const { exportSaasaCvFromStoredData, withExportTimeout } = await import(
         '../../lib/saasaCvExport'
       );
+      const extra = backendCandidate?.extraData ?? candidate.extraData ?? null;
+      const { readSaasaCvCompanyLogo } = await import('../../lib/saasaCvAnnotations');
       const blob = await withExportTimeout(
         exportSaasaCvFromStoredData({
           resumeUrl: baseResume,
           annotations: saasaStored?.items ?? [],
-          companyLogo: saasaStored?.companyLogo ?? null,
+          companyLogo:
+            saasaStored?.companyLogo ?? readSaasaCvCompanyLogo(extra) ?? null,
           pdfTextLayerHtml: saasaStored?.pdfTextLayerHtml ?? null,
           width: 800,
         }),

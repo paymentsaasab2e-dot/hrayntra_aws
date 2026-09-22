@@ -13,6 +13,7 @@ import {
   CreditCard,
   Globe,
   GraduationCap,
+  KeyRound,
   LayoutDashboard,
   Loader2,
   LogOut,
@@ -57,6 +58,7 @@ export type HqNavId =
   | 'team'
   | 'reports'
   | 'billing'
+  | 'accountSupport'
   | 'company'
   | 'employeeTickets'
   | 'employerTickets'
@@ -207,6 +209,14 @@ export const HQ_NAV_ITEMS: {
     href: '/hq/billing',
     icon: CreditCard,
     accent: 'amber',
+    group: 'ops',
+  },
+  {
+    id: 'accountSupport',
+    label: 'Account support',
+    href: '/hq/account-support',
+    icon: KeyRound,
+    accent: 'emerald',
     group: 'ops',
   },
   {

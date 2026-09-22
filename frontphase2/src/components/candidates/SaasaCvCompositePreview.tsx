@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { MessageSquare, Star } from 'lucide-react';
 import { ResumeWordFileViewer } from './ResumeWordFileViewer';
 import {
+  buildResumeInlineAssetUrl,
   buildResumeViewerUrl,
   canPreviewResumeAsHtml,
   isImageResume,
@@ -81,6 +82,15 @@ export function SaasaCvCompositePreview({
 
   const pinAnnotations = annotations.filter((a) => a.type === 'comment' || a.type === 'important');
   const paintAnnotations = annotations.filter((a) => a.type === 'draw' || a.type === 'highlight');
+  const logoPreviewSrc = useMemo(() => {
+    const raw = String(companyLogo?.url || '').trim();
+    if (!raw) return '';
+    if (raw.startsWith('data:') || raw.startsWith('blob:') || raw.startsWith('/')) return raw;
+    const proxied = buildResumeInlineAssetUrl(raw);
+    if (proxied) return proxied;
+    if (/^https?:\/\//i.test(raw)) return `/api/pdf-proxy?url=${encodeURIComponent(raw)}`;
+    return raw;
+  }, [companyLogo?.url]);
 
   const shellClass =
     `flex h-full w-full min-h-0 flex-1 flex-col overflow-hidden bg-slate-100 ${minHeightClass} ${className}`.trim();
@@ -319,10 +329,12 @@ export function SaasaCvCompositePreview({
             </div>
           )}
 
-          {companyLogo?.url
+          {companyLogo?.url && logoPreviewSrc
             ? logoPreviewPositions.map((pos) => (
                 <div
                   key={`logo-page-${pos.pageIndex}`}
+                  data-saasa-cv-logo-stamp="1"
+                  data-page-index={pos.pageIndex}
                   className="pointer-events-none absolute z-[18] select-none"
                   style={{
                     left: `${companyLogo.x}%`,
@@ -334,7 +346,7 @@ export function SaasaCvCompositePreview({
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={companyLogo.url}
+                    src={logoPreviewSrc}
                     alt="Company logo"
                     className="h-auto w-full object-contain"
                     draggable={false}
@@ -346,6 +358,7 @@ export function SaasaCvCompositePreview({
           {paintSurfaceReady ? (
             <canvas
               ref={canvasRef}
+              data-saasa-cv-paint-canvas="1"
               className="pointer-events-none absolute left-0 top-0 z-10"
               aria-hidden
             />

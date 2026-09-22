@@ -1480,4 +1480,26 @@ export const hqService = {
     assertPlatformProvisioner(reqUser);
     return hqBillingService.getEmployerLedger(tenantKey);
   },
+
+  async lookupAccountSupport(query, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    const { hqAccountSupportService } = await import('./hq-account-support.service.js');
+    return hqAccountSupportService.lookup(query);
+  },
+
+  async regenerateAccountSupportPassword(body, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    const { hqAccountSupportService } = await import('./hq-account-support.service.js');
+    return hqAccountSupportService.regeneratePassword(body);
+  },
+
+  async impersonateAccountSupportEmployer(body, reqUser) {
+    return this.createTenantImpersonationAccess(body, reqUser);
+  },
+
+  async impersonateAccountSupportEmployee(body, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    const { hqAccountSupportService } = await import('./hq-account-support.service.js');
+    return hqAccountSupportService.impersonateEmployee(body);
+  },
 };

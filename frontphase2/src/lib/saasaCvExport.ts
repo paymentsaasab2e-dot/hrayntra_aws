@@ -1,6 +1,10 @@
 import html2canvas from 'html2canvas';
 import type { SaasaCvAnnotation, SaasaCvCompanyLogo } from './saasaCvAnnotations';
-import { resolveSaasaCvLogoPageY } from './saasaCvAnnotations';
+import {
+  pdfTextLayerHtmlHasEdits,
+  resolveSaasaCvLogoPageY,
+  saasaCvLogoDocPositions,
+} from './saasaCvAnnotations';
 import {
   fetchSaasaCvPdfBytes,
   loadSaasaPdfJs,
@@ -123,13 +127,22 @@ function translateAnnotationsForPage(
 
   let logo: SaasaCvCompanyLogo | null = null;
   if (companyLogo?.url?.trim()) {
-    if (companyLogo.applyTo === 'all') {
+    const positions = saasaCvLogoDocPositions(companyLogo, pageHeightsPx, docHeightPx);
+    const hit = positions.find((p) => p.pageIndex === pageIndex);
+    if (hit) {
+      logo = {
+        ...companyLogo,
+        y:
+          companyLogo.applyTo === 'all'
+            ? resolveSaasaCvLogoPageY(companyLogo, pageHeightsPx, docHeightPx)
+            : toLocalY(hit.y),
+      };
+    } else if (pageIndex === 0 && positions.length === 0) {
+      // Degenerate heights — still stamp on first page so logo is never dropped.
       logo = {
         ...companyLogo,
         y: resolveSaasaCvLogoPageY(companyLogo, pageHeightsPx, docHeightPx),
       };
-    } else if (onPageY(companyLogo.y)) {
-      logo = { ...companyLogo, y: toLocalY(companyLogo.y) };
     }
   }
 
@@ -386,6 +399,186 @@ function drawEditedTextHtmlOntoOverlay(
   });
 }
 
+function findVisibleSaasaPreviewSurface(): {
+  host: HTMLElement;
+  surface: HTMLElement;
+  paintCanvas: HTMLCanvasElement | null;
+} | null {
+  if (typeof document === 'undefined') return null;
+  const hosts = Array.from(document.querySelectorAll('[data-saasa-cv-preview-host="1"]'));
+  const host =
+    hosts.find(
+      (el) => el instanceof HTMLElement && el.getBoundingClientRect().width > 40
+    ) || hosts[0];
+  if (!(host instanceof HTMLElement)) return null;
+  const surface = host.parentElement;
+  if (!(surface instanceof HTMLElement)) return null;
+  const paint = surface.querySelector('[data-saasa-cv-paint-canvas="1"]');
+  return {
+    host,
+    surface,
+    paintCanvas: paint instanceof HTMLCanvasElement ? paint : null,
+  };
+}
+
+/** True if a canvas region has any visible paint (not fully transparent). */
+function canvasRegionHasPaint(
+  canvas: HTMLCanvasElement,
+  sx: number,
+  sy: number,
+  sw: number,
+  sh: number
+): boolean {
+  try {
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx || sw < 2 || sh < 2) return false;
+    const w = Math.max(1, Math.floor(Math.min(sw, canvas.width - sx)));
+    const h = Math.max(1, Math.floor(Math.min(sh, canvas.height - sy)));
+    if (w < 2 || h < 2) return false;
+    const step = Math.max(8, Math.floor(Math.min(w, h) / 20));
+    for (let y = 0; y < h; y += step) {
+      for (let x = 0; x < w; x += step) {
+        const { data } = ctx.getImageData(Math.floor(sx + x), Math.floor(sy + y), 1, 1);
+        if (data[3] > 20) return true;
+      }
+    }
+    return false;
+  } catch {
+    return true; // tainted / blocked — assume paint exists
+  }
+}
+
+/**
+ * Copy brush + highlight pixels from the on-screen preview for this page.
+ * Matches preview coordinates exactly (avoids % remapping drift).
+ */
+function stampPaintFromVisiblePreview(
+  ctx: CanvasRenderingContext2D,
+  pageIndex: number,
+  overlayW: number,
+  overlayH: number
+): boolean {
+  const found = findVisibleSaasaPreviewSurface();
+  if (!found?.paintCanvas) return false;
+  const { host, surface, paintCanvas } = found;
+
+  const pages = Array.from(host.querySelectorAll(':scope > .saasa-pdf-page'));
+  const pageWrap = pages[pageIndex];
+  if (!(pageWrap instanceof HTMLElement)) return false;
+
+  const pageRect = pageWrap.getBoundingClientRect();
+  const surfaceRect = surface.getBoundingClientRect();
+  if (pageRect.width < 8 || pageRect.height < 8) return false;
+
+  const cssW = Math.max(1, paintCanvas.clientWidth || surface.clientWidth || surfaceRect.width);
+  const cssH = Math.max(1, paintCanvas.clientHeight || surface.clientHeight || surfaceRect.height);
+  const scaleX = paintCanvas.width / cssW;
+  const scaleY = paintCanvas.height / cssH;
+
+  const srcX = Math.max(0, (pageRect.left - surfaceRect.left) * scaleX);
+  const srcY = Math.max(0, (pageRect.top - surfaceRect.top) * scaleY);
+  const srcW = Math.max(1, pageRect.width * scaleX);
+  const srcH = Math.max(1, pageRect.height * scaleY);
+
+  if (!canvasRegionHasPaint(paintCanvas, srcX, srcY, srcW, srcH)) return false;
+
+  try {
+    ctx.drawImage(paintCanvas, srcX, srcY, srcW, srcH, 0, 0, overlayW, overlayH);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Shift page-local paint marks up when remapping % onto original PDF media box. */
+function nudgePaintAnnotationsUp(annotations: SaasaCvAnnotation[], dyPct = 2.75): SaasaCvAnnotation[] {
+  return annotations.map((ann) => {
+    if (ann.type === 'highlight') {
+      return { ...ann, y: Math.max(0, ann.y - dyPct) };
+    }
+    if (ann.type === 'draw' && ann.points?.length) {
+      return {
+        ...ann,
+        points: ann.points.map((p) => ({ ...p, y: Math.max(0, p.y - dyPct) })),
+        y: Math.max(0, (ann.y || 0) - dyPct),
+      };
+    }
+    if (ann.type === 'comment' || ann.type === 'important') {
+      return { ...ann, y: Math.max(0, ann.y - dyPct) };
+    }
+    return ann;
+  });
+}
+
+/** Draw the logo from the on-screen preview box for this page. */
+async function stampLogoFromVisiblePreview(
+  ctx: CanvasRenderingContext2D,
+  pageIndex: number,
+  overlayW: number,
+  overlayH: number,
+  fallbackLogo: SaasaCvCompanyLogo | null
+): Promise<boolean> {
+  const found = findVisibleSaasaPreviewSurface();
+  if (!found) return false;
+  const { host, surface } = found;
+
+  const logos = Array.from(
+    surface.querySelectorAll('[data-saasa-cv-logo-stamp="1"]')
+  ).filter((el): el is HTMLElement => el instanceof HTMLElement);
+  const target =
+    logos.find((el) => el.dataset.pageIndex === String(pageIndex)) ||
+    (logos.length === 1 ? logos[0] : null);
+  if (!target) return false;
+
+  const pages = Array.from(host.querySelectorAll(':scope > .saasa-pdf-page'));
+  const pageWrap = pages[pageIndex];
+  if (!(pageWrap instanceof HTMLElement)) return false;
+
+  const pageRect = pageWrap.getBoundingClientRect();
+  const logoRect = target.getBoundingClientRect();
+  if (pageRect.width < 8 || pageRect.height < 8 || logoRect.width < 2) return false;
+
+  const img = target.querySelector('img');
+  const src =
+    (img instanceof HTMLImageElement ? img.currentSrc || img.src : '') ||
+    fallbackLogo?.url ||
+    '';
+  if (!src) return false;
+
+  const x = ((logoRect.left - pageRect.left) / pageRect.width) * overlayW;
+  const y = ((logoRect.top - pageRect.top) / pageRect.height) * overlayH;
+  const w = (logoRect.width / pageRect.width) * overlayW;
+  const h = (logoRect.height / pageRect.height) * overlayH;
+
+  try {
+    const { fetchSaasaCvLogoBytes } = await import('./saasaCvPaintCanvas');
+    const fetched = await fetchSaasaCvLogoBytes(src);
+    if (!fetched) return false;
+    const blob = new Blob([fetched.bytes], { type: fetched.mime });
+    const objectUrl = URL.createObjectURL(blob);
+    try {
+      const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const el = new Image();
+        el.onload = () => resolve(el);
+        el.onerror = () => reject(new Error('logo'));
+        el.src = objectUrl;
+      });
+      ctx.save();
+      ctx.globalAlpha = Math.min(
+        1,
+        Math.max(0.05, parseFloat(String(target.style.opacity || '1')) || 1)
+      );
+      ctx.drawImage(image, x, y, Math.max(1, w), Math.max(1, h));
+      ctx.restore();
+      return true;
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+  } catch {
+    return false;
+  }
+}
+
 async function renderPageOverlayPng(
   widthPx: number,
   heightPx: number,
@@ -394,7 +587,7 @@ async function renderPageOverlayPng(
   pageTextHtml?: string | null,
   fallbackWidthPx?: number,
   pageIndex?: number
-): Promise<Uint8Array | null> {
+): Promise<{ png: Uint8Array; drewLogo: boolean } | null> {
   if (widthPx < 1 || heightPx < 1) return null;
 
   const hasPaint = annotations.some((a) => a.type === 'draw' || a.type === 'highlight');
@@ -409,8 +602,7 @@ async function renderPageOverlayPng(
   const ctx = canvas.getContext('2d');
   if (!ctx) return null;
 
-  // 1) Prefer visible preview boxes (exact match to what user sees).
-  // 2) Else use saved %-of-page / canvas coords from last Save.
+  // Text under paint/logo (same stacking as preview).
   let drewText = false;
   if (hasText && typeof pageIndex === 'number') {
     drewText = drawEditedTextFromVisiblePreview(ctx, pageIndex, widthPx, heightPx);
@@ -425,13 +617,19 @@ async function renderPageOverlayPng(
     );
   }
 
+  // Prefer live preview paint pixels (exact preview position). Fallback remaps % with a
+  // small upward nudge — remapping alone was shifting marks down vs preview.
   const paintMarks = annotations.filter((a) => a.type === 'draw' || a.type === 'highlight');
-  if (paintMarks.length) {
+  let drewPaint = false;
+  if (paintMarks.length && typeof pageIndex === 'number') {
+    drewPaint = stampPaintFromVisiblePreview(ctx, pageIndex, widthPx, heightPx);
+  }
+  if (!drewPaint && paintMarks.length) {
     redrawPaintCanvas(
       ctx,
       widthPx,
       heightPx,
-      paintMarks,
+      nudgePaintAnnotationsUp(paintMarks),
       null,
       {
         color: '#FDE047',
@@ -442,17 +640,32 @@ async function renderPageOverlayPng(
     );
   }
 
-  if (hasLogo && companyLogo) {
-    await compositeCompanyLogoOnCanvas(canvas, companyLogo);
+  // Logo: live preview box first (correct x/y), then stored % via proxied blob.
+  let drewLogo = false;
+  if (hasLogo && typeof pageIndex === 'number') {
+    drewLogo = await stampLogoFromVisiblePreview(
+      ctx,
+      pageIndex,
+      widthPx,
+      heightPx,
+      companyLogo
+    );
+  }
+  if (!drewLogo && hasLogo && companyLogo) {
+    // Nudge stored logo up to match preview (same drift as paint remap).
+    drewLogo = await compositeCompanyLogoOnCanvas(canvas, {
+      ...companyLogo,
+      y: Math.max(0, companyLogo.y - 1.25),
+    });
   }
 
-  drawPinAnnotationsOnCanvas(ctx, annotations, widthPx, heightPx);
+  drawPinAnnotationsOnCanvas(ctx, nudgePaintAnnotationsUp(annotations), widthPx, heightPx);
 
   const blob = await new Promise<Blob | null>((resolve) => {
     canvas.toBlob((b) => resolve(b), 'image/png');
   });
   if (!blob) return null;
-  return new Uint8Array(await blob.arrayBuffer());
+  return { png: new Uint8Array(await blob.arrayBuffer()), drewLogo };
 }
 
 /**
@@ -518,7 +731,7 @@ export async function buildSaasaCvPdfPreservingSource(options: {
     // Prefer saved editor canvas width so data-saasa-* coords map 1:1.
     const marker = parseSaasaPageSizeMarker(textPages[i] ?? '');
     const fallbackW = marker?.canvasW || docWidthPx;
-    const overlayPng = await renderPageOverlayPng(
+    const overlayResult = await renderPageOverlayPng(
       overlayW,
       overlayH,
       annotations,
@@ -527,15 +740,47 @@ export async function buildSaasaCvPdfPreservingSource(options: {
       fallbackW,
       i
     );
-    if (!overlayPng) continue;
+    if (!overlayResult) continue;
 
-    const image = await pdfDoc.embedPng(overlayPng);
+    const image = await pdfDoc.embedPng(overlayResult.png);
     page.drawImage(image, {
       x: 0,
       y: 0,
       width: widthPt,
       height: heightPt,
     });
+
+    // Only pdf-lib-embed logo when the overlay did not already draw it (avoid double / drift).
+    if (companyLogo?.url?.trim() && !overlayResult.drewLogo) {
+      try {
+        const { fetchSaasaCvLogoBytes } = await import('./saasaCvPaintCanvas');
+        const fetched = await fetchSaasaCvLogoBytes(companyLogo.url);
+        if (fetched && fetched.bytes.byteLength > 32) {
+          const isJpeg = /jpe?g/i.test(fetched.mime);
+          const embedded = isJpeg
+            ? await pdfDoc.embedJpg(fetched.bytes)
+            : await pdfDoc.embedPng(fetched.bytes);
+          const lw = (companyLogo.width / 100) * widthPt;
+          const aspect = embedded.width > 0 ? embedded.height / embedded.width : 1;
+          const lh =
+            companyLogo.height != null
+              ? (companyLogo.height / 100) * heightPt
+              : Math.min(lw * aspect, heightPt * 0.25);
+          const lx = (companyLogo.x / 100) * widthPt;
+          const yPct = Math.max(0, companyLogo.y - 1.25);
+          const ly = heightPt - (yPct / 100) * heightPt - lh;
+          page.drawImage(embedded, {
+            x: Math.max(0, lx),
+            y: Math.max(0, ly),
+            width: Math.max(4, lw),
+            height: Math.max(4, lh),
+            opacity: Math.min(1, Math.max(0.05, companyLogo.opacity ?? 1)),
+          });
+        }
+      } catch {
+        /* logo optional if bytes unavailable */
+      }
+    }
   }
 
   const saved = await pdfDoc.save();
@@ -634,11 +879,20 @@ async function buildCompositeCanvas(
 
   const paintMarks = annotations.filter((a) => a.type === 'draw' || a.type === 'highlight');
   if (paintMarks.length) {
-    redrawPaintCanvas(ctx, off.width, off.height, paintMarks, null, {
-      color: '#FDE047',
-      opacity: 0.55,
-      sizePx: 10,
-    });
+    // Must NOT clear — that wiped the resume pixels and left only scribbles.
+    redrawPaintCanvas(
+      ctx,
+      off.width,
+      off.height,
+      paintMarks,
+      null,
+      {
+        color: '#FDE047',
+        opacity: 0.55,
+        sizePx: 10,
+      },
+      { clear: false }
+    );
   }
 
   if (companyLogo?.url?.trim()) {
@@ -805,39 +1059,62 @@ export async function buildSaasaCvSnapshotFromPdfHost(
   return canvasToSaasaCvPdfBlob(built.canvas, built.pageHeights);
 }
 
-/** Re-render PDF from bytes + marks + logo → PDF upload. */
+/** Re-render PDF from bytes + marks + logo (+ optional text edits) → PDF. */
 export async function buildSaasaCvPdfSnapshotBlob(options: {
   pdfUrl: string;
   width: number;
   annotations: SaasaCvAnnotation[];
   companyLogo: SaasaCvCompanyLogo | null;
+  pdfTextLayerHtml?: string[] | null;
 }): Promise<Blob | null> {
   const docWidth = Math.max(320, Math.floor(options.width) || 800);
-  const pdfjs = await loadSaasaPdfJs();
-  const data = await fetchSaasaCvPdfBytes(options.pdfUrl);
-  const pdf = await pdfjs.getDocument(saasaPdfJsDocumentOptions(data)).promise;
+  const { renderSaasaPdfPages, clearSaasaCvPdfBytesCache } = await import('./saasaCvPdfRender');
+  const {
+    attachInPlacePdfTextToHost,
+    burnInPlaceTextOntoPageCanvases,
+    enforcePdfPageLayout,
+  } = await import('./saasaCvPdfTextLayer');
 
-  const pageCanvases: HTMLCanvasElement[] = [];
+  const host = document.createElement('div');
+  host.style.cssText =
+    'position:fixed;left:-10000px;top:0;width:' +
+    docWidth +
+    'px;opacity:0;pointer-events:none;z-index:-1;background:#fff;';
+  document.body.appendChild(host);
 
-  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-    const page = await pdf.getPage(pageNum);
-    const base = page.getViewport({ scale: 1 });
-    const scale = docWidth / base.width;
-    const viewport = page.getViewport({ scale });
+  try {
+    await renderSaasaPdfPages(host, options.pdfUrl);
+    enforcePdfPageLayout(host);
 
-    const pageCanvas = document.createElement('canvas');
-    pageCanvas.width = Math.floor(viewport.width);
-    pageCanvas.height = Math.floor(viewport.height);
-    const pctx = pageCanvas.getContext('2d');
-    if (!pctx) continue;
-    await page.render({ canvasContext: pctx, viewport }).promise;
-    pageCanvases.push(pageCanvas);
+    const pages = collectPdfPageCanvases(host);
+    if (!pages.length || !pageCanvasesHaveResumeContent(pages)) return null;
+
+    if (pdfTextLayerHtmlHasEdits(options.pdfTextLayerHtml)) {
+      await attachInPlacePdfTextToHost(host, options.pdfUrl, {
+        editing: true,
+        readOnly: true,
+        savedLayerHtml: options.pdfTextLayerHtml,
+      });
+      await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+      enforcePdfPageLayout(host);
+      burnInPlaceTextOntoPageCanvases(host);
+    }
+
+    const built = await buildCompositeCanvas(
+      collectPdfPageCanvases(host),
+      options.annotations,
+      options.companyLogo
+    );
+    if (!built) return null;
+    if (!canvasHasDocumentContent(built.canvas, { minNonWhiteRatio: 0.01 })) return null;
+
+    return canvasToSaasaCvPdfBlob(built.canvas, built.pageHeights);
+  } catch {
+    return null;
+  } finally {
+    host.remove();
+    clearSaasaCvPdfBytesCache();
   }
-
-  const built = await buildCompositeCanvas(pageCanvases, options.annotations, options.companyLogo);
-  if (!built) return null;
-
-  return canvasToSaasaCvPdfBlob(built.canvas, built.pageHeights);
 }
 
 /**
@@ -853,6 +1130,7 @@ export async function exportSaasaCvDocumentPdf(options: {
   pdfHost?: HTMLElement | null;
   expectedPageCount?: number;
   displayPageHeightsPx?: number[];
+  pdfTextLayerHtml?: string[] | null;
 }): Promise<Blob | null> {
   // 1) Live editor pages (most reliable — same pixels as the modal)
   if (options.pdfHost) {
@@ -871,6 +1149,7 @@ export async function exportSaasaCvDocumentPdf(options: {
     width: options.width,
     annotations: options.annotations,
     companyLogo: options.companyLogo,
+    pdfTextLayerHtml: options.pdfTextLayerHtml,
   });
   if (fromRender) return fromRender;
 
@@ -889,6 +1168,7 @@ export async function exportSaasaCvDocumentPdf(options: {
       companyLogo: options.companyLogo,
       displayWidthPx: options.width,
       displayPageHeightsPx: pageHeightsPx,
+      pdfTextLayerHtml: options.pdfTextLayerHtml,
     });
   }
 
@@ -899,8 +1179,8 @@ export async function exportSaasaCvDocumentPdf(options: {
  * Build a downloadable HRYantra CV from the original resume + saved scribbles /
  * text edits / logo.
  *
- * Prefer preserving original PDF bytes and stamping overlays (text edits +
- * scribbles + logo). Re-rasterizing via offscreen PDF.js was dropping edits.
+ * Prefer PDF.js composite (same coordinate space as preview) so marks/logo are not
+ * shifted vs the original PDF media-box when using preserve+stamp.
  */
 export async function exportSaasaCvFromStoredData(options: {
   resumeUrl: string;
@@ -920,6 +1200,64 @@ export async function exportSaasaCvFromStoredData(options: {
   const { buildResumeViewerUrl } = await import('./resumePreview');
   const viewerUrl = buildResumeViewerUrl(resumeUrl);
 
+  // 1) Live HRYantra preview host — exact same pages the user is looking at.
+  const found = findVisibleSaasaPreviewSurface();
+  if (found?.host) {
+    const livePages = collectPdfPageCanvases(found.host);
+    if (livePages.length && pageCanvasesHaveResumeContent(livePages)) {
+      const backups = livePages.map((src) => {
+        const copy = document.createElement('canvas');
+        copy.width = src.width;
+        copy.height = src.height;
+        copy.getContext('2d')?.drawImage(src, 0, 0);
+        return copy;
+      });
+      try {
+        if (pdfTextLayerHtmlHasEdits(pdfTextLayerHtml)) {
+          const {
+            applyInPlacePdfTextHtmlToHost,
+            burnInPlaceTextOntoPageCanvases,
+            enforcePdfPageLayout,
+          } = await import('./saasaCvPdfTextLayer');
+          applyInPlacePdfTextHtmlToHost(found.host, pdfTextLayerHtml, true);
+          enforcePdfPageLayout(found.host);
+          burnInPlaceTextOntoPageCanvases(found.host);
+        }
+        const fromHost = await buildSaasaCvSnapshotFromPdfHost(
+          found.host,
+          annotations,
+          companyLogo
+        );
+        if (fromHost && fromHost.size > 12_000) return fromHost;
+      } finally {
+        const live = collectPdfPageCanvases(found.host);
+        backups.forEach((b, i) => {
+          const target = live[i];
+          if (!target) return;
+          const ctx = target.getContext('2d');
+          if (!ctx) return;
+          ctx.clearRect(0, 0, target.width, target.height);
+          ctx.drawImage(b, 0, 0);
+        });
+      }
+    }
+  }
+
+  // 2) Offscreen PDF.js render at the same width family as the editor.
+  try {
+    const raster = await buildSaasaCvPdfSnapshotBlob({
+      pdfUrl: viewerUrl,
+      width,
+      annotations,
+      companyLogo,
+      pdfTextLayerHtml,
+    });
+    if (raster && raster.size > 12_000) return raster;
+  } catch {
+    /* fall through */
+  }
+
+  // 3) Last resort: stamp overlays onto original PDF bytes (may drift vs preview).
   try {
     const sourceBytes = await fetchSaasaCvPdfBytes(viewerUrl);
     if (sourceBytes.byteLength >= 12_000) {
@@ -927,7 +1265,6 @@ export async function exportSaasaCvFromStoredData(options: {
       const pdfDoc = await PDFDocument.load(sourceBytes);
       const pdfPages = pdfDoc.getPages();
       if (pdfPages.length > 0) {
-        // Match editor width so data-saasa-* text coords map onto the page.
         const heights = pdfPages.map((p) => {
           const { width: w, height: h } = p.getSize();
           return Math.max(1, width * (h / Math.max(1, w)));
@@ -947,12 +1284,7 @@ export async function exportSaasaCvFromStoredData(options: {
     /* fall through */
   }
 
-  return buildSaasaCvPdfSnapshotBlob({
-    pdfUrl: viewerUrl,
-    width,
-    annotations,
-    companyLogo,
-  });
+  return null;
 }
 
 /** Word / HTML / fallback surface → PDF (split into pages when heights are known). */

@@ -126,7 +126,15 @@ export function CandidateCvFilesSection({
         );
 
       const savedUrl = String(saasaCvFileEntry?.fileUrl || stored?.fileUrl || '').trim();
-      if (savedUrl) {
+      const hasLiveOverlays = Boolean(
+        (stored?.items && stored.items.length > 0) ||
+          stored?.companyLogo?.url ||
+          (stored?.pdfTextLayerHtml && stored.pdfTextLayerHtml.some((h) => h.trim()))
+      );
+
+      // Always rebuild when logo / brush / text edits exist — the saved Files
+      // snapshot can be missing the logo (CORS) or have wrong brush placement.
+      if (savedUrl && !hasLiveOverlays) {
         await triggerFileDownload(savedUrl, {
           uploadsBase,
           filename: filename.endsWith('.pdf') ? filename : `${filename}.pdf`,
@@ -140,6 +148,13 @@ export function CandidateCvFilesSection({
         fallbackResumeUrl: originalResumeUrl,
         saasaFileUrl: saasaCvFileEntry?.fileUrl || stored?.fileUrl,
       });
+      if (!baseResume && savedUrl) {
+        await triggerFileDownload(savedUrl, {
+          uploadsBase,
+          filename: filename.endsWith('.pdf') ? filename : `${filename}.pdf`,
+        });
+        return;
+      }
       if (!baseResume) throw new Error('No HRYantra CV file to download');
 
       const { exportSaasaCvFromStoredData, withExportTimeout } = await import(
@@ -149,7 +164,12 @@ export function CandidateCvFilesSection({
         exportSaasaCvFromStoredData({
           resumeUrl: baseResume,
           annotations: stored?.items ?? [],
-          companyLogo: stored?.companyLogo ?? null,
+          companyLogo:
+            stored?.companyLogo ??
+            (await import('../../lib/saasaCvAnnotations')).readSaasaCvCompanyLogo(
+              resumeSource?.extraData ?? candidate.extraData ?? null
+            ) ??
+            null,
           pdfTextLayerHtml: stored?.pdfTextLayerHtml ?? null,
           width: 800,
         }),

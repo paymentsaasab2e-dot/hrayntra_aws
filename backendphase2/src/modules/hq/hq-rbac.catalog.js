@@ -414,6 +414,7 @@ export const HQ_NAV_PERMISSION_MAP = {
   team: ['hq_team_read'],
   reports: ['hq_reports_read'],
   billing: ['hq_ops_billing_read'],
+  accountSupport: ['hq_tenants_read', 'hq_tickets_read'],
   settings: ['hq_settings_read'],
 };
 

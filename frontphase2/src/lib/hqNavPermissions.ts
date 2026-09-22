@@ -29,6 +29,7 @@ export const HQ_NAV_PERMISSION_MAP: Record<string, string[]> = {
   team: ['hq_team_read'],
   reports: ['hq_reports_read'],
   billing: ['hq_ops_billing_read'],
+  accountSupport: ['hq_tenants_read', 'hq_tickets_read'],
   settings: ['hq_settings_read'],
 };
 
@@ -53,6 +54,7 @@ export const HQ_NAV_HREF_MAP: Record<string, string> = {
   team: '/hq/team',
   reports: '/hq/reports',
   billing: '/hq/billing',
+  accountSupport: '/hq/account-support',
   settings: '/hq/settings',
 };
 
@@ -78,6 +80,7 @@ export const HQ_NAV_LANDING_ORDER = [
   'team',
   'reports',
   'billing',
+  'accountSupport',
   'settings',
 ] as const;
 
@@ -268,6 +271,9 @@ export function resolveHqNavIdFromLocation(
   if (pathname === '/hq/team' || pathname.startsWith('/hq/team/')) return 'team';
   if (pathname === '/hq/reports' || pathname.startsWith('/hq/reports/')) return 'reports';
   if (pathname === '/hq/billing' || pathname.startsWith('/hq/billing/')) return 'billing';
+  if (pathname === '/hq/account-support' || pathname.startsWith('/hq/account-support/')) {
+    return 'accountSupport';
+  }
   if (pathname === '/hq/settings' || pathname.startsWith('/hq/settings/')) return 'settings';
   if (pathname === '/hq/company' || pathname.startsWith('/hq/company/')) return 'company';
   if (pathname === '/hq/candidates' || pathname.startsWith('/hq/candidates/')) return 'candidates';
