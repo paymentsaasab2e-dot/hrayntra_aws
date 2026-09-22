@@ -78,14 +78,14 @@ export async function saveFailedBulkResume({
   return publicRow(row);
 }
 
-export async function listFailedBulkResumes(userId, { status = 'active', limit = 500 } = {}) {
+export async function listFailedBulkResumes(userId, { status = 'active', limit = 50 } = {}) {
   const rows = await prisma.failedBulkResume.findMany({
     where: {
       userId: String(userId),
       status: String(status || 'active'),
     },
     orderBy: { failedAt: 'desc' },
-    take: Math.min(2000, Math.max(1, Number(limit) || 500)),
+    take: Math.min(200, Math.max(1, Number(limit) || 50)),
   });
   return rows.map(publicRow);
 }

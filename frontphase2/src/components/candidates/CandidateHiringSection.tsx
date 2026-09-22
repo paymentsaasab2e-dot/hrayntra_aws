@@ -234,7 +234,15 @@ export function CandidateHiringEditSection({ form, onChange, recruiters, jobs }:
             label: `${job.title}${job.department ? ` · ${job.department}` : ''}`,
             value: job.id,
           }))}
-          onChange={(v) => onChange('assignedJobId', v)}
+          onChange={(v) => {
+            const nextJobId = String(v || '').trim();
+            const prevJobId = String(form.assignedJobId || '').trim();
+            onChange('assignedJobId', v);
+            // New job assignment starts at Applied unless the user then picks another stage.
+            if (nextJobId && nextJobId !== prevJobId) {
+              onChange('stage', 'Applied');
+            }
+          }}
           placeholder="Search and select a job"
         />
         <EditSelect
@@ -257,12 +265,22 @@ export function CandidateHiringEditSection({ form, onChange, recruiters, jobs }:
 export function applyHiringFieldsFromEditForm(
   payload: UpdateCandidatePayload,
   editForm: CandidateEditFormState,
+  previousAssignedJobId?: string | null,
 ): UpdateCandidatePayload {
+  const nextJobId = String(editForm.assignedJobId || '').trim();
+  const prevJobId = String(previousAssignedJobId || '').trim();
+  const jobChanged = Boolean(nextJobId && nextJobId !== prevJobId);
+  const formStage = editForm.stage.trim();
+
   return {
     ...payload,
     assignedToId: editForm.recruiterId || null,
-    assignedJobs: editForm.assignedJobId ? [editForm.assignedJobId] : [],
-    stage: editForm.stage.trim() || undefined,
+    assignedJobs: nextJobId ? [nextJobId] : [],
+    stage: jobChanged
+      ? formStage && formStage.toLowerCase() !== 'new'
+        ? formStage
+        : 'Applied'
+      : formStage || undefined,
     status: editForm.status.trim() || undefined,
     source: editForm.source.trim() || undefined,
     availability: editForm.availability.trim() || undefined,

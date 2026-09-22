@@ -529,11 +529,25 @@ function resolveCandidateStageForList(candidate, tenantJobIdSet = null) {
   return explicitStage || 'New';
 }
 
-function stageWhenLinkingToJob(existingStage) {
-  const current = String(existingStage || '').trim();
-  if (isTerminalCandidateStage(current)) return current;
-  if (!current || current.toLowerCase() === 'new') return 'Applied';
-  return current;
+function stageWhenLinkingToJob(_existingStage) {
+  // New job assignment always starts at Applied (per-job pipeline may still
+  // advance later). Do not carry Offer / Interviewing from a previous job.
+  return 'Applied';
+}
+
+/**
+ * When assignedJobs gains a new id, decide the CRM stage for that link.
+ * If the client re-sent the previous stage (edit form always does), treat it as
+ * stale and use Applied. An intentionally different stage is kept.
+ */
+function resolveStageForNewlyAssignedJob(existingStage, incomingStage) {
+  const existing = String(existingStage || '').trim();
+  const incoming = String(incomingStage || '').trim();
+  if (!incoming) return 'Applied';
+  if (!existing) return incoming.toLowerCase() === 'new' ? 'Applied' : incoming;
+  if (incoming.toLowerCase() === existing.toLowerCase()) return 'Applied';
+  if (incoming.toLowerCase() === 'new') return 'Applied';
+  return incoming;
 }
 
 /**
@@ -3435,22 +3449,66 @@ function candidateMatchesMineScope(candidate, userId, myJobIds) {
   return false;
 }
 
-/** Candidates the user may see when mine=true: created by them, assigned to them, or linked to jobs they own. */
+/**
+ * Candidates the user may see when mine=true: created by them, assigned to them,
+ * or linked to jobs they own.
+ *
+ * Avoid nested `applications/matches/pipelineEntries.some({ jobId: { in: N } })` on
+ * Candidate — those correlated scans starve the Mongo pool for minutes. Instead:
+ * assignedJobs.hasSome + a capped id prefetch from Application/Match/PipelineEntry.
+ */
 async function buildMineCandidatesScope(userId, knownJobIds) {
   if (!userId) {
     return { id: { in: [] } };
   }
   const myJobIds = Array.isArray(knownJobIds)
     ? knownJobIds.map((id) => String(id || '').trim()).filter(Boolean)
-    : await getMyJobIds(userId, { take: 400 });
+    : await getMyJobIds(userId, { take: 120 });
+  const cappedJobIds = myJobIds.slice(0, 120);
   const orClause = buildAssigneeVisibilityOr(userId);
-  if (myJobIds.length > 0) {
-    // Index-friendly filters only — never prefetch 25k application/pipeline ids into a huge `$in`.
-    // That prefetch was the main reason "My candidates" felt much slower than "All candidates".
-    orClause.push({ assignedJobs: { hasSome: myJobIds } });
-    orClause.push({ applications: { some: { jobId: { in: myJobIds } } } });
-    orClause.push({ pipelineEntries: { some: { jobId: { in: myJobIds } } } });
-    orClause.push({ matches: { some: { jobId: { in: myJobIds } } } });
+  if (cappedJobIds.length > 0) {
+    orClause.push({ assignedJobs: { hasSome: cappedJobIds } });
+    try {
+      const LINK_TAKE = 800;
+      const [apps, matches, pipes] = await Promise.all([
+        prisma.application
+          .findMany({
+            where: { jobId: { in: cappedJobIds } },
+            select: { candidateId: true },
+            take: LINK_TAKE,
+            orderBy: { appliedAt: 'desc' },
+          })
+          .catch(() => []),
+        prisma.match
+          .findMany({
+            where: { jobId: { in: cappedJobIds } },
+            select: { candidateId: true },
+            take: LINK_TAKE,
+            orderBy: { createdAt: 'desc' },
+          })
+          .catch(() => []),
+        prisma.pipelineEntry
+          .findMany({
+            where: { jobId: { in: cappedJobIds } },
+            select: { candidateId: true },
+            take: LINK_TAKE,
+            orderBy: { movedAt: 'desc' },
+          })
+          .catch(() => []),
+      ]);
+      const linkedIds = [
+        ...new Set(
+          [...apps, ...matches, ...pipes]
+            .map((row) => String(row?.candidateId || '').trim())
+            .filter(Boolean),
+        ),
+      ].slice(0, 2000);
+      if (linkedIds.length) {
+        orClause.push({ id: { in: linkedIds } });
+      }
+    } catch (err) {
+      console.warn('[candidate.service] mine link prefetch failed:', err?.message || err);
+    }
   }
   return { OR: orClause };
 }
@@ -3995,6 +4053,11 @@ function resolveCandidateListK({ skip, limit, search }) {
   return { K: inflated, deepClamped, maxK: CANDIDATE_LIST_MAX_K, pageWindow };
 }
 
+function isLivePortalListMergeEnabled() {
+  const raw = String(process.env.CANDIDATE_LIST_LIVE_PORTAL_MERGE || '').trim().toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'yes';
+}
+
 async function countMergedCandidateListTotal({
   tenantWhere,
   req,
@@ -4005,6 +4068,7 @@ async function countMergedCandidateListTotal({
   listFilters,
   loadCommonPool,
   myJobIds = null,
+  livePortalMerge = false,
 }) {
   const cacheKey = buildCandidateCountCacheKey(req, { loadCommonPool, mine, tenantWhere });
   const cached = readCandidateCountCache(cacheKey);
@@ -4030,8 +4094,10 @@ async function countMergedCandidateListTotal({
   const tenantTotal = await prisma.candidate.count({ where: tenantWhere });
 
   let portalOnly = 0;
+  // Live portal counts hold Mongo connections for minutes under large job-id $in filters.
+  // Off by default — enable only with CANDIDATE_LIST_LIVE_PORTAL_MERGE=1.
   try {
-    if (isTenantScopedRequest()) {
+    if (livePortalMerge && isTenantScopedRequest()) {
       const portalWhere = await buildPortalCandidatesWhere(req, {
         status,
         assignedToId,
@@ -4156,9 +4222,12 @@ async function countMergedCandidateListTotal({
 export const candidateService = {
   async getAll(req) {
     const pagination = getPaginationParams(req);
-    // Prefer batches ≤100 for list UX; allow larger for export (limit up to 500).
+    // Prefer batches ≤100 for list UX; allow larger for export via env override.
     const page = pagination.page;
-    const limit = Math.min(Math.max(1, pagination.limit || 10), 500);
+    const limit = Math.min(
+      Math.max(1, pagination.limit || 10),
+      Math.min(200, Number(process.env.CANDIDATE_LIST_MAX_PAGE || 100) || 100),
+    );
     const skip = (page - 1) * limit;
     const { status, assignedToId, search, ids } = req.query;
     const listFilters = parseCandidateListFilters(req.query);
@@ -4166,12 +4235,13 @@ export const candidateService = {
       req.query?.mine === 'true' || req.query?.mine === '1' || req.query?.mine === true;
     // My candidates is tenant CRM + portal applicants only — never the full Phase 1 pool.
     const loadCommonPool = mine ? false : await resolveLoadCommonPool(req.query);
-    const myJobIds = mine && req.user?.id ? await getMyJobIds(req.user.id, { take: 400 }) : [];
+    const myJobIds = mine && req.user?.id ? await getMyJobIds(req.user.id, { take: 120 }) : [];
     const tenantJobIdSet = isTenantScopedRequest()
       ? mine
         ? new Set(myJobIds)
         : await getTenantJobIdSet()
       : null;
+    const livePortalMerge = isLivePortalListMergeEnabled();
 
     if (mine && !req.user?.id) {
       return formatPaginationResponse([], page, limit, 0);
@@ -4263,9 +4333,11 @@ export const candidateService = {
       return attached;
     };
 
-    // My candidates: tenant CRM only (true skip/take). Portal merge with large job-id `$in`
-    // was holding Mongo pool connections for ~5 minutes and starving jobs/heartbeat/etc.
-    const useMultiSourceMerge = !mine && (isTenantScopedRequest() || loadCommonPool);
+    // My candidates: tenant CRM only (true skip/take).
+    // All candidates: tenant-only unless common pool and/or live portal merge is on.
+    // Live portal merge with large job-id `$in` was holding Mongo pool connections
+    // for ~5 minutes and starving jobs/heartbeat/candidates alike.
+    const useMultiSourceMerge = !mine && (loadCommonPool || livePortalMerge);
 
     if (useMultiSourceMerge) {
       // Bounded k-way merge for All candidates (tenant + optional portal + common pool).
@@ -4274,13 +4346,13 @@ export const candidateService = {
 
       const tSources = candidatePerfNow();
       const PORTAL_QUERY_BUDGET_MS = Math.min(
-        8000,
-        Math.max(500, Number(process.env.CANDIDATE_PORTAL_QUERY_MS || 2500) || 2500),
+        4000,
+        Math.max(400, Number(process.env.CANDIDATE_PORTAL_QUERY_MS || 1500) || 1500),
       );
       // Phase 1 common pool is the source of truth for discovery profiles — give it more time.
       const COMMON_QUERY_BUDGET_MS = Math.min(
-        12000,
-        Math.max(PORTAL_QUERY_BUDGET_MS, Number(process.env.CANDIDATE_COMMON_QUERY_MS || 6000) || 6000),
+        8000,
+        Math.max(PORTAL_QUERY_BUDGET_MS, Number(process.env.CANDIDATE_COMMON_QUERY_MS || 4000) || 4000),
       );
       const withBudget = (promise, label, fallback, budgetMs = PORTAL_QUERY_BUDGET_MS) =>
         Promise.race([
@@ -4304,6 +4376,7 @@ export const candidateService = {
         listFilters,
         loadCommonPool,
         myJobIds,
+        livePortalMerge,
       }).then((value) => {
         perfMarks.count = Math.round(candidatePerfNow() - tSources);
         return value;
@@ -4321,25 +4394,27 @@ export const candidateService = {
           return rows;
         });
 
-      const portalPromise = isTenantScopedRequest()
-        ? withBudget(
-            fetchPortalCandidatesForTenant(req, {
-              status,
-              assignedToId,
-              search,
-              mine,
-              listFilters,
-              indexOnly: true,
-              take: K,
-              myJobIds,
-            }).then((rows) => {
-              perfMarks.portalQuery = Math.round(candidatePerfNow() - tSources);
-              return rows;
-            }),
-            'portalQuery',
-            [],
-          )
-        : Promise.resolve([]);
+      // Off by default: live portal scans starve the shared Atlas pool.
+      const portalPromise =
+        livePortalMerge && isTenantScopedRequest()
+          ? withBudget(
+              fetchPortalCandidatesForTenant(req, {
+                status,
+                assignedToId,
+                search,
+                mine,
+                listFilters,
+                indexOnly: true,
+                take: K,
+                myJobIds,
+              }).then((rows) => {
+                perfMarks.portalQuery = Math.round(candidatePerfNow() - tSources);
+                return rows;
+              }),
+              'portalQuery',
+              [],
+            )
+          : Promise.resolve([]);
 
       const commonPromise = loadCommonPool
         ? withBudget(
@@ -4360,8 +4435,8 @@ export const candidateService = {
       ]);
 
       const COUNT_WAIT_MS = Math.min(
-        5000,
-        Math.max(800, Number(process.env.CANDIDATE_COUNT_WAIT_MS || 2000) || 2000),
+        3000,
+        Math.max(500, Number(process.env.CANDIDATE_COUNT_WAIT_MS || 1500) || 1500),
       );
       let mergedTotal = await Promise.race([
         countPromise,
@@ -4376,7 +4451,7 @@ export const candidateService = {
         perfMarks.count = `timeout>${COUNT_WAIT_MS}ms→tenant`;
       }
 
-      perfMarks.sourceCounts = `t=${tenantIndex.length},p=${portalIndex.length},c=${commonIndex.length}`;
+      perfMarks.sourceCounts = `t=${tenantIndex.length},p=${portalIndex.length},c=${commonIndex.length},portalLive=${livePortalMerge ? 1 : 0}`;
 
       const tombstoneIds = [
         ...portalIndex.map((c) => c.id),
@@ -4424,9 +4499,13 @@ export const candidateService = {
       }
       candidates = await hydratePageFromIndex(pageIndex);
     } else {
-      // Fast path: tenant CRM only — true DB pagination (My candidates + non-scoped).
+      // Fast path: tenant CRM only — true DB pagination (My candidates + All without pool merge).
       const tQ = candidatePerfNow();
-      const [rowTotal, pageRows] = await Promise.all([
+      const TENANT_LIST_BUDGET_MS = Math.min(
+        12000,
+        Math.max(2000, Number(process.env.CANDIDATE_TENANT_LIST_MS || 8000) || 8000),
+      );
+      const listWork = Promise.all([
         prisma.candidate.count({ where }),
         prisma.candidate.findMany({
           where,
@@ -4436,11 +4515,28 @@ export const candidateService = {
           take: limit,
         }),
       ]);
-      perfMarks.tenantQuery = Math.round(candidatePerfNow() - tQ);
-      perfMarks.count = perfMarks.tenantQuery;
-      perfMarks.sourceCounts = `tenant-only mine=${mine ? '1' : '0'}`;
-      total = rowTotal;
-      candidates = await attachPlacementsToCandidates(pageRows);
+      const raced = await Promise.race([
+        listWork.then((value) => ({ ok: true, value })),
+        new Promise((resolve) => {
+          setTimeout(() => resolve({ ok: false }), TENANT_LIST_BUDGET_MS);
+        }),
+      ]);
+      if (!raced.ok) {
+        logCandidatePerf({ tenantQuery: `timeout>${TENANT_LIST_BUDGET_MS}ms` });
+        void listWork.catch(() => null);
+        total = 0;
+        candidates = [];
+        perfMarks.tenantQuery = TENANT_LIST_BUDGET_MS;
+        perfMarks.count = `timeout>${TENANT_LIST_BUDGET_MS}ms`;
+        perfMarks.sourceCounts = `tenant-only mine=${mine ? '1' : '0'} timedOut=1`;
+      } else {
+        const [rowTotal, pageRows] = raced.value;
+        perfMarks.tenantQuery = Math.round(candidatePerfNow() - tQ);
+        perfMarks.count = perfMarks.tenantQuery;
+        perfMarks.sourceCounts = `tenant-only mine=${mine ? '1' : '0'}`;
+        total = rowTotal;
+        candidates = await attachPlacementsToCandidates(pageRows);
+      }
     }
 
     if (candidates.length) {
@@ -4451,7 +4547,15 @@ export const candidateService = {
         portalClientForList = null;
       }
       if (portalClientForList) {
-        await batchHydrateCandidatesResumeFromPortal(candidates, portalClientForList);
+        // Never block the candidates table on resume URL hydration from portal.
+        const RESUME_HYDRATE_MS = Math.min(
+          2500,
+          Math.max(200, Number(process.env.CANDIDATE_RESUME_HYDRATE_MS || 800) || 800),
+        );
+        await Promise.race([
+          batchHydrateCandidatesResumeFromPortal(candidates, portalClientForList).catch(() => null),
+          new Promise((resolve) => setTimeout(resolve, RESUME_HYDRATE_MS)),
+        ]);
         const candidateIds = candidates
           .map((row) => String(row?.id || '').trim())
           .filter(Boolean);
@@ -4507,9 +4611,14 @@ export const candidateService = {
     // Fetch career preferences from portal DB for the visible page so that
     // candidate-self-updated values (notice period, expected salary, availability,
     // preferred location) appear in the list response too.
-    const careerPrefsByCandidate = await fetchCareerPreferencesForCandidates(
-      candidates.map((c) => c.id).filter(Boolean)
+    const CAREER_PREFS_MS = Math.min(
+      2500,
+      Math.max(200, Number(process.env.CANDIDATE_CAREER_PREFS_MS || 1000) || 1000),
     );
+    const careerPrefsByCandidate = await Promise.race([
+      fetchCareerPreferencesForCandidates(candidates.map((c) => c.id).filter(Boolean)),
+      new Promise((resolve) => setTimeout(() => resolve(new Map()), CAREER_PREFS_MS)),
+    ]);
 
     const enriched = candidates.map((candidate) => {
       const careerPrefs = careerPrefsByCandidate.get(String(candidate.id));
@@ -4895,6 +5004,8 @@ export const candidateService = {
       updateData.lastActivity = data.lastActivity ? new Date(data.lastActivity) : null;
     }
 
+    let newlyAssignedJobIds = [];
+
     if (Object.prototype.hasOwnProperty.call(data || {}, 'assignedJobs')) {
       const existingRow = await prisma.candidate.findUnique({
         where: { id },
@@ -4909,9 +5020,15 @@ export const candidateService = {
         const nextIds = (Array.isArray(data.assignedJobs) ? data.assignedJobs : [])
           .map((jid) => String(jid || '').trim())
           .filter(Boolean);
-        const addedJob = nextIds.some((jid) => !prevIds.has(jid));
-        if (addedJob && !Object.prototype.hasOwnProperty.call(updateData, 'stage')) {
-          updateData.stage = stageWhenLinkingToJob(existingRow.stage);
+        newlyAssignedJobIds = nextIds.filter((jid) => jid && !prevIds.has(jid));
+        const addedJob = newlyAssignedJobIds.length > 0;
+        if (addedJob) {
+          const incomingStage = Object.prototype.hasOwnProperty.call(updateData, 'stage')
+            ? updateData.stage
+            : Object.prototype.hasOwnProperty.call(data || {}, 'stage')
+              ? data.stage
+              : undefined;
+          updateData.stage = resolveStageForNewlyAssignedJob(existingRow.stage, incomingStage);
           if (!Object.prototype.hasOwnProperty.call(updateData, 'status')) {
             updateData.status = 'ACTIVE';
           }
@@ -5100,6 +5217,33 @@ export const candidateService = {
         newData: { ...beforeUpdate, ...updateData },
         trackedFields: Object.keys(updateData),
       });
+    }
+
+    // New job links: ensure a per-job pipeline entry at Applied so the job
+    // drawer does not fall back to a previous job's Offer / Interviewing stage.
+    if (newlyAssignedJobIds.length) {
+      const linkStage = String(updateData.stage || 'Applied').trim() || 'Applied';
+      for (const jobId of newlyAssignedJobIds) {
+        try {
+          const existingEntry = await prisma.pipelineEntry.findFirst({
+            where: { candidateId: id, jobId },
+            select: { id: true },
+          });
+          if (existingEntry) continue;
+          await candidateService.addToPipeline(
+            id,
+            { jobId, stage: linkStage },
+            performedByUserId || updated.assignedToId || null,
+          );
+        } catch (linkErr) {
+          console.warn(
+            '[candidate.service] ensure Applied pipeline for new job failed:',
+            id,
+            jobId,
+            linkErr?.message || linkErr,
+          );
+        }
+      }
     }
 
     return updated;

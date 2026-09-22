@@ -5129,7 +5129,19 @@ export function CandidateProfileDrawer({
         : buildUpdatePayloadFromEditForm(editForm!, candidate.extraData);
 
       if (isPhase1Edit && editForm) {
-        payload = applyHiringFieldsFromEditForm(payload, editForm);
+        payload = applyHiringFieldsFromEditForm(payload, editForm, candidate.assignedJobId);
+      } else if (editForm) {
+        const nextJobId = String(editForm.assignedJobId || '').trim();
+        const prevJobId = String(candidate.assignedJobId || '').trim();
+        if (nextJobId && nextJobId !== prevJobId) {
+          const previousStage = String(candidate.stage || '').trim().toLowerCase();
+          const formStage = String(editForm.stage || payload.stage || '').trim();
+          const formStageLower = formStage.toLowerCase();
+          // Edit form often re-sends the old stage with a job change — reset to Applied.
+          if (!formStage || formStageLower === 'new' || formStageLower === previousStage) {
+            payload = { ...payload, stage: 'Applied' };
+          }
+        }
       }
 
       if (editAvatarFile) {

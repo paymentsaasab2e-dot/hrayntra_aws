@@ -328,6 +328,12 @@ function resolveCandidateCrmStageForMatch(candidate, jobId, pipelineStageName, i
     return pipelineLabel;
   }
 
+  // No per-job pipeline stage for this job — do not bleed Offer / Interviewing
+  // from the candidate's global CRM stage (often from another job).
+  if (isAppliedMatch) {
+    return 'Applied';
+  }
+
   const explicit = String(candidate?.stage || '').trim();
   const explicitLower = explicit.toLowerCase();
   const globalLooksTerminal =
@@ -336,12 +342,8 @@ function resolveCandidateCrmStageForMatch(candidate, jobId, pipelineStageName, i
     explicitLower.includes('joined') ||
     explicitLower.includes('onboard');
 
-  if (isAppliedMatch && (!explicit || explicitLower === 'new' || globalLooksTerminal)) {
+  if (!explicit || explicitLower === 'new' || globalLooksTerminal) {
     return 'Applied';
-  }
-
-  if (explicit && explicitLower !== 'new') {
-    return explicit;
   }
 
   const assigned = Array.isArray(candidate?.assignedJobs)

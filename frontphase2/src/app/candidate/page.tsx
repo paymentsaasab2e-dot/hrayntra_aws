@@ -947,7 +947,7 @@ function CandidatesPageContent() {
 
   const refreshJobFilterOptions = useCallback(async () => {
     try {
-      const res = await apiGetJobs({ page: 1, limit: 500 });
+      const res = await apiGetJobs({ page: 1, limit: 100 });
       const jobs = toJobFilterOptions(parseJobsListFromResponse(res));
       if (jobs.length > 0 || jobFilterOptionsRef.current.length === 0) {
         jobFilterOptionsRef.current = jobs;
@@ -1130,8 +1130,8 @@ function CandidatesPageContent() {
     async function loadPipelineOptions() {
       try {
         const [allJobsRes, clientsRes, candidateMembers, interviewMembers] = await Promise.all([
-          apiGetJobs({ page: 1, limit: 500 }),
-          apiGetClients({ page: 1, limit: 500, recruitmentEnabled: true }),
+          apiGetJobs({ page: 1, limit: 100 }),
+          apiGetClients({ page: 1, limit: 100, recruitmentEnabled: true }),
           getAllTeamMembersForAssign(getActiveOrgUnitId() || undefined, 'Candidates'),
           getAllTeamMembersForAssign(getActiveOrgUnitId() || undefined, 'Interviews'),
         ]);
@@ -1913,7 +1913,7 @@ function CandidatesPageContent() {
         setPendingStageAfterWorkflow(null);
       }
       try {
-        const jobsRes = await apiGetJobs({ page: 1, limit: 500 });
+        const jobsRes = await apiGetJobs({ page: 1, limit: 100 });
         const parsed = parseJobsListFromResponse(jobsRes);
         setBulkScheduleJobs(
           parsed

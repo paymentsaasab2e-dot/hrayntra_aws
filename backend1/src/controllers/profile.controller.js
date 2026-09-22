@@ -1814,12 +1814,17 @@ async function updateCareerPreferences(req, res) {
     const workModeMap = {
       REMOTE: 'REMOTE',
       Remote: 'REMOTE',
+      remote: 'REMOTE',
       HYBRID: 'HYBRID',
       Hybrid: 'HYBRID',
+      hybrid: 'HYBRID',
       ON_SITE: 'ON_SITE',
       ONSITE: 'ON_SITE',
       'On-site': 'ON_SITE',
       'On Site': 'ON_SITE',
+      'on-site': 'ON_SITE',
+      'on site': 'ON_SITE',
+      Onsite: 'ON_SITE',
     };
 
     const parseNullableFloat = (value) => {
@@ -1989,6 +1994,14 @@ async function updateCareerPreferences(req, res) {
       },
     });
 
+    // Fire-and-forget: keep Phase 2 candidatecommon in sync with Phase 1 profile.
+    void syncCandidateCommonFromDashboard(candidateId).catch((syncErr) => {
+      console.warn(
+        '[profile] career preferences common sync failed:',
+        syncErr?.message || syncErr,
+      );
+    });
+
     // Prepare detailed log data
     const logData = {
       // Role & Domain
@@ -2067,7 +2080,7 @@ async function updateCareerPreferences(req, res) {
     res.status(500).json({
       success: false,
       message: 'Failed to update career preferences',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      error: process.env.NODE_ENV === 'development' ? error.message : (error?.message || undefined),
     });
   }
 }
