@@ -2728,14 +2728,21 @@ export default function RecruitmentAgencyDashboard() {
             }}
             onAddLead={async (_data, createdLead) => {
               try {
+                // Clear list filters first so the next fetch (and 45s auto-refresh) cannot
+                // hide the new lead behind assignee/source/priority/smart-search filters.
+                setStatusFilter('All');
+                setSourceFilter('');
+                setRecruiterFilter('');
+                setPriorityFilter('');
+                setSearchQuery('');
+                setSmartSearchLeadIds([]);
+                setCurrentPage(1);
+
                 if (createdLead) {
                   const mappedLead = mapBackendLeadToFrontend(createdLead);
                   mergeLeadOptimistically(mappedLead);
-                } else {
-                  await handleRefresh({ silent: true });
                 }
-                setStatusFilter('All');
-                setSearchQuery('');
+                await handleRefresh({ silent: true, resetFilters: true });
                 setAddLeadDrawerOpen(false);
                 setAddLeadWithAi(false);
                 toast.success('Lead created successfully');

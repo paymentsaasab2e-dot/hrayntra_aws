@@ -3148,6 +3148,7 @@ export function LeadDetailsDrawer({
               : undefined,
         assignedToName: addLeadForm.assignedToName || undefined,
         ...agreementTermsApiPayload(addLeadForm),
+        ...(options?.skipDuplicateCheck || allowDuplicateCreate ? { forceNew: true } : {}),
         ...(isHqOverrideMode
           ? {
               hqProductLine: hqProductLine.join(','),

@@ -6538,6 +6538,10 @@ export interface BackendCandidate {
       id?: string;
       name?: string;
     } | null;
+    job?: {
+      id?: string;
+      title?: string;
+    } | null;
   }>;
   interviews?: Array<{
     id: string;
@@ -8719,6 +8723,11 @@ export interface CreateLeadData {
    * Used only for activity logging; not stored directly on the Lead model.
    */
   statusRemark?: string;
+  /**
+   * When true, always insert a new lead even if an existing live lead shares
+   * the same company name (used by "Create anyway" after duplicate warning).
+   */
+  forceNew?: boolean;
 }
 
 export const apiGetLeads = async (params: {
@@ -8743,10 +8752,9 @@ export const apiGetLeads = async (params: {
   const path = `/leads${qs ? `?${qs}` : ''}`;
   // Backend returns: { success: true, message: "...", data: { data: [...], pagination: {...} } }
   const response = await apiFetch<{ data: BackendLead[]; pagination?: any } | BackendLead[]>(path, { auth: true });
-  return {
-    ...response,
-    data: dedupeCompanyNamedPayload(response.data),
-  };
+  // Do not collapse same-company leads on the list — that hid newly created rows
+  // that shared a normalized company name with an older lead.
+  return response;
 };
 
 export const apiGetLead = async (id: string) => {

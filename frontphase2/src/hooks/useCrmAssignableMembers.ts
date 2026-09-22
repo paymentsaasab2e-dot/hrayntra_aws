@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   apiGetClientAssignableMembers,
   apiGetLeadAssignableMembers,
@@ -107,8 +107,10 @@ export function useCrmAssignableMembers(enabled = true, module?: string) {
     };
   }, [enabled, module, rulesEpoch]);
 
+  const membersWithSelf = useMemo(() => ensureCurrentUserInMembers(members), [members]);
+
   return {
-    members: ensureCurrentUserInMembers(members),
+    members: membersWithSelf,
     loading,
     canSelectCompany: false as const,
   };

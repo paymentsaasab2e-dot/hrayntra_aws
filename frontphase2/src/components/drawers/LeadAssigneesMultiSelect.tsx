@@ -128,6 +128,15 @@ export function LeadAssigneesMultiSelect({
     return m;
   }, [membersProp, optionMembers, selectedById]);
 
+  const optionMemberKey = useMemo(
+    () =>
+      [...membersProp, ...optionMembers]
+        .map((m) => `${m?.id || ''}:${formatAssigneeDisplayName(m) || ''}`)
+        .join('|'),
+    [membersProp, optionMembers],
+  );
+  const valueKey = useMemo(() => value.join('|'), [value]);
+
   useEffect(() => {
     setSelectedById((prev) => {
       const next = new Map(prev);
@@ -135,14 +144,25 @@ export function LeadAssigneesMultiSelect({
       for (const member of [...membersProp, ...optionMembers]) {
         if (!member?.id || !value.includes(member.id)) continue;
         const existing = next.get(member.id);
-        if (existing && formatAssigneeDisplayName(existing) && !formatAssigneeDisplayName(member)) continue;
-        if (existing === member) continue;
+        if (existing && formatAssigneeDisplayName(existing) && !formatAssigneeDisplayName(member)) {
+          continue;
+        }
+        // Compare by id + display name so new object refs every render do not loop.
+        if (
+          existing &&
+          existing.id === member.id &&
+          formatAssigneeDisplayName(existing) === formatAssigneeDisplayName(member)
+        ) {
+          continue;
+        }
         next.set(member.id, member);
         changed = true;
       }
       return changed ? next : prev;
     });
-  }, [membersProp, optionMembers, value]);
+    // optionMemberKey / valueKey stabilize deps when arrays are new refs with same content.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by content snapshots
+  }, [optionMemberKey, valueKey]);
 
   const selected = useMemo(
     () =>
