@@ -4689,7 +4689,11 @@ export function CandidateProfileDrawer({
     onCandidateUpdated: onRefreshCandidate ? handleCvCandidateUpdated : undefined,
     onToast: handleCvToast,
     onViewModeChange: (mode) => {
-      if (mode) setResumeTabViewPreference(mode);
+      if (mode) {
+        // Force re-apply even when the preference was already this mode (e.g. save again).
+        setResumeTabViewPreference(null);
+        window.setTimeout(() => setResumeTabViewPreference(mode), 0);
+      }
       if (mode === 'updated' || mode === 'ai') setActiveTab('Resume');
     },
   });
@@ -4710,7 +4714,10 @@ export function CandidateProfileDrawer({
     onFilesRefresh: refreshCandidateFiles,
     onToast: handleCvToast,
     onViewModeChange: (mode) => {
-      if (mode) setResumeTabViewPreference(mode);
+      if (mode) {
+        setResumeTabViewPreference(null);
+        window.setTimeout(() => setResumeTabViewPreference(mode), 0);
+      }
       if (mode === 'saasa') setActiveTab('Resume');
     },
   });
@@ -5568,6 +5575,7 @@ export function CandidateProfileDrawer({
                       enabled={activeTab === 'Resume'}
                       cvEditor={cvEditor}
                       preferredResumeViewMode={resumeTabViewPreference}
+                      onPreferredResumeViewModeChange={setResumeTabViewPreference}
                       saasaSavedFileUrl={saasaCv.stored?.fileUrl ?? null}
                       onOpenSaasaCv={() => saasaCv.openModal()}
                       onToast={(message) => setToastMessage(message)}

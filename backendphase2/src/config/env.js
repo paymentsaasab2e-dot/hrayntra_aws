@@ -240,12 +240,11 @@ export const env = {
     process.env.PORTAL_API_URL ||
     'http://localhost:5000',
   
-  // JWT
+  // JWT — short-lived access + rotatable refresh (never multi-year defaults)
   JWT_ACCESS_SECRET: process.env.JWT_ACCESS_SECRET,
   JWT_REFRESH_SECRET: process.env.JWT_REFRESH_SECRET,
-  // Set to 10 years (3650 days) - token will only be invalidated if user is removed from database
-  JWT_ACCESS_EXPIRES: process.env.JWT_ACCESS_EXPIRES || '3650d',
-  JWT_REFRESH_EXPIRES: process.env.JWT_REFRESH_EXPIRES || '3650d',
+  JWT_ACCESS_EXPIRES: process.env.JWT_ACCESS_EXPIRES || '30m',
+  JWT_REFRESH_EXPIRES: process.env.JWT_REFRESH_EXPIRES || '7d',
 
   /** Enterprise single active session (one login per user). */
   SINGLE_ACTIVE_SESSION_ENABLED:
@@ -267,9 +266,9 @@ export const env = {
   
   // Legacy JWT support (for backward compatibility)
   JWT_SECRET: process.env.JWT_ACCESS_SECRET || process.env.JWT_SECRET,
-  JWT_EXPIRES_IN: process.env.JWT_ACCESS_EXPIRES || process.env.JWT_EXPIRES_IN || '3650d',
+  JWT_EXPIRES_IN: process.env.JWT_ACCESS_EXPIRES || process.env.JWT_EXPIRES_IN || '30m',
   REFRESH_TOKEN_SECRET: process.env.JWT_REFRESH_SECRET || process.env.REFRESH_TOKEN_SECRET,
-  REFRESH_TOKEN_EXPIRES_IN: process.env.JWT_REFRESH_EXPIRES || process.env.REFRESH_TOKEN_EXPIRES_IN || '3650d',
+  REFRESH_TOKEN_EXPIRES_IN: process.env.JWT_REFRESH_EXPIRES || process.env.REFRESH_TOKEN_EXPIRES_IN || '7d',
   
   // Resend Email
   RESEND_API_KEY: process.env.RESEND_API_KEY,

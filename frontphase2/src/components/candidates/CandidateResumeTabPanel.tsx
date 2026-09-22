@@ -239,6 +239,8 @@ interface CandidateResumeTabPanelProps {
   saasaSavedFileUrl?: string | null;
   /** After HRYantra CV save, show HRYantra CV tab without hiding Updated CV */
   preferredResumeViewMode?: ResumeCvViewMode | null;
+  /** Keep parent preference in sync when the user picks a Resume tab (Original / HRYantra / …). */
+  onPreferredResumeViewModeChange?: (mode: ResumeCvViewMode | null) => void;
   onCandidateUpdated?: () => void | Promise<void>;
   onToast?: (message: string) => void;
   onOpenSaasaCv?: () => void;
@@ -261,6 +263,7 @@ export function CandidateResumeTabPanel({
   onOpenSaasaCv,
   saasaSavedFileUrl = null,
   preferredResumeViewMode: preferredResumeViewModeProp = null,
+  onPreferredResumeViewModeChange,
 }: CandidateResumeTabPanelProps) {
   const {
     backendCandidate,
@@ -416,6 +419,7 @@ export function CandidateResumeTabPanel({
     setSelectedVersionId(version.id);
     setForcedPreviewUrl(url || null);
     setViewMode('original');
+    onPreferredResumeViewModeChange?.('original');
     setPreviewReloadKey((key) => key + 1);
   };
 
@@ -514,6 +518,7 @@ export function CandidateResumeTabPanel({
       setSelectedVersionId(next?.id || null);
       setForcedPreviewUrl(next?.fileUrl || null);
       setViewMode('original');
+      onPreferredResumeViewModeChange?.('original');
       setPreviewReloadKey((key) => key + 1);
       await onCandidateUpdated?.();
       onToast?.(`${label} deleted.`);
@@ -739,6 +744,7 @@ export function CandidateResumeTabPanel({
       }
 
       setViewMode('original');
+      onPreferredResumeViewModeChange?.('original');
       setPreviewReloadKey((key) => key + 1);
       await onCandidateUpdated?.();
       // Keep spinner up briefly so the preview can remount with the new URL.
@@ -937,32 +943,39 @@ export function CandidateResumeTabPanel({
     [resumeSourceCandidate, originalResumeRaw, resumeHref],
   );
 
+  const lastAppliedPreferredRef = useRef<ResumeCvViewMode | null>(null);
+
+  // Apply preferred mode once when it changes (e.g. after HRYantra save) — not on every refresh.
   useEffect(() => {
-    if (
-      preferredResumeViewMode &&
-      availableModes.includes(preferredResumeViewMode)
-    ) {
-      setViewMode(preferredResumeViewMode);
+    if (!preferredResumeViewMode) {
+      lastAppliedPreferredRef.current = null;
       return;
     }
-    const fallback = resolveDefaultResumeCvViewMode(
-      resumeSourceCandidate,
-      originalResumeRaw || resumeHref,
-    );
+    if (!availableModes.includes(preferredResumeViewMode)) return;
+    if (lastAppliedPreferredRef.current === preferredResumeViewMode) return;
+    lastAppliedPreferredRef.current = preferredResumeViewMode;
+    setViewMode(preferredResumeViewMode);
+  }, [preferredResumeViewMode, availableModes.join(',')]);
+
+  useEffect(() => {
     setViewMode((current) => {
       if (current && availableModes.includes(current)) return current;
-      return fallback;
+      return resolveDefaultResumeCvViewMode(
+        resumeSourceCandidate,
+        originalResumeRaw || resumeHref,
+      );
     });
   }, [
     resumeSourceCandidate,
     originalResumeRaw,
     resumeHref,
     availableModes.join(','),
-    preferredResumeViewMode,
   ]);
 
   const selectViewMode = (mode: ResumeCvViewMode) => {
+    lastAppliedPreferredRef.current = mode;
     setViewMode(mode);
+    onPreferredResumeViewModeChange?.(mode);
   };
 
   const buildResumeFilename = (sourceUrl: string, label: string) => {
