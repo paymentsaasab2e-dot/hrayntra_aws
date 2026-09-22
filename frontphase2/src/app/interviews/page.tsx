@@ -489,6 +489,28 @@ export default function InterviewsPage() {
     });
   }, [candidateOptions, overviewInterviews]);
 
+  const scheduleModalJobs = useMemo(
+    () =>
+      jobOptions.map((job) => ({
+        id: job.id,
+        title: job.title,
+        clientId: job.clientId ?? null,
+        clientName: job.client ?? null,
+      })),
+    [jobOptions],
+  );
+
+  const scheduleModalInterviewers = useMemo(
+    () =>
+      interviewerOptions.map((member) => ({
+        id: member.userId || member.id,
+        name: member.name,
+        role: member.role,
+        department: member.department,
+      })),
+    [interviewerOptions],
+  );
+
   const editInterviewForPopup = useMemo(() => {
     if (!editInterview) return null;
     return mapInterviewToCandidateScheduled(
@@ -1356,29 +1378,14 @@ export default function InterviewsPage() {
 
       {scheduleModalReady ? (
       <CandidateScheduleInterviewModal
-        isOpen={
-          modals.isModalOpen('schedule') &&
-          ((!editInterview && !scheduleNextRoundFrom && canCreateInterview) ||
-            (!!editInterview && canUpdateInterview) ||
-            (!!scheduleNextRoundFrom && canCreateInterview))
-        }
+        isOpen={modals.isModalOpen('schedule')}
         candidate={editInterview ? editInterviewCandidate : scheduleNextRoundCandidate}
         candidateOptions={
           editInterview || scheduleNextRoundFrom ? undefined : scheduleCandidateOptions
         }
         initialJobId={scheduleNextRoundFrom?.job.id ?? editInterview?.job.id ?? undefined}
-        jobs={jobOptions.map((job) => ({
-          id: job.id,
-          title: job.title,
-          clientId: job.clientId ?? null,
-          clientName: job.client ?? null,
-        }))}
-        interviewers={interviewerOptions.map((member) => ({
-          id: member.userId || member.id,
-          name: member.name,
-          role: member.role,
-          department: member.department,
-        }))}
+        jobs={scheduleModalJobs}
+        interviewers={scheduleModalInterviewers}
         existingInterviews={scheduleNextRoundExistingInterviews}
         editInterview={editInterviewForPopup}
         onClose={() => {

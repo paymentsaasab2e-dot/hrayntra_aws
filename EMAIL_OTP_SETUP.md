@@ -2,7 +2,7 @@
 
 ## Overview
 
-The system now sends OTP verification codes via email using Resend instead of (or in addition to) WhatsApp. The OTP is sent to **ghodehimanshu453@gmail.com** when a user enters their WhatsApp number.
+The system now sends OTP verification codes via email using Resend instead of (or in addition to) WhatsApp. The OTP is sent to **YOUR_OTP_INBOX@example.com** when a user enters their WhatsApp number.
 
 ## Setup Instructions
 
@@ -22,13 +22,13 @@ This will install the `resend` package (version 3.2.0) that was added to `packag
 Make sure your `.env` file has the following Resend configuration:
 
 ```env
-RESEND_API_KEY=re_GejWT8xQ_9TT7Yko5BffUTuTcEeHxMJKw
+RESEND_API_KEY=re_<your_resend_api_key>
 RESEND_FROM_EMAIL=onboarding@resend.dev
 ```
 
 ### 3. Email Recipient
 
-The OTP is automatically sent to: **ghodehimanshu453@gmail.com**
+The OTP is automatically sent to: **YOUR_OTP_INBOX@example.com**
 
 This is hardcoded in `src/services/email.service.ts`. To change it, modify the `TO_EMAIL` constant.
 
@@ -39,7 +39,7 @@ This is hardcoded in `src/services/email.service.ts`. To change it, modify the `
 1. **User enters WhatsApp number** → Frontend calls `/api/auth/send-otp`
 2. **Backend generates OTP** → Creates 6-digit code
 3. **Backend saves OTP** → Stores in MongoDB with expiration (5 minutes)
-4. **Backend sends email** → Sends OTP to ghodehimanshu453@gmail.com via Resend
+4. **Backend sends email** → Sends OTP to YOUR_OTP_INBOX@example.com via Resend
 5. **User receives email** → Checks email for OTP code
 6. **User enters OTP** → Frontend calls `/api/auth/verify-otp`
 7. **Backend verifies OTP** → Validates and marks candidate as verified
@@ -94,7 +94,7 @@ The frontend has been updated to reflect email verification:
    - Message updated to mention email instead of WhatsApp
 
 2. **Verify Page** (`/whatsapp/verify`):
-   - Shows email address: ghodehimanshu453@gmail.com
+   - Shows email address: YOUR_OTP_INBOX@example.com
    - Message updated to check email for code
    - Development mode still shows OTP on screen
 
@@ -115,7 +115,7 @@ curl -X POST http://localhost:5000/api/auth/send-otp \
 
 ### 2. Check Email
 
-- Check inbox of **ghodehimanshu453@gmail.com**
+- Check inbox of **YOUR_OTP_INBOX@example.com**
 - Look for email from **onboarding@resend.dev**
 - Subject: "Your SAASA B2E Verification Code"
 - OTP code should be prominently displayed

@@ -1,9 +1,18 @@
 node_modules/
 dist/
 .env
+.env.*
+!.env.example
 uploads/
 temp/
 *.log
+
+# Never commit credential dumps / local password sheets
+**/USER_CREDENTIALS.local.md
+**/*CREDENTIALS.local.md
+*.pem
+secrets/
+.secrets/
 
 # AWS / server Docker deploy files (keep on EC2 only — not in git)
 /docker-compose.yml
