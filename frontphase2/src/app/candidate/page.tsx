@@ -426,8 +426,15 @@ function CandidatesPageContent() {
   );
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setDebouncedColumnFilters(columnFilters), 400);
+    // Discrete filters (stage / job / experience) apply immediately.
+    // Debounce only while typing company or location.
+    const textFieldsChanging =
+      columnFilters.company !== debouncedColumnFilters.company ||
+      columnFilters.location !== debouncedColumnFilters.location;
+    const delay = textFieldsChanging ? 300 : 0;
+    const timer = window.setTimeout(() => setDebouncedColumnFilters(columnFilters), delay);
     return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-run when columnFilters change
   }, [columnFilters]);
 
   const [debouncedSearch, setDebouncedSearch] = useState(
