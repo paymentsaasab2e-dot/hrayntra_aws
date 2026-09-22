@@ -222,13 +222,56 @@ function normalizeFilterOption(value?: string | null): string {
 }
 
 function extractBackendCandidatesList(
-  payload: BackendCandidate[] | { data?: BackendCandidate[]; items?: BackendCandidate[] } | undefined,
+  payload: BackendCandidate[] | { data?: BackendCandidate[]; items?: BackendCandidate[]; pagination?: any } | undefined,
 ): BackendCandidate[] {
   if (!payload) return [];
   if (Array.isArray(payload)) return payload;
   if (Array.isArray(payload.data)) return payload.data;
   if (Array.isArray(payload.items)) return payload.items;
   return [];
+}
+
+function extractCandidatesPaginationTotal(
+  payload: { pagination?: { total?: number } } | BackendCandidate[] | undefined,
+  fallbackLength: number,
+): number {
+  if (!payload || Array.isArray(payload)) return fallbackLength;
+  const total = Number(payload.pagination?.total);
+  return Number.isFinite(total) && total >= 0 ? total : fallbackLength;
+}
+
+/** Parallel warm batches: ~75–100 rows × 2–3 requests (same All/My filters). */
+const CANDIDATE_WARM_BATCH_SIZE = 75;
+const CANDIDATE_WARM_PARALLEL_BATCHES = 3;
+
+function cacheCandidateUiPagesFromBatch(opts: {
+  mapped: Candidate[];
+  total: number;
+  apiPage: number;
+  batchSize: number;
+  pageSize: number;
+  tab: CandidateListTab;
+  search: string;
+  filterSig: string;
+}) {
+  const { mapped, total, apiPage, batchSize, pageSize, tab, search, filterSig } = opts;
+  if (!mapped.length || pageSize <= 0) return;
+  const baseIndex = (apiPage - 1) * batchSize;
+  const pageCount = Math.ceil(mapped.length / pageSize);
+  for (let i = 0; i < pageCount; i++) {
+    const slice = mapped.slice(i * pageSize, (i + 1) * pageSize);
+    if (!slice.length) continue;
+    const uiPage = Math.floor(baseIndex / pageSize) + i + 1;
+    writeCandidatesListCache({
+      tab,
+      page: uiPage,
+      pageSize,
+      search,
+      filterSig,
+      totalEntries: total,
+      candidates: slice,
+    });
+  }
 }
 
 /** Location filter is country-only — never raw CV/location free text. */
@@ -794,9 +837,7 @@ function CandidatesPageContent() {
     const abortController = new AbortController();
     loadCandidatesAbortRef.current = abortController;
     // Cancel in-flight progressive prefetch on user-visible reloads (tab/filter/page).
-    if (!silent) {
-      candidatePrefetchGenRef.current += 1;
-    }
+    const prefetchGen = ++candidatePrefetchGenRef.current;
     try {
       if (!silent) {
         if (isFirstLoad) {
@@ -820,40 +861,123 @@ function CandidatesPageContent() {
           ? CANDIDATE_STAGE_API_MAP[stageKey] || debouncedColumnFilters.stage
           : undefined,
         status: !debouncedColumnFilters.stage && filters.status ? filters.status : undefined,
+        // Keep All vs My scope on every batch.
         mine: activeListTab === 'mine',
         ...(activeListTab === 'all' && shouldIncludePhase1CommonPool()
           ? { includeCommonPool: true }
           : { includeCommonPool: false }),
         matchingCandidateIds: smartSearchCandidateIds,
       };
+
+      const useWarmParallel =
+        !smartSearchCandidateIds?.length &&
+        activePage === 1 &&
+        pageSize <= CANDIDATE_WARM_BATCH_SIZE;
+
+      const paintPage = (
+        mapped: Candidate[],
+        backendRows: BackendCandidate[],
+        total: number,
+      ) => {
+        if (requestId !== loadCandidatesRequestIdRef.current) return;
+        setCandidates(mapped);
+        hasLoadedCandidatesOnceRef.current = true;
+        setTotalEntries(total);
+        writeCandidatesListCache({
+          tab: activeListTab,
+          page: activePage,
+          pageSize,
+          search: debouncedSearch || '',
+          filterSig: candidatesFilterSig,
+          totalEntries: total,
+          candidates: mapped,
+        });
+        setLocationFilterOptions((prev) =>
+          buildLocationFilterOptions(mapped, backendRows, prev),
+        );
+        if (!silent) {
+          setLoading(false);
+          setTableLoading(false);
+        }
+      };
+
+      if (useWarmParallel) {
+        // 2–3 parallel batches (~75 each). Paint UI page 1 as soon as batch 1 returns;
+        // remaining batches warm page cache for instant next/prev.
+        const batchSize = CANDIDATE_WARM_BATCH_SIZE;
+        const batchCount = CANDIDATE_WARM_PARALLEL_BATCHES;
+        const batchPromises = Array.from({ length: batchCount }, (_, idx) => {
+          const apiPage = idx + 1;
+          const queryParams = buildCandidatesListApiParams({
+            page: apiPage,
+            limit: batchSize,
+            ...listFilterBits,
+          });
+          return apiGetCandidates(queryParams, { signal: abortController.signal }).then((res) => {
+            const payload = res.data as
+              | BackendCandidate[]
+              | { data?: BackendCandidate[]; items?: BackendCandidate[]; pagination?: any }
+              | undefined;
+            const backendCandidates = extractBackendCandidatesList(payload);
+            const mapped = backendCandidates.map(mapBackendCandidate);
+            const total = extractCandidatesPaginationTotal(payload as any, mapped.length);
+            return { apiPage, mapped, backendCandidates, total };
+          });
+        });
+
+        const first = await batchPromises[0];
+        if (requestId !== loadCandidatesRequestIdRef.current) return;
+        const uiSlice = first.mapped.slice(0, pageSize);
+        paintPage(uiSlice, first.backendCandidates.slice(0, pageSize), first.total);
+        cacheCandidateUiPagesFromBatch({
+          mapped: first.mapped,
+          total: first.total,
+          apiPage: 1,
+          batchSize,
+          pageSize,
+          tab: activeListTab,
+          search: debouncedSearch || '',
+          filterSig: candidatesFilterSig,
+        });
+
+        void Promise.allSettled(batchPromises.slice(1)).then((results) => {
+          if (
+            requestId !== loadCandidatesRequestIdRef.current ||
+            prefetchGen !== candidatePrefetchGenRef.current
+          ) {
+            return;
+          }
+          for (const result of results) {
+            if (result.status !== 'fulfilled') continue;
+            const { apiPage, mapped, total } = result.value;
+            cacheCandidateUiPagesFromBatch({
+              mapped,
+              total: total || first.total,
+              apiPage,
+              batchSize,
+              pageSize,
+              tab: activeListTab,
+              search: debouncedSearch || '',
+              filterSig: candidatesFilterSig,
+            });
+          }
+        });
+        return;
+      }
+
+      // Non–page-1 (or smart-search ids): current page + parallel warm of ±1 neighbor.
       const queryParams = buildCandidatesListApiParams({
         page: activePage,
         limit: pageSize,
         ...listFilterBits,
       });
-
       const res = await apiGetCandidates(queryParams, { signal: abortController.signal });
-
-      let backendCandidates: BackendCandidate[] = [];
-      let pagination: any = null;
-
-      const payload = res.data as BackendCandidate[] | { data?: BackendCandidate[]; items?: BackendCandidate[]; pagination?: any } | undefined;
-      if (payload) {
-        if (Array.isArray(payload)) {
-          backendCandidates = payload;
-        } else if (Array.isArray(payload.data)) {
-          backendCandidates = payload.data;
-          pagination = payload.pagination;
-        } else if (Array.isArray(payload.items)) {
-          backendCandidates = payload.items;
-        } else {
-          console.warn('Unexpected response structure:', payload);
-          backendCandidates = [];
-        }
-      }
-
+      const payload = res.data as
+        | BackendCandidate[]
+        | { data?: BackendCandidate[]; items?: BackendCandidate[]; pagination?: any }
+        | undefined;
+      const backendCandidates = extractBackendCandidatesList(payload);
       if (!Array.isArray(backendCandidates)) {
-        console.error('Unexpected API response format: data is not an array.', res);
         if (requestId !== loadCandidatesRequestIdRef.current) return;
         if (!silent) {
           setError('Unexpected API response format.');
@@ -862,29 +986,46 @@ function CandidatesPageContent() {
         }
         return;
       }
-
-      if (requestId !== loadCandidatesRequestIdRef.current) return;
       const mapped = backendCandidates.map(mapBackendCandidate);
-      setCandidates(mapped);
-      hasLoadedCandidatesOnceRef.current = true;
-      const total = pagination?.total ?? mapped.length;
-      if (pagination) {
-        setTotalEntries(pagination.total || 0);
-      } else {
-        setTotalEntries(mapped.length);
+      const total = extractCandidatesPaginationTotal(payload as any, mapped.length);
+      paintPage(mapped, backendCandidates, total);
+
+      if (!smartSearchCandidateIds?.length) {
+        const neighbors = [activePage - 1, activePage + 1].filter((p) => p >= 1);
+        void Promise.allSettled(
+          neighbors.map((p) => {
+            const qp = buildCandidatesListApiParams({
+              page: p,
+              limit: pageSize,
+              ...listFilterBits,
+            });
+            return apiGetCandidates(qp, { signal: abortController.signal }).then((warmRes) => {
+              const warmPayload = warmRes.data as
+                | BackendCandidate[]
+                | { data?: BackendCandidate[]; items?: BackendCandidate[]; pagination?: any }
+                | undefined;
+              const warmBackend = extractBackendCandidatesList(warmPayload);
+              const warmMapped = warmBackend.map(mapBackendCandidate);
+              const warmTotal = extractCandidatesPaginationTotal(warmPayload as any, total);
+              if (
+                requestId !== loadCandidatesRequestIdRef.current ||
+                prefetchGen !== candidatePrefetchGenRef.current
+              ) {
+                return;
+              }
+              writeCandidatesListCache({
+                tab: activeListTab,
+                page: p,
+                pageSize,
+                search: debouncedSearch || '',
+                filterSig: candidatesFilterSig,
+                totalEntries: warmTotal,
+                candidates: warmMapped,
+              });
+            });
+          }),
+        );
       }
-      writeCandidatesListCache({
-        tab: activeListTab,
-        page: activePage,
-        pageSize,
-        search: debouncedSearch || '',
-        filterSig: candidatesFilterSig,
-        totalEntries: total,
-        candidates: mapped,
-      });
-      setLocationFilterOptions((prev) =>
-        buildLocationFilterOptions(mapped, backendCandidates, prev),
-      );
     } catch (err: any) {
       if (requestId !== loadCandidatesRequestIdRef.current) return;
       if (
