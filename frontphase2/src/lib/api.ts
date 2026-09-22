@@ -6746,6 +6746,8 @@ export interface UpdateCandidatePayload {
   city?: string;
   country?: string;
   gender?: string;
+  middleName?: string;
+  dateOfBirth?: string | null;
   stage?: string;
   assignedJobs?: string[];
   avatar?: string | null;

@@ -392,6 +392,9 @@ export function buildUpdatePayloadFromPhase1EditSnapshot(
     phone: editedPhone || payload.phone,
     linkedIn: editedLinkedIn || payload.linkedIn,
     gender: String(pi.gender || '').trim() || payload.gender,
+    middleName: editedMiddleName || payload.middleName,
+    dateOfBirth:
+      String(pi.dob || pi.dateOfBirth || '').trim() || payload.dateOfBirth || null,
     currentTitle: (normalizedCareer?.currentRole as string) || payload.currentTitle,
     designation: (normalizedCareer?.currentRole as string) || payload.designation,
     location: (normalizedCareer?.currentLocation as string) || payload.location,

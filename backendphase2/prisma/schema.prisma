@@ -583,6 +583,10 @@ model Candidate {
   /// Parsed CV sections that do not map to standard fields (awards, volunteer work, etc.)
   extraData               Json?
   preferredLocation       String?
+  /// Phase 1 / Overview identity fields (optional — stored so CRM edits survive reload).
+  gender                  String?
+  middleName              String?
+  dateOfBirth             DateTime?
   assignedJobs            String[] // Array of job IDs
   stage                   String? // Applied, Shortlist, Screening, Interviewing, Offered, Hired, Rejected
   lastActivity            DateTime?
