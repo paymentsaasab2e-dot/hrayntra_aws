@@ -131,6 +131,105 @@ function sha256base64Url(value) {
   return crypto.createHash('sha256').update(value).digest('base64url');
 }
 
+const CALENDAR_EVENTS_SCOPE = 'https://www.googleapis.com/auth/calendar.events';
+
+function scopeListHasCalendarEvents(scopes) {
+  const list = Array.isArray(scopes) ? scopes : String(scopes || '').split(/\s+/);
+  return list.some((s) => {
+    const v = String(s || '').trim().toLowerCase();
+    return (
+      v === CALENDAR_EVENTS_SCOPE.toLowerCase() ||
+      v === 'https://www.googleapis.com/auth/calendar' ||
+      v.endsWith('/auth/calendar.events') ||
+      v.endsWith('/auth/calendar')
+    );
+  });
+}
+
+async function refreshGoogleIntegrationAccessToken(row) {
+  const refreshToken = dec(row.refreshToken);
+  if (!refreshToken) return null;
+
+  const response = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: env.GOOGLE_CLIENT_ID,
+      client_secret: env.GOOGLE_CLIENT_SECRET,
+      refresh_token: refreshToken,
+      grant_type: 'refresh_token',
+    }),
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`Google Calendar token refresh failed: ${text || response.status}`);
+  }
+  const data = await response.json();
+  const accessToken = data.access_token || null;
+  if (!accessToken) return null;
+
+  const expiryDate =
+    data.expires_in != null ? new Date(Date.now() + Number(data.expires_in) * 1000) : row.expiryDate;
+
+  await prisma.integrationConnection.update({
+    where: { id: row.id },
+    data: {
+      accessToken: enc(accessToken),
+      expiryDate: expiryDate || undefined,
+      ...(data.refresh_token ? { refreshToken: enc(String(data.refresh_token)) } : {}),
+    },
+  });
+
+  return accessToken;
+}
+
+/**
+ * Access token that can create Calendar events / Meet links.
+ * Prefer google-meet / google-calendar IntegrationConnection — never a Gmail-only shared token.
+ */
+async function getValidGoogleCalendarAccessToken(userId) {
+  if (!userId) return null;
+
+  const rows = await prisma.integrationConnection.findMany({
+    where: {
+      userId,
+      provider: { in: ['google-meet', 'google-calendar'] },
+    },
+    orderBy: { connectedAt: 'desc' },
+  });
+
+  for (const row of rows) {
+    if (!scopeListHasCalendarEvents(row.scope)) continue;
+    const accessToken = dec(row.accessToken);
+    const refreshToken = dec(row.refreshToken);
+    const expiryDate = row.expiryDate ? new Date(row.expiryDate) : null;
+    const stillValid =
+      Boolean(accessToken) &&
+      (!expiryDate || expiryDate.getTime() > Date.now() + 60 * 1000);
+
+    if (stillValid) return accessToken;
+    if (refreshToken) {
+      try {
+        const refreshed = await refreshGoogleIntegrationAccessToken(row);
+        if (refreshed) return refreshed;
+      } catch {
+        /* try next row */
+      }
+    }
+  }
+
+  // Legacy UserOAuthTokens only if scopes truly include calendar.events
+  try {
+    const { oauthTokenService } = await import('../oauth/oauth-token.service.js');
+    const legacy = await prisma.userOAuthTokens.findUnique({ where: { userId } });
+    if (!legacy?.googleCalConnected) return null;
+    if (!scopeListHasCalendarEvents(legacy.googleScope)) return null;
+    return oauthTokenService.getValidGoogleAccessToken(userId);
+  } catch {
+    return null;
+  }
+}
+
 function resolveAccountId(payload = {}) {
   return (
     payload.accountId ||
@@ -272,6 +371,8 @@ export const integrationService = {
     }));
   },
 
+  getValidGoogleCalendarAccessToken,
+
   async getAuthorizationUrl(userId, provider, options = {}) {
     const config = ensureProvider(provider);
     const callbackUrl = getCallbackUrl(provider);
@@ -287,6 +388,8 @@ export const integrationService = {
         response_type: 'code',
         access_type: 'offline',
         prompt: 'consent',
+        // Keep previously granted Gmail scopes when adding Calendar/Meet.
+        include_granted_scopes: 'true',
         scope: config.scopes.join(' '),
         state,
       });
@@ -428,6 +531,15 @@ export const integrationService = {
       if (!response.ok) throw new Error('Google OAuth failed');
       tokens = await response.json();
       scope = String(tokens.scope || config.scopes.join(' ')).split(/\s+/).filter(Boolean);
+      if (
+        (provider === 'google-calendar' || provider === 'google-meet') &&
+        !scopeListHasCalendarEvents(scope)
+      ) {
+        throw new Error(
+          'Google did not grant Calendar access (calendar.events). ' +
+            'Add that scope on the OAuth consent screen, then connect Google Calendar / Meet again and approve Calendar.',
+        );
+      }
       profile = await fetchGoogleProfile(tokens.access_token);
     }
 
@@ -549,6 +661,24 @@ export const integrationService = {
         metadata: profile || null,
       });
 
+      // Calendar + Meet share the same calendar.events grant — keep both cards in sync.
+      if (
+        (provider === 'google-calendar' || provider === 'google-meet') &&
+        scopeListHasCalendarEvents(scope)
+      ) {
+        const twin = provider === 'google-calendar' ? 'google-meet' : 'google-calendar';
+        await upsertIntegrationConnection(userId, twin, {
+          accessToken: tokens?.access_token || null,
+          refreshToken: tokens?.refresh_token || null,
+          expiryDate,
+          scope,
+          accountEmail: profile?.email || profile?.mail || profile?.userPrincipalName || null,
+          accountName: resolvedAccountName,
+          accountId: profile?.id || profile?.sub || profile?.userPrincipalName || null,
+          metadata: profile || null,
+        });
+      }
+
       await persistLegacyConnections(userId, provider, tokens, profile, scope);
     };
 
@@ -666,6 +796,17 @@ export const integrationService = {
       let accountEmail = primary?.accountEmail || undefined;
       let accountName = primary?.accountName || undefined;
 
+      // Calendar/Meet: row alone is not enough — token must include calendar.events.
+      if (
+        connected &&
+        (provider === 'google-calendar' || provider === 'google-meet') &&
+        !scopeListHasCalendarEvents(primary?.scope)
+      ) {
+        connected = false;
+        accountEmail = undefined;
+        accountName = undefined;
+      }
+
       // Fallback to legacy UserOAuthTokens when IntegrationConnection row is missing
       if (!connected && legacyOauth) {
         if (provider === 'gmail' && legacyOauth.gmailConnected && legacyOauth.googleAccessToken) {
@@ -675,7 +816,8 @@ export const integrationService = {
         if (
           (provider === 'google-calendar' || provider === 'google-meet') &&
           legacyOauth.googleCalConnected &&
-          legacyOauth.googleAccessToken
+          legacyOauth.googleAccessToken &&
+          scopeListHasCalendarEvents(legacyOauth.googleScope)
         ) {
           connected = true;
           accountEmail = legacyOauth.googleEmail || accountEmail;

@@ -136,16 +136,21 @@ function buildResumeVersionRows(
     })
     .filter(Boolean) as ResumeVersionRow[];
 
-  // resumeVersions is authoritative when present — orphan CandidateFile rows must not
-  // reappear as v2 after Replace CV or Delete version.
+  // resumeVersions is authoritative when present.
+  // Keep stored rows even if the Files list is briefly stale after upload —
+  // filtering against fileByUrl was dropping brand-new v2/v3 entries.
   let versions: ResumeVersionRow[];
   if (fromStored.length > 0) {
-    versions = fromStored.filter((row) => {
+    versions = fromStored.map((row) => {
       const key = normalizeResumeCompareUrl(row.fileUrl);
-      if (primaryKey && key === primaryKey) return true;
-      // If files loaded, drop stored URLs whose files were already wiped/deleted.
-      if (fileByUrl.size === 0) return true;
-      return fileByUrl.has(key);
+      const matchedFile = fileByUrl.get(key);
+      if (!matchedFile) return row;
+      return {
+        ...row,
+        id: matchedFile.id || row.id,
+        fileName: row.fileName || matchedFile.fileName,
+        uploadDate: row.uploadDate || matchedFile.uploadDate,
+      };
     });
   } else {
     versions = Array.from(fileByUrl.values());
@@ -405,13 +410,19 @@ export function CandidateResumeTabPanel({
   const openReplaceCvPicker = () => {
     if (!canReplaceCv || replacingCv) return;
     cvUploadModeRef.current = 'replace';
-    replaceCvInputRef.current?.click();
+    if (replaceCvInputRef.current) {
+      replaceCvInputRef.current.dataset.uploadMode = 'replace';
+      replaceCvInputRef.current.click();
+    }
   };
 
   const openVersionCvPicker = () => {
     if (!canReplaceCv || replacingCv) return;
     cvUploadModeRef.current = 'version';
-    replaceCvInputRef.current?.click();
+    if (replaceCvInputRef.current) {
+      replaceCvInputRef.current.dataset.uploadMode = 'version';
+      replaceCvInputRef.current.click();
+    }
   };
 
   const selectResumeVersion = (version: ResumeVersionRow) => {
@@ -582,6 +593,8 @@ export function CandidateResumeTabPanel({
 
   const handleReplaceCvSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] ?? null;
+    const inputEl = event.target;
+    const modeFromInput = String(inputEl.dataset.uploadMode || cvUploadModeRef.current || 'replace');
     event.target.value = '';
     if (!file || !canReplaceCv || replacingCv) return;
 
@@ -590,7 +603,9 @@ export function CandidateResumeTabPanel({
       return;
     }
 
-    const asVersion = cvUploadModeRef.current === 'version';
+    // Prefer the mode stamped when the picker opened (ref alone can race with reset).
+    const asVersion = modeFromInput === 'version' || cvUploadModeRef.current === 'version';
+    cvUploadModeRef.current = asVersion ? 'version' : 'replace';
     const hasExisting = Boolean(String(originalResumeRaw || effectiveResumeHref || '').trim());
     const confirmed = await requestConfirm(
       asVersion
@@ -691,10 +706,11 @@ export function CandidateResumeTabPanel({
 
       const primaryAfterUpload = asVersion
         ? String(
-            refreshed?.resume ||
+            mergedExtra.originalResumeUrl ||
+              mergedExtra.firstOriginalResumeUrl ||
+              refreshed?.resume ||
               refreshed?.resumeUrl ||
               candidate.resumeUrl ||
-              mergedExtra.originalResumeUrl ||
               '',
           ).trim()
         : String(
@@ -703,11 +719,17 @@ export function CandidateResumeTabPanel({
               refreshed?.resumeUrl ||
               '',
           ).trim();
+
+      // Prefer server resumeVersions from this upload response (authoritative v1/v2/…).
+      if (Array.isArray(payload?.resumeVersions) && payload.resumeVersions.length) {
+        mergedExtra.resumeVersions = payload.resumeVersions;
+      }
+
       const versions = await refreshResumeFiles(
         {
           url: primaryAfterUpload || undefined,
           fileName: asVersion
-            ? String(mergedExtra.originalResumeFileName || file.name)
+            ? String(mergedExtra.originalResumeFileName || mergedExtra.firstOriginalResumeFileName || file.name)
             : file.name,
         },
         mergedExtra,

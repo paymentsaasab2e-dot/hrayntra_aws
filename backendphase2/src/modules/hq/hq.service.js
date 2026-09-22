@@ -322,6 +322,31 @@ export const hqService = {
       throw new Error('All fields (name, email, userId, password) are required');
     }
 
+    if (String(password).length < 8) {
+      throw new Error('Password must be at least 8 characters');
+    }
+
+    // Refuse to create/overwrite once a Super Admin already exists.
+    // Password resets and role changes must go through authenticated admin flows.
+    const existingSuperAdmin = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { role: 'SUPER_ADMIN' },
+          { systemRole: { roleName: { equals: 'Super Admin', mode: 'insensitive' } } },
+        ],
+        isActive: true,
+      },
+      select: { id: true, email: true },
+    });
+    if (existingSuperAdmin) {
+      const err = new Error(
+        'A Super Admin already exists. HQ setup bootstrap is locked. Use authenticated admin tools to manage accounts.'
+      );
+      err.code = 'HQ_SETUP_ALREADY_INITIALIZED';
+      err.statusCode = 403;
+      throw err;
+    }
+
     // 1. Find or Create Super Admin system role to mirror enum role
     let superAdminRole = await prisma.systemRole.findUnique({
       where: { roleName: 'Super Admin' }
@@ -336,19 +361,22 @@ export const hqService = {
 
     const hashedPassword = await bcrypt.hash(password, 12);
 
-    // 2. Upsert User
-    const user = await prisma.user.upsert({
-      where: { email },
-      update: {
+    // 2. Create User (create-only — never upsert/overwrite an existing account)
+    const existingByEmail = await prisma.user.findUnique({
+      where: { email: String(email).trim().toLowerCase() },
+      select: { id: true },
+    });
+    if (existingByEmail) {
+      const err = new Error('A user with this email already exists. Bootstrap cannot overwrite accounts.');
+      err.code = 'HQ_SETUP_EMAIL_EXISTS';
+      err.statusCode = 409;
+      throw err;
+    }
+
+    const user = await prisma.user.create({
+      data: {
         name,
-        role: 'SUPER_ADMIN',
-        roleId: superAdminRole?.id,
-        isActive: true,
-        passwordHash: hashedPassword, // Backward compatibility
-      },
-      create: {
-        name,
-        email,
+        email: String(email).trim().toLowerCase(),
         role: 'SUPER_ADMIN',
         roleId: superAdminRole?.id,
         isActive: true,
@@ -356,17 +384,9 @@ export const hqService = {
       },
     });
 
-    // 3. Upsert UserCredential
-    await prisma.userCredential.upsert({
-      where: { userId: user.id },
-      update: {
-        loginId: userId,
-        hashedPassword,
-        tempPasswordFlag: false,
-        isLocked: false,
-        failedAttempts: 0,
-      },
-      create: {
+    // 3. Create UserCredential
+    await prisma.userCredential.create({
+      data: {
         userId: user.id,
         loginId: userId,
         hashedPassword,

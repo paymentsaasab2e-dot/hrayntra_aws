@@ -4,7 +4,6 @@ import { ClientSecretCredential } from '@azure/identity';
 import { Client } from '@microsoft/microsoft-graph-client';
 import { prisma } from '../config/prisma.js';
 import { env } from '../config/env.js';
-import { oauthTokenService } from '../modules/oauth/oauth-token.service.js';
 import { encryption } from '../utils/encryption.js';
 import logger from '../utils/logger.js';
 
@@ -109,14 +108,28 @@ async function getConnectedZoomAccessToken(userId) {
 
 export async function generateGoogleMeetLink(interview, userId) {
   const auth = new google.auth.OAuth2(env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET);
-  const connectedAccessToken = userId ? await oauthTokenService.getValidGoogleAccessToken(userId) : null;
+
+  let connectedAccessToken = null;
+  if (userId) {
+    try {
+      const { integrationService } = await import('../modules/integration/integration.service.js');
+      connectedAccessToken = await integrationService.getValidGoogleCalendarAccessToken(userId);
+    } catch {
+      connectedAccessToken = null;
+    }
+  }
+
   const timeZone = normalizeTimeZone(interview.timezone);
 
   if (connectedAccessToken) {
     auth.setCredentials({ access_token: connectedAccessToken });
   } else {
     if (!env.GOOGLE_REFRESH_TOKEN) {
-      throw new Error('Google Meet is not connected. Please connect your Google account first.');
+      throw new Error(
+        'Google Meet is not connected with Calendar permission. ' +
+          'Open Settings → Communication, Disconnect Google Meet and Google Calendar, ' +
+          'then Connect Google Calendar again and approve “See, edit, share, and permanently delete all the calendars you can access using Google Calendar” / Calendar events.',
+      );
     }
     ensure(env.GOOGLE_CLIENT_ID, 'GOOGLE_CLIENT_ID is not configured');
     ensure(env.GOOGLE_CLIENT_SECRET, 'GOOGLE_CLIENT_SECRET is not configured');
@@ -126,9 +139,11 @@ export async function generateGoogleMeetLink(interview, userId) {
 
   const calendar = google.calendar({ version: 'v3', auth });
 
-  const event = await calendar.events.insert({
-    calendarId: 'primary',
-    conferenceDataVersion: 1,
+  let event;
+  try {
+    event = await calendar.events.insert({
+      calendarId: 'primary',
+      conferenceDataVersion: 1,
       requestBody: {
         summary: buildTopic(interview),
         description: interview.notes || undefined,
@@ -136,15 +151,39 @@ export async function generateGoogleMeetLink(interview, userId) {
         end: { dateTime: addMinutes(interview.date, interview.duration), timeZone },
         attendees: (interview.panelEmails || []).map((email) => ({ email })),
         conferenceData: {
-        createRequest: {
-          requestId: interview.id || `${Date.now()}`,
-          conferenceSolutionKey: { type: 'hangoutsMeet' },
+          createRequest: {
+            requestId: interview.id || `${Date.now()}`,
+            conferenceSolutionKey: { type: 'hangoutsMeet' },
+          },
         },
       },
-    },
-  });
+    });
+  } catch (error) {
+    const status = Number(error?.code || error?.response?.status || 0);
+    const reason = String(
+      error?.errors?.[0]?.reason ||
+        error?.response?.data?.error?.errors?.[0]?.reason ||
+        error?.message ||
+        '',
+    ).toLowerCase();
+    if (
+      status === 403 ||
+      reason.includes('insufficient') ||
+      reason.includes('permission') ||
+      reason.includes('access_denied')
+    ) {
+      throw new Error(
+        'Insufficient Permission: Google Calendar/Meet is not authorized for this account. ' +
+          'Open Settings → Communication, connect Google Calendar (or Google Meet), ' +
+          'approve the calendar.events scope, then try again. Gmail-only connection cannot create Meet links.',
+      );
+    }
+    throw error;
+  }
 
-  return event?.data?.hangoutLink || null;
+  return event?.data?.hangoutLink || event?.data?.conferenceData?.entryPoints?.find(
+    (p) => p?.entryPointType === 'video',
+  )?.uri || null;
 }
 
 export async function generateZoomLink(interview, userId) {

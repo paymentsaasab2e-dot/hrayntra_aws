@@ -2,6 +2,7 @@ import express from 'express';
 import multer from 'multer';
 import { hqController } from './hq.controller.js';
 import { authMiddleware } from '../../middleware/auth.middleware.js';
+import { hqSetupRateLimit, requireHqSetupAccess } from '../../middleware/hqSetup.middleware.js';
 import { portalEventsController } from '../portal-events/portal-events.controller.js';
 import {
   PORTAL_EVENT_MEDIA_MAX_BYTES,
@@ -44,9 +45,9 @@ const companyLogoUpload = multer({
   fileFilter: companyLogoMulterFilter,
 });
 
-// Setup initial Super Admin credentials directly
-// Note: This is an unsecured setup route intended for bootstrap/initialization.
-router.post('/setup', hqController.setupSuperAdmin);
+// Bootstrap Super Admin — gated by HQ_SETUP_SECRET (+ HQ_SETUP_ENABLED in production).
+// Never leave this unauthenticated on a public URL.
+router.post('/setup', hqSetupRateLimit, requireHqSetupAccess, hqController.setupSuperAdmin);
 
 router.post('/provision-tenant', authMiddleware, hqController.provisionTenant);
 router.get('/tenants', authMiddleware, hqController.listTenants);
