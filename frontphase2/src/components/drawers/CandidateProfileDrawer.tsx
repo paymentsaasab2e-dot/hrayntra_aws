@@ -23,7 +23,7 @@ import {
 import { useCandidateCvEditor } from '../../hooks/useCandidateCvEditor';
 import { useSaasaCvAnnotations } from '../../hooks/useSaasaCvAnnotations';
 import type { ResumeCvViewMode } from '../../lib/cvEditorMapping';
-import { pickLatestResumeFileUrl, resolveCandidateResumeUrlFromSources } from '../../lib/phase1ProfileSnapshot';
+import { pickLatestResumeFileUrl, resolveCandidateResumeUrlFromSources, isCandidateResumeFileRow } from '../../lib/phase1ProfileSnapshot';
 import { hasSaasaCvSaved, readSaasaCvAnnotations, SAASA_CV_FILE_TYPE } from '../../lib/saasaCvAnnotations';
 import { formatDateDMY, formatDateTimeDMY } from '../../utils/dateDisplay';
 import type { AuditMeta } from '../../types/audit';
@@ -4755,9 +4755,10 @@ export function CandidateProfileDrawer({
         .filter(Boolean)
     );
     return candidateFiles.filter((f) => {
+      // Resume / HRYantra CV belong on the Resume tab — never in Other documents.
+      if (isCandidateResumeFileRow(f)) return false;
       if (f.fileType === SAASA_CV_FILE_TYPE) return false;
       if (f.id && f.id === saasaCvStored?.fileId) return false;
-      if (/^resume$/i.test(String(f.fileType || '').trim())) return false;
       const url = String(f.fileUrl || '').trim();
       if (url && cvUrls.has(url)) return false;
       return true;
@@ -5929,7 +5930,7 @@ export function CandidateProfileDrawer({
                         </div>
                       ) : null}
 
-                      {candidateFilesLoading ? (
+                      {candidateFilesLoading && candidateFilesOther.length === 0 ? (
                         <p className="text-sm text-slate-500">Loading attached files…</p>
                       ) : candidateFilesOther.length > 0 ? (
                         candidateFilesOther.map((file) => (
@@ -5938,16 +5939,21 @@ export function CandidateProfileDrawer({
                             className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3"
                           >
                             <a
-                              href={toFileHref(file.fileUrl)}
+                              href={file.fileUrl ? toFileHref(file.fileUrl) : undefined}
                               target={file.fileUrl ? '_blank' : undefined}
                               rel={file.fileUrl ? 'noreferrer' : undefined}
-                              className="min-w-0 flex-1"
+                              className={`min-w-0 flex-1 ${!file.fileUrl ? 'pointer-events-none' : ''}`}
+                              onClick={(e) => {
+                                if (!file.fileUrl) e.preventDefault();
+                              }}
                             >
                               <div className="flex items-center justify-between gap-3">
                                 <div className="min-w-0">
                                   <p className="truncate text-sm font-medium text-slate-900">{file.fileName}</p>
                                   <p className="mt-0.5 text-xs text-slate-500">
-                                    {file.fileType}{file.uploadedBy?.name ? ` · ${file.uploadedBy.name}` : ''}
+                                    {file.fileUrl
+                                      ? `${file.fileType}${file.uploadedBy?.name ? ` · ${file.uploadedBy.name}` : ''}`
+                                      : 'Uploading…'}
                                   </p>
                                 </div>
                                 <FileText size={16} className="shrink-0 text-slate-400" />
@@ -5955,8 +5961,9 @@ export function CandidateProfileDrawer({
                             </a>
                             <button
                               type="button"
+                              disabled={!file.fileUrl || String(file.id).startsWith('pending-')}
                               onClick={() => deleteCandidateFile(file.id)}
-                              className="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                              className="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
                             >
                               Delete
                             </button>

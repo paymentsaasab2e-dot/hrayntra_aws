@@ -7892,7 +7892,7 @@ export function ClientDetailsDrawer({
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100">
-                            {filesLoading ? (
+                            {filesLoading && filteredFiles.length === 0 ? (
                               <tr>
                                 <td colSpan={5} className="px-4 py-12 text-center text-sm text-slate-500">Loading files…</td>
                               </tr>

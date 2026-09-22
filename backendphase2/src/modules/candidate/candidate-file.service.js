@@ -1,18 +1,17 @@
 import { prisma } from '../../config/prisma.js';
 
 function isResumeFileType(fileType) {
-  return /^resume$/i.test(String(fileType || '').trim());
+  return /^resume$/i.test(String(fileType || '').trim()) || /^cv$/i.test(String(fileType || '').trim());
 }
 
-function looksLikePdfResume(file) {
-  const url = String(file?.fileUrl || '');
-  const name = String(file?.fileName || '');
-  if (/\.pdf($|[?#])/i.test(url) || /\.pdf$/i.test(name)) return true;
+/** Dedicated resume rows only — never Files-tab Other/Offer/etc. documents. */
+function isDedicatedResumeFile(file) {
   if (isResumeFileType(file?.fileType)) return true;
+  const url = String(file?.fileUrl || '');
   return /\/resumes\/|\/cv-files\//i.test(url);
 }
 
-/** Latest uploaded resume file URL for a candidate (Files tab / primary resume). */
+/** Latest uploaded resume file URL for a candidate (Resume tab / primary resume). */
 export async function getLatestCandidateResumeFileUrl(candidateId, options = {}) {
   const id = String(candidateId || '').trim();
   if (!id) return null;
@@ -27,13 +26,7 @@ export async function getLatestCandidateResumeFileUrl(candidateId, options = {})
   for (const file of files) {
     const url = String(file?.fileUrl || '').trim();
     if (!url || url === skipUrl) continue;
-    if (isResumeFileType(file.fileType)) return url;
-  }
-
-  for (const file of files) {
-    const url = String(file?.fileUrl || '').trim();
-    if (!url || url === skipUrl) continue;
-    if (looksLikePdfResume(file)) return url;
+    if (isDedicatedResumeFile(file)) return url;
   }
 
   const row = await prisma.candidate.findUnique({

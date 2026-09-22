@@ -5458,7 +5458,7 @@ export function JobDetailsDrawer({
                             </tr>
                           </thead>
                           <tbody className={DRAWER_TABLE_BODY}>
-                            {filesLoading ? (
+                            {filesLoading && filteredFiles.length === 0 ? (
                               <tr>
                                 <td colSpan={5} className={`${DRAWER_TABLE_TD} py-12 text-center text-sm text-slate-500`}>
                                   Loading files…

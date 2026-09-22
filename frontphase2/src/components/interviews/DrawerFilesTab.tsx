@@ -50,7 +50,7 @@ export function DrawerFilesTab({ interviewId }: DrawerFilesTabProps) {
       {error ? <p className="mt-3 text-sm text-red-600">{error}</p> : null}
 
       <div className="mt-4 space-y-3">
-        {loading ? (
+        {loading && files.length === 0 ? (
           <p className="text-sm text-slate-500">Loading files…</p>
         ) : files.length > 0 ? (
           files.map((file) => (
@@ -59,17 +59,21 @@ export function DrawerFilesTab({ interviewId }: DrawerFilesTabProps) {
               className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3"
             >
               <a
-                href={toFileHref(file.fileUrl)}
+                href={file.fileUrl ? toFileHref(file.fileUrl) : undefined}
                 target={file.fileUrl ? '_blank' : undefined}
                 rel={file.fileUrl ? 'noreferrer' : undefined}
-                className="min-w-0 flex-1"
+                className={`min-w-0 flex-1 ${!file.fileUrl ? 'pointer-events-none' : ''}`}
+                onClick={(e) => {
+                  if (!file.fileUrl) e.preventDefault();
+                }}
               >
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium text-slate-900">{file.fileName}</p>
                     <p className="mt-0.5 text-xs text-slate-500">
-                      {file.fileType}
-                      {file.uploadedBy?.name ? ` · ${file.uploadedBy.name}` : ''}
+                      {file.fileUrl
+                        ? `${file.fileType}${file.uploadedBy?.name ? ` · ${file.uploadedBy.name}` : ''}`
+                        : 'Uploading…'}
                     </p>
                   </div>
                   <FileText size={16} className="shrink-0 text-slate-400" />
@@ -77,8 +81,9 @@ export function DrawerFilesTab({ interviewId }: DrawerFilesTabProps) {
               </a>
               <button
                 type="button"
+                disabled={!file.fileUrl || String(file.id).startsWith('pending-')}
                 onClick={() => deleteFile(file.id)}
-                className="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                className="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Delete
               </button>

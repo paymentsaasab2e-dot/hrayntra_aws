@@ -81,7 +81,13 @@ type SaasaCvEditorSnapshot = {
 };
 
 function isAnnotateOverlayTool(tool: ActiveTool): boolean {
-  return tool != null && tool !== 'scroll';
+  return (
+    tool === 'draw' ||
+    tool === 'highlight' ||
+    tool === 'eraser' ||
+    tool === 'comment' ||
+    tool === 'important'
+  );
 }
 
 interface SaasaCvAnnotationModalProps {
@@ -399,10 +405,11 @@ export function SaasaCvAnnotationModal({
 
     let size: { width: number; height: number } | null = null;
     if (canPdf && pdfDocMeta?.totalHeight) {
+      // Match the laid-out surface box so brush % lines up on every page (not just the top).
       const synced = syncCanvasToDocumentSize(
         canvas,
-        pdfDocMeta.width,
-        pdfDocMeta.totalHeight
+        surface.offsetWidth || pdfDocMeta.width,
+        surface.offsetHeight || pdfDocMeta.totalHeight
       );
       if (synced) size = { width: synced.width, height: synced.height };
     } else if (!canPdf) {
@@ -469,6 +476,13 @@ export function SaasaCvAnnotationModal({
   useEffect(() => {
     paintRedraw();
   }, [annotations, draft, brushColor, brushOpacity, brushSizePx, paintRedraw, isOpen]);
+
+  // Tool switch (e.g. Edit text ↔ Brush) must redraw stored strokes + colors on the canvas.
+  useEffect(() => {
+    if (!isOpen) return;
+    const frame = window.requestAnimationFrame(() => paintRedrawRef.current());
+    return () => window.cancelAnimationFrame(frame);
+  }, [isOpen, activeTool]);
 
   useEffect(() => {
     if (!isOpen || !canPdf || !href) return;
@@ -539,15 +553,42 @@ export function SaasaCvAnnotationModal({
     const host = pdfHostRef.current;
     if (!host?.querySelector('canvas')) return;
 
-    if (activeTool !== 'editText' && !forcePdfEditorCapture) {
+    const wantEdit = activeTool === 'editText' || forcePdfEditorCapture;
+    const existingLayers = host.querySelector(`.saasa-pdf-inplace-layer`);
+
+    // Flush live Edit-text deletions into React before toggling tools.
+    // Do not re-apply React HTML over live layers — that restored removed text on Scroll.
+    let saved = pdfTextLayerHtml ?? initialPdfTextLayerHtmlRef.current;
+    if (!wantEdit && existingLayers) {
+      const layers = collectInPlacePdfTextHtml(host);
+      if (pdfTextLayerHtmlHasEdits(layers)) {
+        saved = layers;
+        const prev = pdfTextLayerHtml;
+        const changed =
+          !prev ||
+          prev.length !== layers.length ||
+          prev.some((h, i) => h !== layers[i]);
+        if (changed) setPdfTextLayerHtml(layers);
+      }
+    }
+
+    const hasSavedEdits = pdfTextLayerHtmlHasEdits(saved);
+    const hasLiveEdits = Boolean(
+      host.querySelector(
+        '.saasa-pdf-inplace-line--edited, .saasa-pdf-inplace-line--cleared, [data-saasa-touched="1"]',
+      ),
+    );
+
+    // Plain PDF view only when nothing was cleared/edited (state or live DOM).
+    if (!wantEdit && !hasSavedEdits && !hasLiveEdits) {
       setInPlacePdfTextEditing(host, false);
       return;
     }
 
-    const existingLayers = host.querySelector(`.saasa-pdf-inplace-layer`);
     if (existingLayers) {
-      setInPlacePdfTextEditing(host, true);
+      setInPlacePdfTextEditing(host, wantEdit);
       setPdfTextEditReady(true);
+      enforcePdfPageLayout(host);
       return;
     }
 
@@ -555,14 +596,17 @@ export function SaasaCvAnnotationModal({
     const viewerUrl = buildResumeViewerUrl(href);
 
     void attachInPlacePdfTextToHost(host, viewerUrl, {
-      editing: true,
-      savedLayerHtml: initialPdfTextLayerHtmlRef.current,
+      editing: wantEdit || hasSavedEdits,
+      readOnly: !wantEdit,
+      savedLayerHtml: saved,
     })
       .then(() => {
         if (cancelled) return;
-          setPdfTextEditReady(true);
-          enforcePdfPageLayout(host);
-        })
+        setPdfTextEditReady(true);
+        enforcePdfPageLayout(host);
+        // Ensure cleared overlays stay visible even when not in Edit text.
+        setInPlacePdfTextEditing(host, wantEdit);
+      })
       .catch((e: unknown) => {
         if (cancelled) return;
         setPdfError(e instanceof Error ? e.message : 'Failed to prepare CV text for editing');
@@ -572,21 +616,15 @@ export function SaasaCvAnnotationModal({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, canPdf, href, pdfDocMeta?.totalHeight, activeTool, forcePdfEditorCapture]);
+  }, [isOpen, canPdf, href, pdfDocMeta?.totalHeight, activeTool, forcePdfEditorCapture, pdfTextLayerHtml]);
 
+  // Keep pointer-events / z-index in sync when only the tool changes after layers exist.
   useEffect(() => {
     if (!canPdf || !pdfHostRef.current || !pdfTextEditReady) return;
-    setInPlacePdfTextEditing(
-      pdfHostRef.current,
-      activeTool === 'editText' || forcePdfEditorCapture
-    );
-    // When leaving Edit Text, snapshot edits into React state so Save still has them.
-    if (activeTool !== 'editText' && !forcePdfEditorCapture) {
-      const layers = collectInPlacePdfTextHtml(pdfHostRef.current);
-      if (layers.some((h) => h.trim())) {
-        setPdfTextLayerHtml(layers);
-      }
-    }
+    const host = pdfHostRef.current;
+    if (!host.querySelector(`.saasa-pdf-inplace-layer`)) return;
+    const wantEdit = activeTool === 'editText' || forcePdfEditorCapture;
+    setInPlacePdfTextEditing(host, wantEdit);
   }, [activeTool, forcePdfEditorCapture, canPdf, pdfTextEditReady]);
 
   useEffect(() => {
@@ -705,20 +743,8 @@ export function SaasaCvAnnotationModal({
     const scrollEl = cvScrollRef.current;
     if (!surface || !scrollEl) return null;
 
-    const meta = pdfDocMeta;
-    if (canPdf && meta?.totalHeight) {
-      return clientToPaintSurfacePercent(
-        clientX,
-        clientY,
-        surface,
-        scrollEl,
-        meta.width,
-        meta.totalHeight
-      );
-    }
-
-    const w = surface.offsetWidth || 1;
-    const h = surface.offsetHeight || 1;
+    const w = surface.offsetWidth || pdfDocMeta?.width || 1;
+    const h = surface.offsetHeight || pdfDocMeta?.totalHeight || 1;
     return clientToPaintSurfacePercent(clientX, clientY, surface, scrollEl, w, h);
   };
 
@@ -1251,6 +1277,7 @@ export function SaasaCvAnnotationModal({
               width: pdfDocMeta?.width || 800,
               annotations: items,
               companyLogo: logoPayload,
+              pdfTextLayerHtml: documentEdits.pdfTextLayerHtml,
             }),
             45000,
             'CV export'
@@ -1275,6 +1302,7 @@ export function SaasaCvAnnotationModal({
               pdfHost: pdfHostRef.current,
               expectedPageCount: pdfDocMeta.pageCount,
               displayPageHeightsPx: pdfDocMeta.pageHeightsPx,
+              pdfTextLayerHtml: documentEdits.pdfTextLayerHtml,
             }),
             45000,
             'CV export'
@@ -1343,10 +1371,10 @@ export function SaasaCvAnnotationModal({
   const logoPreviewPositions = companyLogo?.url
     ? saasaCvLogoDocPositions(companyLogo, logoPreviewHeights, logoPreviewDocHeight)
     : [];
-  const showPdfPaintLayer =
-    paintSurfaceReady && activeTool !== 'editText' && !forcePdfEditorCapture;
+  const showPdfPaintLayer = paintSurfaceReady && !forcePdfEditorCapture;
+  // Keep brush/highlight canvas mounted in Edit text so marks stay visible (interaction stays off).
   const showPaintOverlay =
-    activeTool !== 'editText' &&
+    !forcePdfEditorCapture &&
     (showPdfPaintLayer || wordPreviewReady || imagePreviewReady || textPreviewReady);
 
   const renderWordPreview = () => {
@@ -1436,7 +1464,7 @@ export function SaasaCvAnnotationModal({
   };
 
   const paintOverlayActive =
-    canEdit && isAnnotateOverlayTool(activeTool) && !spacePanHeld && activeTool !== 'editText';
+    canEdit && isAnnotateOverlayTool(activeTool) && !spacePanHeld;
 
   const cursorStyle =
     activeTool === 'editText'
@@ -1835,9 +1863,9 @@ export function SaasaCvAnnotationModal({
                           key={String(tool.type)}
                           type="button"
                           onClick={() => {
+                            // Commit unfinished brush/fill before switching so marks are stored.
+                            finishDraft();
                             setActiveTool((prev) => (prev === tool.type ? null : tool.type));
-                            setDraft(null);
-                            drawingRef.current = false;
                           }}
                           className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 text-left text-sm font-medium transition-colors ${
                             activeTool === tool.type

@@ -239,6 +239,7 @@ async function saveResumeHTML(req, res) {
       data: {
         resumeId: updatedResume.id,
         updated_at: updatedResume.updatedAt,
+        resume_html: updatedResume.resumeHtml,
       },
     });
   } catch (error) {

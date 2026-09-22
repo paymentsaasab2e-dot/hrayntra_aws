@@ -468,6 +468,8 @@ function wireSpanEditHandlers(el: HTMLSpanElement, readOnly: boolean): void {
     return;
   }
 
+  el.contentEditable = 'true';
+  el.style.cursor = 'text';
   if (el.dataset.saasaWired === '1') return;
   el.dataset.saasaWired = '1';
 
@@ -595,6 +597,8 @@ function populateLayer(
 }
 
 function shouldRemoveSavedSpan(node: HTMLSpanElement): boolean {
+  // Cleared / edited lines must survive reopen — empty text is intentional delete, not a bullet glyph.
+  if (isInPlaceSpanEdited(node)) return false;
   return isSymbolOrBulletItem(node.textContent || '', undefined, {
     fontFamily: node.style.fontFamily,
   });
@@ -654,9 +658,28 @@ function wireSavedSpanNodes(layer: HTMLDivElement, canvas: HTMLCanvasElement, re
 }
 
 function styleLayer(layer: HTMLDivElement, editing: boolean): void {
-  layer.style.display = editing ? 'block' : 'none';
+  const hasEdits = Boolean(
+    layer.querySelector(
+      '.saasa-pdf-inplace-line--edited, .saasa-pdf-inplace-line--cleared, [data-saasa-touched="1"]',
+    ),
+  );
+  // Keep cleared/edited overlays visible outside Edit text, or PDF canvas text reappears.
+  const show = editing || hasEdits;
+  layer.style.display = show ? 'block' : 'none';
+  // Only Edit text receives clicks — brush/fill must not be blocked by the text overlay.
   layer.style.pointerEvents = editing ? 'auto' : 'none';
+  // Editing: above page. Read-only covers: above page canvas, under paint canvas (z-10).
+  layer.style.zIndex = editing ? '6' : hasEdits ? '6' : '5';
   layer.classList.toggle('saasa-pdf-inplace-layer--active', editing);
+  layer.querySelectorAll(`.${TEXT_SPAN_CLASS}, span`).forEach((node) => {
+    if (!(node instanceof HTMLSpanElement)) return;
+    if (node.classList.contains(TEXT_LAYER_CLASS)) return;
+    node.style.pointerEvents = editing ? 'auto' : 'none';
+    if (show && isInPlaceSpanEdited(node)) {
+      applyInPlaceSpanVisibility(node);
+      updateLineMaskVisibility(node);
+    }
+  });
 }
 
 function syncLayerToCanvas(layer: HTMLDivElement, canvas: HTMLCanvasElement): number {
@@ -795,9 +818,20 @@ export function resyncInPlacePdfTextLayers(host: HTMLElement | null): void {
 export function setInPlacePdfTextEditing(host: HTMLElement | null, editing: boolean): void {
   if (!host) return;
   host.querySelectorAll(`.${TEXT_LAYER_CLASS}`).forEach((layer) => {
-    if (layer instanceof HTMLDivElement) {
-      styleLayer(layer, editing);
-    }
+    if (!(layer instanceof HTMLDivElement)) return;
+    styleLayer(layer, editing);
+    const canvas = layer.parentElement?.querySelector('canvas');
+    layer.querySelectorAll(`.${TEXT_SPAN_CLASS}, span`).forEach((node) => {
+      if (!(node instanceof HTMLSpanElement)) return;
+      if (node.classList.contains(TEXT_LAYER_CLASS)) return;
+      if (!node.classList.contains(TEXT_SPAN_CLASS)) node.classList.add(TEXT_SPAN_CLASS);
+      node.style.pointerEvents = editing ? 'auto' : 'none';
+      // Scroll/read-only attach leaves contentEditable=false — re-enable when entering Edit text.
+      wireSpanEditHandlers(node, !editing);
+      if (canvas instanceof HTMLCanvasElement) {
+        maintainSpanBox(node);
+      }
+    });
   });
 }
 

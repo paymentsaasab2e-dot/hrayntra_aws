@@ -30,6 +30,7 @@ import {
   type ResumeCvViewMode,
 } from '../../lib/cvEditorMapping';
 import {
+  isCandidateResumeFileRow,
   pickLatestResumeFileUrl,
   resolveCandidateResumeUrlFromSources,
 } from '../../lib/phase1ProfileSnapshot';
@@ -63,14 +64,8 @@ function isResumeVersionCandidateFile(file: {
   fileUrl?: string | null;
   fileName?: string;
 }): boolean {
-  const type = String(file.fileType || '').trim();
-  if (/^SAASA_CV$/i.test(type)) return false;
-  const name = String(file.fileName || file.fileUrl || '');
-  if (/(?:SAASA|HRYantra|HRYANTRA)[\s_-]*CV/i.test(name)) return false;
-  if (/^resume$/i.test(type) || /^cv$/i.test(type)) return true;
-  const url = String(file.fileUrl || '');
-  if (/\/resumes\/|\/cv-files\//i.test(url)) return true;
-  return /\.(pdf|docx?)($|[?#])/i.test(url) || /\.(pdf|docx?)$/i.test(name);
+  // Keep Resume versions separate from Files-tab documents (Other/Offer/etc.).
+  return isCandidateResumeFileRow(file);
 }
 
 type ResumeVersionRow = {
