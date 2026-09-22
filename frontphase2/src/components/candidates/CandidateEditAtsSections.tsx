@@ -25,6 +25,9 @@ import { CandidateHiringEditSection } from './CandidateHiringSection';
 import { EditDateField } from './EditDateField';
 import { parseDMYToYMD } from '@/utils/formatLeadDateTime';
 import { getLocalDateInputMinToday } from '@/utils/dateInputConstraints';
+import { mergeCareerPreferencesRecord } from '@/lib/candidateCareerPreferencesModel';
+import { prepareCareerPreferencesForSave } from '@/lib/normalizeCareerPreferencesRecord';
+import { CandidatePhase1CareerPreferencesEdit } from './CandidatePhase1CareerPreferencesEdit';
 
 export type CandidateEditFormState = {
   firstName: string;
@@ -95,6 +98,8 @@ export type CandidateEditFormState = {
   phoneCode?: string;
   gender: string;
   employment?: string;
+  /** Full Current / Preferred Package model shown on Overview cards. */
+  careerPreferences: Record<string, unknown>;
   p1CurrentRole?: string;
   p1PreferredJobTitles?: string;
   p1PreferredIndustries?: string;
@@ -267,6 +272,8 @@ export function buildCandidateEditForm(candidate: CandidateProfileDrawerData): C
       ? buildEducationSummaryFromCvEntries(eduEntries as Array<Record<string, unknown>>)
       : str(candidate.cvEducation));
 
+  const careerPreferences = mergeCareerPreferencesRecord(candidate);
+
   return {
     firstName: nameParts.firstName,
     middleName: str(candidate.middleName) || str(resolvedPersonal.middleName) || '',
@@ -340,10 +347,22 @@ export function buildCandidateEditForm(candidate: CandidateProfileDrawerData): C
     educationCourses:
       joinSemicolonList(educationPipe.courses) || joinSemicolonList(extra.courses),
     remarks: candidate.cvNotes || str(professional.remarks) || str(extra.remarks) || '',
-    currentBenefits: str(professional.currentBenefits),
-    expectedBenefits: str(professional.expectedBenefits),
-    currentSalaryCurrency: str(professional.currentSalaryCurrency),
-    expectedSalaryCurrency: str(professional.expectedSalaryCurrency),
+    currentBenefits:
+      str(professional.currentBenefits) ||
+      (Array.isArray(careerPreferences.currentBenefits)
+        ? careerPreferences.currentBenefits.join('; ')
+        : str(careerPreferences.currentBenefits)),
+    expectedBenefits:
+      str(professional.expectedBenefits) ||
+      (Array.isArray(careerPreferences.preferredBenefits)
+        ? careerPreferences.preferredBenefits.join('; ')
+        : str(careerPreferences.preferredBenefits)),
+    currentSalaryCurrency:
+      str(professional.currentSalaryCurrency) || str(careerPreferences.currentCurrency),
+    expectedSalaryCurrency:
+      str(professional.expectedSalaryCurrency) ||
+      str(careerPreferences.preferredCurrency) ||
+      str(careerPreferences.salaryCurrency),
     extracurricular:
       joinSemicolonList(professional.extracurricularActivities) ||
       joinSemicolonList(extra.extracurricularActivities),
@@ -365,6 +384,7 @@ export function buildCandidateEditForm(candidate: CandidateProfileDrawerData): C
     ),
     projects: joinSemicolonList(extra.projects),
     hackathons: joinSemicolonList(extra.hackathons),
+    careerPreferences,
   };
 }
 
@@ -485,8 +505,43 @@ export function buildExtraDataFromEditForm(
   const hackathons = parseSemicolonList(editForm.hackathons);
   const birthDateRaw = str(editForm.birthDate);
 
+  const prevSnap =
+    prev.phase1ProfileSnapshot &&
+    typeof prev.phase1ProfileSnapshot === 'object' &&
+    !Array.isArray(prev.phase1ProfileSnapshot)
+      ? (prev.phase1ProfileSnapshot as Record<string, unknown>)
+      : {};
+
+  const normalizedCareer = prepareCareerPreferencesForSave(editForm.careerPreferences || {}, {
+    currentTitle: editForm.currentTitle,
+    designation: editForm.currentTitle,
+  });
+
+  const currentBenefits =
+    str(editForm.currentBenefits) ||
+    (Array.isArray(normalizedCareer?.currentBenefits)
+      ? (normalizedCareer!.currentBenefits as string[]).join('; ')
+      : '');
+  const expectedBenefits =
+    str(editForm.expectedBenefits) ||
+    (Array.isArray(normalizedCareer?.preferredBenefits)
+      ? (normalizedCareer!.preferredBenefits as string[]).join('; ')
+      : '');
+  const currentSalaryCurrency =
+    str(editForm.currentSalaryCurrency) || str(normalizedCareer?.currentCurrency);
+  const expectedSalaryCurrency =
+    str(editForm.expectedSalaryCurrency) ||
+    str(normalizedCareer?.preferredCurrency) ||
+    str(normalizedCareer?.salaryCurrency);
+
   return {
     ...prev,
+    careerPreferences: normalizedCareer,
+    phase1ProfileSnapshot: {
+      ...prevSnap,
+      careerPreferences: normalizedCareer,
+      _phase1SnapshotSavedAt: new Date().toISOString(),
+    },
     pipeline: {
       personal: {
         age: parseOptionalNumber(editForm.age),
@@ -511,10 +566,10 @@ export function buildExtraDataFromEditForm(
       },
       professional: {
         remarks: str(editForm.remarks) || null,
-        currentBenefits: str(editForm.currentBenefits) || null,
-        expectedBenefits: str(editForm.expectedBenefits) || null,
-        currentSalaryCurrency: str(editForm.currentSalaryCurrency) || null,
-        expectedSalaryCurrency: str(editForm.expectedSalaryCurrency) || null,
+        currentBenefits: currentBenefits || null,
+        expectedBenefits: expectedBenefits || null,
+        currentSalaryCurrency: currentSalaryCurrency || null,
+        expectedSalaryCurrency: expectedSalaryCurrency || null,
         courses,
         extracurricularActivities: parseSemicolonList(editForm.extracurricular),
         volunteers: parseSemicolonList(editForm.volunteers),
@@ -573,6 +628,30 @@ export function buildUpdatePayloadFromEditForm(
   const languagesFromProf = langProf.map((r) => r.language).filter(Boolean);
   const languagesCsv = parseCsvValues(editForm.languages);
 
+  const normalizedCareer = prepareCareerPreferencesForSave(editForm.careerPreferences || {}, {
+    currentTitle: editForm.currentTitle,
+    designation: editForm.currentTitle,
+  });
+  const preferredLocations = Array.isArray(normalizedCareer?.preferredLocations)
+    ? (normalizedCareer!.preferredLocations as string[])
+    : [];
+  const currentSalaryFromPrefs =
+    normalizedCareer?.currentSalary != null
+      ? Number(normalizedCareer.currentSalary)
+      : null;
+  const preferredSalaryFromPrefs =
+    normalizedCareer?.preferredSalary != null
+      ? Number(normalizedCareer.preferredSalary)
+      : normalizedCareer?.salaryAmount != null
+        ? Number(normalizedCareer.salaryAmount)
+        : null;
+  const salaryCurrency =
+    str(editForm.salaryCurrency) ||
+    str(normalizedCareer?.preferredCurrency) ||
+    str(normalizedCareer?.currentCurrency) ||
+    str(normalizedCareer?.salaryCurrency) ||
+    'INR';
+
   return {
     assignedToId: editForm.recruiterId || null,
     assignedJobs: editForm.assignedJobId ? [editForm.assignedJobId] : [],
@@ -581,29 +660,43 @@ export function buildUpdatePayloadFromEditForm(
     email: str(editForm.email),
     phone: str(editForm.phone) || undefined,
     linkedIn: str(editForm.linkedIn) || undefined,
-    currentTitle: str(editForm.currentTitle) || undefined,
+    currentTitle:
+      str(normalizedCareer?.currentRole) || str(editForm.currentTitle) || undefined,
     currentCompany: str(editForm.currentCompany) || undefined,
-    designation: str(editForm.currentTitle) || undefined,
+    designation:
+      str(normalizedCareer?.currentRole) || str(editForm.currentTitle) || undefined,
     experience: parseOptionalNumber(editForm.experience),
-    location: str(editForm.location) || undefined,
+    location:
+      str(normalizedCareer?.currentLocation) || str(editForm.location) || undefined,
     stage: str(editForm.stage) || undefined,
     status: str(editForm.status) || undefined,
     source: str(editForm.source) || undefined,
     resume: str(editForm.resumeUrl) || undefined,
-    noticePeriod: str(editForm.noticePeriod) || undefined,
-    availability: str(editForm.availability) || undefined,
+    noticePeriod:
+      str(normalizedCareer?.noticePeriod) || str(editForm.noticePeriod) || undefined,
+    availability:
+      str(normalizedCareer?.availabilityToStart) || str(editForm.availability) || undefined,
     salary: {
-      currency: editForm.salaryCurrency || 'INR',
-      min: parseOptionalNumber(editForm.currentSalary),
-      max: parseOptionalNumber(editForm.expectedSalary),
+      currency: salaryCurrency,
+      min:
+        parseOptionalNumber(editForm.currentSalary) ??
+        (Number.isFinite(currentSalaryFromPrefs) ? currentSalaryFromPrefs : null),
+      max:
+        parseOptionalNumber(editForm.expectedSalary) ??
+        (Number.isFinite(preferredSalaryFromPrefs) ? preferredSalaryFromPrefs : null),
     },
-    expectedSalary: parseOptionalNumber(editForm.expectedSalary),
-    currentSalary: parseOptionalNumber(editForm.currentSalary),
+    expectedSalary:
+      parseOptionalNumber(editForm.expectedSalary) ??
+      (Number.isFinite(preferredSalaryFromPrefs) ? preferredSalaryFromPrefs : null),
+    currentSalary:
+      parseOptionalNumber(editForm.currentSalary) ??
+      (Number.isFinite(currentSalaryFromPrefs) ? currentSalaryFromPrefs : null),
     address: str(editForm.address) || undefined,
     city: str(editForm.city) || undefined,
     country: str(editForm.country) || undefined,
     gender: str(editForm.gender) || undefined,
-    preferredLocation: str(editForm.preferredLocation) || undefined,
+    preferredLocation:
+      preferredLocations[0] || str(editForm.preferredLocation) || undefined,
     education: education || undefined,
     portfolio: str(editForm.portfolio) || undefined,
     website: str(editForm.website) || undefined,
@@ -990,6 +1083,12 @@ export function CandidateEditAtsSections({
         onToggleClientVisibility={onToggleClientSectionVisibility}
         hideWhenEmpty={isClientSubmit}
       >
+        <div className="md:col-span-2 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+          <CandidatePhase1CareerPreferencesEdit
+            careerPreferences={form.careerPreferences || {}}
+            onChange={(careerPreferences) => onChange('careerPreferences', careerPreferences)}
+          />
+        </div>
         {showField('remarks') ? (
           <div className="md:col-span-2">
             <EditTextarea label="Remarks" value={form.remarks} onChange={(v) => onChange('remarks', v)} rows={3} />
@@ -1003,58 +1102,12 @@ export function CandidateEditAtsSections({
             type="number"
           />
         ) : null}
-        {showField('currentTitle') ? (
-          <EditField
-            label="Current Designation"
-            value={form.currentTitle}
-            onChange={(v) => onChange('currentTitle', v)}
-          />
-        ) : null}
         {showField('currentCompany') ? (
           <EditField
             label="Current Employer"
             value={form.currentCompany}
             onChange={(v) => onChange('currentCompany', v)}
           />
-        ) : null}
-        {showField('currentSalary') ? (
-          <EditField
-            label="Current Salary"
-            value={form.currentSalary}
-            onChange={(v) => onChange('currentSalary', v)}
-            type="number"
-          />
-        ) : null}
-        {showField('currentSalaryCurrency') ? (
-          <EditField
-            label="Current Salary Currency"
-            value={form.currentSalaryCurrency}
-            onChange={(v) => onChange('currentSalaryCurrency', v)}
-          />
-        ) : null}
-        {showField('currentBenefits') ? (
-          <EditField label="Current Benefits" value={form.currentBenefits} onChange={(v) => onChange('currentBenefits', v)} />
-        ) : null}
-        {showField('expectedSalary') ? (
-          <EditField
-            label="Expected Salary"
-            value={form.expectedSalary}
-            onChange={(v) => onChange('expectedSalary', v)}
-            type="number"
-          />
-        ) : null}
-        {showField('expectedSalaryCurrency') ? (
-          <EditField
-            label="Expected Salary Currency"
-            value={form.expectedSalaryCurrency}
-            onChange={(v) => onChange('expectedSalaryCurrency', v)}
-          />
-        ) : null}
-        {showField('expectedBenefits') ? (
-          <EditField label="Expected Benefits" value={form.expectedBenefits} onChange={(v) => onChange('expectedBenefits', v)} />
-        ) : null}
-        {showField('noticePeriod') ? (
-          <EditField label="Notice Period" value={form.noticePeriod} onChange={(v) => onChange('noticePeriod', v)} />
         ) : null}
         {showField('workHistoryText') ? (
           <div className="md:col-span-2">

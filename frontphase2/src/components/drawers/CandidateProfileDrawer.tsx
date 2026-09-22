@@ -4867,6 +4867,10 @@ export function CandidateProfileDrawer({
 
   const startOverviewEdit = useCallback(() => {
     if (!candidate) return;
+    if (!onUpdateCandidate) {
+      setToastMessage('You do not have permission to edit this candidate.');
+      return;
+    }
     setActiveTab('Overview');
     setEditError('');
     setEditForm(buildCandidateEditForm(candidate));
@@ -4876,7 +4880,7 @@ export function CandidateProfileDrawer({
       setPhase1EditSnapshot(null);
     }
     setShowEditModal(true);
-  }, [candidate]);
+  }, [candidate, onUpdateCandidate]);
 
   const cancelOverviewEdit = useCallback(() => {
     setEditError('');
@@ -5483,18 +5487,20 @@ export function CandidateProfileDrawer({
 
                 <div className="px-5 pb-4 sm:px-6">
                   <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={startOverviewEdit}
-                      className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium ${
-                        showEditModal
-                          ? 'border-blue-200 bg-blue-50 text-blue-800'
-                          : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                      }`}
-                    >
-                      <SquarePen size={15} />
-                      {showEditModal ? 'Editing Overview' : 'Edit Candidate'}
-                    </button>
+                    {onUpdateCandidate ? (
+                      <button
+                        type="button"
+                        onClick={startOverviewEdit}
+                        className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium ${
+                          showEditModal
+                            ? 'border-blue-200 bg-blue-50 text-blue-800'
+                            : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                        }`}
+                      >
+                        <SquarePen size={15} />
+                        {showEditModal ? 'Editing Overview' : 'Edit Candidate'}
+                      </button>
+                    ) : null}
                     {candidate?.resumeUrl?.trim() ? (
                       <button
                         type="button"
@@ -5577,6 +5583,9 @@ export function CandidateProfileDrawer({
                             onAssignJob={
                               onAddToPipeline ? () => setShowAddToPipelineModal(true) : undefined
                             }
+                            onEditCareerPreferences={
+                              onUpdateCandidate ? startOverviewEdit : undefined
+                            }
                           />
                         ) : (
                           <CandidateAtsExtractedOverview
@@ -5584,6 +5593,9 @@ export function CandidateProfileDrawer({
                             candidate={candidate}
                             onAssignJob={
                               onAddToPipeline ? () => setShowAddToPipelineModal(true) : undefined
+                            }
+                            onEditCareerPreferences={
+                              onUpdateCandidate ? startOverviewEdit : undefined
                             }
                           />
                         )}

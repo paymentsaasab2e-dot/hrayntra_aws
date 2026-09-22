@@ -299,10 +299,16 @@ type Props = {
   candidate: CandidateProfileDrawerData;
   sectionVisibility?: Partial<Phase1ClientSectionVisibility> | null;
   onAssignJob?: () => void;
+  onEditCareerPreferences?: () => void;
 };
 
 /** Phase 1 candidate profile sections for the profile drawer (no duplicate-policy banner). */
-export function CandidatePhase1DetailSections({ candidate, sectionVisibility, onAssignJob }: Props) {
+export function CandidatePhase1DetailSections({
+  candidate,
+  sectionVisibility,
+  onAssignJob,
+  onEditCareerPreferences,
+}: Props) {
   const snap = useMemo(
     () => getPhase1ProfileSnapshot(candidate.extraData),
     [candidate.extraData],
@@ -736,7 +742,11 @@ export function CandidatePhase1DetailSections({ candidate, sectionVisibility, on
           open={open.careerPreferences}
           onToggle={toggle}
         >
-          <CandidateCareerPreferencesOverview candidate={candidate} careerPrefs={careerPrefs} />
+          <CandidateCareerPreferencesOverview
+            candidate={candidate}
+            careerPrefs={careerPrefs}
+            onEdit={onEditCareerPreferences}
+          />
         </Phase1Section>
       ) : null}
 

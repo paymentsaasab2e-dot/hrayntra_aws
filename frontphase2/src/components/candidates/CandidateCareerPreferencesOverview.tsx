@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { SquarePen } from 'lucide-react';
 import type { CandidateProfileDrawerData } from '../drawers/candidateProfileDrawerData';
 import {
   buildCareerPreferencesViewModel,
@@ -145,6 +146,8 @@ type Props = {
   careerPrefs?: Record<string, unknown> | null;
   showResume?: boolean;
   emptyMessage?: string;
+  /** Opens candidate overview edit focused on Current / Preferred Package. */
+  onEdit?: () => void;
 };
 
 /** Phase 1-style career section: current vs preferred package in two columns. */
@@ -153,13 +156,35 @@ export function CandidateCareerPreferencesOverview({
   careerPrefs,
   showResume = false,
   emptyMessage = 'No career preferences added yet',
+  onEdit,
 }: Props) {
   const model = buildCareerPreferencesViewModel(candidate, careerPrefs);
   const filled = countCareerPreferencesFilled(model);
 
-  if (filled === 0) {
+  if (filled === 0 && !onEdit) {
     return <p className="text-sm italic text-slate-400">{emptyMessage}</p>;
   }
 
-  return <CareerPreferencesCards model={model} showResume={showResume} />;
+  return (
+    <div className="space-y-3">
+      {onEdit ? (
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs text-slate-500">
+            {filled === 0
+              ? 'No package details yet — add current and preferred package.'
+              : 'Update current and preferred package details.'}
+          </p>
+          <button
+            type="button"
+            onClick={onEdit}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            <SquarePen size={13} />
+            Edit package
+          </button>
+        </div>
+      ) : null}
+      <CareerPreferencesCards model={model} showResume={showResume} />
+    </div>
+  );
 }

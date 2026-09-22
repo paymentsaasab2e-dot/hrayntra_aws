@@ -539,7 +539,7 @@ function CandidatesPageContent() {
   const [bulkAssignJobSaving, setBulkAssignJobSaving] = useState(false);
   const [deletingCandidateId, setDeletingCandidateId] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState<TablePageSize>(50);
+  const [pageSize, setPageSize] = useState<TablePageSize>(25);
   const [totalEntries, setTotalEntries] = useState(() => {
     const tab = searchParams.get('tab') === 'mine' ? 'mine' : 'all';
     const cached = readCandidatesListCache(tab, 1, 50, searchParams.get('search') || '');

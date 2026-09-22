@@ -190,6 +190,11 @@ export function initPhase1EditSnapshotFromProfile(
     return {
       ...cloneSnapshot(live),
       personalInfo: resolvePhase1PersonalInfo(live, profile),
+      summaryText:
+        String(live.summaryText || '').trim() ||
+        profile.cvSummary ||
+        profile.summary ||
+        undefined,
       careerPreferences: mergedCareer,
       accomplishments: accomplishmentRows.map((row) =>
         accomplishmentRecordToSnapshotRow(normalizeAccomplishmentRecord(row)),
@@ -330,17 +335,29 @@ export function buildUpdatePayloadFromPhase1EditSnapshot(
     ? (normalizedCareer.preferredLocations as string[])
     : [];
 
+  const pi = snapshot.personalInfo || {};
+  const editedFirstName = String(pi.firstName || '').trim();
+  const editedMiddleName = String(pi.middleName || '').trim();
+  const editedLastName = String(pi.lastName || '').trim();
+  const editedEmail = String(pi.email || '').trim();
+  const editedPhone = String(pi.phone || '').trim();
+  const editedLinkedIn = String(pi.linkedinUrl || '').trim();
+
   const backendSeed = {
     id: profile.id,
-    firstName: profile.firstName ?? null,
-    lastName: profile.lastName ?? null,
-    email: profile.email ?? null,
-    phone: profile.phone ?? null,
-    linkedIn: profile.linkedIn ?? null,
+    firstName: editedFirstName || profile.firstName || null,
+    middleName: editedMiddleName || profile.middleName || null,
+    lastName: editedLastName || profile.lastName || null,
+    email: editedEmail || profile.email || null,
+    phone: editedPhone || profile.phone || null,
+    linkedIn: editedLinkedIn || profile.linkedIn || null,
     currentTitle:
       ((normalizedCareer?.currentRole as string) || profile.currentTitle) ?? null,
     currentCompany: profile.currentCompany ?? null,
-    location: ((normalizedCareer?.currentLocation as string) || profile.location) ?? null,
+    location:
+      ((normalizedCareer?.currentLocation as string) ||
+        [pi.city, pi.country].filter(Boolean).join(', ') ||
+        profile.location) ?? null,
     stage: profile.stage ?? null,
     status: profile.status ?? null,
     source: profile.source ?? null,
@@ -357,6 +374,9 @@ export function buildUpdatePayloadFromPhase1EditSnapshot(
         ? Number(normalizedCareer.currentSalary)
         : profile.currentSalaryValue ?? null,
     preferredLocation: preferredLocations[0] || profile.cvPreferredLocation || profile.location || null,
+    city: String(pi.city || '').trim() || profile.cvCity || null,
+    country: String(pi.country || '').trim() || profile.cvCountry || null,
+    gender: String(pi.gender || '').trim() || profile.gender || null,
     extraData: mergedExtra,
   } as BackendCandidate;
 
@@ -366,7 +386,12 @@ export function buildUpdatePayloadFromPhase1EditSnapshot(
 
   return {
     ...payload,
-    gender: String(snapshot.personalInfo?.gender || '').trim() || payload.gender,
+    firstName: editedFirstName || payload.firstName,
+    lastName: editedLastName || payload.lastName,
+    email: editedEmail || payload.email,
+    phone: editedPhone || payload.phone,
+    linkedIn: editedLinkedIn || payload.linkedIn,
+    gender: String(pi.gender || '').trim() || payload.gender,
     currentTitle: (normalizedCareer?.currentRole as string) || payload.currentTitle,
     designation: (normalizedCareer?.currentRole as string) || payload.designation,
     location: (normalizedCareer?.currentLocation as string) || payload.location,
