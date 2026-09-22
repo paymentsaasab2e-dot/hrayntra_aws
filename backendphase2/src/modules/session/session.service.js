@@ -532,11 +532,26 @@ export async function logoutSession(userId, sessionId) {
 
 export async function refreshWithSession(refreshToken) {
   const decoded = verifyRefreshToken(refreshToken);
-  if (!decoded?.userId) throw new Error('Invalid refresh token');
+  if (!decoded?.userId) {
+    const err = new Error('Invalid refresh token');
+    err.code = 'REFRESH_INVALID';
+    throw err;
+  }
 
   const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
-  if (!user || user.refreshToken !== refreshToken) {
-    throw new Error('Invalid refresh token');
+  if (!user || user.isActive === false) {
+    const err = new Error('Invalid refresh token');
+    err.code = 'REFRESH_INVALID';
+    throw err;
+  }
+
+  // Refresh rotation: only the current stored refresh token is valid.
+  // Presenting a previous (rotated) refresh token is treated as theft → revoke all.
+  if (!user.refreshToken || user.refreshToken !== refreshToken) {
+    await revokeAllSessionsForUser(user.id, 'REFRESH_REUSE');
+    const err = new Error('Refresh token reused or revoked. Please log in again.');
+    err.code = 'REFRESH_REUSED';
+    throw err;
   }
 
   if (isEnabled() && decoded.sessionId) {
@@ -546,20 +561,29 @@ export async function refreshWithSession(refreshToken) {
       err.code = check.code;
       throw err;
     }
+  } else if (isEnabled() && !decoded.hqImpersonation && !decoded.sessionId) {
+    const err = new Error('Session required. Please log in again.');
+    err.code = 'SESSION_REQUIRED';
+    throw err;
   }
 
   const tenantDbName = decoded.tenantDbName;
-  const sessionId = decoded.sessionId || crypto.randomUUID();
+  const sessionId = decoded.sessionId || (isEnabled() && !decoded.hqImpersonation ? crypto.randomUUID() : undefined);
   const accessToken = signToken({
     userId: user.id,
     email: user.email,
     tenantDbName: tenantDbName || undefined,
-    sessionId: isEnabled() ? sessionId : undefined,
+    sessionId: isEnabled() && !decoded.hqImpersonation ? sessionId : undefined,
+    hqImpersonation: decoded.hqImpersonation || undefined,
+    hqTeamMemberId: decoded.hqTeamMemberId || undefined,
+    tenantImpersonation: decoded.tenantImpersonation || undefined,
+    impersonatedByUserId: decoded.impersonatedByUserId || undefined,
   });
   const newRefreshToken = signRefreshToken({
     userId: user.id,
     tenantDbName: tenantDbName || undefined,
-    sessionId: isEnabled() ? sessionId : undefined,
+    sessionId: isEnabled() && !decoded.hqImpersonation ? sessionId : undefined,
+    hqImpersonation: decoded.hqImpersonation || undefined,
   });
 
   await prisma.user.update({

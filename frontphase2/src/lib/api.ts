@@ -247,6 +247,42 @@ export function getAccessToken() {
   }
 }
 
+/** Single-flight refresh so parallel 401s do not rotate/reuse the refresh token. */
+let refreshInFlight: Promise<string | null> | null = null;
+
+async function refreshAccessTokenSingleFlight(): Promise<string | null> {
+  if (typeof window === 'undefined') return null;
+  if (refreshInFlight) return refreshInFlight;
+
+  refreshInFlight = (async () => {
+    try {
+      const refreshToken = localStorage.getItem('refreshToken');
+      if (!refreshToken) return null;
+      const refreshResponse = await apiFetch<{ accessToken: string; refreshToken: string }>('/auth/refresh', {
+        method: 'POST',
+        body: { refreshToken },
+        auth: false,
+        includeTenantHeader: true,
+      });
+      const nextAccess = refreshResponse?.data?.accessToken;
+      if (!nextAccess) return null;
+      localStorage.setItem('accessToken', nextAccess);
+      if (refreshResponse.data.refreshToken) {
+        localStorage.setItem('refreshToken', refreshResponse.data.refreshToken);
+      }
+      syncAuthCookie('accessToken', nextAccess);
+      syncAuthCookie('refreshToken', refreshResponse.data.refreshToken || refreshToken);
+      return nextAccess;
+    } catch {
+      return null;
+    } finally {
+      refreshInFlight = null;
+    }
+  })();
+
+  return refreshInFlight;
+}
+
 export function getTenantDbName() {
   if (typeof window === 'undefined') return null;
   try {
@@ -483,34 +519,13 @@ export async function apiFetch<T>(
     }
     // Handle 401 specifically - try to refresh token first
     if (res.status === 401 && options.auth) {
-      // Try to refresh the token automatically
-      const refreshToken = typeof window !== 'undefined' ? localStorage.getItem('refreshToken') : null;
-      
-      if (refreshToken && path !== '/auth/refresh') {
+      if (path !== '/auth/refresh') {
         try {
-          // Attempt to refresh the token
-          const refreshResponse = await apiFetch<{ accessToken: string; refreshToken: string }>('/auth/refresh', {
-            method: 'POST',
-            body: { refreshToken },
-            auth: false,
-            includeTenantHeader: true,
-          });
-
-          if (refreshResponse.data.accessToken) {
-            // Store new tokens
-            if (typeof window !== 'undefined') {
-              localStorage.setItem('accessToken', refreshResponse.data.accessToken);
-              if (refreshResponse.data.refreshToken) {
-                localStorage.setItem('refreshToken', refreshResponse.data.refreshToken);
-              }
-              syncAuthCookie('accessToken', refreshResponse.data.accessToken);
-              syncAuthCookie('refreshToken', refreshResponse.data.refreshToken || refreshToken);
-            }
-
-            // Retry the original request with new token
+          const nextAccess = await refreshAccessTokenSingleFlight();
+          if (nextAccess) {
             const newHeaders = { ...headers };
-            newHeaders.Authorization = `Bearer ${refreshResponse.data.accessToken}`;
-            
+            newHeaders.Authorization = `Bearer ${nextAccess}`;
+
             const retryRes = await fetch(url, {
               method: options.method || 'GET',
               headers: newHeaders,
@@ -527,7 +542,6 @@ export async function apiFetch<T>(
             }
           }
         } catch (refreshError) {
-          // Refresh failed, proceed to clear tokens and redirect
           console.error('Token refresh failed:', refreshError);
         }
       }
@@ -537,7 +551,10 @@ export async function apiFetch<T>(
         sessionCode === 'SESSION_SUPERSEDED' ||
         sessionCode === 'SESSION_EXPIRED' ||
         sessionCode === 'SESSION_INVALID' ||
-        /session.*(expired|no longer active)/i.test(String(json?.message || ''));
+        sessionCode === 'SESSION_REQUIRED' ||
+        sessionCode === 'REFRESH_REUSED' ||
+        sessionCode === 'TOKEN_INVALID' ||
+        /session.*(expired|no longer active|required)/i.test(String(json?.message || ''));
 
       // If refresh failed or no refresh token, clear tokens and redirect
       if (typeof window !== 'undefined') {
@@ -4795,6 +4812,33 @@ export async function apiFetchFormData<T>(
         data: summarizeForLog(json?.data),
       });
     }
+
+    // Access JWT expired mid-upload: refresh once and retry the same FormData.
+    if (res.status === 401 && options.auth && path !== '/auth/refresh') {
+      try {
+        const nextAccess = await refreshAccessTokenSingleFlight();
+        if (nextAccess) {
+          headers.Authorization = `Bearer ${nextAccess}`;
+          const retryRes = await fetch(url, {
+            method: options.method || 'POST',
+            headers,
+            body: formData,
+            signal: fetchSignal,
+            credentials: 'include',
+            mode: 'cors',
+            cache: 'no-store',
+          });
+          const retryJson = await readApiJson<any>(retryRes);
+          if (retryRes.ok && retryJson?.success !== false) {
+            maybeNotifyTenantCoinsChanged(path, options.method || 'POST', retryRes, retryJson);
+            return retryJson as ApiResponse<T>;
+          }
+        }
+      } catch {
+        /* fall through to throw original error */
+      }
+    }
+
     if (
       typeof window !== 'undefined' &&
       (res.status === 402 || json?.data?.code === 'INSUFFICIENT_COINS')
