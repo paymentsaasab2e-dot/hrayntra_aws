@@ -47,18 +47,19 @@ export function clientToPct(
 }
 
 /**
- * Map pointer position to % of full document (includes scroll offset).
- * Use when the CV scrolls in an outer container, not inside an iframe.
+ * Map pointer position to % of full document.
+ * surfaceEl is inside scrollEl — getBoundingClientRect already includes scroll,
+ * so do not add scrollTop/scrollLeft again (that broke brush on lower CV pages).
  */
 export function clientToDocPercent(
   clientX: number,
   clientY: number,
   docEl: HTMLElement,
-  scrollEl: HTMLElement
+  _scrollEl: HTMLElement
 ): SaasaCvPoint {
   const rect = docEl.getBoundingClientRect();
-  const x = clientX - rect.left + scrollEl.scrollLeft;
-  const y = clientY - rect.top + scrollEl.scrollTop;
+  const x = clientX - rect.left;
+  const y = clientY - rect.top;
   const w = docEl.offsetWidth || rect.width || 1;
   const h = docEl.offsetHeight || rect.height || 1;
   return {
@@ -107,20 +108,23 @@ export function syncCanvasToContainer(
   );
 }
 
-/** Pointer → document % on a fixed-size paint surface inside a scroll parent. */
+/**
+ * Pointer → document % on a fixed-size paint surface inside a scroll parent.
+ * Use the surface's laid-out box only — rect already reflects scroll position.
+ */
 export function clientToPaintSurfacePercent(
   clientX: number,
   clientY: number,
   surfaceEl: HTMLElement,
-  scrollEl: HTMLElement,
+  _scrollEl: HTMLElement,
   docWidth: number,
   docHeight: number
 ): SaasaCvPoint {
   const rect = surfaceEl.getBoundingClientRect();
-  const w = Math.max(1, docWidth || surfaceEl.offsetWidth);
-  const h = Math.max(1, docHeight || surfaceEl.offsetHeight);
-  const x = clientX - rect.left + scrollEl.scrollLeft;
-  const y = clientY - rect.top + scrollEl.scrollTop;
+  const w = Math.max(1, surfaceEl.offsetWidth || docWidth || rect.width);
+  const h = Math.max(1, surfaceEl.offsetHeight || docHeight || rect.height);
+  const x = clientX - rect.left;
+  const y = clientY - rect.top;
   return pxToPct(x, y, w, h);
 }
 

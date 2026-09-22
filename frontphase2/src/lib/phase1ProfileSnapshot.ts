@@ -95,20 +95,30 @@ function isSaasaCvExportFile(
   return /(?:SAASA|HRYantra|HRYANTRA)[\s_-]*CV/i.test(name);
 }
 
-/** Prefer newest Files-tab resume over stale snapshot URLs (never the HRYantra CV export). */
+/**
+ * True only for dedicated resume/CV file rows — never generic Files-tab docs
+ * (fileType Other/JD/Contract/etc.), even when the file is a PDF/DOCX.
+ */
+export function isCandidateResumeFileRow(file: {
+  fileType?: string;
+  fileUrl?: string | null;
+  fileName?: string;
+}): boolean {
+  if (isSaasaCvExportFile(file)) return false;
+  const type = String(file.fileType || '').trim();
+  if (/^resume$/i.test(type) || /^cv$/i.test(type)) return true;
+  const url = String(file.fileUrl || '').trim();
+  // Resume uploads live under /resumes/ or /cv-files/; generic Files-tab uploads do not.
+  return /\/resumes\/|\/cv-files\//i.test(url);
+}
+
+/** Prefer newest dedicated resume file over stale snapshot URLs (never HRYantra CV / Other docs). */
 export function pickLatestResumeFileUrl(
   files: Array<{ fileType?: string; fileUrl?: string | null; fileName?: string; uploadDate?: string }>
 ): string {
   const resumeFiles = files.filter((f) => {
-    if (isSaasaCvExportFile(f)) return false;
-    const url = String(f.fileUrl || '').trim();
-    if (!url) return false;
-    if (/^resume$/i.test(String(f.fileType || '').trim())) return true;
-    return (
-      /\.pdf($|[?#])/i.test(url) ||
-      /\.docx?($|[?#])/i.test(url) ||
-      /\/resumes\/|\/cv-files\//i.test(url)
-    );
+    if (!isCandidateResumeFileRow(f)) return false;
+    return Boolean(String(f.fileUrl || '').trim());
   });
   resumeFiles.sort((a, b) => {
     const ta = Date.parse(String(a.uploadDate || '')) || 0;

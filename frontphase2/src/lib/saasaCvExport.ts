@@ -1049,6 +1049,10 @@ export async function buildSaasaCvSnapshotFromPdfHost(
   companyLogo: SaasaCvCompanyLogo | null,
   expectedPageCount?: number
 ): Promise<Blob | null> {
+  // Bake Edit-text changes (including cleared lines) into page canvases before snapshot.
+  const { burnInPlaceTextOntoPageCanvases } = await import('./saasaCvPdfTextLayer');
+  burnInPlaceTextOntoPageCanvases(host);
+
   const pageCanvases = collectPdfPageCanvases(host);
   if (!pageCanvases.length) return null;
   if (expectedPageCount != null && pageCanvases.length < expectedPageCount) return null;

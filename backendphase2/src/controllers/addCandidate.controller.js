@@ -1756,9 +1756,10 @@ export const addCandidateController = {
           if (/^SAASA_CV$/i.test(type)) return false;
           if (/^resume$/i.test(type) || /^cv$/i.test(type)) return true;
           const name = String(row.fileName || row.fileUrl || '');
-          const url = String(row.fileUrl || '');
           if (/(?:SAASA|HRYantra|HRYANTRA)[\s_-]*CV/i.test(name)) return false;
-          return /\/resumes\/|\/cv-files\//i.test(url) || /\.(pdf|docx?)($|[?#])/i.test(url);
+          // Only dedicated resume storage paths — never generic Files-tab PDFs.
+          const url = String(row.fileUrl || '');
+          return /\/resumes\/|\/cv-files\//i.test(url);
         };
         const existingResumeFiles = existingFiles.filter(isResumeFileRow);
 
