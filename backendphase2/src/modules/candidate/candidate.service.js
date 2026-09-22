@@ -95,12 +95,32 @@ function isPhase1CandidateRecord(candidate) {
 }
 
 /** All non-deleted job ids in the active tenant DB (used to scope cross-pool merges). */
+const TENANT_JOB_ID_CACHE_TTL_MS = 30_000;
+const TENANT_JOB_ID_CACHE = new Map();
+
+function tenantJobCacheKey(suffix = 'all') {
+  let tenant = '';
+  try {
+    tenant = String(getActiveTenantDbName?.() || '');
+  } catch {
+    tenant = '';
+  }
+  return `${tenant}\u0001${suffix}`;
+}
+
 async function getTenantJobIdSet() {
+  const key = tenantJobCacheKey('all');
+  const hit = TENANT_JOB_ID_CACHE.get(key);
+  if (hit && Date.now() - hit.at < TENANT_JOB_ID_CACHE_TTL_MS) {
+    return new Set(hit.ids);
+  }
   const jobs = await prisma.job.findMany({
     where: { isDeleted: { not: true } },
     select: { id: true },
   });
-  return new Set(jobs.map((job) => String(job.id)));
+  const ids = jobs.map((job) => String(job.id));
+  TENANT_JOB_ID_CACHE.set(key, { at: Date.now(), ids });
+  return new Set(ids);
 }
 
 /** AI pipeline scores only — must not count as assign/apply on the Candidates list. */
@@ -811,8 +831,12 @@ function candidateMatchesSearch(candidate, search) {
 
 function annotateCandidateListFlags(candidate, tenantJobIdSet = null) {
   const phase1 = isPhase1CandidateRecord(candidate);
+  const hasSnap = Boolean(
+    candidate?.extraData?.phase1ProfileSnapshot &&
+      typeof candidate.extraData.phase1ProfileSnapshot === 'object',
+  );
   const hasJob = candidateHasRealJobLink(candidate, tenantJobIdSet);
-  const discoveryOnly = phase1 && !hasJob;
+  const discoveryOnly = (phase1 || hasSnap) && !hasJob;
   const placementStatus = resolveLatestPlacementStatusForList(candidate, tenantJobIdSet);
   const resolvedStage = resolveCandidateStageForList(candidate, tenantJobIdSet);
   const stageNew = ['new', ''].includes(String(resolvedStage || '').trim().toLowerCase());
@@ -820,10 +844,11 @@ function annotateCandidateListFlags(candidate, tenantJobIdSet = null) {
     ...candidate,
     stage: resolvedStage,
     placementStatus,
-    isPhase1Candidate: discoveryOnly,
+    // Any Phase 1 source/snapshot must flag so the drawer uses Phase1DetailSections.
+    isPhase1Candidate: phase1 || hasSnap || discoveryOnly,
     isNewCandidate: discoveryOnly || (phase1 && stageNew && !hasJob),
     isJobAppliedCandidate: hasJob && resolvedStage === 'Applied',
-    poolOrigin: discoveryOnly ? 'phase1_common' : phase1 ? 'phase1' : 'tenant',
+    poolOrigin: discoveryOnly ? 'phase1_common' : phase1 || hasSnap ? 'phase1' : 'tenant',
   };
 }
 
@@ -3449,7 +3474,16 @@ function isTenantScopedRequest() {
   return Boolean(getActiveTenantDbName());
 }
 
-async function getVisibleTenantJobIds(req, mine) {
+/**
+ * Portal list/count gates on CRM job ids. Unbounded `$in` arrays make Mongo crawl
+ * (multi-minute list loads). Cap non-mine lookups to recent jobs; mine already uses owned jobs.
+ */
+const PORTAL_JOB_ID_CAP = Math.min(
+  2000,
+  Math.max(100, Number(process.env.CANDIDATE_PORTAL_JOB_ID_CAP || 800) || 800),
+);
+
+async function getVisibleTenantJobIds(req, mine, { take = null } = {}) {
   const userId = req?.user?.id;
   let jobWhere =
     mine && userId ? buildMyJobsWhereClause(userId) : { isDeleted: { not: true } };
@@ -3460,12 +3494,31 @@ async function getVisibleTenantJobIds(req, mine) {
     extraHasField: 'supportingRecruiters',
   });
 
+  const effectiveTake =
+    Number.isFinite(Number(take)) && Number(take) > 0
+      ? Number(take)
+      : mine
+        ? null
+        : PORTAL_JOB_ID_CAP;
+
+  const cacheKey = tenantJobCacheKey(
+    `vis:${mine ? '1' : '0'}:${userId || ''}:${effectiveTake || 'all'}:${req.headers?.['x-org-unit-id'] || ''}`,
+  );
+  const hit = TENANT_JOB_ID_CACHE.get(cacheKey);
+  if (hit && Date.now() - hit.at < TENANT_JOB_ID_CACHE_TTL_MS) {
+    return hit.ids.slice();
+  }
+
   const jobs = await prisma.job.findMany({
     where: jobWhere,
     select: { id: true },
+    orderBy: { updatedAt: 'desc' },
+    ...(effectiveTake ? { take: effectiveTake } : {}),
   });
 
-  return jobs.map((job) => job.id);
+  const ids = jobs.map((job) => job.id);
+  TENANT_JOB_ID_CACHE.set(cacheKey, { at: Date.now(), ids });
+  return ids;
 }
 
 /**
@@ -3699,15 +3752,14 @@ function candidateMatchesListFilters(candidate, filters, tenantJobIdSet = null) 
   return true;
 }
 
-async function fetchPortalCandidatesForTenant(
+async function buildPortalCandidatesWhere(
   req,
-  { status, assignedToId, search, mine, listFilters, indexOnly = false, take = null, skip = 0, myJobIds = null },
+  { status, assignedToId, search, mine, listFilters, myJobIds = null },
 ) {
-  if (!isTenantScopedRequest()) return [];
+  if (!isTenantScopedRequest()) return null;
 
-  const portalPrisma = getJobPortalPrismaClient();
   const tenantJobIds = await getVisibleTenantJobIds(req, mine);
-  if (!tenantJobIds.length) return [];
+  if (!tenantJobIds.length) return null;
 
   const where = {};
   if (assignedToId === 'unassigned') {
@@ -3766,7 +3818,26 @@ async function fetchPortalCandidatesForTenant(
   if (andParts.length) {
     where.AND = andParts;
   }
+  return where;
+}
 
+async function fetchPortalCandidatesForTenant(
+  req,
+  { status, assignedToId, search, mine, listFilters, indexOnly = false, take = null, skip = 0, myJobIds = null },
+) {
+  if (!isTenantScopedRequest()) return [];
+
+  const where = await buildPortalCandidatesWhere(req, {
+    status,
+    assignedToId,
+    search,
+    mine,
+    listFilters,
+    myJobIds,
+  });
+  if (!where) return [];
+
+  const portalPrisma = getJobPortalPrismaClient();
   const query = {
     where,
     ...(indexOnly
@@ -3821,11 +3892,15 @@ function mergeBoundedCandidateIndexes(sources, { loadCommonPool, tenantCandidate
   return merged;
 }
 
-const PORTAL_ID_COUNT_CAP = 100_000;
 /** Hard ceiling for k-way merge window — prevents K→100k on extreme deep pages. */
 const CANDIDATE_LIST_MAX_K = Math.min(
   10_000,
   Math.max(200, Number(process.env.CANDIDATE_LIST_MAX_K || 2500) || 2500),
+);
+/** Overlap sample size for portal-only estimate (replaces scanning up to 100k portal rows). */
+const PORTAL_OVERLAP_SAMPLE = Math.min(
+  500,
+  Math.max(50, Number(process.env.CANDIDATE_PORTAL_OVERLAP_SAMPLE || 200) || 200),
 );
 const CANDIDATE_COUNT_CACHE_TTL_MS = Math.min(
   120_000,
@@ -3936,40 +4011,58 @@ async function countMergedCandidateListTotal({
   if (cached != null) return cached;
 
   const t0 = candidatePerfNow();
+
+  // My candidates never merge portal/common — count tenant scope only (avoids pool starvation).
+  if (mine) {
+    const tenantTotal = await prisma.candidate.count({ where: tenantWhere });
+    writeCandidateCountCache(cacheKey, tenantTotal);
+    logCandidatePerf({
+      count: `${Math.round(candidatePerfNow() - t0)}ms`,
+      tenantTotal,
+      portalOnly: 0,
+      commonOnly: 0,
+      total: tenantTotal,
+      mine: 1,
+    });
+    return tenantTotal;
+  }
+
   const tenantTotal = await prisma.candidate.count({ where: tenantWhere });
 
   let portalOnly = 0;
   try {
     if (isTenantScopedRequest()) {
-      const portalRows = await fetchPortalCandidatesForTenant(req, {
+      const portalWhere = await buildPortalCandidatesWhere(req, {
         status,
         assignedToId,
         search,
         mine,
         listFilters,
-        indexOnly: true,
-        take: PORTAL_ID_COUNT_CAP,
         myJobIds,
       });
-      const portalIds = [...new Set(portalRows.map((row) => String(row.id || '').trim()).filter(Boolean))];
-      if (portalIds.length) {
-        // Batch existence checks to avoid huge `$in` payloads.
-        const existingSet = new Set();
-        const chunkSize = 2000;
-        for (let i = 0; i < portalIds.length; i += chunkSize) {
-          const chunk = portalIds.slice(i, i + chunkSize);
+      if (portalWhere) {
+        const portalPrisma = getJobPortalPrismaClient();
+        // Fast path: count() + small id sample for overlap. Never pull 100k lean rows into Node.
+        const [portalTotal, sample] = await Promise.all([
+          portalPrisma.candidate.count({ where: portalWhere }),
+          portalPrisma.candidate.findMany({
+            where: portalWhere,
+            select: { id: true },
+            orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+            take: PORTAL_OVERLAP_SAMPLE,
+          }),
+        ]);
+        if (portalTotal > 0 && sample.length) {
+          const sampleIds = sample.map((row) => String(row.id)).filter(Boolean);
           const existing = await prisma.candidate.findMany({
-            where: { id: { in: chunk } },
+            where: { id: { in: sampleIds } },
             select: { id: true },
           });
-          for (const row of existing) existingSet.add(String(row.id));
-        }
-        portalOnly = portalIds.filter((id) => !existingSet.has(id)).length;
-        if (portalIds.length >= PORTAL_ID_COUNT_CAP) {
-          console.warn(
-            '[candidate.service] portal id scan capped; unique total may undercount portal-only rows beyond',
-            PORTAL_ID_COUNT_CAP,
-          );
+          const existingSet = new Set(existing.map((row) => String(row.id)));
+          const overlapRate = existingSet.size / sampleIds.length;
+          portalOnly = Math.max(0, Math.round(portalTotal * (1 - overlapRate)));
+        } else if (portalTotal > 0) {
+          portalOnly = portalTotal;
         }
       }
     }
@@ -3980,19 +4073,68 @@ async function countMergedCandidateListTotal({
   let commonOnly = 0;
   if (loadCommonPool) {
     try {
-      // Bound count scan — never pull the entire common pool into Node.
-      const commonIndex = await fetchCandidateCommonListIndex(req, {
-        take: Math.min(CANDIDATE_LIST_MAX_K, 5000),
-        search,
-      });
-      const commonIds = [...new Set(commonIndex.map((row) => String(row.id || '').trim()).filter(Boolean))];
-      if (commonIds.length) {
-        const existing = await prisma.candidate.findMany({
-          where: { id: { in: commonIds } },
-          select: { id: true },
+      let commonPrisma = null;
+      try {
+        commonPrisma = getCandidateCommonPrismaClient();
+      } catch {
+        commonPrisma = null;
+      }
+      if (commonPrisma?.candidateCommon?.count && (await tenantAllowsPhase1CommonPool())) {
+        const commonWhere = { isVerified: true };
+        const searchText = String(search || '').trim();
+        if (searchText) {
+          commonWhere.OR = [
+            { firstName: { contains: searchText, mode: 'insensitive' } },
+            { lastName: { contains: searchText, mode: 'insensitive' } },
+            { email: { contains: searchText, mode: 'insensitive' } },
+          ];
+        }
+        const commonTotal = await commonPrisma.candidateCommon.count({ where: commonWhere });
+        // Assume moderate overlap with tenant/portal; avoid loading thousands of common ids.
+        const sampleTake = Math.min(PORTAL_OVERLAP_SAMPLE, commonTotal);
+        if (sampleTake > 0) {
+          const sample = await commonPrisma.candidateCommon.findMany({
+            where: commonWhere,
+            select: { candidateId: true, id: true },
+            orderBy: [{ updatedAt: 'desc' }, { syncedAt: 'desc' }],
+            take: sampleTake,
+          });
+          const sampleIds = [
+            ...new Set(
+              sample
+                .map((row) => String(row.candidateId || row.id || '').trim())
+                .filter(Boolean),
+            ),
+          ];
+          if (sampleIds.length) {
+            const existing = await prisma.candidate.findMany({
+              where: { id: { in: sampleIds } },
+              select: { id: true },
+            });
+            const existingSet = new Set(existing.map((row) => String(row.id)));
+            const overlapRate = existingSet.size / sampleIds.length;
+            commonOnly = Math.max(0, Math.round(commonTotal * (1 - overlapRate)));
+          } else {
+            commonOnly = commonTotal;
+          }
+        }
+      } else {
+        // Fallback: bounded index scan (legacy path).
+        const commonIndex = await fetchCandidateCommonListIndex(req, {
+          take: Math.min(CANDIDATE_LIST_MAX_K, 500),
+          search,
         });
-        const existingSet = new Set(existing.map((row) => String(row.id)));
-        commonOnly = commonIds.filter((id) => !existingSet.has(id)).length;
+        const commonIds = [
+          ...new Set(commonIndex.map((row) => String(row.id || '').trim()).filter(Boolean)),
+        ];
+        if (commonIds.length) {
+          const existing = await prisma.candidate.findMany({
+            where: { id: { in: commonIds } },
+            select: { id: true },
+          });
+          const existingSet = new Set(existing.map((row) => String(row.id)));
+          commonOnly = commonIds.filter((id) => !existingSet.has(id)).length;
+        }
       }
     } catch (err) {
       console.warn('[candidate.service] common total count failed:', err?.message || err);
@@ -4121,13 +4263,37 @@ export const candidateService = {
       return attached;
     };
 
-    if (isTenantScopedRequest() || loadCommonPool) {
-      // Same bounded k-way merge for All + My candidates (My just skips Phase 1 common pool
-      // and applies mine scope in the tenant/portal where clauses).
+    // My candidates: tenant CRM only (true skip/take). Portal merge with large job-id `$in`
+    // was holding Mongo pool connections for ~5 minutes and starving jobs/heartbeat/etc.
+    const useMultiSourceMerge = !mine && (isTenantScopedRequest() || loadCommonPool);
+
+    if (useMultiSourceMerge) {
+      // Bounded k-way merge for All candidates (tenant + optional portal + common pool).
       const { K, deepClamped, maxK } = resolveCandidateListK({ skip, limit, search });
       perfMarks.K = K;
 
       const tSources = candidatePerfNow();
+      const PORTAL_QUERY_BUDGET_MS = Math.min(
+        8000,
+        Math.max(500, Number(process.env.CANDIDATE_PORTAL_QUERY_MS || 2500) || 2500),
+      );
+      // Phase 1 common pool is the source of truth for discovery profiles — give it more time.
+      const COMMON_QUERY_BUDGET_MS = Math.min(
+        12000,
+        Math.max(PORTAL_QUERY_BUDGET_MS, Number(process.env.CANDIDATE_COMMON_QUERY_MS || 6000) || 6000),
+      );
+      const withBudget = (promise, label, fallback, budgetMs = PORTAL_QUERY_BUDGET_MS) =>
+        Promise.race([
+          promise,
+          new Promise((resolve) => {
+            setTimeout(() => {
+              logCandidatePerf({ [label]: `timeout>${budgetMs}ms` });
+              resolve(fallback);
+            }, budgetMs);
+          }),
+        ]);
+
+      // Warm count in parallel, but never block the page rows on a slow total.
       const countPromise = countMergedCandidateListTotal({
         tenantWhere: where,
         req,
@@ -4156,34 +4322,59 @@ export const candidateService = {
         });
 
       const portalPromise = isTenantScopedRequest()
-        ? fetchPortalCandidatesForTenant(req, {
-            status,
-            assignedToId,
-            search,
-            mine,
-            listFilters,
-            indexOnly: true,
-            take: K,
-            myJobIds,
-          }).then((rows) => {
-            perfMarks.portalQuery = Math.round(candidatePerfNow() - tSources);
-            return rows;
-          })
+        ? withBudget(
+            fetchPortalCandidatesForTenant(req, {
+              status,
+              assignedToId,
+              search,
+              mine,
+              listFilters,
+              indexOnly: true,
+              take: K,
+              myJobIds,
+            }).then((rows) => {
+              perfMarks.portalQuery = Math.round(candidatePerfNow() - tSources);
+              return rows;
+            }),
+            'portalQuery',
+            [],
+          )
         : Promise.resolve([]);
 
       const commonPromise = loadCommonPool
-        ? fetchCandidateCommonListIndex(req, { take: K, search }).then((rows) => {
-            perfMarks.commonQuery = Math.round(candidatePerfNow() - tSources);
-            return rows;
-          })
+        ? withBudget(
+            fetchCandidateCommonListIndex(req, { take: K, search }).then((rows) => {
+              perfMarks.commonQuery = Math.round(candidatePerfNow() - tSources);
+              return rows;
+            }),
+            'commonQuery',
+            [],
+            COMMON_QUERY_BUDGET_MS,
+          )
         : Promise.resolve([]);
 
-      const [tenantIndex, portalIndex, commonIndex, mergedTotal] = await Promise.all([
+      const [tenantIndex, portalIndex, commonIndex] = await Promise.all([
         tenantPromise,
         portalPromise,
         commonPromise,
-        countPromise,
       ]);
+
+      const COUNT_WAIT_MS = Math.min(
+        5000,
+        Math.max(800, Number(process.env.CANDIDATE_COUNT_WAIT_MS || 2000) || 2000),
+      );
+      let mergedTotal = await Promise.race([
+        countPromise,
+        new Promise((resolve) => {
+          setTimeout(() => resolve(null), COUNT_WAIT_MS);
+        }),
+      ]);
+      if (mergedTotal == null) {
+        // Don't stall the table: tenant count is enough for pagination chrome; cache warms async.
+        mergedTotal = await prisma.candidate.count({ where }).catch(() => skip + limit);
+        void countPromise.catch(() => null);
+        perfMarks.count = `timeout>${COUNT_WAIT_MS}ms→tenant`;
+      }
 
       perfMarks.sourceCounts = `t=${tenantIndex.length},p=${portalIndex.length},c=${commonIndex.length}`;
 
@@ -4233,7 +4424,7 @@ export const candidateService = {
       }
       candidates = await hydratePageFromIndex(pageIndex);
     } else {
-      // Fast path: tenant CRM only — true DB pagination (no full-table load).
+      // Fast path: tenant CRM only — true DB pagination (My candidates + non-scoped).
       const tQ = candidatePerfNow();
       const [rowTotal, pageRows] = await Promise.all([
         prisma.candidate.count({ where }),
@@ -4247,6 +4438,7 @@ export const candidateService = {
       ]);
       perfMarks.tenantQuery = Math.round(candidatePerfNow() - tQ);
       perfMarks.count = perfMarks.tenantQuery;
+      perfMarks.sourceCounts = `tenant-only mine=${mine ? '1' : '0'}`;
       total = rowTotal;
       candidates = await attachPlacementsToCandidates(pageRows);
     }
@@ -4492,15 +4684,35 @@ export const candidateService = {
 
     if (!candidate) return null;
 
+    // Always merge Phase 1 common-pool profile (same candidateId) into the drawer payload.
     const commonCandidate = await fetchCandidateCommonByCandidateId(id, { requireVerified: false });
     if (commonCandidate) {
       candidate = mergePortalAndTenantCandidateRow(commonCandidate, candidate);
+      if (!isPhase1CandidateSource(candidate.source)) {
+        candidate = { ...candidate, source: 'phase1' };
+      }
     }
 
     // Career preferences live in the job-portal DB (where candidates self-update).
     // Always look there so recruiter drawer reflects candidate-side updates.
     let portalClientForPrefs = null;
     try { portalClientForPrefs = getJobPortalPrismaClient(); } catch { portalClientForPrefs = null; }
+
+    // If common pool missed but portal has the Phase 1 row, merge that too.
+    if (!commonCandidate && portalClientForPrefs) {
+      try {
+        const portalRow = await portalClientForPrefs.candidate.findFirst({
+          where: { id },
+          include: candidateDetailInclude,
+        });
+        if (portalRow) {
+          candidate = mergePortalAndTenantCandidateRow(portalRow, candidate);
+        }
+      } catch (err) {
+        console.warn('[candidate.service] portal merge for getById failed:', err?.message || err);
+      }
+    }
+
     const careerPrefs = await fetchPortalCareerPreferencesRaw(portalClientForPrefs, candidate.id);
     mergeCareerPreferencesIntoCandidate(candidate, careerPrefs);
     await hydrateAndPersistCandidateCvProfile(candidate, portalClientForPrefs);

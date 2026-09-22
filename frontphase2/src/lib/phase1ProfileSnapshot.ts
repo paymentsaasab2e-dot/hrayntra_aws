@@ -188,17 +188,23 @@ type PortfolioLinkLike = {
 };
 
 type PersonalInfoSource = {
+  firstName?: string | null;
+  middleName?: string | null;
+  lastName?: string | null;
   cvAddress?: string | null;
   cvCity?: string | null;
   cvCountry?: string | null;
   cvPortfolioLinks?: PortfolioLinkLike[] | null;
   email?: string | null;
   phone?: string | null;
+  phoneCode?: string | null;
   linkedIn?: string | null;
   address?: string | null;
   city?: string | null;
   country?: string | null;
   gender?: string | null;
+  dob?: string | null;
+  birthDate?: string | null;
   extraData?: Record<string, unknown> | null;
 };
 
@@ -244,6 +250,15 @@ export function resolvePhase1PersonalInfo(
       ? candidate.extraData
       : {};
 
+  if (!String(pi.firstName || '').trim()) {
+    pi.firstName = String(candidate.firstName || '').trim() || pi.firstName;
+  }
+  if (!String(pi.middleName || '').trim()) {
+    pi.middleName = String(candidate.middleName || '').trim() || pi.middleName;
+  }
+  if (!String(pi.lastName || '').trim()) {
+    pi.lastName = String(candidate.lastName || '').trim() || pi.lastName;
+  }
   if (!String(pi.employment || '').trim()) {
     pi.employment =
       mapEmploymentStatusLabel(
@@ -273,6 +288,13 @@ export function resolvePhase1PersonalInfo(
   }
   if (!String(pi.phone || '').trim()) {
     pi.phone = String(candidate.phone || '').trim() || pi.phone;
+  }
+  if (!String(pi.phoneCode || '').trim()) {
+    pi.phoneCode = String(candidate.phoneCode || '').trim() || pi.phoneCode;
+  }
+  if (!String(pi.dob || '').trim()) {
+    pi.dob =
+      String(candidate.dob || candidate.birthDate || '').trim() || pi.dob;
   }
   if (!String(pi.linkedinUrl || '').trim()) {
     pi.linkedinUrl =

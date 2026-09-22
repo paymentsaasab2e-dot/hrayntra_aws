@@ -122,12 +122,24 @@ export function mergeCareerPreferencesRecord(
   const pipeline = (extra.pipeline || {}) as Record<string, unknown>;
   const professional = (pipeline.professional || extra.professional || {}) as Record<string, unknown>;
 
+  const extraCareer =
+    extra.careerPreferences && typeof extra.careerPreferences === 'object' && !Array.isArray(extra.careerPreferences)
+      ? (extra.careerPreferences as Record<string, unknown>)
+      : {};
+
   const merged = {
     ...(((phase1?.careerPreferences as Record<string, unknown> | null) || {})),
+    ...extraCareer,
     ...(((candidate.careerPreferences as Record<string, unknown> | null) || {})),
     ...(override || {}),
     ...(professional.currentBenefits ? { currentBenefits: professional.currentBenefits } : {}),
     ...(professional.expectedBenefits ? { preferredBenefits: professional.expectedBenefits } : {}),
+    ...(professional.currentSalaryCurrency
+      ? { currentCurrency: professional.currentSalaryCurrency }
+      : {}),
+    ...(professional.expectedSalaryCurrency
+      ? { preferredCurrency: professional.expectedSalaryCurrency }
+      : {}),
   };
 
   return normalizeCareerPreferencesRecord(merged, candidate) || merged;

@@ -24,7 +24,6 @@ import {
 } from 'lucide-react';
 import type { CandidateProfileDrawerData } from '../drawers/CandidateProfileDrawer';
 import type { Phase1ProfileSnapshot } from '@/lib/phase1ProfileSnapshot';
-import { resolvePhase1PersonalInfo } from '@/lib/phase1ProfileSnapshot';
 import {
   PHASE1_CLIENT_SECTION_IDS,
   type Phase1ClientSectionId,
@@ -87,6 +86,11 @@ type SectionId = Phase1ClientSectionId;
 
 const DEFAULT_CLOSED_SECTIONS = Object.fromEntries(
   PHASE1_CLIENT_SECTION_IDS.map((id) => [id, false]),
+) as Record<SectionId, boolean>;
+
+/** Drawer Overview edit: start with sections expanded so fields are reachable. */
+const DEFAULT_DRAWER_EDIT_OPEN = Object.fromEntries(
+  PHASE1_CLIENT_SECTION_IDS.map((id) => [id, true]),
 ) as Record<SectionId, boolean>;
 
 function EditField({
@@ -284,20 +288,32 @@ export function CandidatePhase1SubmitEditSections({
   clientFieldVisibility,
   onToggleClientSectionVisibility,
 }: Props) {
-  const [open, setOpen] = useState<Record<SectionId, boolean>>(DEFAULT_CLOSED_SECTIONS);
+  const [open, setOpen] = useState<Record<SectionId, boolean>>(
+    showClientSectionVisibility ? DEFAULT_CLOSED_SECTIONS : DEFAULT_DRAWER_EDIT_OPEN,
+  );
 
   useEffect(() => {
-    setOpen(DEFAULT_CLOSED_SECTIONS);
-  }, [candidate.id]);
+    setOpen(showClientSectionVisibility ? DEFAULT_CLOSED_SECTIONS : DEFAULT_DRAWER_EDIT_OPEN);
+  }, [candidate.id, showClientSectionVisibility]);
 
   const toggle = (key: SectionId) => {
     setOpen((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
-  const pi = resolvePhase1PersonalInfo(snapshot, candidate);
+  /**
+   * Bind inputs to the edit snapshot only. Preferring `candidate.*` over snapshot
+   * values made every keystroke snap back to the loaded profile (looked read-only).
+   */
+  const pi = snapshot.personalInfo || {};
   const birthDateMax = getLocalDateInputMinToday();
   const patchPersonal = (patch: Partial<NonNullable<Phase1ProfileSnapshot['personalInfo']>>) => {
-    onChange({ ...snapshot, personalInfo: { ...pi, ...patch } });
+    onChange({
+      ...snapshot,
+      personalInfo: {
+        ...(snapshot.personalInfo || {}),
+        ...patch,
+      },
+    });
   };
 
   const patchArray = (
@@ -534,22 +550,22 @@ export function CandidatePhase1SubmitEditSections({
       >
         <div className="grid gap-3 sm:grid-cols-2">
           {showField('fullName') ? (
-            <EditField label="First name" value={str(candidate.firstName || pi.firstName)} onChange={(v) => patchPersonal({ firstName: v })} />
+            <EditField label="First name" value={str(pi.firstName)} onChange={(v) => patchPersonal({ firstName: v })} />
           ) : null}
           {showField('fullName') ? (
-            <EditField label="Middle name" value={str(candidate.middleName || pi.middleName)} onChange={(v) => patchPersonal({ middleName: v })} />
+            <EditField label="Middle name" value={str(pi.middleName)} onChange={(v) => patchPersonal({ middleName: v })} />
           ) : null}
           {showField('fullName') ? (
-            <EditField label="Last name" value={str(candidate.lastName || pi.lastName)} onChange={(v) => patchPersonal({ lastName: v })} />
+            <EditField label="Last name" value={str(pi.lastName)} onChange={(v) => patchPersonal({ lastName: v })} />
           ) : null}
           {showField('email') ? (
-            <EditField label="Email" value={str(pi.email || candidate.email)} onChange={(v) => patchPersonal({ email: v })} />
+            <EditField label="Email" value={str(pi.email)} onChange={(v) => patchPersonal({ email: v })} />
           ) : null}
           {showField('phoneCode') ? (
             <EditField label="Phone code" value={str(pi.phoneCode)} onChange={(v) => patchPersonal({ phoneCode: v })} />
           ) : null}
           {showField('phone') ? (
-            <EditField label="Mobile" value={str(pi.phone || candidate.phone)} onChange={(v) => patchPersonal({ phone: v })} />
+            <EditField label="Mobile" value={str(pi.phone)} onChange={(v) => patchPersonal({ phone: v })} />
           ) : null}
           {showField('birthDate') ? (
             <EditDateField
@@ -572,14 +588,14 @@ export function CandidatePhase1SubmitEditSections({
             <EditField label="Nationality" value={str(pi.nationality)} onChange={(v) => patchPersonal({ nationality: v })} />
           ) : null}
           {showField('city') ? (
-            <EditField label="City" value={str(pi.city || candidate.cvCity)} onChange={(v) => patchPersonal({ city: v })} />
+            <EditField label="City" value={str(pi.city)} onChange={(v) => patchPersonal({ city: v })} />
           ) : null}
           {showField('country') ? (
-            <EditField label="Country" value={str(pi.country || candidate.cvCountry)} onChange={(v) => patchPersonal({ country: v })} />
+            <EditField label="Country" value={str(pi.country)} onChange={(v) => patchPersonal({ country: v })} />
           ) : null}
           {showField('address') ? (
             <div className="sm:col-span-2">
-              <EditField label="Current address" value={str(pi.address || candidate.cvAddress)} onChange={(v) => patchPersonal({ address: v })} />
+              <EditField label="Current address" value={str(pi.address)} onChange={(v) => patchPersonal({ address: v })} />
             </div>
           ) : null}
           {showField('employment') ? (
@@ -590,7 +606,7 @@ export function CandidatePhase1SubmitEditSections({
           ) : null}
           {showField('linkedIn') ? (
             <div className="sm:col-span-2">
-              <EditField label="LinkedIn" value={str(pi.linkedinUrl || candidate.linkedIn)} onChange={(v) => patchPersonal({ linkedinUrl: v })} />
+              <EditField label="LinkedIn" value={str(pi.linkedinUrl)} onChange={(v) => patchPersonal({ linkedinUrl: v })} />
             </div>
           ) : null}
         </div>
@@ -608,7 +624,7 @@ export function CandidatePhase1SubmitEditSections({
         {showField('cvSummary') ? (
           <EditField
             label="Summary"
-            value={str(snapshot.summaryText || candidate.cvSummary || candidate.summary)}
+            value={str(snapshot.summaryText)}
             onChange={(v) => onChange({ ...snapshot, summaryText: v })}
             multiline
           />
