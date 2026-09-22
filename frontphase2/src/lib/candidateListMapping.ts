@@ -99,29 +99,6 @@ function hasCompletedInterviewOnly(c: BackendCandidate): boolean {
   return relevant.every((row) => COMPLETED_INTERVIEW_STATUSES.has(normalizeInterviewStatus(row)));
 }
 
-function stageLooksTerminalHire(stage: string): boolean {
-  const s = String(stage || '').trim().toLowerCase();
-  return /\b(hired|placed|joined|onboarded)\b/.test(s);
-}
-
-function explicitStageLooksJobLinked(stage: string): boolean {
-  const s = String(stage || '').trim().toLowerCase();
-  if (!s || s === 'new') return false;
-  return (
-    s.includes('applied') ||
-    s.includes('apply') ||
-    s.includes('submit') ||
-    isSubmittedToClientStage(s) ||
-    s.includes('screen') ||
-    s.includes('short') ||
-    s.includes('long') ||
-    s.includes('interview') ||
-    s.includes('offer') ||
-    stageLooksTerminalHire(s) ||
-    s.includes('reject')
-  );
-}
-
 /** CRM stage for list/drawer — prefer assigned-job pipeline stage (same as Job Details). */
 export function resolveCandidateListStage(c: BackendCandidate): string {
   const primaryJobId = resolveSubmitJobIdFromBackend(c);
@@ -153,44 +130,44 @@ export function resolveCandidateListStage(c: BackendCandidate): string {
 
   if (interviewCompletedOnly && !upcomingInterview) {
     const merged = mergeStages(explicit, 'Interview completed');
-    if (hasTenantJob || explicitLower !== 'new' || explicit) {
+    if (hasTenantJob || (explicit && explicitLower !== 'new')) {
       return merged || 'Interview completed';
     }
   }
 
   if (upcomingInterview) {
     const merged = mergeStages(explicit, 'Interviewing');
-    if (hasTenantJob || explicitLower !== 'new' || explicit) {
+    if (hasTenantJob || (explicit && explicitLower !== 'new')) {
       return merged || 'Interviewing';
     }
   }
 
-  if (backendStage && backendStage.toLowerCase() !== 'new') {
-    if (hasTenantJob || !explicitStageLooksJobLinked(backendStage)) {
-      if (
-        interviewCompletedOnly &&
-        (explicitLower === 'interviewing' || explicitLower === 'interview')
-      ) {
-        return 'Interview completed';
-      }
-      return backendStage;
-    }
+  if (
+    interviewCompletedOnly &&
+    (explicitLower === 'interviewing' || explicitLower === 'interview')
+  ) {
+    return 'Interview completed';
+  }
+
+  // Trust API/DB workflow stages (Applied, Screening, …). Never force "New" just
+  // because assignedJobs/applications were omitted from a lean list payload —
+  // that broke My Candidates stage filters (Applied filter showed New tags).
+  if (explicit && explicitLower !== 'new') {
+    return explicit;
   }
 
   if (c.isJobAppliedCandidate === true) {
-    return explicit && explicitLower !== 'new' ? explicit : 'Applied';
+    return 'Applied';
   }
 
-  if (explicit && explicitLower !== 'new') {
-    if (!hasTenantJob) {
-      return 'New';
-    }
-    return explicit;
-  }
   const hasApplication =
     Array.isArray(c.applications) && c.applications.length > 0;
   if (hasApplication || hasTenantJob) {
     return 'Applied';
+  }
+
+  if (pipelineStageNames.length) {
+    return displayPipelineStageName(mergeStages(...pipelineStageNames));
   }
 
   const status = String(c.status || '').toUpperCase();
