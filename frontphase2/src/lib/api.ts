@@ -7044,18 +7044,23 @@ export const apiUploadCandidateResumeFile = async (
   file: File,
   options: { signal?: AbortSignal; replacePrimary?: boolean } = {}
 ) => {
+  const replacePrimary = options.replacePrimary !== false;
   const formData = new FormData();
   formData.append('resume', file);
-  formData.append('replacePrimary', options.replacePrimary === false ? 'false' : 'true');
-  return apiFetchFormData<BackendCandidate & { resumeFileId?: string | null; resumeFileUrl?: string }>(
-    `/candidates/${candidateId}/files`,
-    formData,
-    {
-      method: 'POST',
-      auth: true,
-      signal: options.signal,
+  // Send both body + query so multer/proxy cannot silently default to replace.
+  formData.append('replacePrimary', replacePrimary ? 'true' : 'false');
+  const qs = `?replacePrimary=${replacePrimary ? 'true' : 'false'}`;
+  return apiFetchFormData<
+    BackendCandidate & {
+      resumeFileId?: string | null;
+      resumeFileUrl?: string;
+      resumeVersions?: unknown[];
     }
-  );
+  >(`/candidates/${candidateId}/files${qs}`, formData, {
+    method: 'POST',
+    auth: true,
+    signal: options.signal,
+  });
 };
 
 export const apiDeleteCandidateResumeVersion = async (

@@ -269,7 +269,15 @@ export const env = {
   JWT_EXPIRES_IN: process.env.JWT_ACCESS_EXPIRES || process.env.JWT_EXPIRES_IN || '30m',
   REFRESH_TOKEN_SECRET: process.env.JWT_REFRESH_SECRET || process.env.REFRESH_TOKEN_SECRET,
   REFRESH_TOKEN_EXPIRES_IN: process.env.JWT_REFRESH_EXPIRES || process.env.REFRESH_TOKEN_EXPIRES_IN || '7d',
-  
+
+  /**
+   * HQ Super Admin bootstrap (POST /api/v1/hq/setup).
+   * Fail closed: secret required; production also needs HQ_SETUP_ENABLED=true.
+   * Leave HQ_SETUP_ENABLED unset/false after first bootstrap.
+   */
+  HQ_SETUP_SECRET: String(process.env.HQ_SETUP_SECRET || '').trim(),
+  HQ_SETUP_ENABLED: process.env.HQ_SETUP_ENABLED,
+
   // Resend Email
   RESEND_API_KEY: process.env.RESEND_API_KEY,
   RESEND_FROM_EMAIL: process.env.RESEND_FROM_EMAIL || process.env.EMAIL_FROM,

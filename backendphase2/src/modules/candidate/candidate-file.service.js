@@ -84,49 +84,9 @@ export const candidateFileService = {
         where: { id: candidateId },
         data: { avatar: data.fileUrl },
       });
-    } else if (fileType === 'resume' || fileType === 'cv') {
-      // Promote uploaded resume/CV to the candidate's primary resume so Overview,
-      // Resume tab, client review, and exports all resolve the new file.
-      const existing = await prisma.candidate.findUnique({
-        where: { id: candidateId },
-        select: { extraData: true },
-      });
-      const existingExtra =
-        existing?.extraData && typeof existing.extraData === 'object' && !Array.isArray(existing.extraData)
-          ? { ...existing.extraData }
-          : {};
-      const snap =
-        existingExtra.phase1ProfileSnapshot &&
-        typeof existingExtra.phase1ProfileSnapshot === 'object' &&
-        !Array.isArray(existingExtra.phase1ProfileSnapshot)
-          ? { ...existingExtra.phase1ProfileSnapshot }
-          : null;
-      if (snap) {
-        const prevResume =
-          snap.resume && typeof snap.resume === 'object' && !Array.isArray(snap.resume)
-            ? { ...snap.resume }
-            : {};
-        snap.resume = {
-          ...prevResume,
-          fileUrl: data.fileUrl,
-          fileName: data.fileName || prevResume.fileName || null,
-        };
-        existingExtra.phase1ProfileSnapshot = snap;
-      }
-      existingExtra.originalResumeUrl = data.fileUrl;
-      existingExtra.originalResumeFileName = data.fileName || existingExtra.originalResumeFileName || null;
-      existingExtra.resumeCvViewMode = 'original';
-
-      await prisma.candidate.update({
-        where: { id: candidateId },
-        data: {
-          resume: data.fileUrl,
-          resumeUrl: data.fileUrl,
-          lastActivity: new Date(),
-          extraData: existingExtra,
-        },
-      });
     }
+    // Resume / CV rows must NOT auto-replace Original CV (v1).
+    // Use uploadCandidateFile with replacePrimary=true|false for replace vs add version.
 
     return file;
   },

@@ -34,14 +34,15 @@ export const oauthTokenService = {
   async upsertGoogleTokens(userId, tokens, scopeList) {
     const access = tokens.access_token || '';
     const refresh = tokens.refresh_token || '';
-    const scopes = Array.isArray(scopeList) ? scopeList : [];
-    const flags = googleFlagsFromScopes(scopes);
+    const incoming = Array.isArray(scopeList) ? scopeList.filter(Boolean) : [];
 
     const existing = await prisma.userOAuthTokens.findUnique({ where: { userId } });
-    const mergedFlags = {
-      gmailConnected: !!(flags.gmailConnected || existing?.gmailConnected),
-      googleCalConnected: !!(flags.googleCalConnected || existing?.googleCalConnected),
-    };
+    const existingScopes = Array.isArray(existing?.googleScope)
+      ? existing.googleScope.filter(Boolean)
+      : [];
+    // Merge so connecting Gmail after Calendar (or vice versa) does not wipe scopes in DB.
+    const scopes = Array.from(new Set([...existingScopes, ...incoming]));
+    const flags = googleFlagsFromScopes(scopes);
 
     await prisma.userOAuthTokens.upsert({
       where: { userId },
@@ -50,15 +51,16 @@ export const oauthTokenService = {
         googleAccessToken: enc(access),
         googleRefreshToken: enc(refresh),
         googleScope: scopes,
-        gmailConnected: mergedFlags.gmailConnected,
-        googleCalConnected: mergedFlags.googleCalConnected,
+        gmailConnected: flags.gmailConnected,
+        googleCalConnected: flags.googleCalConnected,
       },
       update: {
         googleAccessToken: access ? enc(access) : undefined,
+        // Prefer a newly issued refresh token (includes latest consent scopes).
         googleRefreshToken: refresh ? enc(refresh) : undefined,
-        googleScope: scopes.length ? scopes : undefined,
-        gmailConnected: mergedFlags.gmailConnected,
-        googleCalConnected: mergedFlags.googleCalConnected,
+        googleScope: scopes,
+        gmailConnected: flags.gmailConnected,
+        googleCalConnected: flags.googleCalConnected,
       },
     });
   },

@@ -49,6 +49,7 @@ export const googleOAuthController = {
       response_type: 'code',
       access_type: 'offline',
       prompt: 'consent',
+      include_granted_scopes: 'true',
       scope: buildScope(mode),
       state,
     });

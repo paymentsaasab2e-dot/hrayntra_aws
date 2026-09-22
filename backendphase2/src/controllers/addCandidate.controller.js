@@ -1709,7 +1709,11 @@ export const addCandidateController = {
           throw err;
         }
 
-        const replacePrimaryRaw = String(req.body?.replacePrimary ?? 'true').trim().toLowerCase();
+        const replacePrimaryRaw = String(
+          req.query?.replacePrimary ?? req.body?.replacePrimary ?? 'true',
+        )
+          .trim()
+          .toLowerCase();
         const replacePrimary = !(
           replacePrimaryRaw === 'false' ||
           replacePrimaryRaw === '0' ||

@@ -7,7 +7,8 @@ export const hqController = {
       const result = await hqService.setupSuperAdmin(req.body);
       sendResponse(res, 201, 'Super Admin setup successful', result);
     } catch (error) {
-      sendError(res, 400, error.message, error);
+      const status = Number(error?.statusCode) || (error?.code === 'HQ_SETUP_ALREADY_INITIALIZED' ? 403 : 400);
+      sendError(res, status, error.message, error);
     }
   },
 
