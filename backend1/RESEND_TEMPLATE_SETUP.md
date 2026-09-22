@@ -60,7 +60,7 @@ Add the template ID to your `.env` file:
 
 ```env
 # Resend Email
-RESEND_API_KEY=re_GejWT8xQ_9TT7Yko5BffUTuTcEeHxMJKw
+RESEND_API_KEY=re_<your_resend_api_key>
 RESEND_FROM_EMAIL=onboarding@resend.dev
 
 # Resend Template IDs
@@ -105,7 +105,7 @@ curl -X POST http://localhost:5000/api/auth/send-otp \
   -d '{"whatsappNumber":"1234567890","countryCode":"+91"}'
 ```
 
-Check the email inbox at `ghodehimanshu453@gmail.com` for the OTP email.
+Check the email inbox at `YOUR_OTP_INBOX@example.com` for the OTP email.
 
 ## Step 5: Verify Template is Working
 

@@ -158,3 +158,45 @@ Content-Type: application/json
 
 { "name": "...", "email": "...", "userId": "...", "password": "..." }
 ```
+
+---
+
+# Secrets-in-Git cleanup (2026-09-22)
+
+**Finding:** Real passwords and cloud secrets were committed in docs / examples.
+
+## What was wrong
+
+| File | Leak |
+|------|------|
+| `backendphase2/USER_CREDENTIALS.md` | Real emails, login IDs, passwords, user IDs |
+| `README.md` / `SETUP_INSTRUCTIONS.md` / `QUICK_START.md` (+ `backend1` copies) | Mongo URI with password, Cloudinary secret, JWT secrets, Resend API key |
+| `frontphase2/.env.example` / `backendphase2/.env.example` | Personal Razorpay UPI id |
+| OTP / Resend setup docs | Personal inbox email + Resend key |
+
+## What we did (working tree)
+
+| Action | Detail |
+|--------|--------|
+| Scrub docs | Replaced live secrets with placeholders (`<DB_PASSWORD>`, `<generate_strong_secret>`, etc.) |
+| `USER_CREDENTIALS.md` | Rewrote as role reference **without passwords**; use `USER_CREDENTIALS.local.md` for private notes |
+| `.gitignore` | Ignore `.env.*` (keep `.env.example`), `*CREDENTIALS.local.md`, `secrets/` |
+| JWT rotate (local) | New `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` in `backendphase2/.env` (gitignored). **Restart backend**; all users must re-login |
+| UPI scrub | Removed personal UPI from examples and local `.env` comment/value |
+
+## You still must rotate in dashboards (cannot do from repo alone)
+
+Git history may still contain old values until history is rewritten. **Treat leaked values as compromised:**
+
+1. **MongoDB Atlas** — rotate the DB user password that was in the old docs; update all local/server `.env` `DATABASE_URL*` strings.
+2. **Cloudinary** — rotate API secret; update `.env`.
+3. **Resend** — revoke any API key that appeared in docs; create a new key.
+4. **Seeded CRM users** — force password reset for every account that was listed in the old `USER_CREDENTIALS.md` (Super Admin → Viewer).
+5. **Razorpay** — confirm settlement UPI in dashboard only; do not re-commit UPI ids.
+6. Optional: purge secrets from git history (`git filter-repo` / BFG) after rotation, then force-push with team coordination.
+
+## Rule going forward
+
+- Real secrets → `.env` / secret manager only.
+- Docs / `.env.example` → placeholders only.
+- Never commit `USER_CREDENTIALS*.md` with passwords.

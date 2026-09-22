@@ -55,7 +55,7 @@ Add these to your `.env` file:
 
 ```env
 # Resend Email
-RESEND_API_KEY=re_GejWT8xQ_9TT7Yko5BffUTuTcEeHxMJKw
+RESEND_API_KEY=re_<your_resend_api_key>
 RESEND_FROM_EMAIL=onboarding@resend.dev
 
 # Resend Template IDs

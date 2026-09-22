@@ -3,7 +3,7 @@
 ## Prerequisites
 - Node.js (v18 or higher)
 - npm or yarn
-- MongoDB Atlas account (already configured)
+- MongoDB Atlas account
 
 ## Step 1: Install Dependencies
 
@@ -16,25 +16,26 @@ npm install
 
 ## Step 2: Create Environment File
 
-Create a `.env` file in the `backend` directory with the following content:
+Create a `.env` file in the `backend` directory. **Never commit real secrets.** Copy values from your password manager / cloud dashboards:
 
 ```env
-# MongoDB via Prisma
-DATABASE_URL="mongodb+srv://softwareaitik_db_user:zxFPaSdkNGlimQSk@cluster0.a6kmygv.mongodb.net/jobportal?retryWrites=true&w=majority&appName=Cluster0"
+# MongoDB via Prisma — from Atlas → Database → Connect
+DATABASE_URL="mongodb+srv://<DB_USER>:<DB_PASSWORD>@<CLUSTER>.mongodb.net/jobportal?retryWrites=true&w=majority"
 
-# Cloudinary
-CLOUDINARY_CLOUD_NAME=drxzuvrbq
-CLOUDINARY_API_KEY=287341442254438
-CLOUDINARY_API_SECRET=-qLy26-wuIfqzh0nBFn9cJ0OSUQ
+# Cloudinary — from Cloudinary Dashboard → API Keys
+CLOUDINARY_CLOUD_NAME=<your_cloud_name>
+CLOUDINARY_API_KEY=<your_api_key>
+CLOUDINARY_API_SECRET=<your_api_secret>
 
-# Resend Email
-RESEND_API_KEY=re_GejWT8xQ_9TT7Yko5BffUTuTcEeHxMJKw
+# Resend Email — from Resend Dashboard → API Keys
+RESEND_API_KEY=re_<your_resend_api_key>
 RESEND_FROM_EMAIL=onboarding@resend.dev
 
-# JWT
-JWT_ACCESS_SECRET=jobportal_access_secret_2024_secure
-JWT_REFRESH_SECRET=jobportal_refresh_secret_2024_secure
-JWT_ACCESS_EXPIRES=15m
+# JWT — generate locally, e.g.:
+# node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+JWT_ACCESS_SECRET=<generate_strong_secret>
+JWT_REFRESH_SECRET=<generate_strong_secret>
+JWT_ACCESS_EXPIRES=30m
 JWT_REFRESH_EXPIRES=7d
 
 # Server
@@ -103,7 +104,7 @@ NEXT_PUBLIC_API_URL=http://localhost:5000/api
 - **OTP Display**: In development mode (`NODE_ENV=development`), the OTP is returned in the API response and displayed on the frontend for testing purposes.
 - **OTP Expiration**: OTPs expire after 5 minutes.
 - **OTP Format**: 6-digit numeric code.
-- **Database**: Uses MongoDB Atlas. The connection string is already configured in the `.env` file.
+- **Database**: Uses MongoDB Atlas. Put the connection string only in local `.env` (never in docs or git).
 
 ## Troubleshooting
 
@@ -113,7 +114,7 @@ npm run prisma:generate
 ```
 
 ### Database connection issues
-- Verify your MongoDB Atlas connection string
+- Verify your MongoDB Atlas connection string in `.env`
 - Check if your IP is whitelisted in MongoDB Atlas
 - Ensure the database name is correct (`jobportal`)
 
@@ -122,3 +123,9 @@ Change the `PORT` in `.env` file to a different port (e.g., 5001)
 
 ### CORS issues
 Make sure `FRONTEND_URL` in `.env` matches your frontend URL (default: `http://localhost:3000`)
+
+## Security notes
+
+- Keep `.env` out of git (already gitignored).
+- Do not paste Mongo URIs, API keys, JWT secrets, or user passwords into README / setup docs.
+- If secrets were ever committed, rotate them in Atlas / Cloudinary / Resend / JWT env and treat old values as compromised.

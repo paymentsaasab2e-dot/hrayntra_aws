@@ -874,6 +874,13 @@ export function ScheduleInterviewModal({
 }: ScheduleInterviewModalProps) {
   const jobsProp = orEmpty(jobsList);
   const existingInterviews = orEmpty(existingInterviewsList);
+  /** Stable signature so parent inline `.map()` props do not restart option loads / remount animations. */
+  const jobsPropSignature = useMemo(
+    () => jobsProp.map((job) => `${job.id}:${job.clientId || ''}:${job.title || ''}`).join('|'),
+    [jobsProp],
+  );
+  const jobsPropRef = useRef(jobsProp);
+  jobsPropRef.current = jobsProp;
   const isStandaloneMode = getCachedOrgRecruitmentMode() === 'standalone';
   const interviewCompanySeed = String(
     jobsProp.find((job) => job.id === String(initialJobId || ''))?.orgUnitId ||
@@ -887,6 +894,7 @@ export function ScheduleInterviewModal({
   const [selectedCandidateIds, setSelectedCandidateIds] = useState<string[]>([]);
   const [candidateSearch, setCandidateSearch] = useState('');
   const [candidatePickerOpen, setCandidatePickerOpen] = useState(false);
+  const hydratedPrimaryCandidateRef = useRef('');
   const [interviewType, setInterviewType] = useState('');
   const [roundNumber, setRoundNumber] = useState(1);
   const [date, setDate] = useState('');
@@ -1062,6 +1070,7 @@ export function ScheduleInterviewModal({
   useEffect(() => {
     if (!isOpen) {
       prevAutoPanelJobIdRef.current = '';
+      hydratedPrimaryCandidateRef.current = '';
       setInterviewType('');
       setRoundNumber((existingInterviews?.length || 0) + 1);
       setDate('');
@@ -1109,6 +1118,7 @@ export function ScheduleInterviewModal({
       setLoadingLineManagers(true);
       setLoadingTeamMembers(true);
     }
+    const jobsSnapshot = jobsPropRef.current;
     void (async () => {
       try {
         if (isStandaloneMode) {
@@ -1137,7 +1147,7 @@ export function ScheduleInterviewModal({
           );
           const fetchedJobs = wsId ? allJobs.filter((job) => job.clientId === wsId) : allJobs;
           const byJobId = new Map<string, CandidatePipelineJobOption>();
-          for (const job of [...jobsProp, ...fetchedJobs]) {
+          for (const job of [...jobsSnapshot, ...fetchedJobs]) {
             if (job.id) byJobId.set(job.id, job);
           }
           setScheduleJobOptions(Array.from(byJobId.values()).sort((a, b) => a.title.localeCompare(b.title)));
@@ -1177,7 +1187,7 @@ export function ScheduleInterviewModal({
             isOpenScheduleJobStatus(job.status),
           );
           const byJobId = new Map<string, CandidatePipelineJobOption>();
-          for (const job of [...jobsProp, ...fetchedJobs]) {
+          for (const job of [...jobsSnapshot, ...fetchedJobs]) {
             if (job.id) byJobId.set(job.id, job);
           }
           setScheduleJobOptions(Array.from(byJobId.values()).sort((a, b) => a.title.localeCompare(b.title)));
@@ -1204,7 +1214,7 @@ export function ScheduleInterviewModal({
       } catch (error) {
         console.error('Failed to load schedule interview options:', error);
         if (load.isActive()) {
-          setScheduleJobOptions(jobsProp);
+          setScheduleJobOptions(jobsSnapshot);
         }
       } finally {
         load.finish();
@@ -1222,7 +1232,7 @@ export function ScheduleInterviewModal({
       setLoadingLineManagers(false);
       setLoadingTeamMembers(false);
     };
-  }, [isOpen, isStandaloneMode, jobsProp]);
+  }, [isOpen, isStandaloneMode, jobsPropSignature]);
 
   const applyDefaultJobSelection = useCallback(
     (jobId: string, clientId?: string | null) => {
@@ -1243,6 +1253,7 @@ export function ScheduleInterviewModal({
   useEffect(() => {
     if (!isOpen || isEditingInterview || !allowCandidatePick) return;
     if (!selectedCandidateIds.length) {
+      hydratedPrimaryCandidateRef.current = '';
       setSelectedJobId('');
       setSelectedClientId('');
       return;
@@ -1252,8 +1263,12 @@ export function ScheduleInterviewModal({
     const picked = candidateOptions?.find((option) => option.id === primaryId);
     if (picked?.assignedJobId && applyDefaultJobSelection(picked.assignedJobId, picked.assignedClientId)) {
       if (picked.phone) setPhoneNumber(picked.phone);
+      hydratedPrimaryCandidateRef.current = primaryId;
       return;
     }
+
+    // Already fetched this primary — only retry local job apply above when options load.
+    if (hydratedPrimaryCandidateRef.current === primaryId) return;
 
     let cancelled = false;
     void (async () => {
@@ -1266,6 +1281,7 @@ export function ScheduleInterviewModal({
 
         const assignedJobId = String(data.assignedJobs?.[0] || '').trim();
         if (assignedJobId && applyDefaultJobSelection(assignedJobId)) {
+          hydratedPrimaryCandidateRef.current = primaryId;
           return;
         }
 
@@ -1284,8 +1300,10 @@ export function ScheduleInterviewModal({
             latest.client?.id || latest.job.client?.id || null,
           );
         }
+        if (!cancelled) hydratedPrimaryCandidateRef.current = primaryId;
       } catch {
         /* best effort — user can still pick job/client manually */
+        if (!cancelled) hydratedPrimaryCandidateRef.current = primaryId;
       }
     })();
 
@@ -1302,7 +1320,8 @@ export function ScheduleInterviewModal({
   ]);
 
   useEffect(() => {
-    if (!isOpen) return;
+    // Standalone candidate-picker owns job defaults — do not fight that selection.
+    if (!isOpen || allowCandidatePick || isEditingInterview) return;
     const defaultJobId =
       editInterview?.jobId ||
       initialJobId ||
@@ -1313,7 +1332,9 @@ export function ScheduleInterviewModal({
       setSelectedJobId(String(defaultJobId));
     }
   }, [
+    allowCandidatePick,
     isOpen,
+    isEditingInterview,
     editInterview?.jobId,
     initialJobId,
     candidate?.assignedJobId,
@@ -1528,16 +1549,23 @@ export function ScheduleInterviewModal({
 
   useEffect(() => {
     if (!isOpen || isEditingInterview) return;
+    const roundCandidateId = allowCandidatePick
+      ? selectedCandidateIds[0] || ''
+      : candidate?.id || '';
     setRoundNumber(
-      computeNextInterviewRound(relevantExistingInterviews, candidate?.id || '', selectedJobId || null),
+      computeNextInterviewRound(relevantExistingInterviews, roundCandidateId, selectedJobId || null),
     );
-    setPhoneNumber(candidate?.phone || '');
+    if (!allowCandidatePick) {
+      setPhoneNumber(candidate?.phone || '');
+    }
   }, [
+    allowCandidatePick,
     candidate?.id,
     candidate?.phone,
     isEditingInterview,
     isOpen,
     relevantExistingInterviews,
+    selectedCandidateIds,
     selectedJobId,
   ]);
 
@@ -1727,6 +1755,8 @@ export function ScheduleInterviewModal({
     (mode !== 'phone' || Boolean(phoneNumber.trim()));
 
   const handleToggleCandidate = (option: ScheduleInterviewCandidateOption) => {
+    // Keep backdrop from treating this pointer gesture as an outside close.
+    ignoreBackdropCloseUntilRef.current = Date.now() + 400;
     setSelectedCandidateIds((prev) => {
       const exists = prev.includes(option.id);
       if (exists) return prev.filter((id) => id !== option.id);
@@ -1897,12 +1927,16 @@ export function ScheduleInterviewModal({
   return (
     <AnimatePresence>
       {isOpen ? (
-        <>
-          <motion.div
-            className="fixed inset-0 z-[155] bg-slate-950/45"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+        <motion.div
+          key="schedule-interview-modal"
+          className="fixed inset-0 z-[155] flex items-end justify-center md:items-center md:p-4"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.18 }}
+        >
+          <div
+            className="absolute inset-0 bg-slate-950/45"
             onClick={requestModalClose}
             onMouseDown={(event) => {
               // Block the opening click from dismissing via backdrop.
@@ -1912,14 +1946,10 @@ export function ScheduleInterviewModal({
               }
             }}
           />
-          <motion.div
-            className="fixed inset-x-0 bottom-0 top-14 z-[160] md:inset-0 md:flex md:items-center md:justify-center md:p-4"
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 16 }}
+          <div
+            className="relative z-[1] flex h-[calc(100%-3.5rem)] w-full flex-col rounded-t-3xl border border-slate-200 bg-white shadow-2xl md:h-auto md:max-h-[90vh] md:max-w-[640px] md:rounded-3xl"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="flex h-full w-full flex-col rounded-t-3xl border border-slate-200 bg-white shadow-2xl md:h-auto md:max-h-[90vh] md:max-w-[640px] md:rounded-3xl">
               <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
                 <h3 className="text-lg font-semibold text-slate-900">{editInterview?.id ? 'Edit Interview' : 'Schedule Interview'}</h3>
                 <button
@@ -1931,7 +1961,7 @@ export function ScheduleInterviewModal({
                 </button>
               </div>
 
-              <div className="flex-1 space-y-5 overflow-y-auto px-5 py-5">
+              <div className="flex-1 space-y-5 overflow-y-auto px-5 py-5 [overflow-anchor:none]">
                 <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                   <h4 className="text-sm font-semibold text-slate-900">Interview Details</h4>
                   <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -2034,6 +2064,10 @@ export function ScheduleInterviewModal({
                                       <button
                                         key={option.id}
                                         type="button"
+                                        onMouseDown={(event) => {
+                                          // Prevent input blur/scroll jump that remounts the modal chrome.
+                                          event.preventDefault();
+                                        }}
                                         onClick={() => handleToggleCandidate(option)}
                                         className={`flex w-full items-start gap-2.5 px-3 py-2.5 text-left text-sm hover:bg-slate-50 ${
                                           checked ? 'bg-blue-50/70' : ''
@@ -2907,7 +2941,6 @@ export function ScheduleInterviewModal({
               </div>
             </div>
           </motion.div>
-        </>
       ) : null}
     </AnimatePresence>
   );

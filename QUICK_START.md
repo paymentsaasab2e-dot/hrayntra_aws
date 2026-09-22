@@ -19,7 +19,9 @@ npm install
 Create a `.env` file in the `backend` directory with this content:
 
 ```env
-DATABASE_URL="mongodb+srv://softwareaitik_db_user:zxFPaSdkNGlimQSk@cluster0.a6kmygv.mongodb.net/jobportal?retryWrites=true&w=majority&appName=Cluster0"
+DATABASE_URL="mongodb+srv://<DB_USER>:<DB_PASSWORD>@<CLUSTER>.mongodb.net/jobportal?retryWrites=true&w=majority"
+JWT_ACCESS_SECRET=<generate_strong_secret>
+JWT_REFRESH_SECRET=<generate_strong_secret>
 PORT=5000
 NODE_ENV=development
 FRONTEND_URL=http://localhost:3000
