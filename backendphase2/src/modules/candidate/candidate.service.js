@@ -3721,13 +3721,146 @@ async function buildCandidateResponse(candidate, activityClient = prisma, viewer
 /** Job ids the signed-in user owns (creator, assignee, manager, or supporting recruiter). */
 async function getMyJobIds(userId, { take } = {}) {
   if (!userId) return [];
+  const resolvedTake =
+    take === undefined || take === null
+      ? resolveMineJobTake()
+      : Number(take) > 0
+        ? Number(take)
+        : null;
   const myJobs = await prisma.job.findMany({
     where: buildMyJobsWhereClause(userId),
     select: { id: true },
     orderBy: { updatedAt: 'desc' },
-    ...(take ? { take } : {}),
+    ...(resolvedTake ? { take: resolvedTake } : {}),
   });
   return myJobs.map((j) => String(j.id));
+}
+
+/** Default My Candidates job window — high enough for enterprise tenants (env override). */
+function resolveMineJobTake() {
+  const raw = Number(process.env.CANDIDATE_MINE_JOB_TAKE);
+  if (Number.isFinite(raw) && raw === 0) return null; // 0 = no cap
+  if (Number.isFinite(raw) && raw > 0) return Math.min(10_000, Math.max(500, raw));
+  return 2500;
+}
+
+function chunkIds(ids, size = 400) {
+  const list = Array.isArray(ids) ? ids : [];
+  const out = [];
+  for (let i = 0; i < list.length; i += size) {
+    out.push(list.slice(i, i + size));
+  }
+  return out;
+}
+
+async function prefetchMineLinkedCandidateIds(jobIds) {
+  const capped = (Array.isArray(jobIds) ? jobIds : []).map((id) => String(id || '').trim()).filter(Boolean);
+  if (!capped.length) return [];
+  const LINK_TAKE = Math.min(
+    20_000,
+    Math.max(2000, Number(process.env.CANDIDATE_MINE_LINK_TAKE || 8000) || 8000),
+  );
+  const perChunk = Math.max(200, Math.floor(LINK_TAKE / Math.max(1, Math.ceil(capped.length / 400))));
+  const linked = new Set();
+  for (const chunk of chunkIds(capped, 400)) {
+    if (linked.size >= LINK_TAKE) break;
+    const take = Math.min(perChunk, LINK_TAKE - linked.size);
+    const [apps, matches, pipes, interviews, placements] = await Promise.all([
+      prisma.application
+        .findMany({
+          where: { jobId: { in: chunk } },
+          select: { candidateId: true },
+          take,
+          orderBy: { appliedAt: 'desc' },
+        })
+        .catch(() => []),
+      prisma.match
+        .findMany({
+          where: { jobId: { in: chunk } },
+          select: { candidateId: true },
+          take,
+          orderBy: { createdAt: 'desc' },
+        })
+        .catch(() => []),
+      prisma.pipelineEntry
+        .findMany({
+          where: { jobId: { in: chunk } },
+          select: { candidateId: true },
+          take,
+          orderBy: { movedAt: 'desc' },
+        })
+        .catch(() => []),
+      prisma.interview
+        .findMany({
+          where: { jobId: { in: chunk } },
+          select: { candidateId: true },
+          take,
+          orderBy: { scheduledAt: 'desc' },
+        })
+        .catch(() => []),
+      prisma.placement
+        .findMany({
+          where: { jobId: { in: chunk }, deletedAt: null },
+          select: { candidateId: true },
+          take,
+          orderBy: { updatedAt: 'desc' },
+        })
+        .catch(() => []),
+    ]);
+    for (const row of [...apps, ...matches, ...pipes, ...interviews, ...placements]) {
+      const id = String(row?.candidateId || '').trim();
+      if (id) linked.add(id);
+      if (linked.size >= LINK_TAKE) break;
+    }
+  }
+  return Array.from(linked).slice(0, LINK_TAKE);
+}
+
+/**
+ * Candidates the user may see when mine=true: created by them, assigned to them,
+ * or linked to jobs they own (apply / match / pipeline / interview / placement).
+ *
+ * Prefer id prefetch over nested `some` scans — correlated relation filters can
+ * starve the Mongo pool. Nest only as a safety net when prefetch is thin.
+ */
+async function buildMineCandidatesScope(userId, knownJobIds) {
+  if (!userId) {
+    return { id: { in: [] } };
+  }
+  const myJobIds = Array.isArray(knownJobIds)
+    ? knownJobIds.map((id) => String(id || '').trim()).filter(Boolean)
+    : await getMyJobIds(userId);
+  const jobCap = resolveMineJobTake() || myJobIds.length;
+  const cappedJobIds = myJobIds.slice(0, jobCap || myJobIds.length);
+  const orClause = buildAssigneeVisibilityOr(userId);
+  if (cappedJobIds.length > 0) {
+    // Mongo hasSome is fine with large arrays; chunk only relation prefetches.
+    orClause.push({ assignedJobs: { hasSome: cappedJobIds } });
+    try {
+      const linkedIds = await prefetchMineLinkedCandidateIds(cappedJobIds);
+      if (linkedIds.length) {
+        orClause.push({ id: { in: linkedIds } });
+      }
+      // Safety net when prefetch is empty/thin so My Candidates is not missing applicants.
+      if (linkedIds.length < 100) {
+        const relationJobIds = cappedJobIds.slice(0, 120);
+        orClause.push({ applications: { some: { jobId: { in: relationJobIds } } } });
+        orClause.push({ pipelineEntries: { some: { jobId: { in: relationJobIds } } } });
+        orClause.push({ matches: { some: { jobId: { in: relationJobIds } } } });
+        orClause.push({ interviews: { some: { jobId: { in: relationJobIds } } } });
+        orClause.push({ placements: { some: { jobId: { in: relationJobIds } } } });
+      }
+    } catch (err) {
+      console.warn('[candidate.service] mine link prefetch failed:', err?.message || err);
+      const relationJobIds = cappedJobIds.slice(0, 80);
+      orClause.push({ applications: { some: { jobId: { in: relationJobIds } } } });
+      orClause.push({ pipelineEntries: { some: { jobId: { in: relationJobIds } } } });
+      orClause.push({ matches: { some: { jobId: { in: relationJobIds } } } });
+      orClause.push({ interviews: { some: { jobId: { in: relationJobIds } } } });
+      orClause.push({ placements: { some: { jobId: { in: relationJobIds } } } });
+    }
+  }
+  return { OR: orClause };
 }
 
 /**
@@ -3768,78 +3901,12 @@ function candidateMatchesMineScope(candidate, userId, myJobIds) {
     return true;
   }
 
-  return false;
-}
+  const placements = Array.isArray(candidate.placements) ? candidate.placements : [];
+  if (placements.some((row) => jobIdSet.has(String(row?.jobId || '').trim()))) {
+    return true;
+  }
 
-/**
- * Candidates the user may see when mine=true: created by them, assigned to them,
- * or linked to jobs they own.
- *
- * Avoid nested `applications/matches/pipelineEntries.some({ jobId: { in: N } })` on
- * Candidate — those correlated scans starve the Mongo pool for minutes. Instead:
- * assignedJobs.hasSome + a capped id prefetch from Application/Match/PipelineEntry.
- */
-async function buildMineCandidatesScope(userId, knownJobIds) {
-  if (!userId) {
-    return { id: { in: [] } };
-  }
-  const myJobIds = Array.isArray(knownJobIds)
-    ? knownJobIds.map((id) => String(id || '').trim()).filter(Boolean)
-    : await getMyJobIds(userId, { take: 120 });
-  const cappedJobIds = myJobIds.slice(0, 120);
-  const orClause = buildAssigneeVisibilityOr(userId);
-  if (cappedJobIds.length > 0) {
-    orClause.push({ assignedJobs: { hasSome: cappedJobIds } });
-    try {
-      const LINK_TAKE = 800;
-      const [apps, matches, pipes] = await Promise.all([
-        prisma.application
-          .findMany({
-            where: { jobId: { in: cappedJobIds } },
-            select: { candidateId: true },
-            take: LINK_TAKE,
-            orderBy: { appliedAt: 'desc' },
-          })
-          .catch(() => []),
-        prisma.match
-          .findMany({
-            where: { jobId: { in: cappedJobIds } },
-            select: { candidateId: true },
-            take: LINK_TAKE,
-            orderBy: { createdAt: 'desc' },
-          })
-          .catch(() => []),
-        prisma.pipelineEntry
-          .findMany({
-            where: { jobId: { in: cappedJobIds } },
-            select: { candidateId: true },
-            take: LINK_TAKE,
-            orderBy: { movedAt: 'desc' },
-          })
-          .catch(() => []),
-      ]);
-      const linkedIds = [
-        ...new Set(
-          [...apps, ...matches, ...pipes]
-            .map((row) => String(row?.candidateId || '').trim())
-            .filter(Boolean),
-        ),
-      ].slice(0, 2000);
-      if (linkedIds.length) {
-        orClause.push({ id: { in: linkedIds } });
-      } else {
-        // Prefetch returned nothing — fall back to capped relation filters so My
-        // Candidates is not empty for applicants-only recruiters.
-        const relationJobIds = cappedJobIds.slice(0, 40);
-        orClause.push({ applications: { some: { jobId: { in: relationJobIds } } } });
-        orClause.push({ pipelineEntries: { some: { jobId: { in: relationJobIds } } } });
-        orClause.push({ matches: { some: { jobId: { in: relationJobIds } } } });
-      }
-    } catch (err) {
-      console.warn('[candidate.service] mine link prefetch failed:', err?.message || err);
-    }
-  }
-  return { OR: orClause };
+  return false;
 }
 
 /** Recruiters without view-all see candidates they own or who applied to their jobs. */
@@ -3948,31 +4015,75 @@ const CANDIDATE_EXPERIENCE_RANGES = {
 const STAGE_FILTER_VARIANTS = {
   new: ['New', 'NEW'],
   applied: ['Applied', 'APPLIED'],
-  longlist: ['Longlist', 'Long List', 'LONGLIST'],
-  shortlist: ['Shortlist', 'Short List', 'SHORTLIST'],
-  screening: ['Screening', 'SCREENING'],
-  submitted: ['Submitted', 'SUBMITTED'],
+  longlist: ['Longlist', 'Long List', 'LONGLIST', 'Long-list'],
+  shortlist: ['Shortlist', 'Short List', 'SHORTLIST', 'Short-list'],
+  screening: ['Screening', 'SCREENING', 'Phone Screen', 'Phone Screening', 'HR Screening'],
+  submitted: [
+    'Submitted',
+    'SUBMITTED',
+    'Submit to Client',
+    'Submit to client',
+    'SUBMITTED_TO_CLIENT',
+    'Submitted to Client',
+    'Client Submission',
+  ],
   'submit-to-client': [
     'Submit to Client',
     'Submit to client',
     'SUBMITTED_TO_CLIENT',
     'Submitted to Client',
+    'Submitted',
+    'SUBMITTED',
   ],
-  interviewing: ['Interviewing', 'Interview', 'INTERVIEW', 'INTERVIEWING'],
-  offered: ['Offered', 'Offer', 'OFFER', 'OFFERED'],
-  hired: ['Hired', 'HIRED', 'Placed', 'PLACED'],
-  rejected: ['Rejected', 'REJECTED'],
+  interviewing: [
+    'Interviewing',
+    'Interview',
+    'INTERVIEW',
+    'INTERVIEWING',
+    'Interview Scheduled',
+    'Interview Round',
+  ],
+  offered: ['Offered', 'Offer', 'OFFER', 'OFFERED', 'Offer Sent', 'Offer Accepted'],
+  hired: ['Hired', 'HIRED', 'Placed', 'PLACED', 'Joined', 'JOINED', 'Onboarded'],
+  rejected: ['Rejected', 'REJECTED', 'Declined', 'Withdrawn', 'Failed'],
 };
+
+const ACTIVE_INTERVIEW_STATUSES = [
+  'SCHEDULED',
+  'CONFIRMED',
+  'RESCHEDULED',
+  'IN_PROGRESS',
+  'FEEDBACK_PENDING',
+];
+
+const OFFERED_PLACEMENT_STATUSES = ['OFFER_SENT', 'OFFER_ACCEPTED', 'PENDING'];
+const HIRED_PLACEMENT_STATUSES = [
+  'JOINING_SCHEDULED',
+  'JOINED',
+  'COMPLETED',
+  'ACTIVE',
+  'REPLACED',
+];
+const REJECTED_PLACEMENT_STATUSES = [
+  'OFFER_REJECTED',
+  'FAILED',
+  'WITHDRAWN',
+  'DROPPED',
+  'CANCELLED',
+  'NO_SHOW',
+];
 
 function normalizeStageFilterKey(stageParam) {
   const raw = String(stageParam || '').trim();
   if (!raw) return '';
-  const lower = raw.toLowerCase();
+  const lower = raw.toLowerCase().replace(/_/g, '-');
+  if (lower === 'submit to client' || lower === 'submitted to client') return 'submitted';
   const keys = Object.keys(STAGE_FILTER_VARIANTS);
-  if (keys.includes(lower)) return lower;
+  if (keys.includes(lower)) return lower === 'submit-to-client' ? 'submitted' : lower;
   const byVariant = keys.find((key) =>
     (STAGE_FILTER_VARIANTS[key] || []).some((v) => String(v).toLowerCase() === lower)
   );
+  if (byVariant === 'submit-to-client') return 'submitted';
   return byVariant || lower;
 }
 
@@ -3984,7 +4095,7 @@ function stageMatchesFilter(candidateStage, stageParam) {
   if (key === 'new') {
     return !hay || hayLower === 'new';
   }
-  const variants = STAGE_FILTER_VARIANTS[key];
+  const variants = STAGE_FILTER_VARIANTS[key] || STAGE_FILTER_VARIANTS['submit-to-client'];
   if (!variants) {
     return hayLower === key || hayLower.includes(key);
   }
@@ -4004,7 +4115,6 @@ function buildStagePrismaWhereClause(stageParam) {
   }
   const variants = STAGE_FILTER_VARIANTS[key] || [String(stageParam || '').trim()];
   const unique = [...new Set(variants.map((v) => String(v).trim()).filter(Boolean))];
-  // Single `in` uses the stage index better than a long OR of equals.
   return { stage: { in: unique } };
 }
 
@@ -4027,15 +4137,124 @@ function parseCandidateListFilters(query = {}) {
   };
 }
 
-function appendCandidateListFilterAndParts(andParts, filters) {
+/**
+ * Stage filter SoT matches the table badge: candidate.stage OR pipeline stage name
+ * OR interviews / placements for Interviewing / Offered / Hired / Rejected.
+ */
+async function buildStageFilterWhereAsync(stageParam) {
+  const key = normalizeStageFilterKey(stageParam);
+  if (!key) return null;
+
+  if (key === 'new') {
+    return {
+      OR: [{ stage: null }, { stage: '' }, { stage: 'New' }, { stage: 'NEW' }],
+    };
+  }
+
+  const variants =
+    STAGE_FILTER_VARIANTS[key] ||
+    STAGE_FILTER_VARIANTS['submit-to-client'] ||
+    [String(stageParam || '').trim()];
+  const unique = [...new Set(variants.map((v) => String(v).trim()).filter(Boolean))];
+  const orParts = [{ stage: { in: unique } }];
+
+  try {
+    const pipelineStages = await prisma.pipelineStage.findMany({
+      select: { id: true, name: true },
+      take: 1200,
+    });
+    const matchingStageIds = pipelineStages
+      .filter((row) => stageMatchesFilter(row?.name, stageParam))
+      .map((row) => String(row.id))
+      .filter(Boolean);
+    if (matchingStageIds.length) {
+      orParts.push({
+        pipelineEntries: { some: { stageId: { in: matchingStageIds } } },
+      });
+    }
+  } catch (err) {
+    console.warn('[candidate.service] pipeline stage filter lookup failed:', err?.message || err);
+  }
+
+  if (key === 'interviewing') {
+    orParts.push({
+      interviews: {
+        some: {
+          status: { in: ACTIVE_INTERVIEW_STATUSES },
+        },
+      },
+    });
+  }
+
+  if (key === 'applied') {
+    orParts.push({
+      AND: [
+        { OR: [{ applications: { some: {} } }, { assignedJobs: { isEmpty: false } }] },
+        {
+          NOT: {
+            interviews: {
+              some: { status: { in: ACTIVE_INTERVIEW_STATUSES } },
+            },
+          },
+        },
+      ],
+    });
+  }
+
+  if (key === 'offered') {
+    orParts.push({
+      placements: {
+        some: {
+          status: { in: OFFERED_PLACEMENT_STATUSES },
+          deletedAt: null,
+        },
+      },
+    });
+  }
+
+  if (key === 'hired') {
+    orParts.push({ status: 'PLACED' });
+    orParts.push({
+      placements: {
+        some: {
+          status: { in: HIRED_PLACEMENT_STATUSES },
+          deletedAt: null,
+        },
+      },
+    });
+  }
+
+  if (key === 'rejected') {
+    orParts.push({
+      placements: {
+        some: {
+          status: { in: REJECTED_PLACEMENT_STATUSES },
+          deletedAt: null,
+        },
+      },
+    });
+    orParts.push({
+      matches: { some: { status: 'REJECTED' } },
+    });
+  }
+
+  if (key === 'shortlist') {
+    orParts.push({
+      matches: { some: { status: 'SHORTLISTED' } },
+    });
+  }
+
+  return { OR: orParts };
+}
+
+async function appendCandidateListFilterAndParts(andParts, filters) {
   const { company, location, jobId, stage, minExperience, maxExperience, minExperienceOpen } = filters;
-  const stageClause = buildStagePrismaWhereClause(stage);
+  const stageClause = stage ? await buildStageFilterWhereAsync(stage) : null;
   if (stageClause) {
     andParts.push(stageClause);
   }
   if (company) {
     // Index-friendly: filter on candidate.currentCompany only.
-    // Nested matches→job→client scans were multi-second on every filter change.
     andParts.push({ currentCompany: { contains: company, mode: 'insensitive' } });
   }
   if (location) {
@@ -4048,12 +4267,13 @@ function appendCandidateListFilterAndParts(andParts, filters) {
     });
   }
   if (jobId) {
-    // Prefer assignedJobs (array index) before nested relation scans.
     andParts.push({
       OR: [
         { assignedJobs: { has: jobId } },
         { applications: { some: { jobId } } },
         { matches: { some: { jobId } } },
+        { pipelineEntries: { some: { jobId } } },
+        { interviews: { some: { jobId } } },
       ],
     });
   }
@@ -4193,7 +4413,7 @@ async function buildPortalCandidatesWhere(
   if (searchClause) andParts.push(searchClause);
 
   if (listFilters) {
-    appendCandidateListFilterAndParts(andParts, listFilters);
+    await appendCandidateListFilterAndParts(andParts, listFilters);
   }
 
   if (andParts.length) {
@@ -4256,7 +4476,16 @@ function mergeBoundedCandidateIndexes(sources, { loadCommonPool, tenantCandidate
       shouldShowOnCrmCandidatesList(candidate, { includeCommonPool: loadCommonPool }),
     )
     .filter((candidate) => candidateMatchesSearch(candidate, search))
-    .filter((candidate) => candidateMatchesListFilters(candidate, listFilters, tenantJobIdSet));
+    .filter((candidate) => {
+      // Lean index rows lack pipelineEntries/interviews. Stage SoT was already applied in
+      // SQL (tenant/portal). Re-running resolveCandidateStageForList here falsely drops
+      // Interviewing/Applied rows that only have relation-based stage.
+      if (listFilters?.stage) {
+        const leanSafeFilters = { ...listFilters, stage: '' };
+        return candidateMatchesListFilters(candidate, leanSafeFilters, tenantJobIdSet);
+      }
+      return candidateMatchesListFilters(candidate, listFilters, tenantJobIdSet);
+    });
 
   // Tenant + portal queries already apply mine scope in SQL. Lean index rows lack
   // applications/matches, so re-filtering here incorrectly drops portal applicants.
@@ -4669,7 +4898,7 @@ export const candidateService = {
       req.query?.mine === 'true' || req.query?.mine === '1' || req.query?.mine === true;
     // My candidates is tenant CRM + portal applicants only — never the full Phase 1 pool.
     const loadCommonPool = mine ? false : await resolveLoadCommonPool(req.query);
-    const myJobIds = mine && req.user?.id ? await getMyJobIds(req.user.id, { take: 120 }) : [];
+    const myJobIds = mine && req.user?.id ? await getMyJobIds(req.user.id) : [];
     const tenantJobIdSet = isTenantScopedRequest()
       ? mine
         ? new Set(myJobIds)
@@ -4733,7 +4962,7 @@ export const candidateService = {
     if (orgScope) andParts.push(orgScope);
     const searchClause = buildCandidateSearchWhereClause(search);
     if (searchClause) andParts.push(searchClause);
-    appendCandidateListFilterAndParts(andParts, listFilters);
+    await appendCandidateListFilterAndParts(andParts, listFilters);
     if (andParts.length) {
       where.AND = andParts;
     }
@@ -7367,7 +7596,11 @@ export const candidateService = {
       req.query?.mine === 'true' || req.query?.mine === '1' || req.query?.mine === true;
     const userId = req.user?.id;
     const myJobIds = mine && userId ? await getMyJobIds(userId) : [];
-    const tenantJobIdSet = isTenantScopedRequest() ? await getTenantJobIdSet() : null;
+    const tenantJobIdSet = isTenantScopedRequest()
+      ? mine
+        ? new Set(myJobIds)
+        : await getTenantJobIdSet()
+      : null;
 
     const emptyStats = {
       all: 0,
@@ -7419,9 +7652,17 @@ export const candidateService = {
         createdById: true,
         assignedToId: true,
         assignedJobs: true,
-        applications: { select: { jobId: true }, take: 30 },
-        pipelineEntries: { select: { jobId: true }, take: 30 },
-        matches: { select: { jobId: true }, take: 30 },
+        applications: { select: { jobId: true, status: true }, take: 40 },
+        pipelineEntries: {
+          select: {
+            jobId: true,
+            stageId: true,
+            stage: { select: { id: true, name: true } },
+          },
+          take: 40,
+        },
+        matches: { select: { jobId: true }, take: 40 },
+        interviews: { select: { jobId: true, status: true, scheduledAt: true }, take: 40 },
       },
     });
     const tenantCandidateIds = new Set(scopedCandidates.map((candidate) => candidate.id));
