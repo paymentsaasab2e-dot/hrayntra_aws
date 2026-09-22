@@ -277,10 +277,15 @@ export function resolvePhase1CareerPreferences(
   snap: Phase1ProfileSnapshot | null,
   candidate: CandidateProfileDrawerData,
 ): Record<string, unknown> | null {
-  const merged = {
-    ...((snap?.careerPreferences as Record<string, unknown> | null) || {}),
-    ...((candidate.careerPreferences as Record<string, unknown> | null) || {}),
-  };
+  const snapCareer = (snap?.careerPreferences as Record<string, unknown> | null) || null;
+  const portalCareer = (candidate.careerPreferences as Record<string, unknown> | null) || null;
+  const snapAt = Date.parse(String(snap?._phase1SnapshotSavedAt || snap?._savedAt || ''));
+  const preferSnap = Boolean(snapCareer && Number.isFinite(snapAt) && snapAt > 0);
+
+  // Stamped Overview / Phase 1 snapshot wins over portal collection so CRM edits stick.
+  const merged = preferSnap
+    ? { ...(portalCareer || {}), ...(snapCareer || {}) }
+    : { ...(snapCareer || {}), ...(portalCareer || {}) };
   return normalizeCareerPreferencesRecord(merged, candidate);
 }
 

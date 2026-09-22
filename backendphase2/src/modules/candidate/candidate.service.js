@@ -974,7 +974,14 @@ const candidateDetailInclude = {
 async function enrichCandidateDetailJobTitles(candidate, tenantJobIdSet = null) {
   if (!candidate) return candidate;
   const scoped = scopeCandidateForActiveTenant(candidate, tenantJobIdSet);
-  const jobIds = collectCandidateLinkedJobIds(scoped);
+  const explicitAssigned = (Array.isArray(scoped.assignedJobs) ? scoped.assignedJobs : [])
+    .map((id) => String(id || '').trim())
+    .filter(Boolean);
+  // Prefer explicit assignedJobs for titles so an old pipeline Job A does not
+  // become assignedJobTitles[0] after reassignment to Job B.
+  const jobIds = explicitAssigned.length
+    ? explicitAssigned
+    : collectCandidateLinkedJobIds(scoped);
   const jobsById = new Map();
   if (jobIds.length) {
     const jobs = await prisma.job.findMany({
@@ -983,9 +990,33 @@ async function enrichCandidateDetailJobTitles(candidate, tenantJobIdSet = null) 
     });
     for (const job of jobs) jobsById.set(job.id, job.title);
   }
+  const titles = [];
+  const seen = new Set();
+  for (const jobId of jobIds) {
+    let title = jobsById.get(jobId);
+    if (!title) {
+      const match = (Array.isArray(scoped?.matches) ? scoped.matches : []).find(
+        (row) => String(row?.jobId || row?.job?.id || '').trim() === jobId,
+      );
+      title = match?.job?.title;
+    }
+    if (!title) {
+      const application = (Array.isArray(scoped?.applications) ? scoped.applications : []).find(
+        (row) => String(row?.jobId || '').trim() === jobId,
+      );
+      title = application?.job?.title;
+    }
+    const label = String(title || '').trim();
+    if (label && !seen.has(label)) {
+      seen.add(label);
+      titles.push(label);
+    }
+  }
   return {
     ...candidate,
-    assignedJobTitles: resolveCandidateAssignedJobTitlesForList(scoped, jobsById),
+    assignedJobTitles: titles.length
+      ? titles
+      : resolveCandidateAssignedJobTitlesForList(scoped, jobsById),
   };
 }
 
@@ -1261,10 +1292,18 @@ function pickPreferredPhase1ProfileSnapshot(portalSnap, tenantSnap) {
 function mergePortalAndTenantCandidateRow(portalRow, tenantRow) {
   if (!tenantRow) return portalRow;
   if (!portalRow) return tenantRow;
-  const jobSet = new Set([
-    ...(Array.isArray(portalRow.assignedJobs) ? portalRow.assignedJobs : []),
-    ...(Array.isArray(tenantRow.assignedJobs) ? tenantRow.assignedJobs : []),
-  ].map(String).filter(Boolean));
+  // Tenant CRM assignment is replace-SoT when present. Unioning portal∪tenant
+  // resurrected the previous job (A) after a reassignment to B and made the
+  // drawer flash B then revert to A's name/stage on refresh.
+  const tenantAssignedJobs = (Array.isArray(tenantRow.assignedJobs) ? tenantRow.assignedJobs : [])
+    .map((id) => String(id || '').trim())
+    .filter(Boolean);
+  const portalAssignedJobs = (Array.isArray(portalRow.assignedJobs) ? portalRow.assignedJobs : [])
+    .map((id) => String(id || '').trim())
+    .filter(Boolean);
+  const mergedAssignedJobs = tenantAssignedJobs.length
+    ? tenantAssignedJobs
+    : portalAssignedJobs;
 
   const scalarKeys = [
     'firstName',
@@ -1317,6 +1356,7 @@ function mergePortalAndTenantCandidateRow(portalRow, tenantRow) {
   const editorCvScalarKeys = new Set([
     'firstName',
     'lastName',
+    'middleName',
     'email',
     'phone',
     'linkedIn',
@@ -1325,12 +1365,13 @@ function mergePortalAndTenantCandidateRow(portalRow, tenantRow) {
     'location',
     'designation',
     'cvSummary',
+    'gender',
   ]);
 
   const merged = {
     ...tenantRow,
     ...portalRow,
-    assignedJobs: Array.from(jobSet),
+    assignedJobs: mergedAssignedJobs,
     applications: mergeCandidateRelationRows(
       tenantRow.applications,
       portalRow.applications,
@@ -1367,7 +1408,16 @@ function mergePortalAndTenantCandidateRow(portalRow, tenantRow) {
     }
     merged[key] = pickFirstNonEmpty(portalRow[key], tenantRow[key]);
   }
-  merged.stage = mergeCandidateWorkflowStages(portalRow?.stage, tenantRow?.stage);
+  // When tenant owns the assignment list, keep tenant CRM stage (Applied after
+  // reassignment) instead of letting portal's older Offer/Interviewing win rank.
+  if (tenantAssignedJobs.length) {
+    const tenantStage = String(tenantRow?.stage || '').trim();
+    merged.stage =
+      tenantStage ||
+      mergeCandidateWorkflowStages(portalRow?.stage, tenantRow?.stage);
+  } else {
+    merged.stage = mergeCandidateWorkflowStages(portalRow?.stage, tenantRow?.stage);
+  }
   for (const key of arrayKeys) {
     if (preferTenantProfileFields && key === 'skills') {
       merged.skills = pickFirstNonEmpty(tenantRow.skills, portalRow.skills);
@@ -3285,9 +3335,46 @@ async function hydrateAndPersistCandidateCvProfile(candidate, portalClient) {
 }
 
 function mergeCareerPreferencesIntoCandidate(candidate, careerPrefs) {
-  if (!candidate || !careerPrefs) return candidate;
+  if (!candidate) return candidate;
 
-  const normalized = normalizePortalCareerPreferences(careerPrefs, candidate);
+  const fromPortal = careerPrefs
+    ? normalizePortalCareerPreferences(careerPrefs, candidate)
+    : null;
+
+  const extra =
+    candidate.extraData && typeof candidate.extraData === 'object' && !Array.isArray(candidate.extraData)
+      ? candidate.extraData
+      : {};
+  const snap =
+    extra.phase1ProfileSnapshot &&
+    typeof extra.phase1ProfileSnapshot === 'object' &&
+    !Array.isArray(extra.phase1ProfileSnapshot)
+      ? extra.phase1ProfileSnapshot
+      : null;
+  const snapPrefs = snap?.careerPreferences;
+  const fromSnap = snapPrefs
+    ? normalizePortalCareerPreferences(snapPrefs, candidate)
+    : null;
+
+  const snapAt = phase1SnapshotSavedAtMs(snap);
+  let portalUpdatedAt = 0;
+  if (careerPrefs?.updatedAt) {
+    const raw = careerPrefs.updatedAt;
+    const ms =
+      raw && typeof raw === 'object' && raw.$date
+        ? Date.parse(String(raw.$date))
+        : Date.parse(String(raw));
+    portalUpdatedAt = Number.isFinite(ms) ? ms : 0;
+  }
+
+  // Prefer recruiter/candidate Overview snapshot when it is newer than portal collection.
+  const preferSnap = Boolean(fromSnap && snapAt && (!portalUpdatedAt || snapAt >= portalUpdatedAt));
+  const normalized = preferSnap
+    ? { ...(fromPortal || {}), ...fromSnap }
+    : fromPortal
+      ? { ...(fromSnap || {}), ...fromPortal }
+      : fromSnap;
+
   if (!normalized) return candidate;
 
   candidate.noticePeriod = pickFirstNonEmpty(candidate.noticePeriod, normalized.noticePeriod);
@@ -3312,6 +3399,212 @@ function mergeCareerPreferencesIntoCandidate(candidate, careerPrefs) {
 
   candidate.careerPreferences = normalized;
   return candidate;
+}
+
+/**
+ * Map Overview / snapshot career prefs into the Phase 1 `career_preferences` collection
+ * so getById + Phase 1 profile stay in sync after CRM edits.
+ */
+function mapSalaryTypeForPortal(value) {
+  const raw = String(value || '').trim().toUpperCase();
+  if (!raw) return null;
+  if (raw.startsWith('ANNUAL') || raw === 'YEARLY') return 'ANNUAL';
+  if (raw.startsWith('MONTH')) return 'MONTHLY';
+  if (raw.startsWith('HOUR')) return 'HOURLY';
+  if (raw.startsWith('DAY') || raw === 'DAILY') return 'DAILY';
+  return null;
+}
+
+function mapWorkModeForPortal(value) {
+  const raw = String(value || '').trim().toUpperCase().replace(/[-\s]+/g, '_');
+  if (!raw) return null;
+  if (raw === 'REMOTE') return 'REMOTE';
+  if (raw === 'HYBRID') return 'HYBRID';
+  if (raw === 'ON_SITE' || raw === 'ONSITE') return 'ON_SITE';
+  return null;
+}
+
+function parseNoticePeriodDaysFromPrefs(prefs) {
+  if (prefs?.noticePeriodDays != null && Number.isFinite(Number(prefs.noticePeriodDays))) {
+    return Number(prefs.noticePeriodDays);
+  }
+  const noticePeriodStr = String(prefs?.noticePeriod || '');
+  const daysMatch = noticePeriodStr.match(/(\d+)/);
+  return daysMatch ? Number.parseInt(daysMatch[1], 10) : null;
+}
+
+async function upsertPortalCareerPreferences(candidateId, prefs) {
+  if (!candidateId || !prefs || typeof prefs !== 'object') return false;
+  let portalClient = null;
+  try {
+    portalClient = getJobPortalPrismaClient();
+  } catch {
+    portalClient = null;
+  }
+  if (!portalClient?.$runCommandRaw) return false;
+
+  const idStr = String(candidateId).trim();
+  if (!/^[a-fA-F0-9]{24}$/.test(idStr)) return false;
+
+  const preferredRoles = Array.isArray(prefs.preferredJobTitles)
+    ? prefs.preferredJobTitles
+    : Array.isArray(prefs.preferredRoles)
+      ? prefs.preferredRoles
+      : [];
+  const jobTypes = Array.isArray(prefs.jobTypes) ? prefs.jobTypes.map(String).filter(Boolean) : [];
+  const preferredLocations = Array.isArray(prefs.preferredLocations)
+    ? prefs.preferredLocations.map(String).filter(Boolean)
+    : [];
+  const currentBenefits = Array.isArray(prefs.currentBenefits)
+    ? prefs.currentBenefits.map(String).filter(Boolean)
+    : [];
+  const preferredBenefits = Array.isArray(prefs.preferredBenefits)
+    ? prefs.preferredBenefits.map(String).filter(Boolean)
+    : [];
+
+  const workModeInput =
+    (Array.isArray(prefs.workModes) && prefs.workModes[0]) || prefs.preferredWorkMode || null;
+  const preferredWorkMode = mapWorkModeForPortal(workModeInput);
+  const currentSalaryType = mapSalaryTypeForPortal(prefs.currentSalaryType);
+  const preferredSalaryType = mapSalaryTypeForPortal(
+    prefs.preferredSalaryType || prefs.salaryFrequency,
+  );
+  const currentSalary =
+    prefs.currentSalary != null && prefs.currentSalary !== ''
+      ? Number(prefs.currentSalary)
+      : null;
+  const preferredSalaryRaw =
+    prefs.preferredSalary != null && prefs.preferredSalary !== ''
+      ? prefs.preferredSalary
+      : prefs.salaryAmount;
+  const preferredSalary =
+    preferredSalaryRaw != null && preferredSalaryRaw !== '' ? Number(preferredSalaryRaw) : null;
+
+  const nowIso = new Date().toISOString();
+  const setDoc = {
+    preferredRoles: preferredRoles.map(String).filter(Boolean),
+    preferredIndustry: prefs.preferredIndustry || null,
+    functionalArea: prefs.functionalArea || null,
+    currentCurrency: prefs.currentCurrency || 'USD',
+    currentLocation: prefs.currentLocation || null,
+    currentBenefits,
+    jobTypes,
+    preferredLocations,
+    relocationPreference: prefs.relocationPreference || null,
+    preferredCurrency: prefs.preferredCurrency || prefs.salaryCurrency || 'USD',
+    preferredBenefits,
+    availabilityToStart: prefs.availabilityToStart || null,
+    noticePeriod: prefs.noticePeriod || null,
+    noticePeriodDays: parseNoticePeriodDaysFromPrefs(prefs),
+    openToRelocation:
+      prefs.relocationPreference === 'Open to Relocate' ||
+      prefs.relocationPreference === 'Open to Remote Only' ||
+      prefs.openToRelocation === true,
+    updatedAt: { $date: nowIso },
+  };
+  if (currentSalaryType) setDoc.currentSalaryType = currentSalaryType;
+  if (preferredSalaryType) setDoc.preferredSalaryType = preferredSalaryType;
+  if (preferredWorkMode) setDoc.preferredWorkMode = preferredWorkMode;
+  if (Number.isFinite(currentSalary)) setDoc.currentSalary = currentSalary;
+  if (Number.isFinite(preferredSalary)) setDoc.preferredSalary = preferredSalary;
+  if (prefs.passportNumbersByLocation && typeof prefs.passportNumbersByLocation === 'object') {
+    setDoc.passportNumbersByLocation = prefs.passportNumbersByLocation;
+  }
+
+  try {
+    await portalClient.$runCommandRaw({
+      update: 'career_preferences',
+      updates: [
+        {
+          q: { candidateId: { $oid: idStr } },
+          u: {
+            $set: setDoc,
+            $setOnInsert: {
+              candidateId: { $oid: idStr },
+              createdAt: { $date: nowIso },
+            },
+          },
+          upsert: true,
+        },
+      ],
+    });
+    return true;
+  } catch (err) {
+    console.warn(
+      '[candidate.service] portal career_preferences upsert failed:',
+      idStr,
+      err?.message || err,
+    );
+    return false;
+  }
+}
+
+function mapGenderEnumForPortal(value) {
+  const raw = String(value || '').trim().toUpperCase();
+  if (!raw) return null;
+  if (raw === 'MALE' || raw === 'M') return 'MALE';
+  if (raw === 'FEMALE' || raw === 'F') return 'FEMALE';
+  if (raw === 'OTHER' || raw === 'O') return 'OTHER';
+  return null;
+}
+
+/** Mirror CRM Overview identity fields onto Phase 1 candidate_profiles. */
+async function syncPortalCandidateProfileIdentity(candidateId, { gender, dateOfBirth, middleName, firstName, lastName, email, phone, city, country, linkedIn } = {}) {
+  if (!candidateId) return;
+  let portalClient = null;
+  try {
+    portalClient = getJobPortalPrismaClient();
+  } catch {
+    portalClient = null;
+  }
+  if (!portalClient?.$runCommandRaw) return;
+
+  const idStr = String(candidateId).trim();
+  if (!/^[a-fA-F0-9]{24}$/.test(idStr)) return;
+
+  const setDoc = { updatedAt: { $date: new Date().toISOString() } };
+  const genderEnum = mapGenderEnumForPortal(gender);
+  if (genderEnum) setDoc.gender = genderEnum;
+  if (dateOfBirth) {
+    const d = dateOfBirth instanceof Date ? dateOfBirth : new Date(String(dateOfBirth));
+    if (Number.isFinite(d.getTime())) setDoc.dateOfBirth = { $date: d.toISOString() };
+  }
+  const nameParts = [firstName, middleName, lastName].map((p) => String(p || '').trim()).filter(Boolean);
+  if (nameParts.length) setDoc.fullName = nameParts.join(' ');
+  if (email) setDoc.email = String(email).trim().toLowerCase();
+  if (phone) setDoc.phoneNumber = String(phone).trim();
+  if (city) setDoc.city = String(city).trim();
+  if (country) setDoc.country = String(country).trim();
+  if (linkedIn) setDoc.linkedinUrl = String(linkedIn).trim();
+
+  if (Object.keys(setDoc).length <= 1) return;
+
+  try {
+    await portalClient.$runCommandRaw({
+      update: 'candidate_profiles',
+      updates: [
+        {
+          q: { candidateId: { $oid: idStr } },
+          u: {
+            $set: setDoc,
+            $setOnInsert: {
+              candidateId: { $oid: idStr },
+              fullName: setDoc.fullName || 'Candidate',
+              email: setDoc.email || '',
+              createdAt: { $date: new Date().toISOString() },
+            },
+          },
+          upsert: true,
+        },
+      ],
+    });
+  } catch (err) {
+    console.warn(
+      '[candidate.service] portal candidate_profiles sync failed:',
+      idStr,
+      err?.message || err,
+    );
+  }
 }
 
 async function buildCandidateResponse(candidate, activityClient = prisma, viewerUserId = null) {
@@ -3505,6 +3798,13 @@ async function buildMineCandidatesScope(userId, knownJobIds) {
       ].slice(0, 2000);
       if (linkedIds.length) {
         orClause.push({ id: { in: linkedIds } });
+      } else {
+        // Prefetch returned nothing — fall back to capped relation filters so My
+        // Candidates is not empty for applicants-only recruiters.
+        const relationJobIds = cappedJobIds.slice(0, 40);
+        orClause.push({ applications: { some: { jobId: { in: relationJobIds } } } });
+        orClause.push({ pipelineEntries: { some: { jobId: { in: relationJobIds } } } });
+        orClause.push({ matches: { some: { jobId: { in: relationJobIds } } } });
       }
     } catch (err) {
       console.warn('[candidate.service] mine link prefetch failed:', err?.message || err);
@@ -4219,6 +4519,117 @@ async function countMergedCandidateListTotal({
   return total;
 }
 
+/**
+ * Create/update a pipeline entry (+ match) for an already-assigned job without rewriting
+ * candidate.assignedJobs. Used after replace-assignment so Job A is not re-appended.
+ * When forceStage is true, move an existing entry to the requested stage (Applied on reassign).
+ */
+async function ensurePipelineEntryForJob(candidateId, data, userId) {
+  const jobId = String(data?.jobId || '').trim();
+  const rawStageName = String(data?.stage || 'Applied').trim() || 'Applied';
+  const forceStage = Boolean(data?.forceStage);
+  if (!jobId) throw new Error('Job is required');
+
+  const normalizedStage = rawStageName.toLowerCase();
+  const stageName =
+    normalizedStage === 'offer' || normalizedStage === 'offered'
+      ? 'Offer'
+      : normalizedStage === 'joined' || normalizedStage === 'hired'
+        ? 'Hired'
+        : rawStageName;
+
+  const existingEntry = await prisma.pipelineEntry.findFirst({
+    where: { candidateId, jobId },
+    select: { id: true, stageId: true },
+  });
+
+  const job = await prisma.job.findUnique({
+    where: { id: jobId },
+    include: {
+      pipelineStages: { orderBy: { order: 'asc' } },
+    },
+  });
+  if (!job) throw new Error('Job not found');
+
+  let targetStage = job.pipelineStages.find(
+    (stage) => stage.name.toLowerCase() === stageName.toLowerCase(),
+  );
+  if (!targetStage) {
+    const nextOrder =
+      job.pipelineStages.length > 0
+        ? Math.max(...job.pipelineStages.map((stage) => stage.order || 0)) + 1
+        : 1;
+    targetStage = await prisma.pipelineStage.create({
+      data: {
+        jobId,
+        name: stageName,
+        order: nextOrder,
+        color: '#2563eb',
+      },
+    });
+  }
+
+  if (existingEntry) {
+    if (!forceStage) return;
+    if (String(existingEntry.stageId) !== String(targetStage.id)) {
+      await prisma.pipelineEntry.update({
+        where: { id: existingEntry.id },
+        data: {
+          stageId: targetStage.id,
+          movedById: userId || null,
+          movedAt: new Date(),
+        },
+      });
+    }
+  } else {
+    await prisma.pipelineEntry.create({
+      data: {
+        candidateId,
+        jobId,
+        stageId: targetStage.id,
+        movedById: userId || null,
+        notes: null,
+      },
+    });
+  }
+
+  const existingMatch = await prisma.match.findFirst({
+    where: { candidateId, jobId },
+  });
+  if (existingMatch) {
+    await prisma.match.update({
+      where: { id: existingMatch.id },
+      data: { status: mapStageToMatchStatus(stageName) },
+    });
+  } else {
+    await prisma.match.create({
+      data: {
+        candidateId,
+        jobId,
+        createdById: userId || null,
+        score: 75,
+        status: mapStageToMatchStatus(stageName),
+      },
+    });
+  }
+
+  try {
+    await updateCandidateStage({
+      candidateId,
+      jobId,
+      stage: mapStageNameToPipelineBucket(stageName),
+      performedById: userId || null,
+      skipStageActivity: true,
+      metadata: { customStageName: stageName, ensureOnly: true },
+    });
+  } catch (stageError) {
+    console.warn(
+      '[candidate.ensurePipelineEntryForJob] stage sync failed:',
+      stageError?.message || stageError,
+    );
+  }
+}
+
 export const candidateService = {
   async getAll(req) {
     const pagination = getPaginationParams(req);
@@ -4334,10 +4745,15 @@ export const candidateService = {
     };
 
     // My candidates: tenant CRM only (true skip/take).
-    // All candidates: tenant-only unless common pool and/or live portal merge is on.
-    // Live portal merge with large job-id `$in` was holding Mongo pool connections
-    // for ~5 minutes and starving jobs/heartbeat/candidates alike.
-    const useMultiSourceMerge = !mine && (loadCommonPool || livePortalMerge);
+    // All candidates: tenant-only by default. Multi-source (common/portal) only when
+    // explicitly enabled — merge filters were wiping the table to 0 under load.
+    // Set CANDIDATE_LIST_COMMON_MERGE=1 to restore Phase1 common-pool merge on All.
+    const allowCommonMerge = (() => {
+      const raw = String(process.env.CANDIDATE_LIST_COMMON_MERGE || '').trim().toLowerCase();
+      return raw === '1' || raw === 'true' || raw === 'yes';
+    })();
+    const useMultiSourceMerge =
+      !mine && ((loadCommonPool && allowCommonMerge) || livePortalMerge);
 
     if (useMultiSourceMerge) {
       // Bounded k-way merge for All candidates (tenant + optional portal + common pool).
@@ -4498,14 +4914,50 @@ export const candidateService = {
         });
       }
       candidates = await hydratePageFromIndex(pageIndex);
+
+      // Safety net: never blank All Candidates when tenant CRM has rows
+      // (merge/hydrate filters or common-pool timeouts must not wipe the table).
+      if (
+        !candidates.length &&
+        !String(search || '').trim() &&
+        !listFilters?.jobId &&
+        !listFilters?.stage &&
+        !listFilters?.company &&
+        !listFilters?.location
+      ) {
+        try {
+          const [fallbackTotal, fallbackRows] = await Promise.all([
+            prisma.candidate.count({ where }),
+            prisma.candidate.findMany({
+              where,
+              include: candidateListInclude,
+              orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+              skip,
+              take: limit,
+            }),
+          ]);
+          if (fallbackRows.length) {
+            logCandidatePerf({
+              mergeFallback: 'tenant-page',
+              fallbackTotal,
+              note: 'multi-source returned empty; using tenant CRM page',
+            });
+            total = Math.max(Number(total) || 0, fallbackTotal);
+            candidates = await attachPlacementsToCandidates(fallbackRows);
+            perfMarks.sourceCounts = `${perfMarks.sourceCounts || ''};fallback=tenant`;
+          }
+        } catch (fallbackErr) {
+          console.warn(
+            '[candidate.service] tenant list fallback failed:',
+            fallbackErr?.message || fallbackErr,
+          );
+        }
+      }
     } else {
       // Fast path: tenant CRM only — true DB pagination (My candidates + All without pool merge).
+      // Never race to an empty page: under load that returned 0 candidates after ~8s.
       const tQ = candidatePerfNow();
-      const TENANT_LIST_BUDGET_MS = Math.min(
-        12000,
-        Math.max(2000, Number(process.env.CANDIDATE_TENANT_LIST_MS || 8000) || 8000),
-      );
-      const listWork = Promise.all([
+      const [rowTotal, pageRows] = await Promise.all([
         prisma.candidate.count({ where }),
         prisma.candidate.findMany({
           where,
@@ -4515,28 +4967,11 @@ export const candidateService = {
           take: limit,
         }),
       ]);
-      const raced = await Promise.race([
-        listWork.then((value) => ({ ok: true, value })),
-        new Promise((resolve) => {
-          setTimeout(() => resolve({ ok: false }), TENANT_LIST_BUDGET_MS);
-        }),
-      ]);
-      if (!raced.ok) {
-        logCandidatePerf({ tenantQuery: `timeout>${TENANT_LIST_BUDGET_MS}ms` });
-        void listWork.catch(() => null);
-        total = 0;
-        candidates = [];
-        perfMarks.tenantQuery = TENANT_LIST_BUDGET_MS;
-        perfMarks.count = `timeout>${TENANT_LIST_BUDGET_MS}ms`;
-        perfMarks.sourceCounts = `tenant-only mine=${mine ? '1' : '0'} timedOut=1`;
-      } else {
-        const [rowTotal, pageRows] = raced.value;
-        perfMarks.tenantQuery = Math.round(candidatePerfNow() - tQ);
-        perfMarks.count = perfMarks.tenantQuery;
-        perfMarks.sourceCounts = `tenant-only mine=${mine ? '1' : '0'}`;
-        total = rowTotal;
-        candidates = await attachPlacementsToCandidates(pageRows);
-      }
+      perfMarks.tenantQuery = Math.round(candidatePerfNow() - tQ);
+      perfMarks.count = perfMarks.tenantQuery;
+      perfMarks.sourceCounts = `tenant-only mine=${mine ? '1' : '0'}`;
+      total = rowTotal;
+      candidates = await attachPlacementsToCandidates(pageRows);
     }
 
     if (candidates.length) {
@@ -4624,16 +5059,52 @@ export const candidateService = {
       const careerPrefs = careerPrefsByCandidate.get(String(candidate.id));
       if (careerPrefs) mergeCareerPreferencesIntoCandidate(candidate, careerPrefs);
       const scopedCandidate = scopeCandidateForActiveTenant(candidate, tenantJobIdSet);
+      const explicitAssigned = (Array.isArray(scopedCandidate.assignedJobs)
+        ? scopedCandidate.assignedJobs
+        : []
+      )
+        .map((id) => String(id || '').trim())
+        .filter(Boolean);
       const linkedJobIds = collectCandidateLinkedJobIds(scopedCandidate);
+      // Keep replace-assignment SoT: do not expand assignedJobs with stale
+      // pipeline/application ids from a previous job after reassignment.
       const scopedWithJobs = {
         ...scopedCandidate,
-        assignedJobs: linkedJobIds.length
-          ? linkedJobIds
-          : Array.isArray(scopedCandidate.assignedJobs)
-            ? scopedCandidate.assignedJobs
+        assignedJobs: explicitAssigned.length
+          ? explicitAssigned
+          : linkedJobIds.length
+            ? linkedJobIds
             : [],
       };
-      const titles = resolveCandidateAssignedJobTitlesForList(scopedWithJobs, jobsById);
+      const titles = (() => {
+        if (explicitAssigned.length) {
+          const seen = new Set();
+          const out = [];
+          for (const jobId of explicitAssigned) {
+            let title = jobsById.get(jobId);
+            if (!title) {
+              const match = (Array.isArray(scopedWithJobs?.matches) ? scopedWithJobs.matches : []).find(
+                (row) => String(row?.jobId || row?.job?.id || '').trim() === jobId,
+              );
+              title = match?.job?.title;
+            }
+            if (!title) {
+              const application = (Array.isArray(scopedWithJobs?.applications)
+                ? scopedWithJobs.applications
+                : []
+              ).find((row) => String(row?.jobId || '').trim() === jobId);
+              title = application?.job?.title;
+            }
+            const label = String(title || '').trim();
+            if (label && !seen.has(label)) {
+              seen.add(label);
+              out.push(label);
+            }
+          }
+          return out;
+        }
+        return resolveCandidateAssignedJobTitlesForList(scopedWithJobs, jobsById);
+      })();
       return annotateCandidateListFlags(
         {
           ...scopedWithJobs,
@@ -4923,14 +5394,15 @@ export const candidateService = {
 
   async update(id, data, performedByUserId = null, req = null) {
     // Whitelist of fields that exist on the Candidate Prisma model. Anything not
-    // in this list (e.g. legacy `tags`, `dateOfBirth`, `workAuthorization`,
-    // `state`, `zipCode`, `github`, `gender`, `willingToRelocate`,
-    // `remoteWorkPreference`) is intentionally ignored — including those keys
-    // even with `undefined` values can cause Prisma "Unknown argument" errors,
-    // and silently mapping them would also corrupt valid saves.
+    // in this list (e.g. legacy `tags`, `workAuthorization`, `state`, `zipCode`,
+    // `github`, `willingToRelocate`, `remoteWorkPreference`) is intentionally
+    // ignored — including those keys even with `undefined` values can cause
+    // Prisma "Unknown argument" errors, and silently mapping them would also
+    // corrupt valid saves.
     const ALLOWED_FIELDS = [
       'firstName',
       'lastName',
+      'middleName',
       'email',
       'phone',
       'linkedIn',
@@ -4974,6 +5446,8 @@ export const candidateService = {
       'stage',
       'salary',
       'extraData',
+      'gender',
+      'dateOfBirth',
     ];
     const INTEGER_FIELDS = new Set([
       'experience',
@@ -4998,6 +5472,26 @@ export const candidateService = {
       }
       const parsed = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
       updateData[key] = Number.isFinite(parsed) ? parsed : null;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(data || {}, 'dateOfBirth')) {
+      const rawDob = data.dateOfBirth;
+      if (rawDob === null || rawDob === '' || rawDob === undefined) {
+        updateData.dateOfBirth = null;
+      } else {
+        const parsedDob = rawDob instanceof Date ? rawDob : new Date(String(rawDob));
+        updateData.dateOfBirth = Number.isFinite(parsedDob.getTime()) ? parsedDob : null;
+      }
+    }
+
+    if (Object.prototype.hasOwnProperty.call(data || {}, 'gender')) {
+      const g = String(data.gender || '').trim();
+      updateData.gender = g || null;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(data || {}, 'middleName')) {
+      const m = String(data.middleName || '').trim();
+      updateData.middleName = m || null;
     }
 
     if (Object.prototype.hasOwnProperty.call(data || {}, 'lastActivity')) {
@@ -5059,14 +5553,93 @@ export const candidateService = {
         typeof incomingExtra.phase1ProfileSnapshot === 'object' &&
         !Array.isArray(incomingExtra.phase1ProfileSnapshot)
       ) {
+        const prevSnap =
+          existingExtra.phase1ProfileSnapshot &&
+          typeof existingExtra.phase1ProfileSnapshot === 'object'
+            ? existingExtra.phase1ProfileSnapshot
+            : {};
+        const prevPersonal =
+          prevSnap.personalInfo && typeof prevSnap.personalInfo === 'object'
+            ? prevSnap.personalInfo
+            : {};
+        const nextPersonal =
+          incomingExtra.phase1ProfileSnapshot.personalInfo &&
+          typeof incomingExtra.phase1ProfileSnapshot.personalInfo === 'object'
+            ? { ...incomingExtra.phase1ProfileSnapshot.personalInfo }
+            : { ...prevPersonal };
+        if (Object.prototype.hasOwnProperty.call(updateData, 'gender')) {
+          nextPersonal.gender = updateData.gender;
+        }
+        if (Object.prototype.hasOwnProperty.call(updateData, 'middleName')) {
+          nextPersonal.middleName = updateData.middleName;
+        }
+        if (Object.prototype.hasOwnProperty.call(updateData, 'dateOfBirth')) {
+          const dob = updateData.dateOfBirth;
+          nextPersonal.dob =
+            dob instanceof Date
+              ? dob.toISOString().slice(0, 10)
+              : dob
+                ? String(dob).slice(0, 10)
+                : null;
+          nextPersonal.dateOfBirth = nextPersonal.dob;
+        }
         incomingExtra.phase1ProfileSnapshot = {
           ...incomingExtra.phase1ProfileSnapshot,
+          personalInfo: nextPersonal,
           _phase1SnapshotSavedAt:
             incomingExtra.phase1ProfileSnapshot._phase1SnapshotSavedAt ||
             new Date().toISOString(),
         };
       }
       updateData.extraData = mergeCandidateRecruiterExtraData(existingExtra, incomingExtra);
+    } else if (
+      Object.prototype.hasOwnProperty.call(updateData, 'gender') ||
+      Object.prototype.hasOwnProperty.call(updateData, 'middleName') ||
+      Object.prototype.hasOwnProperty.call(updateData, 'dateOfBirth')
+    ) {
+      // Identity-only patch without a full snapshot — keep personalInfo in extraData.
+      const existingExtraRow = await prisma.candidate.findUnique({
+        where: { id },
+        select: { extraData: true },
+      });
+      const existingExtra =
+        existingExtraRow?.extraData &&
+        typeof existingExtraRow.extraData === 'object' &&
+        !Array.isArray(existingExtraRow.extraData)
+          ? existingExtraRow.extraData
+          : {};
+      const prevSnap =
+        existingExtra.phase1ProfileSnapshot &&
+        typeof existingExtra.phase1ProfileSnapshot === 'object'
+          ? existingExtra.phase1ProfileSnapshot
+          : {};
+      const prevPersonal =
+        prevSnap.personalInfo && typeof prevSnap.personalInfo === 'object'
+          ? { ...prevSnap.personalInfo }
+          : {};
+      if (Object.prototype.hasOwnProperty.call(updateData, 'gender')) {
+        prevPersonal.gender = updateData.gender;
+      }
+      if (Object.prototype.hasOwnProperty.call(updateData, 'middleName')) {
+        prevPersonal.middleName = updateData.middleName;
+      }
+      if (Object.prototype.hasOwnProperty.call(updateData, 'dateOfBirth')) {
+        const dob = updateData.dateOfBirth;
+        prevPersonal.dob =
+          dob instanceof Date
+            ? dob.toISOString().slice(0, 10)
+            : dob
+              ? String(dob).slice(0, 10)
+              : null;
+        prevPersonal.dateOfBirth = prevPersonal.dob;
+      }
+      updateData.extraData = mergeCandidateRecruiterExtraData(existingExtra, {
+        phase1ProfileSnapshot: {
+          ...prevSnap,
+          personalInfo: prevPersonal,
+          _phase1SnapshotSavedAt: new Date().toISOString(),
+        },
+      });
     }
 
     if (
@@ -5132,6 +5705,22 @@ export const candidateService = {
         });
       } catch (error) {
         if (error?.code === 'P2025') return null;
+        // Stale Prisma client (before `prisma generate`) may reject new identity fields.
+        if (/Unknown arg|Unknown argument/i.test(String(error?.message || ''))) {
+          const stripped = { ...updateData };
+          delete stripped.gender;
+          delete stripped.middleName;
+          delete stripped.dateOfBirth;
+          try {
+            return await client.candidate.update({
+              where: { id },
+              data: stripped,
+            });
+          } catch (retryErr) {
+            if (retryErr?.code === 'P2025') return null;
+            throw retryErr;
+          }
+        }
         throw error;
       }
     };
@@ -5188,6 +5777,27 @@ export const candidateService = {
                     ? { phase1Accomplishments: updateData.extraData.phase1Accomplishments }
                     : {}),
                 }),
+                ...(Object.prototype.hasOwnProperty.call(updateData, 'firstName')
+                  ? { firstName: updateData.firstName }
+                  : {}),
+                ...(Object.prototype.hasOwnProperty.call(updateData, 'lastName')
+                  ? { lastName: updateData.lastName }
+                  : {}),
+                ...(Object.prototype.hasOwnProperty.call(updateData, 'email')
+                  ? { email: updateData.email }
+                  : {}),
+                ...(Object.prototype.hasOwnProperty.call(updateData, 'phone')
+                  ? { phone: updateData.phone }
+                  : {}),
+                ...(Object.prototype.hasOwnProperty.call(updateData, 'linkedIn')
+                  ? { linkedIn: updateData.linkedIn }
+                  : {}),
+                ...(Object.prototype.hasOwnProperty.call(updateData, 'city')
+                  ? { city: updateData.city }
+                  : {}),
+                ...(Object.prototype.hasOwnProperty.call(updateData, 'country')
+                  ? { country: updateData.country }
+                  : {}),
               },
             });
           }
@@ -5196,6 +5806,90 @@ export const candidateService = {
             '[candidate.service] portal phase1 snapshot sync failed:',
             id,
             syncErr?.message || syncErr,
+          );
+        }
+      }
+
+      const snapCareer = updateData.extraData.phase1ProfileSnapshot.careerPreferences;
+      if (snapCareer && typeof snapCareer === 'object') {
+        void upsertPortalCareerPreferences(id, snapCareer);
+      }
+
+      const snapPersonal = updateData.extraData.phase1ProfileSnapshot.personalInfo;
+      void syncPortalCandidateProfileIdentity(id, {
+        gender: updateData.gender ?? snapPersonal?.gender,
+        dateOfBirth: updateData.dateOfBirth ?? snapPersonal?.dob ?? snapPersonal?.dateOfBirth,
+        middleName: updateData.middleName ?? snapPersonal?.middleName,
+        firstName: updateData.firstName ?? snapPersonal?.firstName,
+        lastName: updateData.lastName ?? snapPersonal?.lastName,
+        email: updateData.email ?? snapPersonal?.email,
+        phone: updateData.phone ?? snapPersonal?.phone,
+        city: updateData.city ?? snapPersonal?.city,
+        country: updateData.country ?? snapPersonal?.country,
+        linkedIn: updateData.linkedIn ?? snapPersonal?.linkedinUrl,
+      });
+    } else if (updated && isTenantScopedRequest()) {
+      // Non-snapshot Overview/CRM edits that still carry identity fields.
+      if (
+        Object.prototype.hasOwnProperty.call(updateData, 'gender') ||
+        Object.prototype.hasOwnProperty.call(updateData, 'dateOfBirth') ||
+        Object.prototype.hasOwnProperty.call(updateData, 'middleName') ||
+        Object.prototype.hasOwnProperty.call(updateData, 'firstName') ||
+        Object.prototype.hasOwnProperty.call(updateData, 'lastName')
+      ) {
+        void syncPortalCandidateProfileIdentity(id, {
+          gender: updateData.gender,
+          dateOfBirth: updateData.dateOfBirth,
+          middleName: updateData.middleName,
+          firstName: updateData.firstName,
+          lastName: updateData.lastName,
+          email: updateData.email,
+          phone: updateData.phone,
+          city: updateData.city,
+          country: updateData.country,
+          linkedIn: updateData.linkedIn,
+        });
+      }
+    }
+
+    // Keep portal assignment in sync so getById merge cannot resurrect Job A
+    // after the tenant row was reassigned to Job B.
+    if (
+      updated &&
+      isTenantScopedRequest() &&
+      Object.prototype.hasOwnProperty.call(updateData, 'assignedJobs')
+    ) {
+      let portalPrismaForJobs = null;
+      try {
+        portalPrismaForJobs = getJobPortalPrismaClient();
+      } catch {
+        portalPrismaForJobs = null;
+      }
+      if (portalPrismaForJobs) {
+        try {
+          const portalExists = await portalPrismaForJobs.candidate.findUnique({
+            where: { id },
+            select: { id: true },
+          });
+          if (portalExists) {
+            const portalJobPatch = {
+              assignedJobs: Array.isArray(updateData.assignedJobs)
+                ? updateData.assignedJobs.map((jid) => String(jid || '').trim()).filter(Boolean)
+                : [],
+            };
+            if (Object.prototype.hasOwnProperty.call(updateData, 'stage')) {
+              portalJobPatch.stage = updateData.stage;
+            }
+            await portalPrismaForJobs.candidate.update({
+              where: { id },
+              data: portalJobPatch,
+            });
+          }
+        } catch (syncJobsErr) {
+          console.warn(
+            '[candidate.service] portal assignedJobs sync failed:',
+            id,
+            syncJobsErr?.message || syncJobsErr,
           );
         }
       }
@@ -5221,18 +5915,15 @@ export const candidateService = {
 
     // New job links: ensure a per-job pipeline entry at Applied so the job
     // drawer does not fall back to a previous job's Offer / Interviewing stage.
+    // Use ensure-only path (do not rewrite assignedJobs) — addToPipeline appends
+    // and would undo a replace assignment if anything reintroduced the old job.
     if (newlyAssignedJobIds.length) {
       const linkStage = String(updateData.stage || 'Applied').trim() || 'Applied';
       for (const jobId of newlyAssignedJobIds) {
         try {
-          const existingEntry = await prisma.pipelineEntry.findFirst({
-            where: { candidateId: id, jobId },
-            select: { id: true },
-          });
-          if (existingEntry) continue;
-          await candidateService.addToPipeline(
+          await ensurePipelineEntryForJob(
             id,
-            { jobId, stage: linkStage },
+            { jobId, stage: linkStage, forceStage: true },
             performedByUserId || updated.assignedToId || null,
           );
         } catch (linkErr) {

@@ -362,7 +362,28 @@ function buildAssignedJobsList(c: BackendCandidate): NonNullable<CandidateProfil
     });
   }
 
-  return Array.from(byKey.values());
+  let rows = Array.from(byKey.values());
+  // When the CRM has an explicit assignedJobs list (replace assignment), only
+  // surface those jobs — old Job A pipeline/match rows must not keep showing.
+  const assignedIds = idArr.map((id) => String(id || '').trim()).filter(Boolean);
+  if (assignedIds.length) {
+    const allowed = new Set(assignedIds);
+    const filtered = rows.filter((row) => row.id && allowed.has(String(row.id)));
+    if (filtered.length) {
+      rows = assignedIds
+        .map((id) => filtered.find((row) => String(row.id) === id))
+        .filter((row): row is Row => Boolean(row));
+    } else {
+      rows = assignedIds.map((id) => ({
+        id,
+        title: findJobTitleById(id, c.matches) || titleArr[assignedIds.indexOf(id)] || 'Untitled job',
+        status: null,
+        stage: c.stage || null,
+      }));
+    }
+  }
+
+  return rows;
 }
 
 function mapClientReplyRows(
