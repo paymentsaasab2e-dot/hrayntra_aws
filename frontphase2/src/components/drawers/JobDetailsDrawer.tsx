@@ -1337,16 +1337,16 @@ function JobDrawerAiMatchesTab({
         </div>
       ) : (
         <>
-          <div className="no-scrollbar -mx-1 overflow-x-auto">
-            <MatchCandidateTable
+        <div className="no-scrollbar -mx-1 overflow-x-auto">
+          <MatchCandidateTable
               candidates={pagedCandidates}
-              activeView="internal"
-              selectedCandidates={aiMatchSelectedIds}
-              savedMatches={aiSavedMatches}
-              expandedAnalysis={aiExpandedAnalysis}
-              showMatchScore
+            activeView="internal"
+            selectedCandidates={aiMatchSelectedIds}
+            savedMatches={aiSavedMatches}
+            expandedAnalysis={aiExpandedAnalysis}
+            showMatchScore
               isColumnVisible={isColumnVisible}
-              onToggleSelect={onToggleSelect}
+            onToggleSelect={onToggleSelect}
               onToggleSelectAll={() => {
                 const pageIds = pagedCandidates.map((row) => row.id);
                 const allPageSelected =
@@ -1361,19 +1361,19 @@ function JobDrawerAiMatchesTab({
                   if (!aiMatchSelectedIds.includes(id)) onToggleSelect(id);
                 });
               }}
-              onToggleSave={onToggleSave}
-              onToggleAnalysis={onToggleAnalysis}
-              onViewProfile={onViewProfile}
-              onOpenPipeline={() => {
-                void requestInfo('Use the Pipeline tab or Matches page to add candidates to the pipeline.');
-              }}
-              onOpenSubmit={onOpenSubmit}
-              onOpenReject={() => {
-                void requestInfo('Use the Matches page to reject AI match rows.');
-              }}
-              onRateMatch={() => undefined}
-            />
-          </div>
+            onToggleSave={onToggleSave}
+            onToggleAnalysis={onToggleAnalysis}
+            onViewProfile={onViewProfile}
+            onOpenPipeline={() => {
+              void requestInfo('Use the Pipeline tab or Matches page to add candidates to the pipeline.');
+            }}
+            onOpenSubmit={onOpenSubmit}
+            onOpenReject={() => {
+              void requestInfo('Use the Matches page to reject AI match rows.');
+            }}
+            onRateMatch={() => undefined}
+          />
+        </div>
           <div className={PH2_TABLE_CARD_FOOTER_CLASS}>
             <PaginationAll
               initialPage={safePage}
@@ -1961,12 +1961,12 @@ export function JobDetailsDrawer({
             return [
               row.id,
               {
-                candidateId: row.id,
-                jobId: job.id,
-                candidateName: row.candidateName,
-                jobTitle: job.title,
-                clientId: job.clientId ?? undefined,
-                matchScore: parseJobCandidateScore(row.score),
+        candidateId: row.id,
+        jobId: job.id,
+        candidateName: row.candidateName,
+        jobTitle: job.title,
+        clientId: job.clientId ?? undefined,
+        matchScore: parseJobCandidateScore(row.score),
                 cvShareMode: mode,
                 resumeFileId:
                   resumeFileId && isRealResumeFileId(resumeFileId) ? resumeFileId : undefined,
@@ -3056,7 +3056,7 @@ export function JobDetailsDrawer({
   };
 
   useEffect(() => {
-    setApplyShareOpen(false);
+        setApplyShareOpen(false);
   }, [job?.id]);
 
   const shareApplyLink = useCallback(async () => {
@@ -3661,40 +3661,40 @@ export function JobDetailsDrawer({
                       </button>
                     ) : (
                       <div className="flex min-w-[12rem] shrink-0 items-center gap-2">
-                        <JobDrawerStatusDropdown
-                          value={localJobStatus || job.status}
-                          options={drawerStatusOptions}
-                          deleting={deletingJobStatus || updatingJobStatus}
-                          onSelect={(status) => {
-                            void applyJobStatusChange(status);
-                          }}
-                          onDelete={(status) => {
-                            void deleteJobStatusOption(status);
-                          }}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setShowAddJobStatusInput((prev) => !prev);
-                            setNewJobStatusValue('');
-                          }}
-                          className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-700 hover:text-indigo-800"
-                        >
-                          <Plus className="h-3.5 w-3.5" />
-                          Add status
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setShowStatusChange(false);
-                            setShowAddJobStatusInput(false);
-                            setNewJobStatusValue('');
-                            setLocalJobStatus(job.status);
-                          }}
-                          className="text-[11px] font-semibold text-slate-500 hover:text-slate-700"
-                        >
-                          Cancel
-                        </button>
+                          <JobDrawerStatusDropdown
+                            value={localJobStatus || job.status}
+                            options={drawerStatusOptions}
+                            deleting={deletingJobStatus || updatingJobStatus}
+                            onSelect={(status) => {
+                              void applyJobStatusChange(status);
+                            }}
+                            onDelete={(status) => {
+                              void deleteJobStatusOption(status);
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowAddJobStatusInput((prev) => !prev);
+                              setNewJobStatusValue('');
+                            }}
+                            className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-700 hover:text-indigo-800"
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                            Add status
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowStatusChange(false);
+                              setShowAddJobStatusInput(false);
+                              setNewJobStatusValue('');
+                              setLocalJobStatus(job.status);
+                            }}
+                            className="text-[11px] font-semibold text-slate-500 hover:text-slate-700"
+                          >
+                            Cancel
+                          </button>
                         {showAddJobStatusInput ? (
                           <>
                             <input
@@ -3838,67 +3838,67 @@ export function JobDetailsDrawer({
                               : { top: applyShareMenuPosition.top }),
                           }}
                         >
-                          <p className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-indigo-400">
-                            Apply link
-                          </p>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              void navigator.clipboard.writeText(applyUrl).then(() => {
-                                setApplyLinkCopied(true);
-                                setApplyShareOpen(false);
-                                window.setTimeout(() => setApplyLinkCopied(false), 2000);
-                                requestInfo('Apply link copied');
-                              });
-                            }}
-                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-900"
-                          >
-                            <Copy size={14} />
-                            {applyLinkCopied ? 'Copied' : 'Copy'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setApplyShareOpen(false);
-                              void shareApplyLink();
-                            }}
-                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-900"
-                          >
-                            <Share2 size={14} />
-                            Share
-                          </button>
-                          {(
-                            [
-                              { id: 'whatsapp', label: 'WhatsApp' },
-                              { id: 'linkedin', label: 'LinkedIn' },
-                              { id: 'x', label: 'X / Twitter' },
-                              { id: 'facebook', label: 'Facebook' },
-                              { id: 'telegram', label: 'Telegram' },
-                              { id: 'email', label: 'Email' },
-                            ] as const
-                          ).map((item) => (
-                            <button
-                              key={item.id}
-                              type="button"
-                              onClick={() => {
-                                openApplyShareTarget(item.id);
-                                setApplyShareOpen(false);
-                              }}
-                              className="flex w-full px-3 py-2 pl-9 text-left text-xs font-semibold text-slate-600 hover:bg-indigo-50 hover:text-indigo-900"
-                            >
-                              {item.label}
-                            </button>
-                          ))}
-                          <a
-                            href={applyUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={() => setApplyShareOpen(false)}
-                            className="flex w-full items-center gap-2 border-t border-indigo-50 px-3 py-2 text-left text-xs font-semibold text-indigo-700 hover:bg-indigo-50"
-                          >
-                            <ExternalLink size={14} />
-                            Open
-                          </a>
+                      <p className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-indigo-400">
+                        Apply link
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void navigator.clipboard.writeText(applyUrl).then(() => {
+                            setApplyLinkCopied(true);
+                            setApplyShareOpen(false);
+                            window.setTimeout(() => setApplyLinkCopied(false), 2000);
+                            requestInfo('Apply link copied');
+                          });
+                        }}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-900"
+                      >
+                        <Copy size={14} />
+                        {applyLinkCopied ? 'Copied' : 'Copy'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setApplyShareOpen(false);
+                          void shareApplyLink();
+                        }}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-900"
+                      >
+                        <Share2 size={14} />
+                        Share
+                      </button>
+                      {(
+                        [
+                          { id: 'whatsapp', label: 'WhatsApp' },
+                          { id: 'linkedin', label: 'LinkedIn' },
+                          { id: 'x', label: 'X / Twitter' },
+                          { id: 'facebook', label: 'Facebook' },
+                          { id: 'telegram', label: 'Telegram' },
+                          { id: 'email', label: 'Email' },
+                        ] as const
+                      ).map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => {
+                            openApplyShareTarget(item.id);
+                            setApplyShareOpen(false);
+                          }}
+                          className="flex w-full px-3 py-2 pl-9 text-left text-xs font-semibold text-slate-600 hover:bg-indigo-50 hover:text-indigo-900"
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                      <a
+                        href={applyUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={() => setApplyShareOpen(false)}
+                        className="flex w-full items-center gap-2 border-t border-indigo-50 px-3 py-2 text-left text-xs font-semibold text-indigo-700 hover:bg-indigo-50"
+                      >
+                        <ExternalLink size={14} />
+                        Open
+                      </a>
                         </div>,
                         document.body,
                       )
@@ -3984,8 +3984,8 @@ export function JobDetailsDrawer({
                               void handleJobCvFileSelected(event.target.files);
                             }}
                           />
-                          <button
-                            type="button"
+                      <button
+                        type="button"
                             onClick={() => fileInputRef.current?.click()}
                             disabled={uploadingJobCv}
                             className="inline-flex h-8 shrink-0 items-center justify-center gap-2 rounded-lg border border-indigo-200 bg-white px-3 text-sm font-semibold text-indigo-700 shadow-sm transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60"
@@ -3994,16 +3994,16 @@ export function JobDetailsDrawer({
                             {uploadingJobCv ? (
                               <Loader2 size={16} className="animate-spin" strokeWidth={2.25} />
                             ) : (
-                              <Upload size={16} strokeWidth={2.25} />
+                        <Upload size={16} strokeWidth={2.25} />
                             )}
                             {uploadingJobCv
                               ? jobCvUploadProgress
                                 ? `Creating ${jobCvUploadProgress.done}/${jobCvUploadProgress.total}…`
                                 : 'Creating candidates…'
                               : 'Upload CV'}
-                          </button>
+                      </button>
                         </>
-                      ) : null}
+                    ) : null}
                     </div>
                   </div>
 
@@ -4147,7 +4147,7 @@ export function JobDetailsDrawer({
                           {uploadingJobCv ? (
                             <Loader2 size={16} className="animate-spin" />
                           ) : (
-                            <Upload size={16} />
+                          <Upload size={16} />
                           )}
                           {uploadingJobCv
                             ? jobCvUploadProgress
@@ -4728,7 +4728,7 @@ export function JobDetailsDrawer({
                 >
                     <div className="space-y-4">
                       {assignable.canSelectCompany ? (
-                        <div>
+                      <div>
                           <AssignCompanySelect
                             companies={assignable.companies}
                             value={assignable.companyId}
@@ -4799,7 +4799,7 @@ export function JobDetailsDrawer({
                               >
                                 <span className="max-w-[180px] truncate">
                                   {formatAssigneeOptionLabel(user, assignmentCurrentUserId)}
-                                </span>
+                            </span>
                                 {index === 0 ? (
                                   <span className="rounded bg-sky-100 px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-sky-600">
                                     Primary
@@ -5050,7 +5050,7 @@ export function JobDetailsDrawer({
                           </tr>
                         </thead>
                         <tbody className={DRAWER_TABLE_BODY}>
-                          {loadingJobInterviews ? (
+                      {loadingJobInterviews ? (
                             <tr>
                               <td
                                 colSpan={6}
@@ -5058,11 +5058,11 @@ export function JobDetailsDrawer({
                               >
                                 <span className="inline-flex items-center gap-2">
                                   <Loader2 size={16} className="animate-spin text-indigo-500" />
-                                  Loading interviews…
+                          Loading interviews…
                                 </span>
                               </td>
                             </tr>
-                          ) : jobInterviews.length === 0 ? (
+                      ) : jobInterviews.length === 0 ? (
                             <tr>
                               <td
                                 colSpan={6}
@@ -5095,16 +5095,16 @@ export function JobDetailsDrawer({
                             </tr>
                           ) : (
                             filteredJobInterviews.map((item) => {
-                              const statusLabel = formatInterviewListStatus(item.status);
+                          const statusLabel = formatInterviewListStatus(item.status);
                               const candidateEmail = String(item.candidate?.email || '').trim();
                               const timezoneLabel = item.timezone
                                 ? formatTimezoneDisplay(resolveIanaFromTimezoneValue(item.timezone))
                                 : '';
                               const roundNumber = jobInterviewRoundById[item.id] || 1;
                               const roundType = String(item.round || '').trim() || 'Screening';
-                              return (
+                          return (
                                 <tr
-                                  key={item.id}
+                              key={item.id}
                                   className={`${DRAWER_TABLE_TR} cursor-pointer`}
                                   onClick={() => {
                                     setSelectedJobInterview(item);
@@ -5135,8 +5135,8 @@ export function JobDetailsDrawer({
                                     <p className="text-sm font-medium text-slate-800">
                                       {formatInterviewDateInTimezone(item.scheduledAt, item.timezone)}
                                     </p>
-                                    <p className="text-[11px] text-slate-500">
-                                      {formatInterviewTimeInTimezone(item.scheduledAt, item.timezone)}
+                                <p className="text-[11px] text-slate-500">
+                                  {formatInterviewTimeInTimezone(item.scheduledAt, item.timezone)}
                                       {timezoneLabel ? ` · ${timezoneLabel}` : ''}
                                       {item.duration ? ` · ${item.duration} min` : ''}
                                     </p>
@@ -5146,7 +5146,7 @@ export function JobDetailsDrawer({
                                       R{roundNumber}
                                       <span className="font-medium text-indigo-500/80">·</span>
                                       <span className="font-medium text-slate-700">{roundType}</span>
-                                    </span>
+                              </span>
                                   </td>
                                   <td className={`${DRAWER_TABLE_TD} text-sm text-slate-700`}>
                                     {formatInterviewTypeLabel(item)}
@@ -5157,21 +5157,21 @@ export function JobDetailsDrawer({
                                     </p>
                                   </td>
                                   <td className={`${DRAWER_TABLE_TD} sm:pr-5`}>
-                                    <span
+                              <span
                                       className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${interviewListStatusBadgeClass(statusLabel)}`}
-                                    >
-                                      {statusLabel}
-                                    </span>
+                              >
+                                {statusLabel}
+                              </span>
                                   </td>
                                 </tr>
-                              );
-                            })
-                          )}
+                          );
+                        })
+                      )}
                         </tbody>
                       </table>
                     </div>
                   </div>
-                  </div>
+                    </div>
                 </DrawerSectionCard>
               )}
               {activeTab === 'placements' && (
@@ -5570,7 +5570,7 @@ export function JobDetailsDrawer({
                 </DrawerSectionCard>
               ) : null}
               </div>
-              </div>
+            </div>
             )}
 
           </>
@@ -5875,10 +5875,10 @@ export function JobDetailsDrawer({
                         }`}
                       >
                         <label className="flex cursor-pointer items-center gap-3">
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() =>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() =>
                               setPickerSelectedIds((prev) => {
                                 if (prev.includes(row.id)) {
                                   return prev.filter((id) => id !== row.id);
@@ -5886,28 +5886,28 @@ export function JobDetailsDrawer({
                                 ensurePickerCvMeta(row.id);
                                 return [...prev, row.id];
                               })
-                            }
-                            className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                          />
-                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-xs font-bold text-indigo-700">
-                            {(row.candidateName || 'C')
-                              .split(/\s+/)
-                              .map((part) => part[0])
-                              .filter(Boolean)
-                              .slice(0, 2)
-                              .join('')
-                              .toUpperCase()}
+                          }
+                          className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-xs font-bold text-indigo-700">
+                          {(row.candidateName || 'C')
+                            .split(/\s+/)
+                            .map((part) => part[0])
+                            .filter(Boolean)
+                            .slice(0, 2)
+                            .join('')
+                            .toUpperCase()}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-semibold text-slate-900">
+                            {row.candidateName || 'Unnamed candidate'}
                           </span>
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate text-sm font-semibold text-slate-900">
-                              {row.candidateName || 'Unnamed candidate'}
-                            </span>
-                            <span className="mt-0.5 block truncate text-xs text-slate-500">
+                          <span className="mt-0.5 block truncate text-xs text-slate-500">
                               {[row.currentStage, row.email].filter(Boolean).join(' · ') ||
                                 'Job candidate'}
-                            </span>
                           </span>
-                        </label>
+                        </span>
+                      </label>
                         {checked ? (
                           <div
                             className="mt-2 ml-7 flex flex-col gap-2"

@@ -1072,6 +1072,35 @@ const candidateListInclude = {
   },
 };
 
+/** Faster list include — enough for table chips; avoid deep client joins on every filter. */
+const candidateListIncludeFast = {
+  assignedTo: {
+    select: { id: true, name: true, email: true },
+  },
+  createdBy: {
+    select: USER_BRIEF_SELECT,
+  },
+  applications: {
+    select: { id: true, jobId: true, status: true, job: { select: { id: true, title: true } } },
+    take: 5,
+  },
+  pipelineEntries: {
+    select: { id: true, jobId: true, stage: { select: { name: true } } },
+    take: 5,
+  },
+  matches: {
+    select: {
+      id: true,
+      jobId: true,
+      score: true,
+      status: true,
+      job: { select: { id: true, title: true } },
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 5,
+  },
+};
+
 /** Lean index for merge/sort — never load extraData / CV JSON for the full tenant. */
 const candidateListIndexSelect = {
   id: true,
@@ -3975,9 +4004,8 @@ function buildStagePrismaWhereClause(stageParam) {
   }
   const variants = STAGE_FILTER_VARIANTS[key] || [String(stageParam || '').trim()];
   const unique = [...new Set(variants.map((v) => String(v).trim()).filter(Boolean))];
-  return {
-    OR: unique.map((variant) => ({ stage: variant })),
-  };
+  // Single `in` uses the stage index better than a long OR of equals.
+  return { stage: { in: unique } };
 }
 
 function parseCandidateListFilters(query = {}) {
@@ -4006,31 +4034,26 @@ function appendCandidateListFilterAndParts(andParts, filters) {
     andParts.push(stageClause);
   }
   if (company) {
+    // Index-friendly: filter on candidate.currentCompany only.
+    // Nested matches→job→client scans were multi-second on every filter change.
+    andParts.push({ currentCompany: { contains: company, mode: 'insensitive' } });
+  }
+  if (location) {
     andParts.push({
       OR: [
-        { currentCompany: { contains: company, mode: 'insensitive' } },
-        {
-          matches: {
-            some: {
-              job: {
-                client: { companyName: { contains: company, mode: 'insensitive' } },
-              },
-            },
-          },
-        },
+        { location: { contains: location, mode: 'insensitive' } },
+        { city: { contains: location, mode: 'insensitive' } },
+        { country: { contains: location, mode: 'insensitive' } },
       ],
     });
   }
-  if (location) {
-    andParts.push({ location: { contains: location } });
-  }
   if (jobId) {
+    // Prefer assignedJobs (array index) before nested relation scans.
     andParts.push({
       OR: [
         { assignedJobs: { has: jobId } },
-        { matches: { some: { jobId: jobId } } },
-        { applications: { some: { jobId: jobId } } },
-        { pipelineEntries: { some: { jobId: jobId } } },
+        { applications: { some: { jobId } } },
+        { matches: { some: { jobId } } },
       ],
     });
   }
@@ -4954,22 +4977,41 @@ export const candidateService = {
         }
       }
     } else {
-      // Fast path: tenant CRM only — true DB pagination (My candidates + All without pool merge).
-      // Never race to an empty page: under load that returned 0 candidates after ~8s.
+      // Fast path: tenant CRM only — lean id page + hydrate (filters must stay snappy).
       const tQ = candidatePerfNow();
-      const [rowTotal, pageRows] = await Promise.all([
+      const hasActiveListFilters = Boolean(
+        String(search || '').trim() ||
+          listFilters?.stage ||
+          listFilters?.company ||
+          listFilters?.location ||
+          listFilters?.jobId ||
+          listFilters?.experienceRange ||
+          status ||
+          assignedToId,
+      );
+      const [rowTotal, pageIndexRows] = await Promise.all([
         prisma.candidate.count({ where }),
         prisma.candidate.findMany({
           where,
-          include: candidateListInclude,
+          select: { id: true },
           orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
           skip,
           take: limit,
         }),
       ]);
+      const pageIds = pageIndexRows.map((row) => String(row.id)).filter(Boolean);
+      let pageRows = [];
+      if (pageIds.length) {
+        const hydrated = await prisma.candidate.findMany({
+          where: { id: { in: pageIds } },
+          include: hasActiveListFilters ? candidateListIncludeFast : candidateListInclude,
+        });
+        const byId = new Map(hydrated.map((row) => [String(row.id), row]));
+        pageRows = pageIds.map((id) => byId.get(id)).filter(Boolean);
+      }
       perfMarks.tenantQuery = Math.round(candidatePerfNow() - tQ);
       perfMarks.count = perfMarks.tenantQuery;
-      perfMarks.sourceCounts = `tenant-only mine=${mine ? '1' : '0'}`;
+      perfMarks.sourceCounts = `tenant-only mine=${mine ? '1' : '0'} filtered=${hasActiveListFilters ? 1 : 0}`;
       total = rowTotal;
       candidates = await attachPlacementsToCandidates(pageRows);
     }
@@ -4982,15 +5024,30 @@ export const candidateService = {
         portalClientForList = null;
       }
       if (portalClientForList) {
-        // Never block the candidates table on resume URL hydration from portal.
-        const RESUME_HYDRATE_MS = Math.min(
-          2500,
-          Math.max(200, Number(process.env.CANDIDATE_RESUME_HYDRATE_MS || 800) || 800),
+        const hasActiveListFilters = Boolean(
+          String(search || '').trim() ||
+            listFilters?.stage ||
+            listFilters?.company ||
+            listFilters?.location ||
+            listFilters?.jobId ||
+            listFilters?.experienceRange ||
+            status ||
+            assignedToId ||
+            mine,
         );
-        await Promise.race([
-          batchHydrateCandidatesResumeFromPortal(candidates, portalClientForList).catch(() => null),
-          new Promise((resolve) => setTimeout(resolve, RESUME_HYDRATE_MS)),
-        ]);
+        // Filter / My list changes must stay snappy — never wait on portal resume I/O.
+        if (hasActiveListFilters) {
+          void batchHydrateCandidatesResumeFromPortal(candidates, portalClientForList).catch(() => null);
+        } else {
+          const RESUME_HYDRATE_MS = Math.min(
+            2500,
+            Math.max(200, Number(process.env.CANDIDATE_RESUME_HYDRATE_MS || 800) || 800),
+          );
+          await Promise.race([
+            batchHydrateCandidatesResumeFromPortal(candidates, portalClientForList).catch(() => null),
+            new Promise((resolve) => setTimeout(resolve, RESUME_HYDRATE_MS)),
+          ]);
+        }
         const candidateIds = candidates
           .map((row) => String(row?.id || '').trim())
           .filter(Boolean);
@@ -5046,14 +5103,33 @@ export const candidateService = {
     // Fetch career preferences from portal DB for the visible page so that
     // candidate-self-updated values (notice period, expected salary, availability,
     // preferred location) appear in the list response too.
-    const CAREER_PREFS_MS = Math.min(
-      2500,
-      Math.max(200, Number(process.env.CANDIDATE_CAREER_PREFS_MS || 1000) || 1000),
+    // Skip waiting when filters / My tab are active — table latency matters more.
+    const skipCareerPrefsWait = Boolean(
+      String(search || '').trim() ||
+        listFilters?.stage ||
+        listFilters?.company ||
+        listFilters?.location ||
+        listFilters?.jobId ||
+        listFilters?.experienceRange ||
+        status ||
+        assignedToId ||
+        mine,
     );
-    const careerPrefsByCandidate = await Promise.race([
-      fetchCareerPreferencesForCandidates(candidates.map((c) => c.id).filter(Boolean)),
-      new Promise((resolve) => setTimeout(() => resolve(new Map()), CAREER_PREFS_MS)),
-    ]);
+    let careerPrefsByCandidate = new Map();
+    if (!skipCareerPrefsWait && candidates.length) {
+      const CAREER_PREFS_MS = Math.min(
+        2500,
+        Math.max(200, Number(process.env.CANDIDATE_CAREER_PREFS_MS || 1000) || 1000),
+      );
+      careerPrefsByCandidate = await Promise.race([
+        fetchCareerPreferencesForCandidates(candidates.map((c) => c.id).filter(Boolean)),
+        new Promise((resolve) => setTimeout(() => resolve(new Map()), CAREER_PREFS_MS)),
+      ]);
+    } else if (candidates.length) {
+      void fetchCareerPreferencesForCandidates(candidates.map((c) => c.id).filter(Boolean)).catch(
+        () => null,
+      );
+    }
 
     const enriched = candidates.map((candidate) => {
       const careerPrefs = careerPrefsByCandidate.get(String(candidate.id));
