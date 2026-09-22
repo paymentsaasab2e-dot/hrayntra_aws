@@ -137,8 +137,9 @@ function translateAnnotationsForPage(
 }
 
 /**
- * Paint saved in-place text edits onto an overlay using the same CSS box
- * positions the preview uses (style.left/top), not a guessed canvas mapping.
+ * Map saved in-place text edits onto an overlay.
+ * Prefer page-% coords (data-saasa-x-pct…) captured from the live preview on Save.
+ * Fall back to canvas-space left/top. Also can stamp from the visible preview host.
  */
 function parseSaasaPageSizeMarker(
   pageHtml: string
@@ -154,82 +155,153 @@ function parseSaasaPageSizeMarker(
   return { canvasW, canvasH, scale };
 }
 
-function readSpanCssBox(node: HTMLSpanElement, scaleFallback: number): {
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-} {
-  const scale = parseFloat(node.dataset.saasaScale || String(scaleFallback)) || 1;
-  const fromStyle = (prop: 'left' | 'top' | 'width' | 'height') => {
-    const raw = String(node.style?.[prop] || '').trim();
-    if (!raw) return NaN;
-    const n = parseFloat(raw);
-    return Number.isFinite(n) ? n : NaN;
-  };
-
-  let left = fromStyle('left');
-  let top = fromStyle('top');
-  let width = fromStyle('width');
-  let height = fromStyle('height');
-
-  if (!Number.isFinite(left)) left = (parseFloat(node.dataset.saasaLeft || '0') || 0) * scale;
-  if (!Number.isFinite(top)) top = (parseFloat(node.dataset.saasaTop || '0') || 0) * scale;
-  if (!Number.isFinite(width)) {
-    width = Math.max(1, (parseFloat(node.dataset.saasaWidth || '0') || 0) * scale);
-  }
-  if (!Number.isFinite(height)) {
-    height = Math.max(6, (parseFloat(node.dataset.saasaHeight || '12') || 12) * scale);
-  }
-
-  return {
-    left,
-    top,
-    width: Math.max(1, width),
-    height: Math.max(6, height),
-  };
+function pageHtmlHasTextEdits(pageHtml: string | null | undefined): boolean {
+  return /saasa-pdf-inplace-line--edited|saasa-pdf-inplace-line--cleared|data-saasa-touched\s*=\s*['"]?1['"]?/.test(
+    String(pageHtml || '')
+  );
 }
 
-function resolveTextOverlayPageCssSize(
+function resolveEditCanvasSpace(
   pageHtml: string,
-  displayW: number,
-  displayH: number,
-  overlayAspect: number
-): { cssW: number; cssH: number; scale: number } {
-  const pageSize = parseSaasaPageSizeMarker(pageHtml);
-  if (pageSize) {
-    const cssW = Math.max(1, pageSize.canvasW * pageSize.scale);
-    const cssH = Math.max(1, pageSize.canvasH * pageSize.scale);
-    return { cssW, cssH, scale: pageSize.scale };
+  overlayW: number,
+  overlayH: number,
+  fallbackW: number
+): { spaceW: number; spaceH: number } {
+  const marker = parseSaasaPageSizeMarker(pageHtml);
+  if (marker && marker.canvasW > 8 && marker.canvasH > 8) {
+    return { spaceW: marker.canvasW, spaceH: marker.canvasH };
   }
 
-  // No marker (older saves): infer CSS page size from span boxes + PDF aspect.
+  const aspect = overlayH / Math.max(1, overlayW);
   const wrap = document.createElement('div');
   wrap.innerHTML = pageHtml;
   let maxR = 0;
-  let maxB = 0;
-  let scale = 1;
-  wrap.querySelectorAll('[data-saasa-left], .saasa-pdf-inplace-line').forEach((node) => {
+  wrap.querySelectorAll('[data-saasa-left]').forEach((node) => {
     if (!(node instanceof HTMLSpanElement)) return;
-    scale = parseFloat(node.dataset.saasaScale || '1') || scale;
-    const box = readSpanCssBox(node, scale);
-    maxR = Math.max(maxR, box.left + box.width);
-    maxB = Math.max(maxB, box.top + box.height);
+    const left = parseFloat(node.dataset.saasaLeft || '0') || 0;
+    const width = parseFloat(node.dataset.saasaWidth || '0') || 0;
+    maxR = Math.max(maxR, left + width);
   });
 
-  const aspect = overlayAspect > 0.2 ? overlayAspect : displayH / Math.max(1, displayW);
-  let cssW = Math.max(displayW, maxR);
-  let cssH = Math.max(displayH, maxB);
-  // Prefer PDF page aspect so bottom-of-page lines are not compressed upward.
-  if (maxR > 80) {
-    cssW = Math.max(cssW, maxR / 0.96);
-    cssH = Math.max(cssH, cssW * aspect);
-  } else if (maxB > 80) {
-    cssH = Math.max(cssH, maxB / 0.96);
-    cssW = Math.max(cssW, cssH / aspect);
+  const spaceW = Math.max(fallbackW, maxR > 80 ? maxR / 0.9 : fallbackW);
+  const spaceH = Math.max(1, spaceW * aspect);
+  return { spaceW, spaceH };
+}
+
+/** Burned edits sit slightly below PDF glyphs — nudge up so whiteout covers originals. */
+const EDIT_STAMP_Y_NUDGE = 0.32;
+const EDIT_STAMP_PAD_X = 3;
+const EDIT_STAMP_PAD_TOP = 0.45;
+const EDIT_STAMP_PAD_BOTTOM = 0.2;
+
+function paintEditedLineOnOverlay(
+  ctx: CanvasRenderingContext2D,
+  options: {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    text: string;
+    cleared?: boolean;
+    fontFamily?: string;
+    fontWeight?: string;
+    fontStyle?: string;
+  }
+): void {
+  const { w, h } = options;
+  if (!(w >= 4 && h >= 4)) return;
+
+  const y = options.y - h * EDIT_STAMP_Y_NUDGE;
+  const x = options.x;
+  const padTop = h * EDIT_STAMP_PAD_TOP;
+  const padBottom = h * EDIT_STAMP_PAD_BOTTOM;
+
+  ctx.save();
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(
+    Math.max(0, x - EDIT_STAMP_PAD_X),
+    Math.max(0, y - padTop),
+    w + EDIT_STAMP_PAD_X * 2,
+    h + padTop + padBottom
+  );
+
+  if (options.cleared || !String(options.text || '').trim()) {
+    ctx.restore();
+    return;
   }
 
-  return { cssW: Math.max(1, cssW), cssH: Math.max(1, cssH), scale };
+  const fontPx = Math.max(6, h * 0.82);
+  ctx.fillStyle = '#111827';
+  ctx.font = `${options.fontStyle || 'normal'} ${options.fontWeight || '400'} ${fontPx}px ${
+    options.fontFamily || 'Arial, sans-serif'
+  }`;
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+  ctx.fillText(options.text, x + 2, y + h / 2, Math.max(4, w - 4));
+  ctx.restore();
+}
+
+/** Stamp edits from the on-screen HRYantra preview (same boxes the user sees). */
+function drawEditedTextFromVisiblePreview(
+  ctx: CanvasRenderingContext2D,
+  pageIndex: number,
+  overlayW: number,
+  overlayH: number
+): boolean {
+  if (typeof document === 'undefined') return false;
+  const hosts = Array.from(document.querySelectorAll('[data-saasa-cv-preview-host="1"]'));
+  const host =
+    hosts.find(
+      (el) => el instanceof HTMLElement && el.getBoundingClientRect().width > 40
+    ) || hosts[0];
+  if (!(host instanceof HTMLElement)) return false;
+
+  const pages = Array.from(host.querySelectorAll(':scope > .saasa-pdf-page'));
+  const pageWrap = pages[pageIndex];
+  if (!(pageWrap instanceof HTMLElement)) return false;
+
+  const layer = pageWrap.querySelector('.saasa-pdf-inplace-layer');
+  if (!(layer instanceof HTMLElement)) return false;
+
+  const spans = Array.from(
+    layer.querySelectorAll(
+      '.saasa-pdf-inplace-line--edited, .saasa-pdf-inplace-line--cleared, [data-saasa-touched="1"]'
+    )
+  ).filter((n): n is HTMLSpanElement => n instanceof HTMLSpanElement);
+  if (!spans.length) return false;
+
+  const ref = layer.getBoundingClientRect();
+  if (ref.width < 32 || ref.height < 32) return false;
+
+  let painted = false;
+  spans.forEach((node) => {
+    const rect = node.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) return;
+
+    const x = ((rect.left - ref.left) / ref.width) * overlayW;
+    const y = ((rect.top - ref.top) / ref.height) * overlayH;
+    const w = (rect.width / ref.width) * overlayW;
+    const h = (rect.height / ref.height) * overlayH;
+    if (!(w >= 4 && h >= 4)) return;
+
+    const styles = window.getComputedStyle(node);
+    const text = String(node.textContent || '');
+    paintEditedLineOnOverlay(ctx, {
+      x,
+      y,
+      w,
+      h,
+      text,
+      cleared:
+        !text.trim() || node.classList.contains('saasa-pdf-inplace-line--cleared'),
+      fontFamily: styles.fontFamily || undefined,
+      fontWeight: styles.fontWeight || undefined,
+      fontStyle: styles.fontStyle || undefined,
+    });
+    painted = true;
+  });
+
+  return painted;
 }
 
 function drawEditedTextHtmlOntoOverlay(
@@ -237,8 +309,7 @@ function drawEditedTextHtmlOntoOverlay(
   pageHtml: string,
   overlayW: number,
   overlayH: number,
-  displayW: number,
-  displayH: number
+  fallbackWidthPx: number
 ): void {
   const html = String(pageHtml || '').trim();
   if (!html || overlayW < 1 || overlayH < 1) return;
@@ -252,141 +323,67 @@ function drawEditedTextHtmlOntoOverlay(
   ).filter((n): n is HTMLSpanElement => n instanceof HTMLSpanElement);
   if (!spans.length) return;
 
-  const { cssW, cssH, scale } = resolveTextOverlayPageCssSize(
+  const { spaceW, spaceH } = resolveEditCanvasSpace(
     html,
-    displayW,
-    displayH,
-    overlayH / Math.max(1, overlayW)
+    overlayW,
+    overlayH,
+    Math.max(320, fallbackWidthPx)
   );
 
   spans.forEach((node) => {
-    const box = readSpanCssBox(node, scale);
-    const x = (box.left / cssW) * overlayW;
-    const y = (box.top / cssH) * overlayH;
-    const w = (box.width / cssW) * overlayW;
-    const h = (box.height / cssH) * overlayH;
-    const pad = (2 / cssW) * overlayW;
+    const xPct = parseFloat(node.dataset.saasaXPct || '');
+    const yPct = parseFloat(node.dataset.saasaYPct || '');
+    const wPct = parseFloat(node.dataset.saasaWPct || '');
+    const hPct = parseFloat(node.dataset.saasaHPct || '');
 
-    ctx.save();
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(Math.max(0, x - 2), Math.max(0, y - 2), w + 4, h + 4);
+    let x: number;
+    let y: number;
+    let w: number;
+    let h: number;
+
+    if (
+      Number.isFinite(xPct) &&
+      Number.isFinite(yPct) &&
+      Number.isFinite(wPct) &&
+      Number.isFinite(hPct) &&
+      wPct > 0.05 &&
+      hPct > 0.05
+    ) {
+      x = (xPct / 100) * overlayW;
+      y = (yPct / 100) * overlayH;
+      w = (wPct / 100) * overlayW;
+      h = (hPct / 100) * overlayH;
+    } else {
+      const left = parseFloat(node.dataset.saasaLeft || '');
+      const top = parseFloat(node.dataset.saasaTop || '');
+      const width = parseFloat(node.dataset.saasaWidth || '');
+      const height = parseFloat(node.dataset.saasaHeight || '');
+      if (!Number.isFinite(left) || !Number.isFinite(top)) return;
+
+      const boxW = Number.isFinite(width) && width > 0 ? width : Math.max(24, spaceW * 0.2);
+      const boxH = Number.isFinite(height) && height > 0 ? height : 12;
+      x = (left / spaceW) * overlayW;
+      y = (top / spaceH) * overlayH;
+      w = (boxW / spaceW) * overlayW;
+      h = (boxH / spaceH) * overlayH;
+    }
+
+    if (!(w >= 4 && h >= 4)) return;
 
     const text = String(node.textContent || '');
-    const cleared =
-      node.classList.contains('saasa-pdf-inplace-line--cleared') || !text.trim();
-    if (cleared) {
-      ctx.restore();
-      return;
-    }
-
-    const fontFamily =
-      node.dataset.saasaFontFamily || node.style.fontFamily || 'Arial, sans-serif';
-    const fontWeight = node.dataset.saasaFontWeight || '400';
-    const fontStyle = node.dataset.saasaFontStyle || 'normal';
-    const fontPx = Math.max(5, h * 0.82);
-
-    ctx.fillStyle = '#111827';
-    ctx.font = `${fontStyle} ${fontWeight} ${fontPx}px ${fontFamily}`;
-    ctx.textBaseline = 'middle';
-    ctx.textAlign = 'left';
-    ctx.fillText(text, x + pad, y + h / 2, Math.max(4, w - pad * 2));
-    ctx.restore();
-  });
-}
-
-function pageHtmlHasTextEdits(pageHtml: string | null | undefined): boolean {
-  return /saasa-pdf-inplace-line--edited|saasa-pdf-inplace-line--cleared|data-saasa-touched\s*=\s*['"]?1['"]?/.test(
-    String(pageHtml || '')
-  );
-}
-
-/** Prefer the editor page width used when text edits were saved. */
-function preferLayoutWidthFromTextPages(pages: string[], fallback: number): number {
-  for (const html of pages) {
-    const marker = parseSaasaPageSizeMarker(html);
-    if (marker) {
-      // data-saasa-left/top are in canvas bitmap space — re-render at that width.
-      return Math.max(320, Math.round(marker.canvasW));
-    }
-  }
-  for (const html of pages) {
-    if (!String(html || '').trim()) continue;
-    const wrap = document.createElement('div');
-    wrap.innerHTML = html;
-    let maxCanvasR = 0;
-    wrap.querySelectorAll('[data-saasa-left], .saasa-pdf-inplace-line').forEach((node) => {
-      if (!(node instanceof HTMLSpanElement)) return;
-      const left = parseFloat(node.dataset.saasaLeft || '0') || 0;
-      const width = parseFloat(node.dataset.saasaWidth || '0') || 0;
-      maxCanvasR = Math.max(maxCanvasR, left + width);
+    paintEditedLineOnOverlay(ctx, {
+      x,
+      y,
+      w,
+      h,
+      text,
+      cleared:
+        node.classList.contains('saasa-pdf-inplace-line--cleared') || !text.trim(),
+      fontFamily: node.dataset.saasaFontFamily || node.style.fontFamily || undefined,
+      fontWeight: node.dataset.saasaFontWeight || undefined,
+      fontStyle: node.dataset.saasaFontStyle || undefined,
     });
-    if (maxCanvasR > 200) return Math.max(320, Math.round(maxCanvasR / 0.92));
-  }
-  return Math.max(320, fallback);
-}
-
-/**
- * Draw edited spans using live layout boxes (same geometry as preview).
- */
-function drawEditedTextFromLivePage(
-  ctx: CanvasRenderingContext2D,
-  pageWrap: HTMLElement,
-  overlayW: number,
-  overlayH: number
-): boolean {
-  const layer = pageWrap.querySelector('.saasa-pdf-inplace-layer');
-  if (!(layer instanceof HTMLElement)) return false;
-
-  const spans = Array.from(
-    layer.querySelectorAll(
-      '.saasa-pdf-inplace-line--edited, .saasa-pdf-inplace-line--cleared, [data-saasa-touched="1"]'
-    )
-  ).filter((n): n is HTMLSpanElement => n instanceof HTMLSpanElement);
-  if (!spans.length) return false;
-
-  const ref = layer.getBoundingClientRect();
-  const refW = Math.max(1, ref.width);
-  const refH = Math.max(1, ref.height);
-  if (refW < 8 || refH < 8) return false;
-
-  let painted = false;
-  spans.forEach((node) => {
-    const rect = node.getBoundingClientRect();
-    if (rect.width < 0.5 && rect.height < 0.5) return;
-
-    const x = ((rect.left - ref.left) / refW) * overlayW;
-    const y = ((rect.top - ref.top) / refH) * overlayH;
-    const w = Math.max(1, (rect.width / refW) * overlayW);
-    const h = Math.max(1, (rect.height / refH) * overlayH);
-    const pad = (2 / refW) * overlayW;
-
-    ctx.save();
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(Math.max(0, x - 2), Math.max(0, y - 2), w + 4, h + 4);
-
-    const text = String(node.textContent || '');
-    const cleared =
-      node.classList.contains('saasa-pdf-inplace-line--cleared') || !text.trim();
-    if (cleared) {
-      ctx.restore();
-      painted = true;
-      return;
-    }
-
-    const styles = window.getComputedStyle(node);
-    const fontPx = Math.max(5, (parseFloat(styles.fontSize) || h * 0.82) * (overlayH / refH));
-    ctx.fillStyle = '#111827';
-    ctx.font = `${styles.fontStyle || 'normal'} ${styles.fontWeight || '400'} ${fontPx}px ${
-      styles.fontFamily || 'Arial, sans-serif'
-    }`;
-    ctx.textBaseline = 'middle';
-    ctx.textAlign = 'left';
-    ctx.fillText(text, x + pad, y + h / 2, Math.max(4, w - pad * 2));
-    ctx.restore();
-    painted = true;
   });
-
-  return painted;
 }
 
 async function renderPageOverlayPng(
@@ -395,9 +392,8 @@ async function renderPageOverlayPng(
   annotations: SaasaCvAnnotation[],
   companyLogo: SaasaCvCompanyLogo | null,
   pageTextHtml?: string | null,
-  displayWidthPx?: number,
-  displayHeightPx?: number,
-  measurePageWrap?: HTMLElement | null
+  fallbackWidthPx?: number,
+  pageIndex?: number
 ): Promise<Uint8Array | null> {
   if (widthPx < 1 || heightPx < 1) return null;
 
@@ -413,19 +409,19 @@ async function renderPageOverlayPng(
   const ctx = canvas.getContext('2d');
   if (!ctx) return null;
 
-  // Text under scribbles. Prefer live layout (matches preview); fall back to saved CSS boxes.
+  // 1) Prefer visible preview boxes (exact match to what user sees).
+  // 2) Else use saved %-of-page / canvas coords from last Save.
   let drewText = false;
-  if (hasText && measurePageWrap) {
-    drewText = drawEditedTextFromLivePage(ctx, measurePageWrap, widthPx, heightPx);
+  if (hasText && typeof pageIndex === 'number') {
+    drewText = drawEditedTextFromVisiblePreview(ctx, pageIndex, widthPx, heightPx);
   }
-  if (!drewText && hasText && pageTextHtml && displayWidthPx && displayHeightPx) {
+  if (!drewText && hasText && pageTextHtml) {
     drawEditedTextHtmlOntoOverlay(
       ctx,
       pageTextHtml,
       widthPx,
       heightPx,
-      displayWidthPx,
-      displayHeightPx
+      fallbackWidthPx || 800
     );
   }
 
@@ -488,7 +484,6 @@ export async function buildSaasaCvPdfPreservingSource(options: {
   const pages = pdfDoc.getPages();
   if (!pages.length) return null;
 
-  // Prefer editor-aspect heights so text-edit coords (viewport px) map correctly.
   let heights = pageHeightsPx;
   if (heights.length !== pages.length) {
     heights = pages.map((p) => {
@@ -500,91 +495,47 @@ export async function buildSaasaCvPdfPreservingSource(options: {
   const textPages = Array.isArray(options.pdfTextLayerHtml)
     ? options.pdfTextLayerHtml
     : [];
-  const hasAnyTextEdits = textPages.some((h) => pageHtmlHasTextEdits(h));
-
-  // Lay out text edits in a hidden host at the same width as the editor so
-  // getBoundingClientRect matches preview positions.
-  let measureHost: HTMLElement | null = null;
-  let measurePages: HTMLElement[] = [];
-  if (hasAnyTextEdits && typeof document !== 'undefined') {
-    const layoutWidth = preferLayoutWidthFromTextPages(textPages, docWidthPx);
-    measureHost = document.createElement('div');
-    measureHost.style.cssText =
-      'position:fixed;left:-10000px;top:0;width:' +
-      layoutWidth +
-      'px;visibility:hidden;pointer-events:none;z-index:-1;background:#fff;';
-    document.body.appendChild(measureHost);
-    try {
-      const { renderSaasaPdfPages, clearSaasaCvPdfBytesCache } = await import(
-        './saasaCvPdfRender'
-      );
-      const { attachInPlacePdfTextToHost, enforcePdfPageLayout } = await import(
-        './saasaCvPdfTextLayer'
-      );
-      await renderSaasaPdfPages(measureHost, options.pdfUrl);
-      enforcePdfPageLayout(measureHost);
-      await attachInPlacePdfTextToHost(measureHost, options.pdfUrl, {
-        editing: true,
-        readOnly: true,
-        savedLayerHtml: textPages,
-      });
-      await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
-      enforcePdfPageLayout(measureHost);
-      measurePages = Array.from(
-        measureHost.querySelectorAll(':scope > .saasa-pdf-page')
-      ).filter((n): n is HTMLElement => n instanceof HTMLElement);
-      clearSaasaCvPdfBytesCache();
-    } catch {
-      measureHost.remove();
-      measureHost = null;
-      measurePages = [];
-    }
-  }
 
   const pageOffsetsPx = buildPageOffsetsPx(heights);
   const mappedDocHeight = heights.reduce((s, h) => s + h, 0) || docHeightPx;
 
-  try {
-    for (let i = 0; i < pages.length; i++) {
-      const page = pages[i];
-      const { width: widthPt, height: heightPt } = page.getSize();
-      const { annotations, companyLogo } = translateAnnotationsForPage(
-        options.annotations,
-        options.companyLogo,
-        i,
-        pageOffsetsPx,
-        heights,
-        docWidthPx,
-        mappedDocHeight
-      );
+  for (let i = 0; i < pages.length; i++) {
+    const page = pages[i];
+    const { width: widthPt, height: heightPt } = page.getSize();
+    const { annotations, companyLogo } = translateAnnotationsForPage(
+      options.annotations,
+      options.companyLogo,
+      i,
+      pageOffsetsPx,
+      heights,
+      docWidthPx,
+      mappedDocHeight
+    );
 
-      const overlayScale = 2;
-      const overlayW = Math.max(1, Math.floor(widthPt * overlayScale));
-      const overlayH = Math.max(1, Math.floor(heightPt * overlayScale));
-      const pageDisplayH =
-        heights[i] || Math.max(1, docWidthPx * (heightPt / Math.max(1, widthPt)));
-      const overlayPng = await renderPageOverlayPng(
-        overlayW,
-        overlayH,
-        annotations,
-        companyLogo,
-        textPages[i] ?? null,
-        docWidthPx,
-        pageDisplayH,
-        measurePages[i] ?? null
-      );
-      if (!overlayPng) continue;
+    const overlayScale = 2;
+    const overlayW = Math.max(1, Math.floor(widthPt * overlayScale));
+    const overlayH = Math.max(1, Math.floor(heightPt * overlayScale));
+    // Prefer saved editor canvas width so data-saasa-* coords map 1:1.
+    const marker = parseSaasaPageSizeMarker(textPages[i] ?? '');
+    const fallbackW = marker?.canvasW || docWidthPx;
+    const overlayPng = await renderPageOverlayPng(
+      overlayW,
+      overlayH,
+      annotations,
+      companyLogo,
+      textPages[i] ?? null,
+      fallbackW,
+      i
+    );
+    if (!overlayPng) continue;
 
-      const image = await pdfDoc.embedPng(overlayPng);
-      page.drawImage(image, {
-        x: 0,
-        y: 0,
-        width: widthPt,
-        height: heightPt,
-      });
-    }
-  } finally {
-    measureHost?.remove();
+    const image = await pdfDoc.embedPng(overlayPng);
+    page.drawImage(image, {
+      x: 0,
+      y: 0,
+      width: widthPt,
+      height: heightPt,
+    });
   }
 
   const saved = await pdfDoc.save();

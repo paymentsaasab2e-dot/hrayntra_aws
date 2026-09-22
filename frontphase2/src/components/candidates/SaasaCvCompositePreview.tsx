@@ -276,7 +276,12 @@ export function SaasaCvCompositePreview({
           ) : null}
 
           {showPdfPreview ? (
-            <div ref={pdfHostRef} className="relative z-0 w-full" aria-hidden={!paintSurfaceReady} />
+            <div
+              ref={pdfHostRef}
+              className="relative z-0 w-full"
+              data-saasa-cv-preview-host="1"
+              aria-hidden={!paintSurfaceReady}
+            />
           ) : canWord ? (
             <ResumeWordFileViewer
               resumeUrl={href}

@@ -813,7 +813,57 @@ function pageSizeMarkerForLayer(layer: Element): string {
   return `<!--saasa-page:${canvas.width}x${canvas.height}:${scale}-->`;
 }
 
+/** Capture the on-screen box (same as preview) into canvas + %-of-page coords. */
+function syncEditedSpanGeometryFromLayout(
+  node: HTMLSpanElement,
+  layer: HTMLElement,
+  canvas: HTMLCanvasElement
+): void {
+  const scale = getCanvasDisplayScale(canvas);
+  const cw = Math.max(1, canvas.width);
+  const ch = Math.max(1, canvas.height);
+  const layerRect = layer.getBoundingClientRect();
+  const rect = node.getBoundingClientRect();
+
+  if (layerRect.width > 4 && layerRect.height > 4 && rect.width >= 0.5 && rect.height >= 0.5) {
+    const cssLeft = rect.left - layerRect.left;
+    const cssTop = rect.top - layerRect.top;
+    const left = cssLeft / Math.max(0.05, scale);
+    const top = cssTop / Math.max(0.05, scale);
+    const width = rect.width / Math.max(0.05, scale);
+    const height = rect.height / Math.max(0.05, scale);
+    node.dataset.saasaLeft = String(left);
+    node.dataset.saasaTop = String(top);
+    node.dataset.saasaWidth = String(width);
+    node.dataset.saasaHeight = String(height);
+    node.dataset.saasaScale = String(scale);
+  }
+
+  const left = parseFloat(node.dataset.saasaLeft || '0') || 0;
+  const top = parseFloat(node.dataset.saasaTop || '0') || 0;
+  const width = parseFloat(node.dataset.saasaWidth || '0') || 0;
+  const height = parseFloat(node.dataset.saasaHeight || '0') || 0;
+  // Percent of page — stable across download overlay sizes.
+  node.dataset.saasaXPct = String((left / cw) * 100);
+  node.dataset.saasaYPct = String((top / ch) * 100);
+  node.dataset.saasaWPct = String((Math.max(1, width) / cw) * 100);
+  node.dataset.saasaHPct = String((Math.max(1, height) / ch) * 100);
+}
+
 function sanitizeInPlaceLayerHtmlForPersist(layer: Element): string {
+  const page = layer.closest(PAGE_SELECTOR);
+  const canvas = page?.querySelector('canvas');
+  const layerEl = layer instanceof HTMLElement ? layer : null;
+
+  // Capture preview-visible boxes into dataset (+ page %) before serializing.
+  if (layerEl && canvas instanceof HTMLCanvasElement) {
+    layerEl.querySelectorAll(`.${TEXT_SPAN_CLASS}`).forEach((node) => {
+      if (!(node instanceof HTMLSpanElement)) return;
+      if (!isInPlaceSpanEdited(node)) return;
+      syncEditedSpanGeometryFromLayout(node, layerEl, canvas);
+    });
+  }
+
   const clone = layer.cloneNode(true) as HTMLElement;
   clone.querySelectorAll(`.${TEXT_SPAN_CLASS}, span`).forEach((node) => {
     if (!(node instanceof HTMLSpanElement)) return;
@@ -826,8 +876,11 @@ function sanitizeInPlaceLayerHtmlForPersist(layer: Element): string {
       node.classList.remove('saasa-pdf-inplace-line--edited');
       node.classList.remove('saasa-pdf-inplace-line--cleared');
       node.removeAttribute('data-saasa-touched');
+      delete node.dataset.saasaXPct;
+      delete node.dataset.saasaYPct;
+      delete node.dataset.saasaWPct;
+      delete node.dataset.saasaHPct;
     } else {
-      // Persist only touch markers + cleaned visibility
       if (node.classList.contains('saasa-pdf-inplace-line--cleared') && !node.textContent?.trim()) {
         node.style.background = '#ffffff';
         node.style.color = 'transparent';
