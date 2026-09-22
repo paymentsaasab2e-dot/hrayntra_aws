@@ -913,26 +913,70 @@ function CandidatesPageContent() {
             limit: batchSize,
             ...listFilterBits,
           });
-          return apiGetCandidates(queryParams, { signal: abortController.signal }).then((res) => {
-            const payload = res.data as
-              | BackendCandidate[]
-              | { data?: BackendCandidate[]; items?: BackendCandidate[]; pagination?: any }
-              | undefined;
-            const backendCandidates = extractBackendCandidatesList(payload);
-            const mapped = backendCandidates.map(mapBackendCandidate);
-            const total = extractCandidatesPaginationTotal(payload as any, mapped.length);
-            return { apiPage, mapped, backendCandidates, total };
-          });
+          return apiGetCandidates(queryParams, { signal: abortController.signal })
+            .then((res) => {
+              const payload = res.data as
+                | BackendCandidate[]
+                | { data?: BackendCandidate[]; items?: BackendCandidate[]; pagination?: any }
+                | undefined;
+              const backendCandidates = extractBackendCandidatesList(payload);
+              const mapped = backendCandidates.map(mapBackendCandidate);
+              const total = extractCandidatesPaginationTotal(payload as any, mapped.length);
+              return { apiPage, mapped, backendCandidates, total };
+            })
+            // Always attach a handler so abort of sibling batches never becomes an
+            // unhandled rejection (Next.js Runtime ApiRequestError overlay).
+            .catch((err: unknown) => {
+              const kind = (err as { kind?: string } | null)?.kind;
+              const name = (err as { name?: string } | null)?.name;
+              if (
+                abortController.signal.aborted ||
+                kind === 'abort' ||
+                name === 'AbortError'
+              ) {
+                return null;
+              }
+              throw err;
+            });
         });
 
-        const first = await batchPromises[0];
+        const settled = await Promise.allSettled(batchPromises);
         if (requestId !== loadCandidatesRequestIdRef.current) return;
+
+        const firstOk = settled.find(
+          (row): row is PromiseFulfilledResult<{
+            apiPage: number;
+            mapped: Candidate[];
+            backendCandidates: BackendCandidate[];
+            total: number;
+          } | null> =>
+            row.status === 'fulfilled' && row.value != null && row.value.apiPage === 1,
+        );
+        const first =
+          firstOk?.value ||
+          settled.find(
+            (row): row is PromiseFulfilledResult<{
+              apiPage: number;
+              mapped: Candidate[];
+              backendCandidates: BackendCandidate[];
+              total: number;
+            } | null> => row.status === 'fulfilled' && row.value != null,
+          )?.value;
+
+        if (!first) {
+          const rejected = settled.find((row) => row.status === 'rejected') as
+            | PromiseRejectedResult
+            | undefined;
+          if (rejected?.reason) throw rejected.reason;
+          return;
+        }
+
         const uiSlice = first.mapped.slice(0, pageSize);
         paintPage(uiSlice, first.backendCandidates.slice(0, pageSize), first.total);
         cacheCandidateUiPagesFromBatch({
           mapped: first.mapped,
           total: first.total,
-          apiPage: 1,
+          apiPage: first.apiPage,
           batchSize,
           pageSize,
           tab: activeListTab,
@@ -940,28 +984,21 @@ function CandidatesPageContent() {
           filterSig: candidatesFilterSig,
         });
 
-        void Promise.allSettled(batchPromises.slice(1)).then((results) => {
-          if (
-            requestId !== loadCandidatesRequestIdRef.current ||
-            prefetchGen !== candidatePrefetchGenRef.current
-          ) {
-            return;
-          }
-          for (const result of results) {
-            if (result.status !== 'fulfilled') continue;
-            const { apiPage, mapped, total } = result.value;
-            cacheCandidateUiPagesFromBatch({
-              mapped,
-              total: total || first.total,
-              apiPage,
-              batchSize,
-              pageSize,
-              tab: activeListTab,
-              search: debouncedSearch || '',
-              filterSig: candidatesFilterSig,
-            });
-          }
-        });
+        for (const result of settled) {
+          if (result.status !== 'fulfilled' || !result.value) continue;
+          if (result.value.apiPage === first.apiPage) continue;
+          if (prefetchGen !== candidatePrefetchGenRef.current) break;
+          cacheCandidateUiPagesFromBatch({
+            mapped: result.value.mapped,
+            total: result.value.total || first.total,
+            apiPage: result.value.apiPage,
+            batchSize,
+            pageSize,
+            tab: activeListTab,
+            search: debouncedSearch || '',
+            filterSig: candidatesFilterSig,
+          });
+        }
         return;
       }
 
@@ -999,30 +1036,32 @@ function CandidatesPageContent() {
               limit: pageSize,
               ...listFilterBits,
             });
-            return apiGetCandidates(qp, { signal: abortController.signal }).then((warmRes) => {
-              const warmPayload = warmRes.data as
-                | BackendCandidate[]
-                | { data?: BackendCandidate[]; items?: BackendCandidate[]; pagination?: any }
-                | undefined;
-              const warmBackend = extractBackendCandidatesList(warmPayload);
-              const warmMapped = warmBackend.map(mapBackendCandidate);
-              const warmTotal = extractCandidatesPaginationTotal(warmPayload as any, total);
-              if (
-                requestId !== loadCandidatesRequestIdRef.current ||
-                prefetchGen !== candidatePrefetchGenRef.current
-              ) {
-                return;
-              }
-              writeCandidatesListCache({
-                tab: activeListTab,
-                page: p,
-                pageSize,
-                search: debouncedSearch || '',
-                filterSig: candidatesFilterSig,
-                totalEntries: warmTotal,
-                candidates: warmMapped,
-              });
-            });
+            return apiGetCandidates(qp, { signal: abortController.signal })
+              .then((warmRes) => {
+                const warmPayload = warmRes.data as
+                  | BackendCandidate[]
+                  | { data?: BackendCandidate[]; items?: BackendCandidate[]; pagination?: any }
+                  | undefined;
+                const warmBackend = extractBackendCandidatesList(warmPayload);
+                const warmMapped = warmBackend.map(mapBackendCandidate);
+                const warmTotal = extractCandidatesPaginationTotal(warmPayload as any, total);
+                if (
+                  requestId !== loadCandidatesRequestIdRef.current ||
+                  prefetchGen !== candidatePrefetchGenRef.current
+                ) {
+                  return;
+                }
+                writeCandidatesListCache({
+                  tab: activeListTab,
+                  page: p,
+                  pageSize,
+                  search: debouncedSearch || '',
+                  filterSig: candidatesFilterSig,
+                  totalEntries: warmTotal,
+                  candidates: warmMapped,
+                });
+              })
+              .catch(() => null);
           }),
         );
       }
@@ -1031,7 +1070,8 @@ function CandidatesPageContent() {
       if (
         abortController.signal.aborted ||
         err?.name === 'AbortError' ||
-        err?.kind === 'abort'
+        err?.kind === 'abort' ||
+        /request was cancelled/i.test(String(err?.message || ''))
       ) {
         return;
       }

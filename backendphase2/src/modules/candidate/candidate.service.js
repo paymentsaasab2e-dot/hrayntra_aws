@@ -4908,11 +4908,10 @@ export const candidateService = {
     // My candidates is tenant CRM + portal applicants only — never the full Phase 1 pool.
     const loadCommonPool = mine ? false : await resolveLoadCommonPool(req.query);
     const myJobIds = mine && req.user?.id ? await getMyJobIds(req.user.id) : [];
-    const tenantJobIdSet = isTenantScopedRequest()
-      ? mine
-        ? new Set(myJobIds)
-        : await getTenantJobIdSet()
-      : null;
+    // Display scoping must use the full tenant job set. Using only myJobIds here
+    // wiped Assigned Job titles on My Candidates (jobs outside the mine cap → "—").
+    // myJobIds still drives which rows appear via buildMineCandidatesScope.
+    const tenantJobIdSet = isTenantScopedRequest() ? await getTenantJobIdSet() : null;
     const livePortalMerge = isLivePortalListMergeEnabled();
 
     if (mine && !req.user?.id) {
@@ -7606,11 +7605,8 @@ export const candidateService = {
     const loadCommonPool = mine ? false : await resolveLoadCommonPool(req.query || {});
     const userId = req.user?.id;
     const myJobIds = mine && userId ? await getMyJobIds(userId) : [];
-    const tenantJobIdSet = isTenantScopedRequest()
-      ? mine
-        ? new Set(myJobIds)
-        : await getTenantJobIdSet()
-      : null;
+    // Same as getAll: mine row scope ≠ display job scope. Titles need full tenant jobs.
+    const tenantJobIdSet = isTenantScopedRequest() ? await getTenantJobIdSet() : null;
 
     const emptyStats = {
       all: 0,
