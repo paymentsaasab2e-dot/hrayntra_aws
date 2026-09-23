@@ -40,7 +40,7 @@ import { MOCK_TASK_COMMUNICATIONS, MOCK_CANDIDATE_INTERACTIONS, MOCK_AI_TASK_SUG
 import { mapBackendActivityToTaskEvent } from '../../lib/taskActivityMapper';
 import { getAllTeamMembersForAssign } from '../../lib/api/teamApi';
 import { getActiveOrgUnitId } from '../../lib/org/orgWorkspaceStorage';
-import type { TaskFormValues, TaskActivityEvent } from './types';
+import type { Task, TaskFormValues, TaskActivityEvent } from './types';
 import {
   apiGetTasks,
   apiGetJobs,
@@ -88,32 +88,6 @@ interface RelatedTo {
   id: string;
   name: string;
   type: 'Candidate' | 'Job' | 'Client';
-}
-
-interface Task {
-  id: string;
-  title: string;
-  type: TaskType;
-  relatedTo: RelatedTo;
-  dueDate: string;
-  time: string;
-  priority: Priority;
-  status: Status;
-  owner: {
-    name: string;
-    avatar: string;
-  };
-  createdByName?: string;
-  createdById?: string;
-  assigneeId?: string;
-  assignee?: { id: string; name: string };
-  assignmentChain?: {
-    createdByName: string;
-    assignedToName: string;
-    delegatedToName: string | null;
-    isDelegated: boolean;
-  };
-  auditMeta?: import('../../types/audit').AuditMeta;
 }
 
 interface Activity {
@@ -757,7 +731,7 @@ export default function App() {
       return acc;
     }, {});
     const interviewsLookup = typedInterviews.reduce<Record<string, string>>((acc, interview) => {
-      const candidateName = `${interview.candidate.firstName} ${interview.candidate.lastName}`.trim();
+      const candidateName = `${interview.candidate?.firstName || ''} ${interview.candidate?.lastName || ''}`.trim();
       const round = interview.round?.trim() || interview.type?.trim() || 'Interview';
       acc[interview.id] = `${candidateName} - ${round}`;
       return acc;
@@ -906,7 +880,7 @@ export default function App() {
                 task.title,
                 relatedLabel,
                 task.relatedTo.type,
-                task.owner.name,
+                task.owner?.name,
                 task.type,
                 task.status,
               ),
@@ -1700,7 +1674,10 @@ export default function App() {
             dueTime: selectedTask.time,
             priority: selectedTask.priority,
             status: selectedTask.status,
-            owner: selectedTask.owner,
+            owner: {
+              name: selectedTask.owner?.name || '',
+              avatar: selectedTask.owner?.avatar || '',
+            },
             auditMeta: selectedTask.auditMeta,
           };
           return taskForDrawer;

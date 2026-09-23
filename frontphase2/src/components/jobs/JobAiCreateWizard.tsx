@@ -1,4 +1,5 @@
 'use client';
+import type { AppIcon } from '@/types/appIcon';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { matchesQuickSearch, buildQuickSearchHaystack } from '../../lib/quickSearch';
@@ -391,7 +392,7 @@ function ReviewAccordionSection({
 }: {
   title: string;
   subtitle?: string;
-  icon: React.ComponentType<{ className?: string }>;
+  icon: AppIcon;
   open: boolean;
   onToggle: () => void;
   children: React.ReactNode;
@@ -564,7 +565,7 @@ function applyJobDetailsPatch(
     videoMediaLink: merged.videoMediaLink,
     forecastRevenue: merged.forecastRevenue,
     managerId: merged.managerId,
-    assignedToId: merged.assignedToId,
+    assignedToId: merged.assignedToId ?? '',
     aboutCompany: merged.aboutCompany,
   };
 }
@@ -1904,7 +1905,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
             companyName,
             showClientNamePublicly: draft.showClientNamePublicly,
             description: plainDescription || undefined,
-            applyUrl: applyUrl || undefined,
+            applyUrl: applyUrl || '',
             location: locationLine || undefined,
             platforms: { linkedin: true },
             linkedinPostText,

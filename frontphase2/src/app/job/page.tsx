@@ -329,6 +329,9 @@ interface Job {
   experienceRequired?: string;
   education?: string;
   hiringManager?: string;
+  hiringManagerId?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
   managerName?: string;
   workMode?: string;
   skills?: string[];
@@ -481,7 +484,6 @@ function mapBackendJobToJobForDrawer(backendJob: Record<string, any>, fallbackJo
     noCandidates: Boolean(backendJob.noCandidates),
     slaRisk: Boolean(backendJob.slaRisk),
     managerName: backendJob.manager?.name || undefined,
-    managerId: backendJob.managerId || backendJob.manager?.id || null,
     visibility: backendJob.visibility || undefined,
     showClientNamePublicly: backendJob.showClientNamePublicly !== false,
     publicFieldVisibility: backendJob.publicFieldVisibility || undefined,
@@ -1445,7 +1447,7 @@ function mapBackendJob(job: BackendJob): Job {
     candidates: '',
     slaRisk: (job as any).slaRisk ?? false,
     pipelineStages: pipelineStagesDeduped.length ? pipelineStagesDeduped : undefined,
-    auditMeta: extractAuditMeta(job as Record<string, unknown>),
+    auditMeta: extractAuditMeta(job as unknown as Record<string, unknown>),
     priority: job.priority || undefined,
     employmentType: job.type || undefined,
     nationality: job.nationality || undefined,
@@ -1984,7 +1986,7 @@ export default function JobsPage() {
             ? (jobsRes.data as { pagination?: { totalPages?: number; total?: number } }).pagination
             : undefined;
         return {
-          items: backendJobs.map((job) => mapBackendJob(job, job._count?.matches || 0)),
+          items: backendJobs.map((job) => mapBackendJob(job)),
           totalPages: totalPagesFromPagination(pagination, backendJobs.length, limit),
         };
       },
@@ -2154,7 +2156,7 @@ export default function JobsPage() {
             setClientOptions([]);
           }
 
-          let members = [];
+          let members: Awaited<ReturnType<typeof getAllTeamMembersForAssign>> = [];
           try {
             members = await getAllTeamMembersForAssign(getActiveOrgUnitId() || undefined, 'Jobs');
           } catch {
@@ -2516,7 +2518,7 @@ export default function JobsPage() {
         if (cancelled) return;
         const backendJob = (response as any).data?.data || (response as any).data || response;
         if (!backendJob) return;
-        const mappedJob = mapBackendJob(backendJob, backendJob._count?.applications || 0);
+        const mappedJob = mapBackendJob(backendJob);
         await openJobDrawer(mappedJob);
       } catch (error) {
         console.error('Failed to open job from search:', error);
@@ -2528,7 +2530,7 @@ export default function JobsPage() {
     };
   }, [searchParams]);
 
-  const persistJobPipelineStages = useCallback(async (jobId: string, stages: Array<{ id?: string; name: string; sla?: string; systemRole?: string }>) => {
+  const persistJobPipelineStages = useCallback(async (jobId: string, stages: Array<{ id?: string; name: string; sla?: string; systemRole?: string | null }>) => {
     if (!jobId) return;
     try {
       await apiUpdateJob(jobId, {
@@ -3079,7 +3081,7 @@ export default function JobsPage() {
         /* link may appear after next refresh */
       }
       const refreshed = await apiGetJob(job.id);
-      const backendJob = (refreshed as { data?: Record<string, unknown> })?.data ?? refreshed;
+      const backendJob = (refreshed as unknown as { data?: Record<string, unknown> })?.data ?? refreshed;
       const mappedApplyUrl =
         applyUrl ||
         (typeof (backendJob as { applyUrl?: string })?.applyUrl === 'string'

@@ -44,9 +44,10 @@ export function ModuleCommandCenter({ moduleKey, overview }: Props) {
         config.datasets.map(async (id) => {
           try {
             const payload = await apiDashboardDataset(id);
-            return [id, payload.rows || []] as const;
+            const rows: Record<string, unknown>[] = payload.rows ? [...payload.rows] : [];
+            return [id, rows] as const;
           } catch {
-            return [id, []] as const;
+            return [id, [] as Record<string, unknown>[]] as const;
           }
         }),
       );

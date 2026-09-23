@@ -382,9 +382,9 @@ export function mergeResumeTabCandidateSource(
       editorCvSaved ? (backendValue ?? null) : (backendValue ?? drawerValue ?? null);
     return {
       ...backend,
-      firstName: editorScalar(backend.firstName, drawer?.firstName),
-      lastName: editorScalar(backend.lastName, drawer?.lastName),
-      email: editorScalar(backend.email, drawer?.email),
+      firstName: editorScalar(backend.firstName, drawer?.firstName) ?? '',
+      lastName: editorScalar(backend.lastName, drawer?.lastName) ?? '',
+      email: editorScalar(backend.email, drawer?.email) ?? '',
       phone: editorScalar(backend.phone, drawer?.phone),
       linkedIn: editorScalar(backend.linkedIn, drawer?.linkedIn),
       currentTitle: editorScalar(backend.currentTitle, drawer?.currentTitle),
@@ -534,7 +534,7 @@ export function buildEditedCvRemovalExtra(
     !Array.isArray(submission) &&
     (submission as CvSubmissionStored).shareMode === 'edited'
   ) {
-    const shareMode: CvShareMode | null = hasUpdated ? 'updated' : hasOriginal ? 'original' : null;
+    const shareMode: CvShareMode | null = hasUpdated ? 'edited' : hasOriginal ? 'original' : null;
     if (shareMode) {
       next.cvSubmission = {
         shareMode,
@@ -588,8 +588,7 @@ export function buildUpdatedCvRemovalExtra(
     submission &&
     typeof submission === 'object' &&
     !Array.isArray(submission) &&
-    ((submission as CvSubmissionStored).shareMode === 'updated' ||
-      (submission as CvSubmissionStored).shareMode === 'edited')
+    (submission as CvSubmissionStored).shareMode === 'edited'
   ) {
     const shareMode: CvShareMode | null = hasOriginal ? 'original' : null;
     if (shareMode) {
@@ -830,9 +829,12 @@ export function overlayEditorSaveOnCandidate(
   return {
     ...candidate,
     ...contentPatch,
+    firstName: contentPatch.firstName ?? candidate.firstName ?? '',
+    lastName: contentPatch.lastName ?? candidate.lastName ?? '',
+    email: contentPatch.email ?? candidate.email ?? '',
     ...(persist.avatar !== undefined ? { avatar: persist.avatar } : {}),
     extraData: buildResumeCvViewExtra({ ...baseExtra, ...persist.extraData }, 'updated'),
-  };
+  } as BackendCandidate;
 }
 
 let _cvEditorId = 1;

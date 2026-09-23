@@ -1,4 +1,5 @@
 'use client';
+import type { AppIcon } from '@/types/appIcon';
 
 import React, { useEffect, useMemo, useState } from 'react';
 import {
@@ -182,7 +183,7 @@ function Phase1EditSection({
 }: {
   id: SectionId;
   title: string;
-  icon: React.ComponentType<{ size?: number; className?: string }>;
+  icon: AppIcon;
   open: boolean;
   onToggle: (key: SectionId) => void;
   count?: number;

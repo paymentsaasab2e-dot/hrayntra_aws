@@ -1,9 +1,10 @@
 'use client';
+import type { AppIcon } from '@/types/appIcon';
 
 import React from 'react';
 import type { LucideIcon } from 'lucide-react';
 
-export type DrawerTabIcon = LucideIcon | React.ComponentType<{ className?: string; size?: number }>;
+export type DrawerTabIcon = LucideIcon | AppIcon;
 
 export type DrawerTabBarItem<T extends string = string> = {
   id: T;

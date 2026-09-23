@@ -1,4 +1,5 @@
 'use client';
+import type { AppIcon } from '@/types/appIcon';
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { ChevronDown, Bell, Mail } from 'lucide-react';
@@ -63,10 +64,10 @@ export interface TaskReminderFieldProps {
   className?: string;
 }
 
-const CHANNEL_ICONS: Record<ReminderChannel, React.ComponentType<{ size?: number; className?: string }>> = {
-  notification: Bell as React.ComponentType<{ size?: number; className?: string }>,
-  email: Mail as React.ComponentType<{ size?: number; className?: string }>,
-  whatsapp: WhatsAppIcon as React.ComponentType<{ size?: number; className?: string }>,
+const CHANNEL_ICONS: Record<ReminderChannel, AppIcon> = {
+  notification: Bell as AppIcon,
+  email: Mail as AppIcon,
+  whatsapp: WhatsAppIcon as AppIcon,
 };
 
 export function TaskReminderField({

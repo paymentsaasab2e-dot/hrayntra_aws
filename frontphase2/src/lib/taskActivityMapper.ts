@@ -2,11 +2,13 @@ import type { BackendActivity } from './api';
 import type { TaskActivityEvent, TaskActivityEventType } from '../app/Task&Activites/types';
 
 function performerName(activity: BackendActivity): string {
-  const u = activity.performedBy;
-  if (!u) return 'System';
-  if (u.name) return u.name;
-  const parts = [u.firstName, u.lastName].filter(Boolean).join(' ').trim();
-  return parts || u.email || 'System';
+  const user = activity.performedBy as
+    | { name?: string; email?: string; firstName?: string; lastName?: string }
+    | null
+    | undefined;
+  if (!user) return 'System';
+  const fromParts = [user.firstName || '', user.lastName || ''].filter(Boolean).join(' ').trim();
+  return fromParts || user.name || user.email || 'System';
 }
 
 function resolveActionType(activity: BackendActivity): TaskActivityEventType {

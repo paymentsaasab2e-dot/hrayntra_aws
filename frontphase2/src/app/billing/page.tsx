@@ -1,4 +1,5 @@
 'use client';
+import type { AppIcon } from '@/types/appIcon';
 
 import React, { useEffect, useMemo, useState } from 'react';
 import {
@@ -149,7 +150,7 @@ type FiltersState = {
 // "Placements Billing" was a near-duplicate of the Invoices view, so it's
 // retired here. Payments now strictly shows received receipts (no pending
 // data already covered by the Invoices tab).
-const TABS: Array<{ name: BillingTab; icon: React.ComponentType<{ size?: number; className?: string }> }> = [
+const TABS: Array<{ name: BillingTab; icon: AppIcon }> = [
   { name: 'Saved drafts', icon: FilePenLine },
   { name: 'Invoices', icon: Receipt },
   { name: 'Payments', icon: CreditCard },

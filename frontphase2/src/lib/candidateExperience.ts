@@ -152,7 +152,11 @@ function workRecordToCvEntry(row: Record<string, unknown>): CvWorkEntryLike {
     endDate: normalized.endDate || null,
     durationText: normalized.durationText || null,
     isCurrentJob: normalized.currentlyWorkHere === true,
-    responsibilities: normalized.responsibilities || null,
+    responsibilities: Array.isArray(normalized.responsibilities)
+      ? normalized.responsibilities
+      : typeof normalized.responsibilities === 'string' && normalized.responsibilities
+        ? [normalized.responsibilities]
+        : null,
     employmentType: normalized.employmentType || null,
     industryDomain: normalized.industryDomain || null,
     numberOfReportees: normalized.numberOfReportees || null,
@@ -731,7 +735,7 @@ export function parseWorkExperienceDisplayText(value: string): CvWorkEntryLike[]
 
       return { title, company, location, startDate, endDate, responsibilities };
     })
-    .filter((entry): entry is CvWorkEntryLike => Boolean(entry?.title || entry?.company));
+    .filter((entry) => Boolean(entry?.title || entry?.company)) as CvWorkEntryLike[];
 }
 
 /** ATS editor / submit form: `Title | Company | Location | Start | End` blocks separated by blank lines. */

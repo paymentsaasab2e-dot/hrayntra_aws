@@ -48,7 +48,12 @@ export function usePlacements(filters: PlacementFilters) {
     joined: 0,
     revenueGenerated: 0,
   });
-  const [pagination, setPagination] = useState({
+  const [pagination, setPagination] = useState<{
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  }>({
     total: 0,
     page: Number(filters.page || 1),
     limit: coerceTablePageSize(filters.limit, 10),

@@ -42,9 +42,9 @@ export const TeamTable: React.FC<TeamTableProps> = ({ onSelectMember }) => {
         ...filters,
         search: searchQuery || undefined,
       });
-      const data = response.data;
-      setMembers(data?.data || []);
-      setTotal(data?.total || 0);
+      const rows = Array.isArray(response.data) ? response.data : [];
+      setMembers(rows);
+      setTotal(Number((response.pagination as { total?: number } | undefined)?.total) || rows.length);
     } catch (error) {
       console.error('Failed to load team members:', error);
       toast.error('Failed to load team members');
@@ -148,7 +148,7 @@ export const TeamTable: React.FC<TeamTableProps> = ({ onSelectMember }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [actionMenuOpen]);
 
-  const getStatusBadge = (status: UserStatus) => {
+  const getStatusBadge = (status: UserStatus | 'ACTIVE' | 'INACTIVE') => {
     if (status === 'ACTIVE') {
       return (
         <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">

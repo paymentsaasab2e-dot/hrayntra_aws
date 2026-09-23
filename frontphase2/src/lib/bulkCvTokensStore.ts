@@ -147,6 +147,7 @@ function normalizeUsageForRecord(
 ): Pick<
   BulkCvTokenRecord,
   | 'provider'
+  | 'parseRoute'
   | 'model'
   | 'inputTokens'
   | 'outputTokens'

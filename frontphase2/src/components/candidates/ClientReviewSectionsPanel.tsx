@@ -1,4 +1,5 @@
 'use client';
+import type { AppIcon } from '@/types/appIcon';
 
 import React, { useEffect, useMemo, useState } from 'react';
 import {
@@ -405,7 +406,7 @@ function SectionBlock({
 }: {
   id: string;
   title: string;
-  icon: React.ComponentType<{ size?: number; className?: string }>;
+  icon: AppIcon;
   open: boolean;
   onToggle: (key: string) => void;
   filled: number;
@@ -451,7 +452,7 @@ function SectionBlock({
 
 const SECTION_META: Record<
   string,
-  { title: string; icon: React.ComponentType<{ size?: number; className?: string }> }
+  { title: string; icon: AppIcon }
 > = {
   personal: { title: 'Personal Information', icon: User },
   education: { title: 'Education', icon: GraduationCap },

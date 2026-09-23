@@ -92,11 +92,16 @@ export function JobPublicVisibilityDefaultsPanel({
   ) => {
     try {
       skipStaleRemoteRef.current = true;
-      const next = saveJobVisibilityUserDefaults(nextVisibility, nextShowClient);
-      setSaved(next);
-      if (notify) {
-        void requestCornerAlert('Defaults saved.', { tone: 'success', autoCloseMs: 1600, priority: 'high' });
-      }
+      void saveJobVisibilityUserDefaults(nextVisibility, nextShowClient)
+        .then((next) => {
+          setSaved(next);
+          if (notify) {
+            void requestCornerAlert('Defaults saved.', { tone: 'success', autoCloseMs: 1600, priority: 'high' });
+          }
+        })
+        .catch((error) => {
+          void requestError(error instanceof Error ? error.message : 'Could not save your default visibility.');
+        });
     } catch (error) {
       void requestError(error instanceof Error ? error.message : 'Could not save your default visibility.');
     }

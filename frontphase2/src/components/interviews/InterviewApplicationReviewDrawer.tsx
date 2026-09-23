@@ -51,7 +51,7 @@ export function InterviewApplicationReviewDrawer({ applicationId, onClose, onUpd
     void apiGetInterviewApplication(applicationId)
       .then((res) => {
         if (!load.isActive()) return;
-        const data = (res as { data?: InterviewApplicationRow })?.data ?? (res as InterviewApplicationRow);
+        const data = (res as unknown as { data?: InterviewApplicationRow })?.data ?? (res as unknown as InterviewApplicationRow);
         setRow(data);
         setNotes(String(data.interviewNotes || ''));
         setRating(Number(data.rating) || 0);
@@ -82,7 +82,7 @@ export function InterviewApplicationReviewDrawer({ applicationId, onClose, onUpd
     setError('');
     try {
       const res = await apiUpdateInterviewApplication(applicationId, payload);
-      const data = (res as { data?: InterviewApplicationRow })?.data ?? (res as InterviewApplicationRow);
+      const data = (res as unknown as { data?: InterviewApplicationRow })?.data ?? (res as unknown as InterviewApplicationRow);
       setRow(data);
       onUpdated?.();
     } catch (err: unknown) {

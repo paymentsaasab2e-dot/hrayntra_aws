@@ -93,7 +93,6 @@ export function emptyProvisionTenantForm(
     planName: 'Starter',
     billingCycle,
     planStartDate,
-    planEndDate: defaultPlanEndDate(planStartDate, billingCycle),
     maxUsers: '5',
     maxJobs: '25',
     customPrice: '149',

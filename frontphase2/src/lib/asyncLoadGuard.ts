@@ -10,7 +10,7 @@
 export const EMPTY_ARRAY: readonly never[] = Object.freeze([]);
 
 export function orEmpty<T>(value: T[] | null | undefined): T[] {
-  return Array.isArray(value) ? value : (EMPTY_ARRAY as T[]);
+  return Array.isArray(value) ? value : (EMPTY_ARRAY as unknown as T[]);
 }
 
 export function startAsyncLoad(setLoading: (loading: boolean) => void) {

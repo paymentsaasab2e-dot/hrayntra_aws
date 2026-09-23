@@ -100,7 +100,7 @@ function mapChangesToRows(
         status,
       } satisfies NameFixRow;
     })
-    .filter((row): row is NameFixRow => Boolean(row));
+    .filter((row) => Boolean(row)) as NameFixRow[];
 }
 
 export default function RepairBadNamesDrawer({ isOpen, onClose, onApplied }: Props) {

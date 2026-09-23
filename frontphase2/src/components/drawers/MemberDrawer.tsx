@@ -13,7 +13,7 @@ import {
   CheckCircle2,
   Clock
 } from 'lucide-react';
-import { TeamMember, Badge } from '../TeamComponents';
+import { TeamMember, Badge, IconButton } from '../TeamComponents';
 import { DrawerCloseButton } from './DrawerCloseButton';
 import { DetailsModalShell } from './DetailsModalShell';
 import { DrawerTabBar } from './DrawerTabBar';
@@ -40,6 +40,10 @@ export const MemberDrawer: React.FC<MemberDrawerProps> = ({ member, isOpen, onCl
 
   if (!member) return null;
 
+  const role = member.role as string | { roleName?: string };
+  const department = member.department as string | { name?: string };
+  const manager = member.manager as string | { name?: string };
+
   const tabs = [
     { id: 'overview', label: 'Overview', icon: User },
     { id: 'performance', label: 'Performance', icon: BarChart3 },
@@ -65,7 +69,7 @@ export const MemberDrawer: React.FC<MemberDrawerProps> = ({ member, isOpen, onCl
                 <div>
                   <h3 id="member-drawer-title" className="text-lg font-bold text-slate-900">{member.name}</h3>
                   <p className="text-sm text-slate-500">
-                    {typeof member.role === 'object' ? member.role?.roleName : member.role} • {typeof member.department === 'object' ? member.department?.name : member.department}
+                    {typeof role === 'object' ? role.roleName : role} • {typeof department === 'object' ? department.name : department}
                   </p>
                 </div>
               </div>
@@ -119,7 +123,7 @@ export const MemberDrawer: React.FC<MemberDrawerProps> = ({ member, isOpen, onCl
                           <div className="flex justify-between items-center">
                             <span className="text-sm text-slate-500">Reporting Manager</span>
                             <span className="text-sm font-medium text-slate-900">
-                              {typeof member.manager === 'object' ? member.manager?.name : member.manager || '-'}
+                              {typeof manager === 'object' ? manager.name : manager || '-'}
                             </span>
                           </div>
                           <div className="flex justify-between items-center">

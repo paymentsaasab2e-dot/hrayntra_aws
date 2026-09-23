@@ -1,4 +1,5 @@
 'use client';
+import type { AppIcon } from '@/types/appIcon';
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
@@ -19,12 +20,12 @@ export interface TaskCommunicationHistoryProps {
   className?: string;
 }
 
-const TYPE_CONFIG: Record<TaskCommunicationType, { label: string; icon: React.ComponentType<{ size?: number; className?: string }>; iconBg: string }> = {
-  email: { label: 'Email', icon: Mail as React.ComponentType<{ size?: number; className?: string }>, iconBg: 'bg-amber-500 text-white' },
-  call: { label: 'Call', icon: Phone as React.ComponentType<{ size?: number; className?: string }>, iconBg: 'bg-blue-600 text-white' },
-  whatsapp: { label: 'WhatsApp', icon: WhatsAppIcon as React.ComponentType<{ size?: number; className?: string }>, iconBg: 'bg-emerald-600 text-white' },
-  note: { label: 'Note', icon: FileText as React.ComponentType<{ size?: number; className?: string }>, iconBg: 'bg-slate-600 text-white' },
-  comment: { label: 'Comment', icon: MessageSquare as React.ComponentType<{ size?: number; className?: string }>, iconBg: 'bg-violet-500 text-white' },
+const TYPE_CONFIG: Record<TaskCommunicationType, { label: string; icon: AppIcon; iconBg: string }> = {
+  email: { label: 'Email', icon: Mail as AppIcon, iconBg: 'bg-amber-500 text-white' },
+  call: { label: 'Call', icon: Phone as AppIcon, iconBg: 'bg-blue-600 text-white' },
+  whatsapp: { label: 'WhatsApp', icon: WhatsAppIcon as AppIcon, iconBg: 'bg-emerald-600 text-white' },
+  note: { label: 'Note', icon: FileText as AppIcon, iconBg: 'bg-slate-600 text-white' },
+  comment: { label: 'Comment', icon: MessageSquare as AppIcon, iconBg: 'bg-violet-500 text-white' },
 };
 
 const FILTER_OPTIONS: { id: 'all' | TaskCommunicationType; label: string }[] = [

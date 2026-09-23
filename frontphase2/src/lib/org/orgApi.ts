@@ -36,6 +36,7 @@ export type OrgTreePayload = {
     hierarchyPurpose?: string;
   };
   tree: OrgUnitNode | null;
+  units?: OrgUnitNode[];
   unassignedCount?: number;
   unassignedPeople?: OrgPerson[];
 };

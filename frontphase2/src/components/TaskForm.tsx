@@ -191,7 +191,7 @@ export function TaskForm({
             ? interviewsResponse.data
             : (interviewsResponse.data as any)?.data || [];
           const mappedInterviews: RelatedEntity[] = interviewsList.map((i: BackendInterviewListItem) => {
-            const candidateName = `${i.candidate.firstName} ${i.candidate.lastName}`.trim();
+            const candidateName = `${i.candidate?.firstName || ''} ${i.candidate?.lastName || ''}`.trim();
             const interviewRound = i.round?.trim() || i.type?.trim() || 'Interview';
             return {
               id: i.id,

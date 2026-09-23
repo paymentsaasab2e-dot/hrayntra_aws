@@ -79,7 +79,7 @@ export function ContactDetailDrawer({ contact, isOpen, onClose, onEdit, onDelete
               {/* Contact Header */}
               <div className="flex items-start gap-4 mb-6">
                 <ImageWithFallback
-                  src={contact.avatarUrl}
+                  src={contact.avatarUrl ?? undefined}
                   alt={`${contact.firstName} ${contact.lastName}`}
                   className="w-16 h-16 rounded-full object-cover ring-2 ring-white shadow-sm"
                   fallback={
@@ -205,7 +205,7 @@ export function ContactDetailDrawer({ contact, isOpen, onClose, onEdit, onDelete
 
                   {activeTab === 'activity' && (
                     <div className="space-y-3">
-                      <EntityAuditSummary audit={extractAuditMeta(contact as Record<string, unknown>)} />
+                      <EntityAuditSummary audit={extractAuditMeta(contact as unknown as Record<string, unknown>)} />
                       {contact.activities && contact.activities.length > 0 ? (
                         contact.activities.map((activity) => (
                           <div key={activity.id} className="border-l-2 border-blue-200 pl-4 py-2">

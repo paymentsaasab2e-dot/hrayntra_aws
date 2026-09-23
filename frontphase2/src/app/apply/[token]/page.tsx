@@ -79,7 +79,7 @@ export default function PublicJobApplyPage() {
     setError('');
     void apiGetPublicApplyPage(token, tenantDbName || undefined)
       .then((res) => {
-        const payload = (res as { data?: { job?: PublicJobSummary; formSchema?: unknown } })?.data ?? res;
+        const payload = (res as unknown as { data?: { job?: PublicJobSummary; formSchema?: unknown } })?.data ?? res;
         const data = payload as { job?: PublicJobSummary; formSchema?: unknown };
         if (cancelled) return;
         setJob(data.job || null);

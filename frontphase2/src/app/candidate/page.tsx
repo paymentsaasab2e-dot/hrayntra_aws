@@ -374,7 +374,7 @@ function mapBackendCandidate(raw: BackendCandidate): Candidate {
     isNewCandidate: Boolean(c.isNewCandidate),
     isJobAppliedCandidate: c.isJobAppliedCandidate === true || candidateShowsAppliedTag(c),
     bulkCopyLabel: parseBulkCopyLabel(c.lastName || basicFullName),
-    auditMeta: extractAuditMeta(c as Record<string, unknown>),
+    auditMeta: extractAuditMeta(c as unknown as Record<string, unknown>),
     assignedToId: c.assignedTo?.id || undefined,
     backendStatus: c.status || undefined,
     cvSummary: c.cvSummary || undefined,
@@ -1112,7 +1112,7 @@ function CandidatesPageContent() {
         candidatesFilterSig,
       );
       const cachedRows = cached?.data?.candidates;
-      if (Array.isArray(cachedRows) && cachedRows.length > 0) {
+      if (cached && Array.isArray(cachedRows) && cachedRows.length > 0) {
         setCandidates(cachedRows as Candidate[]);
         setTotalEntries(cached.data?.totalEntries || cachedRows.length);
         setTableLoading(false);
@@ -2152,21 +2152,24 @@ function CandidatesPageContent() {
         clientId,
         round: payload.round.toUpperCase(),
         type: mapInterviewUiTypeToBackend(payload.type),
-        mode: payload.mode === 'Online' ? 'ONLINE' : 'OFFLINE',
+        mode: (payload.mode === 'Online' ? 'ONLINE' : 'OFFLINE') as 'ONLINE' | 'OFFLINE',
         date: combineInterviewDateAndTimeToIso(payload.date, payload.time, payload.timezone),
         duration: payload.duration,
         timezone: payload.timezone,
-        meetingPlatform:
+        meetingPlatform: (
           payload.mode === 'Online'
             ? payload.meetingPlatform === 'Google Meet'
               ? 'GOOGLE_MEET'
               : payload.meetingPlatform === 'MS Teams'
                 ? 'MS_TEAMS'
                 : 'ZOOM'
-            : null,
+            : null
+        ) as 'GOOGLE_MEET' | 'ZOOM' | 'MS_TEAMS' | null,
         location: payload.mode === 'Offline' ? payload.location : undefined,
         panelUserIds: payload.panelIds,
-        panelRoles: Object.fromEntries(payload.panelIds.map((id) => [id, 'TECHNICAL'])),
+        panelRoles: Object.fromEntries(
+          payload.panelIds.map((id) => [id, 'TECHNICAL' as const]),
+        ) as Record<string, 'HR' | 'TECHNICAL' | 'CLIENT' | 'HIRING_MANAGER'>,
         notes: payload.notes,
         sendCalendarInvite: payload.sendCalendarInvite,
         sendEmailNotification: payload.sendEmailNotification,
@@ -3593,7 +3596,13 @@ function CandidatesPageContent() {
           }
           await loadCandidateProfile(candidateId);
         } : undefined}
-        onRefreshCandidate={canUpdateCandidate ? loadCandidateProfile : undefined}
+        onRefreshCandidate={
+          canUpdateCandidate
+            ? async (candidateId) => {
+                await loadCandidateProfile(candidateId);
+              }
+            : undefined
+        }
         openEditDirectly={Boolean(candidateEditOpenToken)}
         editModalOpenToken={candidateEditOpenToken}
         loadingCandidateProfile={loadingCandidateProfile}

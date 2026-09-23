@@ -1,4 +1,5 @@
 'use client';
+import type { AppIcon } from '@/types/appIcon';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -39,7 +40,7 @@ type DrawerTab = 'overview' | 'modules' | 'funnel' | 'triggers' | 'live' | 'cata
 type TimelineRange = 'today' | 'week' | 'month' | 'year';
 type FeedEvent = HqTenantBehaviorAnalysis['liveFeed'][number];
 
-const DRAWER_TABS: Array<{ id: DrawerTab; label: string; icon: React.ComponentType<{ className?: string }> }> = [
+const DRAWER_TABS: Array<{ id: DrawerTab; label: string; icon: AppIcon }> = [
   { id: 'overview', label: 'Overview', icon: LayoutGrid },
   { id: 'modules', label: 'Modules', icon: BarChart3 },
   { id: 'funnel', label: 'Funnel', icon: GitBranch },
@@ -1022,7 +1023,7 @@ export function HqTenantBehaviorAnalyticsPanel({ tenant }: { tenant: HqTenantRow
           <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</div>
         ) : analysis ? (
           <>
-            {tab === 'overview' ? <OverviewTab analysis={analysis} eng={eng} range={range} /> : null}
+            {tab === 'overview' && eng ? <OverviewTab analysis={analysis} eng={eng} range={range} /> : null}
             {tab === 'modules' ? <ModulesTab analysis={analysis} range={range} /> : null}
             {tab === 'funnel' ? <FunnelTab analysis={analysis} range={range} /> : null}
             {tab === 'triggers' ? <TriggersTab analysis={analysis} range={range} /> : null}

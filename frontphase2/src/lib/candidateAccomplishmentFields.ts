@@ -73,7 +73,7 @@ function parseAccomplishmentDocuments(value: unknown): CandidateWorkExperienceDo
         size: Number.isFinite(sizeValue) && sizeValue > 0 ? sizeValue : undefined,
       };
     })
-    .filter((doc): doc is CandidateWorkExperienceDocument => Boolean(doc?.name || doc?.url));
+    .filter((doc) => Boolean(doc?.name || doc?.url)) as CandidateWorkExperienceDocument[];
 }
 
 export function normalizeAccomplishmentRecord(

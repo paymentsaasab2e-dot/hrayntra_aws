@@ -26,6 +26,7 @@ import {
   type BackendUser,
 } from '../lib/api';
 import { getActiveOrgUnitId } from '../lib/org/orgWorkspaceStorage';
+import { enrichBackendCandidateFromPhase1Snapshot } from '../lib/phase1ProfileSnapshot';
 import { formatDateDMY, formatDateTimeDMY } from '../utils/dateDisplay';
 import { MY_JOBS_LIST_PARAMS } from '../lib/myJobsListParams';
 import {
@@ -179,7 +180,7 @@ function resolveInterviewCandidateName(
       extraData: candidate.extraData,
       isPhase1Candidate: candidate.isPhase1Candidate,
       status: candidate.status || 'ACTIVE',
-    });
+    } as BackendCandidate);
     return resolveCandidateDisplayName(enriched, { alreadyEnriched: true });
   } catch {
     const fallback = [candidate.firstName, candidate.lastName].filter(Boolean).join(' ').trim();
@@ -289,10 +290,10 @@ export const mapBackendInterviewToUi = (item: BackendInterviewListItem): Intervi
       .filter((note) => note && note.author)
       .map((note) => ({
         id: note.id,
-        author: safeDisplayText(note.author.name, 'Unknown User'),
+        author: safeDisplayText(note.author?.name, 'Unknown User'),
         avatar:
-          safeDisplayText(note.author.avatar, '') ||
-          initialsFromName(note.author.name, 'NA'),
+          safeDisplayText(note.author?.avatar, '') ||
+          initialsFromName(note.author?.name, 'NA'),
         timestamp: formatDateTimeDMY(note.createdAt),
         text: note.note,
       })),
@@ -301,7 +302,7 @@ export const mapBackendInterviewToUi = (item: BackendInterviewListItem): Intervi
       .map((log) => ({
         id: log.id,
         action: log.action,
-        user: log.user.name || 'Unknown User',
+        user: log.user?.name || 'Unknown User',
         timestamp: formatDateTimeDMY(log.timestamp),
         color: activityColor(log.action || ''),
       })),
@@ -494,7 +495,7 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
     try {
       // Optional dropdown data — failures must NOT block the interview list (e.g. INTERVIEWERS lack jobs_read / candidates_read).
       const settled = await Promise.allSettled([
-        apiGetCandidates({ limit: 100 }),
+        apiGetCandidates({ limit: 30, picker: true, includeCommonPool: false }),
         apiGetJobs({ page: 1, ...MY_JOBS_LIST_PARAMS }),
         apiGetUsers({
           assignable: true,

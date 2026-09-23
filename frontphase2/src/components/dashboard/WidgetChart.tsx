@@ -31,7 +31,7 @@ import { SummaryCard, type SummaryCardColor } from '@/components/ui/SummaryCard'
 import { BarChart3 } from 'lucide-react';
 import { DashboardDataTable } from './DashboardDataTable';
 
-function ChartShell({ height, children }: { height: number; children: React.ReactNode }) {
+function ChartShell({ height, children }: { height: number; children: React.ReactElement }) {
   return (
     <div className="w-full min-h-[200px]" style={{ height }}>
       <ResponsiveContainer width="100%" height="100%">
@@ -42,6 +42,13 @@ function ChartShell({ height, children }: { height: number; children: React.Reac
 }
 
 type PartitionSlice = { name: string; value: number };
+
+function seriesValue(point: object): number {
+  if ('value' in point && typeof (point as { value?: unknown }).value === 'number') {
+    return (point as { value: number }).value;
+  }
+  return 0;
+}
 
 function PartitionPieTooltip({
   active,
@@ -205,7 +212,9 @@ export function WidgetChart({
         </div>
       );
     }
-    const pieData = series.filter((s) => s.value > 0);
+    const pieData: PartitionSlice[] = series
+      .map((s) => ({ name: s.name, value: seriesValue(s) }))
+      .filter((s) => s.value > 0);
     if (!pieData.length) {
       return (
         <div className="flex h-full min-h-[120px] items-center justify-center text-sm text-slate-500">
@@ -300,7 +309,8 @@ export function WidgetChart({
 
   if (chartType === 'funnel') {
     const funnelData = series
-      .filter((s) => s.value > 0)
+      .map((item) => ({ name: item.name, value: seriesValue(item) }))
+      .filter((item) => item.value > 0)
       .map((item, i) => ({
         name: item.name,
         value: item.value,
@@ -328,20 +338,20 @@ export function WidgetChart({
   }
 
   if (chartType === 'progressBar') {
-    const topValue = series[0]?.value || Math.max(...series.map((s) => s.value), 1);
+    const topValue = seriesValue(series[0] || {}) || Math.max(...series.map((s) => seriesValue(s)), 1);
     return (
       <div className="space-y-2 py-1">
         {series.map((item, i) => (
           <div key={item.name}>
             <div className="mb-1 flex justify-between text-xs text-slate-600">
               <span>{item.name}</span>
-              <span className="font-semibold text-slate-900">{item.value}</span>
+              <span className="font-semibold text-slate-900">{seriesValue(item)}</span>
             </div>
             <div className="h-2 overflow-hidden rounded-full bg-slate-100">
               <div
                 className="h-full rounded-full transition-all"
                 style={{
-                  width: `${Math.max(4, (item.value / topValue) * 100)}%`,
+                  width: `${Math.max(4, (seriesValue(item) / topValue) * 100)}%`,
                   backgroundColor: CHART_COLORS[i % CHART_COLORS.length],
                 }}
               />

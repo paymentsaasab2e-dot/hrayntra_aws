@@ -163,6 +163,8 @@ function AttachmentUploadField({
   onRemoveStoredFile,
   disabled,
   uploadsBase,
+  onFormExtracted,
+  currentForm,
 }: {
   label: string;
   description: string;
@@ -172,6 +174,8 @@ function AttachmentUploadField({
   onRemoveStoredFile?: (fileId: string) => void | Promise<void>;
   disabled?: boolean;
   uploadsBase?: string;
+  onFormExtracted?: (values: PostServiceKycFormValues) => void;
+  currentForm?: PostServiceKycFormValues;
 }) {
   return (
     <KycDocumentsField
@@ -183,6 +187,8 @@ function AttachmentUploadField({
       uploadsBase={uploadsBase}
       label={label}
       description={description}
+      onFormExtracted={onFormExtracted}
+      currentForm={currentForm}
     />
   );
 }

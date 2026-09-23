@@ -78,7 +78,7 @@ export function resolveSubmitPhase1Snapshot(candidate: BackendCandidate): Phase1
       ? enriched.cvEducationEntries.map((e) => ({
           degreeProgram: e.degree,
           institutionName: e.institution,
-          fieldOfStudy: e.field,
+          fieldOfStudy: (e as { field?: string }).field,
           startYear: e.startYear,
           endYear: e.endYear,
         }))

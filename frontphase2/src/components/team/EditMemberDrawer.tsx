@@ -523,9 +523,9 @@ export const EditMemberDrawer: React.FC<EditMemberDrawerProps> = ({ isOpen, memb
     try {
       // Build payload - always include all fields so backend can clear them if needed
       const payload: UpdateMemberPayload = {
-        firstName: formData.firstName.trim(),
-        lastName: formData.lastName.trim(),
-        email: formData.email.trim(),
+        firstName: (formData.firstName || '').trim(),
+        lastName: (formData.lastName || '').trim(),
+        email: (formData.email || '').trim(),
         status: formData.status,
         phone: formData.phone?.trim() || undefined,
         designation: formData.designation?.trim() || undefined,

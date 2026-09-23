@@ -621,7 +621,7 @@ export function parseCandidatesSmartSearchPrompt(
   return {
     keywords,
     stage: stageValue,
-    status,
+    status: status ?? '',
     source,
     ownerId,
     company,

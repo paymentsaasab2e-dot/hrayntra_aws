@@ -64,7 +64,7 @@ export function CrossDepartmentApprovalsPanel() {
       ]);
       setRequests(data);
       setDepartments(Array.isArray(options?.departments) ? options.departments : []);
-      setOwnDepartment(options?.ownDepartment ?? null);
+      setOwnDepartment(options && 'ownDepartment' in options ? options.ownDepartment ?? null : null);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Failed to load cross-department requests';
       toast.error(message);

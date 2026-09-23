@@ -229,7 +229,7 @@ export const DepartmentsTab: React.FC = () => {
                           </div>
                         </td>
                         <td className="px-6 py-4 text-sm text-slate-600">
-                          {formatDate(dept.createdAt)}
+                          {formatDate(dept.createdAt || '')}
                         </td>
                         {showDepartmentAiAlertColumn ? (
                           <td className="px-6 py-4">

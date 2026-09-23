@@ -1,4 +1,5 @@
 'use client';
+import type { AppIcon } from '@/types/appIcon';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -7,7 +8,7 @@ import type { Lead, LeadSource } from './types';
 import { formatLeadSourceDisplay, isLeadSource } from '../../components/drawers/LeadSourceFields';
 
 /** Light visual style per source — keeps existing violet for fallback. */
-const SOURCE_STYLES: Record<LeadSource, { className: string; Icon: React.ComponentType<{ size?: number; className?: string; strokeWidth?: number }> }> = {
+const SOURCE_STYLES: Record<LeadSource, { className: string; Icon: AppIcon }> = {
   Website: {
     className: 'text-blue-700 bg-gradient-to-r from-blue-50 to-sky-50/80 border-blue-100 hover:from-blue-100 hover:to-sky-100',
     Icon: Globe,

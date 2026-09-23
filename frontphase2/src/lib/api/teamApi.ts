@@ -1,6 +1,7 @@
 import { apiFetch, refreshLocalUserPermissions, type BackendUser } from '../api';
 import { orgSideFromPathname } from '../org/orgSide';
 import type {
+  Permission,
   TeamMember,
   TeamMemberDetail,
   CreateMemberPayload,
@@ -19,6 +20,7 @@ import type {
   UpdateTeamRequestPayload,
 } from '../../types/team';
 import { UserStatus } from '../../types/team';
+import { buildFallbackPermissionsMap } from '../../components/team/permissionCatalog';
 import { formatAssigneeDisplayName } from '../assigneeDisplay';
 import { sanitizeMojibakeDeep } from '../sanitizeMojibake';
 
@@ -201,7 +203,7 @@ export function teamMembersToBackendUsers(members: TeamMember[]): BackendUser[] 
       role: m.role?.roleName || '',
       department: m.department?.name,
       isActive: m.status === 'ACTIVE',
-      createdAt: m.createdAt,
+      createdAt: m.createdAt || '',
       avatar: (m as { avatar?: string | null }).avatar || null,
       managerId: m.manager?.id || (m as { managerId?: string | null }).managerId || null,
     };
@@ -1446,10 +1448,11 @@ export async function getTeamStats() {
   // This would be a separate endpoint, or we can calculate from the list
   // For now, we'll calculate from the list response
   const response = await getTeamMembers({ limit: 1000 });
-  const members = response.data?.data || [];
-  
+  const members = Array.isArray(response.data) ? response.data : [];
+  const paginationTotal = Number((response.pagination as { total?: number } | undefined)?.total);
+
   const stats: TeamMemberStats = {
-    totalMembers: response.data?.total || 0,
+    totalMembers: Number.isFinite(paginationTotal) && paginationTotal > 0 ? paginationTotal : members.length,
     activeMembers: members.filter((m) => m.status === 'ACTIVE').length,
     roles: 0, // Would need separate endpoint
     departments: 0, // Would need separate endpoint

@@ -107,7 +107,7 @@ function ContactsPageContent() {
       }
 
       if (statsRes.data) {
-        setStats(statsRes.data);
+        setStats(statsRes.data?.data ?? null);
       }
     } catch (error: any) {
       console.error('Failed to fetch contacts:', error);

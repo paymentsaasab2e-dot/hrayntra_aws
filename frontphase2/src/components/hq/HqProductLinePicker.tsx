@@ -1,4 +1,5 @@
 'use client';
+import type { AppIcon } from '@/types/appIcon';
 
 import React from 'react';
 import { BriefcaseBusiness, Check, Target, X } from 'lucide-react';
@@ -11,7 +12,7 @@ export const HQ_PRODUCT_LINE_OPTIONS: Array<{
   id: HqProductLine;
   label: string;
   description: string;
-  icon: React.ComponentType<{ className?: string; size?: number; strokeWidth?: number }>;
+  icon: AppIcon;
 }> = [
   {
     id: 'crm',

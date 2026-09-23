@@ -24,6 +24,8 @@ export function initialsFromDisplayName(name?: string | null, max = 2): string {
 export interface ImageWithFallbackProps extends React.ImgHTMLAttributes<HTMLImageElement> {
   /** When `src` is missing/blank or the image fails to load, show these initials instead of the generic icon. */
   fallbackInitials?: string;
+  /** Custom node shown when `src` is missing or the image fails to load. */
+  fallback?: React.ReactNode;
 }
 
 export function ImageWithFallback(props: ImageWithFallbackProps) {
@@ -33,7 +35,7 @@ export function ImageWithFallback(props: ImageWithFallbackProps) {
     setDidError(true);
   };
 
-  const { src, alt, style, className, fallbackInitials, ...rest } = props;
+  const { src, alt, style, className, fallbackInitials, fallback, ...rest } = props;
 
   const imageSrc = src && String(src).trim() !== '' ? String(src).trim() : null;
   const initials = String(fallbackInitials ?? '').trim().slice(0, 3);
@@ -52,6 +54,7 @@ export function ImageWithFallback(props: ImageWithFallbackProps) {
   }
 
   if (!imageSrc || didError) {
+    if (fallback) return <>{fallback}</>;
     return (
       <div
         className={`inline-block bg-gray-100 text-center align-middle ${className ?? ''}`}

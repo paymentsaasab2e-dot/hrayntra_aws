@@ -1,4 +1,5 @@
 'use client';
+import type { AppIcon } from '@/types/appIcon';
 
 import Link from 'next/link';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -42,7 +43,7 @@ type StatusTab = 'unread' | 'read' | 'alerts';
 const STATUS_TABS: Array<{
   id: StatusTab;
   label: string;
-  icon: React.ComponentType<{ className?: string }>;
+  icon: AppIcon;
 }> = [
   { id: 'unread', label: 'Unread', icon: Mail },
   { id: 'read', label: 'Read', icon: MailOpen },

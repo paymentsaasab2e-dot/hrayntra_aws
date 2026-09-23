@@ -1,4 +1,5 @@
 'use client';
+import type { AppIcon } from '@/types/appIcon';
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
@@ -71,7 +72,7 @@ function MetricCard({
 }: {
   label: string;
   value: string;
-  icon: React.ComponentType<{ className?: string }>;
+  icon: AppIcon;
   accentClass: string;
 }) {
   return (
@@ -140,7 +141,7 @@ export function PlacementDetailsDrawer({
     async function loadPlacement() {
       try {
         setError(null);
-        const response = await apiGetPlacement(placementId);
+        const response = await apiGetPlacement(placementId ?? '');
         if (load.isActive()) setPlacement(response.data);
       } catch (detailError: any) {
         if (load.isActive()) {

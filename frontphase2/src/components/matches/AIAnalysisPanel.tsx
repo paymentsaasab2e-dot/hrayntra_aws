@@ -98,18 +98,18 @@ export default function AIAnalysisPanel({ candidate, rating = 0, onRate }: AIAna
             <tbody className="text-slate-800">
               <tr className="border-b border-slate-100">
                 <td className="py-2 pr-3 font-medium">Skills</td>
-                <td className="py-2 pr-3 tabular-nums">{Math.round(bd.skills)}</td>
-                <td className="py-2 tabular-nums text-slate-600">{weightPct(weights.p1)}</td>
+                <td className="py-2 pr-3 tabular-nums">{Math.round(bd.skills ?? 0)}</td>
+                <td className="py-2 tabular-nums text-slate-600">{weightPct(weights.p1 ?? 0)}</td>
               </tr>
               <tr className="border-b border-slate-100">
                 <td className="py-2 pr-3 font-medium">Experience</td>
-                <td className="py-2 pr-3 tabular-nums">{Math.round(bd.experience)}</td>
-                <td className="py-2 tabular-nums text-slate-600">{weightPct(weights.p2)}</td>
+                <td className="py-2 pr-3 tabular-nums">{Math.round(bd.experience ?? 0)}</td>
+                <td className="py-2 tabular-nums text-slate-600">{weightPct(weights.p2 ?? 0)}</td>
               </tr>
               <tr className="border-b border-slate-100">
                 <td className="py-2 pr-3 font-medium">Semantic</td>
-                <td className="py-2 pr-3 tabular-nums">{Math.round(bd.semantic)}</td>
-                <td className="py-2 tabular-nums text-slate-600">{weightPct(weights.p3)}</td>
+                <td className="py-2 pr-3 tabular-nums">{Math.round(bd.semantic ?? 0)}</td>
+                <td className="py-2 tabular-nums text-slate-600">{weightPct(weights.p3 ?? 0)}</td>
               </tr>
               <tr>
                 <td className="py-2 pr-3 font-medium">Cultural fit</td>

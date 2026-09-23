@@ -150,8 +150,19 @@ export async function requestWarning(message: unknown, options: Omit<AppDialogOp
   await requestAlert(message, { ...options, tone: 'warning' });
 }
 
-export async function requestError(message: unknown, options: Omit<AppDialogOptions, 'tone'> = {}): Promise<void> {
-  await requestAlert(message, { ...options, tone: 'error' });
+export async function requestError(
+  message: unknown,
+  options: Omit<AppDialogOptions, 'tone'> | string = {},
+): Promise<void> {
+  const fallback = typeof options === 'string' ? options : '';
+  const dialogOptions = typeof options === 'string' ? {} : options;
+  const text =
+    message instanceof Error
+      ? message.message || fallback
+      : typeof message === 'string' && message.trim()
+        ? message
+        : fallback || message;
+  await requestAlert(text, { ...dialogOptions, tone: 'error' });
 }
 
 export async function requestInfo(message: unknown, options: Omit<AppDialogOptions, 'tone'> = {}): Promise<void> {

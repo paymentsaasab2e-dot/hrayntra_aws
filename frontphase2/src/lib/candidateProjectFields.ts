@@ -76,7 +76,7 @@ function parseProjectDocuments(value: unknown): CandidateWorkExperienceDocument[
         size: Number.isFinite(sizeValue) && sizeValue > 0 ? sizeValue : undefined,
       };
     })
-    .filter((doc): doc is CandidateWorkExperienceDocument => Boolean(doc?.name || doc?.url));
+    .filter((doc) => Boolean(doc?.name || doc?.url)) as CandidateWorkExperienceDocument[];
 }
 
 function normalizeProjectDate(value: unknown): string {

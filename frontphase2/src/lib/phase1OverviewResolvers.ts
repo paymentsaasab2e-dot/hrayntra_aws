@@ -167,7 +167,7 @@ export function resolvePhase1Education(
   return (candidate.cvEducationEntries || []).map((entry) => ({
     degreeProgram: entry.degree,
     institutionName: entry.institution,
-    fieldOfStudy: entry.field,
+    fieldOfStudy: (entry as { field?: string }).field,
     startYear: entry.startYear,
     endYear: entry.endYear,
   }));

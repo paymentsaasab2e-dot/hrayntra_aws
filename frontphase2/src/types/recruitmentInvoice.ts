@@ -59,6 +59,7 @@ export type InvoiceTemplateBranding = {
   defaultPaymentTerms?: string;
   taxLabel?: string;
   taxRate?: number;
+  customColumns?: InvoiceCustomColumn[];
 };
 
 export type InvoiceTemplate = InvoiceTemplateBranding & {
@@ -70,6 +71,7 @@ export type InvoiceTemplate = InvoiceTemplateBranding & {
 
 export type InvoicePartyDetails = {
   name: string;
+  companyName?: string;
   email?: string;
   phone?: string;
   address?: string;

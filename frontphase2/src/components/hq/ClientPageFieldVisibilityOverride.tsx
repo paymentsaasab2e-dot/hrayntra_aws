@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext } from 'react';
-import type { ClientPageFieldVisibility } from '../lib/clientPageFieldVisibility';
+import type { ClientPageFieldVisibility } from '../../lib/clientPageFieldVisibility';
 
 const ClientPageFieldVisibilityOverrideContext =
   createContext<ClientPageFieldVisibility | null>(null);

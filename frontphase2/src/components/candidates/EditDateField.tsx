@@ -44,6 +44,7 @@ type EditDateFieldProps = {
   outputIso?: boolean;
   /** Hide the built-in label when a parent already renders one. */
   hideLabel?: boolean;
+  disabled?: boolean;
 };
 
 export function EditDateField({
@@ -56,6 +57,7 @@ export function EditDateField({
   placeholder = 'DD/MM/YYYY',
   outputIso = false,
   hideLabel = false,
+  disabled = false,
 }: EditDateFieldProps) {
   const displayFromValue = useMemo(() => toDisplayDmy(value), [value]);
   const [dateText, setDateText] = useState(displayFromValue);
@@ -141,6 +143,7 @@ export function EditDateField({
           autoComplete="off"
           placeholder={placeholder}
           value={dateText}
+          disabled={disabled}
           onChange={(e) => setDateText(maskDateDMYInput(e.target.value))}
           onBlur={() => commit(dateText)}
           className={`w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 pr-11 outline-none ${
@@ -162,6 +165,7 @@ export function EditDateField({
         />
         <button
           type="button"
+          disabled={disabled}
           onClick={openPicker}
           aria-label={`${label} calendar picker`}
           className={`absolute right-1.5 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 ${

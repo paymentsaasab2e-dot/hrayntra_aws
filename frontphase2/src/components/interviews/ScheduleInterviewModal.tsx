@@ -112,8 +112,8 @@ export function ScheduleInterviewModal({
     round: interview.round,
     type: interview.type,
     mode: interview.mode,
-    date: getInterviewDateInputYmd(interview.scheduledAt, interview.timezone) || interview.date,
-    time: formatInterviewTimeInTimezone(interview.scheduledAt, interview.timezone) || interview.time,
+    date: getInterviewDateInputYmd(interview.scheduledAt || '', interview.timezone) || interview.date || '',
+    time: formatInterviewTimeInTimezone(interview.scheduledAt || '', interview.timezone) || interview.time || '',
     duration: sanitizeInterviewDurationMinutes(interview.duration),
     timezone: resolveIanaFromTimezoneValue(interview.timezone),
     panelIds: interview.panel.map((member) => member.userId || member.id).filter(Boolean),
@@ -121,8 +121,8 @@ export function ScheduleInterviewModal({
     panelRoles: Object.fromEntries(
       interview.panel
         .filter((member) => member.userId)
-        .map((member) => [member.userId as string, 'TECHNICAL'])
-    ),
+        .map((member) => [member.userId as string, 'Technical' as const]),
+    ) as Record<string, 'HR' | 'Technical' | 'Client' | 'Hiring Manager'>,
     location: interview.location || '',
     notes: interview.notes || '',
     sendCalendarInvite: true,
@@ -628,7 +628,7 @@ export function ScheduleInterviewModal({
             interviewers={interviewers}
             initialSelectedIds={form.panelIds}
             onClose={() => setShowPanelModal(false)}
-            onSave={(panelIds) => {
+            onSave={async (panelIds) => {
               setForm((current) => ({ ...current, panelIds }));
               setShowPanelModal(false);
             }}

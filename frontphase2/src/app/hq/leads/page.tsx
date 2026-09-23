@@ -330,7 +330,6 @@ function mapHqLeadToBackendLead(row: HqLeadApiRow): BackendLead {
     city: row.city || null,
     state: row.state || null,
     nextFollowUp: row.nextFollowUpAt || null,
-    assignedToId: row.assignedToId || null,
     assignedToIds: row.assignedToIds || [],
     assignedTo: {
       id: row.assignedToId || '',
@@ -340,10 +339,17 @@ function mapHqLeadToBackendLead(row: HqLeadApiRow): BackendLead {
           : '') ||
         row.owner ||
         'Unassigned',
-      email: row.assignedToUsers?.[0]?.email || null,
+      email: row.assignedToUsers?.[0]?.email || '',
       avatar: null,
     },
-    assignedToUsers: row.assignedToUsers || [],
+    assignedToUsers: (row.assignedToUsers || []).map((u) => ({
+      id: u.id,
+      name: u.name,
+      email: u.email || '',
+      avatar: null,
+    })),
+    createdAt: row.createdAt || '',
+    updatedAt: row.updatedAt || '',
   };
 }
 

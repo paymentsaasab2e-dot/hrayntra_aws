@@ -1,5 +1,5 @@
 export type ActiveView = 'internal' | 'client';
-export type MatchMode = 'ai' | 'manual';
+export type MatchMode = 'ai' | 'manual' | 'applied';
 export type OpenModal = 'submit' | 'pipeline' | 'reject' | 'duplicate' | null;
 export type MatchStatus =
   | 'New'

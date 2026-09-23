@@ -16,6 +16,7 @@ const path = require('path');
 const { Server: SocketServer } = require('socket.io');
 const { prisma } = require('./lib/prisma');
 const { securityHeaders } = require('./middleware/securityHeaders.middleware');
+const { createUploadsStatic } = require('./middleware/uploadsStatic.middleware');
 const authRoutes = require('./routes/auth.routes');
 const cvRoutes = require('./routes/cv.routes');
 const profileRoutes = require('./routes/profile.routes');
@@ -112,9 +113,10 @@ app.use(securityHeaders);
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-// Serve uploaded files
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
-app.use('/api/uploads', express.static(path.join(__dirname, '../uploads')));
+// Assignment files only, and only with a candidate token. No public uploads tree.
+const uploadsStatic = createUploadsStatic(path.join(__dirname, '../uploads'));
+app.use('/uploads', uploadsStatic);
+app.use('/api/uploads', uploadsStatic);
 
 // Health check with database connection test
 app.get('/health', async (req, res) => {

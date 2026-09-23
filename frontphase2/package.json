@@ -10,7 +10,8 @@
     "dev:clean": "npm run clean && next dev -p 3001 --turbopack",
     "build": "next build",
     "start": "next start -p 3001",
-    "lint": "next lint"
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit --incremental false"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",

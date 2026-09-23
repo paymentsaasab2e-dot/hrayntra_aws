@@ -89,8 +89,11 @@ export interface TaskForDrawer {
   priority: TaskPriority;
   status: TaskStatus;
   owner: { name: string; avatar: string };
+  assignee?: { id: string; name: string; email?: string };
+  assigneeId?: string;
   assignedToId?: string;
   createdById?: string;
+  createdByName?: string;
   participantIds?: string[];
   completionApproverId?: string;
   completionRequestedById?: string;

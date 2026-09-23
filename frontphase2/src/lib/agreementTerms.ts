@@ -147,8 +147,9 @@ export function agreementTermsFromRecord(
   };
 }
 
-export function agreementTermsApiPayload(values: AgreementTermsFormValues) {
-  const replacementRaw = values.agreementFreeReplacementValue.trim();
+export function agreementTermsApiPayload(values: Partial<AgreementTermsFormValues>) {
+  const text = (value: string | null | undefined) => String(value || '').trim();
+  const replacementRaw = text(values.agreementFreeReplacementValue);
   const replacementParsed = replacementRaw === '' ? null : Number.parseInt(replacementRaw, 10);
   const freeReplacementValue =
     replacementParsed != null && Number.isFinite(replacementParsed) && replacementParsed >= 0
@@ -157,19 +158,19 @@ export function agreementTermsApiPayload(values: AgreementTermsFormValues) {
 
   return {
     agreementTotalPayment: null,
-    agreementLevel: values.agreementLevel.trim() || null,
-    agreementServiceChargePercent: values.agreementServiceChargePercent.trim() || null,
+    agreementLevel: text(values.agreementLevel) || null,
+    agreementServiceChargePercent: text(values.agreementServiceChargePercent) || null,
     agreementContractValidity:
-      values.agreementContractStartDate.trim() || values.agreementContractEndDate.trim()
-        ? [values.agreementContractStartDate.trim(), values.agreementContractEndDate.trim()]
+      text(values.agreementContractStartDate) || text(values.agreementContractEndDate)
+        ? [text(values.agreementContractStartDate), text(values.agreementContractEndDate)]
             .filter(Boolean)
             .map((value) => formatDateDMY(value))
             .join(' to ')
-        : values.agreementContractValidity.trim() || null,
-    agreementContractStartDate: values.agreementContractStartDate.trim() || null,
-    agreementContractEndDate: values.agreementContractEndDate.trim() || null,
-    agreementTimePeriod: values.agreementTimePeriod.trim() || null,
-    agreementAdvancePaymentPercent: values.agreementAdvancePaymentPercent.trim() || null,
+        : text(values.agreementContractValidity) || null,
+    agreementContractStartDate: text(values.agreementContractStartDate) || null,
+    agreementContractEndDate: text(values.agreementContractEndDate) || null,
+    agreementTimePeriod: text(values.agreementTimePeriod) || null,
+    agreementAdvancePaymentPercent: text(values.agreementAdvancePaymentPercent) || null,
     agreementFreeReplacementValue: freeReplacementValue,
     agreementFreeReplacementUnit:
       freeReplacementValue != null && values.agreementFreeReplacementUnit
@@ -200,11 +201,11 @@ export function filledAgreementTermKeys(values: Partial<AgreementTermsFormValues
 }
 
 /** Apply non-empty values parsed from an uploaded agreement document. */
-export function mergeExtractedAgreementTerms(
-  current: AgreementTermsFormValues,
+export function mergeExtractedAgreementTerms<T extends object>(
+  current: T,
   extracted: Partial<AgreementTermsFormValues>,
-): AgreementTermsFormValues {
-  const next = { ...current };
+): T {
+  const next = { ...current } as T & AgreementTermsFormValues;
   const keys: (keyof AgreementTermsFormValues)[] = [
     'agreementLevel',
     'agreementServiceChargePercent',
@@ -221,10 +222,10 @@ export function mergeExtractedAgreementTerms(
     if (value != null && String(value).trim() !== '') {
       if (key === 'agreementContractStartDate' || key === 'agreementContractEndDate') {
         const date = toAgreementDateInputValue(value);
-        if (date) next[key] = date;
+        if (date) (next as AgreementTermsFormValues)[key] = date;
         continue;
       }
-      next[key] = value as AgreementTermsFormValues[typeof key];
+      (next as Record<keyof AgreementTermsFormValues, string>)[key] = String(value);
     }
   }
   return next;

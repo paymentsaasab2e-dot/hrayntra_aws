@@ -1,4 +1,5 @@
 'use client';
+import type { AppIcon } from '@/types/appIcon';
 
 import React from 'react';
 import { Loader2 } from 'lucide-react';
@@ -217,7 +218,7 @@ export function HqFieldText({
   minLength,
 }: {
   label: string;
-  icon: React.ComponentType<{ className?: string }>;
+  icon: AppIcon;
   type?: string;
   value: string;
   onChange: (v: string) => void;

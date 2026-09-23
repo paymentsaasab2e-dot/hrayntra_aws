@@ -209,9 +209,10 @@ export function NotificationTriggerSettings() {
         const res = await apiGetNotificationTriggerSettings();
         const data = res.data;
         if (!mounted) return;
-        const mergedActive = { ...DEFAULT_ACTIVE_STATE, ...(data?.active || {}) };
+        const settings = data?.value;
+        const mergedActive = { ...DEFAULT_ACTIVE_STATE, ...(settings?.active || {}) };
         setActiveStates(mergedActive);
-        setAdditional(Array.isArray(data?.additional) ? data.additional : []);
+        setAdditional(Array.isArray(settings?.additional) ? settings.additional : []);
       } catch {
         if (mounted) {
           setActiveStates(DEFAULT_ACTIVE_STATE);

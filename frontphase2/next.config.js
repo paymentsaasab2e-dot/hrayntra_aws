@@ -9,7 +9,7 @@ const isMonorepoChild = fs.existsSync(path.join(parentDir, 'backendphase2'));
 const nextConfig = {
   reactStrictMode: true,
   typescript: {
-    ignoreBuildErrors: true,
+    ignoreBuildErrors: false,
   },
   // Standalone Vercel deploy must NOT set this — it doubles /vercel/path0/path0/.next
   ...(isMonorepoChild

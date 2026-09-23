@@ -90,7 +90,8 @@ export function useDraggableFixedPosition({
 
     const stored = readStoredPosition(storageKey);
     const fallback = defaultPosition?.() ?? { x: margin, y: margin };
-    const initial = clampPosition(stored ?? fallback);
+    const point = stored ?? fallback;
+    const initial = clampPosition(point.x, point.y);
     setPosition(initial);
     positionRef.current = initial;
     setMounted(true);

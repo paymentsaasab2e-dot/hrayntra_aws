@@ -719,7 +719,10 @@ export function CandidatePhase1DetailSections({
             accomplishments.map((row, index) => (
               <RecordCard
                 key={`acc-${index}`}
-                title={display(row.title || row.accomplishmentTitle) || `Accomplishment ${index + 1}`}
+                title={
+                  display(row.title || (row as { accomplishmentTitle?: string }).accomplishmentTitle) ||
+                  `Accomplishment ${index + 1}`
+                }
                 rows={[
                   { label: 'Category', value: row.category },
                   { label: 'Organization', value: row.organization },

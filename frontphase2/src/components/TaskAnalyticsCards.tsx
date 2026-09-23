@@ -1,4 +1,5 @@
 'use client';
+import type { AppIcon } from '@/types/appIcon';
 
 import React from 'react';
 import { CheckSquare, Clock, TrendingUp, UserCheck } from 'lucide-react';
@@ -32,7 +33,7 @@ function getProductivityMetricClass(percent: number): string {
   return 'text-red-600';
 }
 
-type IconComponent = React.ComponentType<{ size?: number; className?: string }>;
+type IconComponent = AppIcon;
 const CARD_CONFIG: Record<
   TaskAnalyticsCardId,
   { title: string; icon: IconComponent; iconBg: string }

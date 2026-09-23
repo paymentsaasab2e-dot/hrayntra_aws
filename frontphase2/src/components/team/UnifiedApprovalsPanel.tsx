@@ -224,7 +224,7 @@ export function UnifiedApprovalsPanel({ kindFilter = 'all' }: Props) {
       setLeadConversions(leads);
       setTaskApprovals(awaitingTasks);
       setDepartments(Array.isArray(assignOptions?.departments) ? assignOptions.departments : []);
-      setOwnDepartment(assignOptions?.ownDepartment ?? null);
+      setOwnDepartment(assignOptions && 'ownDepartment' in assignOptions ? assignOptions.ownDepartment ?? null : null);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to load approvals');
       setTeamRequests([]);

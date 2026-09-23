@@ -63,8 +63,10 @@ export type LeadsSmartSearchParseResult = {
   matchingLeadIds?: string[];
   tenantDatabase?: {
     tenantDbName: string;
-    totalLeads: number;
+    totalLeads?: number;
+    totalRecords?: number;
     leadsLoadedForAi?: number;
+    recordsLoadedForAi?: number;
     truncated?: boolean;
   };
 };

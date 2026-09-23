@@ -79,7 +79,7 @@ function parseCertificationDocuments(value: unknown): CandidateWorkExperienceDoc
         size: Number.isFinite(sizeValue) && sizeValue > 0 ? sizeValue : undefined,
       };
     })
-    .filter((doc): doc is CandidateWorkExperienceDocument => Boolean(doc?.name || doc?.url));
+    .filter((doc) => Boolean(doc?.name || doc?.url)) as CandidateWorkExperienceDocument[];
 }
 
 export function formatCertificationMonthDisplay(value: string | undefined): string {

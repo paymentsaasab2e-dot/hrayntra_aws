@@ -104,7 +104,7 @@ export function ScheduleMeetingForm({
                 ? { id: member.department.id, name: member.department.name || '' }
                 : undefined,
               status: 'ACTIVE' as const,
-            })),
+            })) as TeamMember[],
           );
         }
       } catch {

@@ -467,7 +467,7 @@ export default function SubmitModal({
                           {renderField('Email', candidateDraft.email || candidate.email)}
                           {renderField('Phone', candidateDraft.phone || candidate.phone)}
                           {renderField('Location', candidateDraft.location || candidate.location)}
-                          {renderField('Experience', `${detailValue(candidateDraft.experience || candidate.experience, 0)} years`)}
+                          {renderField('Experience', `${detailValue(candidateDraft.experience || candidate.experience, String(0))} years`)}
                         </div>
                         <div className="rounded-xl border border-slate-200 bg-white p-3">
                           <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Skills</p>
@@ -517,7 +517,7 @@ export default function SubmitModal({
                       {renderField('Current Title', candidateDraft.currentTitle || candidate.currentTitle)}
                       {renderField('Current Company', candidateDraft.currentCompany || candidate.currentCompany)}
                       {renderField('Location', candidateDraft.location || candidate.location)}
-                      {renderField('Experience', `${detailValue(candidateDraft.experience || candidate.experience, 0)} years`)}
+                      {renderField('Experience', `${detailValue(candidateDraft.experience || candidate.experience, String(0))} years`)}
                       {renderField('Match Score', candidate.score)}
                       {renderField('Match Rating', candidate.matchRating ?? '-')}
                       {renderField('Notice Period', candidate.noticePeriod)}
@@ -567,9 +567,13 @@ export default function SubmitModal({
                     <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                       {renderField(
                         'Submission History',
-                        candidate.submittedHistory?.length
-                          ? candidate.submittedHistory.map((entry) => `${entry.date} - ${entry.status}`).join(' | ')
-                          : 'No history'
+                        (() => {
+                          const history = candidate.submittedHistory;
+                          const entries = Array.isArray(history) ? history : history ? [history] : [];
+                          return entries.length
+                            ? entries.map((entry) => `${entry.date} - ${entry.status}`).join(' | ')
+                            : 'No history';
+                        })(),
                       )}
                     </div>
                   </div>
@@ -667,7 +671,9 @@ export default function SubmitModal({
                                     </button>
                                     <button
                                       type="button"
-                                      onClick={() => deleteNote(note.id)}
+                                      onClick={() => {
+                                        void deleteNote();
+                                      }}
                                       className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100"
                                       disabled={noteSaving}
                                     >
@@ -1024,7 +1030,9 @@ export default function SubmitModal({
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => deleteNote(note.id)}
+                                  onClick={() => {
+                                    void deleteNote();
+                                  }}
                                   className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100"
                                   disabled={noteSaving}
                                 >

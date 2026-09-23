@@ -15,6 +15,7 @@ export type Phase1ProfileSnapshot = {
     phoneCode?: string;
     gender?: string;
     dob?: string;
+    dateOfBirth?: string;
     country?: string;
     city?: string;
     address?: string;

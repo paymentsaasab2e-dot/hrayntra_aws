@@ -1,3 +1,4 @@
+import type { AppIcon } from '@/types/appIcon';
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Copy, EllipsisVertical, Eye, MessageSquarePlus, Pencil, RotateCcw, Trash2, UserRoundX, XCircle } from 'lucide-react';
@@ -19,7 +20,7 @@ interface ActionsDropdownProps {
   actions?: InterviewAction[];
 }
 
-const actions: Array<{ key: InterviewAction; label: string; icon: React.ComponentType<{ className?: string }> }> = [
+const actions: Array<{ key: InterviewAction; label: string; icon: AppIcon }> = [
   { key: 'view', label: 'View Details', icon: Eye },
   { key: 'edit', label: 'Edit Interview', icon: Pencil },
   { key: 'reject', label: 'Reject Candidate', icon: XCircle },

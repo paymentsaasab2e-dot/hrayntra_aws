@@ -1,4 +1,5 @@
 'use client';
+import type { AppIcon } from '@/types/appIcon';
 
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -27,7 +28,7 @@ import {
 } from '@/app/hq/leads/hqLeadsData';
 import { HqLeadSourceFields, validateHqLeadSourceFields } from './HqLeadSourceFields';
 
-const DRAWER_TABS: { id: HqLeadDrawerTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+const DRAWER_TABS: { id: HqLeadDrawerTab; label: string; icon: AppIcon }[] = [
   { id: 'details', label: 'Details', icon: LayoutGrid },
   { id: 'followup', label: 'Follow-up', icon: CalendarClock },
   { id: 'remarks', label: 'Remarks', icon: MessageSquare },
@@ -787,9 +788,7 @@ export function HqLeadDetailDrawer({
                 {activeTab === 'details' ? (
                   <HqPrimaryButton
                     type="button"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
+                    onClick={() => {
                       setIsEditing(true);
                     }}
                   >
@@ -800,6 +799,7 @@ export function HqLeadDetailDrawer({
               </>
             )}
         </div>
+      </div>
       </div>
     </DetailsModalShell>,
     document.body
