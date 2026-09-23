@@ -89,6 +89,17 @@ export interface ClientReviewData {
     comments: string;
   }>;
   cvEditorPreview?: CVEditorData | null;
+  /** HRYantra CV overlays. The shared file is the exported PDF; this draws marks when that file is missing. */
+  saasaCvPreview?: {
+    hasExport?: boolean;
+    fullSnapshot?: boolean;
+    hasOverlays?: boolean;
+    baseResumeUrl?: string | null;
+    items?: Array<Record<string, unknown>>;
+    companyLogo?: { url?: string | null } | null;
+    documentHtml?: string | null;
+    pdfTextLayerHtml?: string[] | null;
+  } | null;
   sharedResumeUrl?: string | null;
   activeMatchId?: string;
   batchCandidates?: ClientReviewBatchRow[];

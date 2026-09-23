@@ -149,6 +149,7 @@ export const interviewController = {
       const result = await interviewService.streamPublicClientReviewAsset(req.params.token, {
         kind: 'resume',
         matchId: req.query.matchId,
+        source: req.query.source,
       });
       res.setHeader('Content-Type', result.contentType || 'application/pdf');
       res.setHeader(

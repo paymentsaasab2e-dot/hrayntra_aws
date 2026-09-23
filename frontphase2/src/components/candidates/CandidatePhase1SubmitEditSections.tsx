@@ -35,7 +35,14 @@ import {
   type SubmitToClientFieldId,
   type SubmitToClientFieldVisibility,
 } from '@/lib/submitToClientFieldVisibility';
-import { phase1FieldLabelClass, phase1FieldValueClass, phase1SectionMetaClass, phase1SectionTitleClass } from '@/lib/phase1Typography';
+import {
+  phase1EditGridClass,
+  phase1EditInputClass,
+  phase1EditLabelClass,
+  phase1EditTextareaClass,
+  phase1SectionMetaClass,
+  phase1SectionTitleClass,
+} from '@/lib/phase1Typography';
 import { CandidatePhase1CareerPreferencesEdit } from './CandidatePhase1CareerPreferencesEdit';
 import { CandidateAcademicAchievementEntryEdit } from './CandidateAcademicAchievementEntryEdit';
 import { CandidateCompetitiveExamEntryEdit } from './CandidateCompetitiveExamEntryEdit';
@@ -74,6 +81,7 @@ import {
   extractVisaDisplayEntries,
   normalizeVisaEntryRecord,
   visaDisplayEntriesToSnapshot,
+  type CandidateVisaEntryRecord,
 } from '@/lib/candidateVisaWorkAuthorizationFields';
 import { CandidateVisaWorkAuthorizationEntryEdit } from './CandidateVisaWorkAuthorizationEntryEdit';
 import { CandidateVaccinationEntryEdit } from './CandidateVaccinationEntryEdit';
@@ -106,22 +114,20 @@ function EditField({
   multiline?: boolean;
 }) {
   return (
-    <label className="block">
-      <span className={`mb-1.5 block ${phase1FieldLabelClass}`}>
-        {label}
-      </span>
+    <label className="block min-w-0">
+      <span className={`mb-1 block ${phase1EditLabelClass}`}>{label}</span>
       {multiline ? (
         <textarea
           value={value}
           onChange={(e) => onChange(e.target.value)}
           rows={4}
-          className={`w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 ${phase1FieldValueClass}`}
+          className={phase1EditTextareaClass}
         />
       ) : (
         <input
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className={`w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 ${phase1FieldValueClass}`}
+          className={phase1EditInputClass}
         />
       )}
     </label>
@@ -151,12 +157,13 @@ function EditSelect({
       ? [...options, { label: value, value }]
       : options;
   return (
-    <label className="block">
-      <span className={`mb-1.5 block ${phase1FieldLabelClass}`}>{label}</span>
+    <label className="block min-w-0">
+      <span className={`mb-1 block ${phase1EditLabelClass}`}>{label}</span>
+      <div className="relative">
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className={`w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 ${phase1FieldValueClass}`}
+        className={`${phase1EditInputClass} cursor-pointer appearance-none pr-8`}
       >
         <option value="">Select</option>
         {selectOptions.map((option) => (
@@ -165,6 +172,11 @@ function EditSelect({
           </option>
         ))}
       </select>
+      <ChevronDown
+        size={15}
+        className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400"
+      />
+      </div>
     </label>
   );
 }
@@ -199,7 +211,7 @@ function Phase1EditSection({
   const hidden = showClientVisibilityToggle && !clientVisible;
   return (
     <section
-      className={`overflow-hidden rounded-2xl border bg-violet-50/30 ${
+      className={`overflow-visible rounded-2xl border bg-violet-50/30 ${
         hidden ? 'border-dashed border-slate-300 opacity-90' : 'border-violet-200/80'
       }`}
     >
@@ -460,20 +472,37 @@ export function CandidatePhase1SubmitEditSections({
       snapshot.visaWorkAuthorization && typeof snapshot.visaWorkAuthorization === 'object'
         ? (snapshot.visaWorkAuthorization as Record<string, unknown>)
         : resolvePhase1VisaWorkAuthorization(snapshot, candidate);
-    return extractVisaDisplayEntries(visa).map((row) => normalizeVisaEntryRecord(row));
+    const editorEntries = Array.isArray(visa?.editorEntries) ? visa.editorEntries : null;
+    const source = editorEntries || extractVisaDisplayEntries(visa);
+    return source.map((row) => normalizeVisaEntryRecord(row as Record<string, unknown>));
   }, [snapshot.visaWorkAuthorization, candidate]);
 
-  const patchVisaEntry = (index: number, patch: Record<string, unknown>) => {
-    const nextEntries = visaEntries.map((row, rowIndex) =>
-      rowIndex === index ? normalizeVisaEntryRecord({ ...row, ...patch }) : row,
-    );
+  const blankVisaEntry = useMemo(
+    () => normalizeVisaEntryRecord({ id: 'visa-draft', isPrimary: true }),
+    [],
+  );
+  const shownVisaEntries = visaEntries.length ? visaEntries : [blankVisaEntry];
+
+  const commitVisaEntries = (nextEntries: CandidateVisaEntryRecord[]) => {
+    const previous =
+      snapshot.visaWorkAuthorization && typeof snapshot.visaWorkAuthorization === 'object'
+        ? (snapshot.visaWorkAuthorization as Record<string, unknown>)
+        : null;
     onChange({
       ...snapshot,
-      visaWorkAuthorization: visaDisplayEntriesToSnapshot(
-        nextEntries,
-        snapshot.visaWorkAuthorization as Record<string, unknown> | null,
-      ),
+      visaWorkAuthorization: {
+        ...visaDisplayEntriesToSnapshot(nextEntries, previous),
+        editorEntries: nextEntries,
+      },
     });
+  };
+
+  const patchVisaEntry = (index: number, patch: Record<string, unknown>) => {
+    const base = visaEntries.length ? visaEntries : [blankVisaEntry];
+    const nextEntries = base.map((row, rowIndex) =>
+      rowIndex === index ? normalizeVisaEntryRecord({ ...row, ...patch }) : row,
+    );
+    commitVisaEntries(nextEntries);
   };
 
   const accomplishmentEntries = useMemo(() => {
@@ -500,16 +529,26 @@ export function CandidatePhase1SubmitEditSections({
     });
   };
 
-  const patchAccomplishmentEntry = (index: number, patch: Record<string, unknown>) => {
-    const nextEntries = accomplishmentEntries.map((row, rowIndex) =>
-      rowIndex === index
-        ? normalizeAccomplishmentRecord({ ...row, ...patch })
-        : row,
-    );
+  const blankAccomplishment = useMemo(() => normalizeAccomplishmentRecord({}), []);
+  const shownAccomplishments = accomplishmentEntries.length
+    ? accomplishmentEntries
+    : [blankAccomplishment];
+
+  const commitAccomplishments = (
+    entries: Array<ReturnType<typeof normalizeAccomplishmentRecord>>,
+  ) => {
     onChange({
       ...snapshot,
-      accomplishments: nextEntries.map((row) => accomplishmentRecordToSnapshotRow(row)),
+      accomplishments: entries.map((row) => accomplishmentRecordToSnapshotRow(row)),
     });
+  };
+
+  const patchAccomplishmentEntry = (index: number, patch: Record<string, unknown>) => {
+    const base = accomplishmentEntries.length ? accomplishmentEntries : [blankAccomplishment];
+    const nextEntries = base.map((row, rowIndex) =>
+      rowIndex === index ? normalizeAccomplishmentRecord({ ...row, ...patch }) : row,
+    );
+    commitAccomplishments(nextEntries);
   };
 
   const certificationEntries = useMemo(() => {
@@ -549,7 +588,7 @@ export function CandidatePhase1SubmitEditSections({
         {...sectionToggleProps}
         clientVisible={sectionVisible('personal')}
       >
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className={phase1EditGridClass}>
           {showField('fullName') ? (
             <EditField label="First name" value={str(pi.firstName)} onChange={(v) => patchPersonal({ firstName: v })} />
           ) : null}
@@ -595,9 +634,7 @@ export function CandidatePhase1SubmitEditSections({
             <EditField label="Country" value={str(pi.country)} onChange={(v) => patchPersonal({ country: v })} />
           ) : null}
           {showField('address') ? (
-            <div className="sm:col-span-2">
-              <EditField label="Current address" value={str(pi.address)} onChange={(v) => patchPersonal({ address: v })} />
-            </div>
+            <EditField label="Current address" value={str(pi.address)} onChange={(v) => patchPersonal({ address: v })} />
           ) : null}
           {showField('employment') ? (
             <EditField label="Employment status" value={str(pi.employment)} onChange={(v) => patchPersonal({ employment: v })} />
@@ -606,9 +643,7 @@ export function CandidatePhase1SubmitEditSections({
             <EditField label="Passport number" value={str(pi.passportNumber)} onChange={(v) => patchPersonal({ passportNumber: v })} />
           ) : null}
           {showField('linkedIn') ? (
-            <div className="sm:col-span-2">
-              <EditField label="LinkedIn" value={str(pi.linkedinUrl)} onChange={(v) => patchPersonal({ linkedinUrl: v })} />
-            </div>
+            <EditField label="LinkedIn" value={str(pi.linkedinUrl)} onChange={(v) => patchPersonal({ linkedinUrl: v })} />
           ) : null}
         </div>
       </Phase1EditSection>
@@ -980,12 +1015,12 @@ export function CandidatePhase1SubmitEditSections({
         icon={Star}
         open={open.accomplishments}
         onToggle={toggle}
-        count={accomplishmentEntries.length}
+        count={shownAccomplishments.length}
         {...sectionToggleProps}
         clientVisible={sectionVisible('accomplishments')}
       >
-        {accomplishmentEntries.map((row, index) => (
-          <div key={`acc-${index}`} className="rounded-xl border border-slate-200 bg-white p-3 grid gap-2 sm:grid-cols-2">
+        {shownAccomplishments.map((row, index) => (
+          <div key={`acc-${index}`} className={`rounded-xl border border-slate-200 bg-white p-3 ${phase1EditGridClass}`}>
             <EditField
               label="Title"
               value={row.title || ''}
@@ -1007,7 +1042,7 @@ export function CandidatePhase1SubmitEditSections({
               outputIso
               onChange={(v) => patchAccomplishmentEntry(index, { achievementDate: v })}
             />
-            <div className="sm:col-span-2">
+            <div className="sm:col-span-2 lg:col-span-3">
               <EditField
                 label="Description"
                 value={row.description || ''}
@@ -1017,6 +1052,16 @@ export function CandidatePhase1SubmitEditSections({
             </div>
           </div>
         ))}
+        <button
+          type="button"
+          onClick={() => {
+            const base = accomplishmentEntries.length ? accomplishmentEntries : [blankAccomplishment];
+            commitAccomplishments([...base, normalizeAccomplishmentRecord({})]);
+          }}
+          className="w-full rounded-xl border border-dashed border-violet-300 bg-violet-50/60 px-4 py-3 text-sm font-semibold text-violet-700 hover:bg-violet-50"
+        >
+          Add accomplishment
+        </button>
       </Phase1EditSection>
 
       <Phase1EditSection id="careerPreferences" title="Career preferences" icon={Target} open={open.careerPreferences} onToggle={toggle} {...sectionToggleProps} clientVisible={sectionVisible('careerPreferences')}>
@@ -1032,13 +1077,13 @@ export function CandidatePhase1SubmitEditSections({
         icon={Shield}
         open={open.visa}
         onToggle={toggle}
-        count={visaEntries.length}
+        count={shownVisaEntries.length}
         {...sectionToggleProps}
         clientVisible={sectionVisible('visa')}
       >
-        {visaEntries.map((row, index) => (
+        {shownVisaEntries.map((row, index) => (
           <CandidateVisaWorkAuthorizationEntryEdit
-            key={`visa-${index}`}
+            key={`visa-${row.id || index}`}
             candidateId={candidate.id}
             entry={row as Record<string, unknown>}
             index={index}
@@ -1048,17 +1093,11 @@ export function CandidatePhase1SubmitEditSections({
         <button
           type="button"
           onClick={() => {
-            const nextEntries = [
-              ...visaEntries,
-              normalizeVisaEntryRecord({ id: `visa-${Date.now()}`, isPrimary: visaEntries.length === 0 }),
-            ];
-            onChange({
-              ...snapshot,
-              visaWorkAuthorization: visaDisplayEntriesToSnapshot(
-                nextEntries,
-                snapshot.visaWorkAuthorization as Record<string, unknown> | null,
-              ),
-            });
+            const base = visaEntries.length ? visaEntries : [blankVisaEntry];
+            commitVisaEntries([
+              ...base,
+              normalizeVisaEntryRecord({ id: `visa-${Date.now()}`, isPrimary: false }),
+            ]);
           }}
           className="w-full rounded-xl border border-dashed border-violet-300 bg-violet-50/60 px-4 py-3 text-sm font-semibold text-violet-700 hover:bg-violet-50"
         >

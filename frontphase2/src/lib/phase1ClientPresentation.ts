@@ -38,8 +38,18 @@ import {
   resolvePhase1PersonalInfo,
   type Phase1ProfileSnapshot,
 } from './phase1ProfileSnapshot';
-import { accomplishmentRecordToSnapshotRow, normalizeAccomplishmentRecord } from './candidateAccomplishmentFields';
+import {
+  accomplishmentHasContent,
+  accomplishmentRecordToSnapshotRow,
+  normalizeAccomplishmentRecord,
+} from './candidateAccomplishmentFields';
 import { prepareCareerPreferencesForSave } from './normalizeCareerPreferencesRecord';
+import {
+  extractVisaDisplayEntries,
+  normalizeVisaEntryRecord,
+  visaDisplayEntriesToSnapshot,
+  visaEntryHasContent,
+} from './candidateVisaWorkAuthorizationFields';
 
 function parseExtra(extraData: unknown): Record<string, unknown> {
   if (!extraData || typeof extraData !== 'object' || Array.isArray(extraData)) return {};
@@ -303,16 +313,37 @@ export function buildUpdatePayloadFromPhase1EditSnapshot(
     currentTitle: profile.currentTitle,
     designation: profile.designation,
   });
+  const visaSource =
+    snapshot.visaWorkAuthorization && typeof snapshot.visaWorkAuthorization === 'object'
+      ? (snapshot.visaWorkAuthorization as Record<string, unknown>)
+      : null;
+  const visaEditorEntries = Array.isArray(visaSource?.editorEntries)
+    ? visaSource.editorEntries
+    : visaSource
+      ? extractVisaDisplayEntries(visaSource)
+      : [];
+  const visaForSave = visaSource
+    ? visaDisplayEntriesToSnapshot(
+        visaEditorEntries
+          .map((row) => normalizeVisaEntryRecord(row as Record<string, unknown>))
+          .filter((row) => visaEntryHasContent(row)),
+        visaSource,
+      )
+    : null;
+
+  const savedAccomplishments = (Array.isArray(snapshot.accomplishments) ? snapshot.accomplishments : [])
+    .filter((row) => accomplishmentHasContent(row as Record<string, unknown>))
+    .map((row) =>
+      accomplishmentRecordToSnapshotRow(
+        normalizeAccomplishmentRecord(row as Record<string, unknown>),
+      ),
+    );
+
   const snapshotForSave: Phase1ProfileSnapshot = {
     ...snapshot,
     careerPreferences: normalizedCareer,
-    accomplishments: Array.isArray(snapshot.accomplishments)
-      ? snapshot.accomplishments.map((row) =>
-          accomplishmentRecordToSnapshotRow(
-            normalizeAccomplishmentRecord(row as Record<string, unknown>),
-          ),
-        )
-      : [],
+    visaWorkAuthorization: visaForSave,
+    accomplishments: savedAccomplishments,
     vaccination: snapshot.vaccination
       ? vaccinationRecordToSnapshotRow(
           normalizeVaccinationRecord(snapshot.vaccination as Record<string, unknown>),
@@ -328,7 +359,7 @@ export function buildUpdatePayloadFromPhase1EditSnapshot(
     },
     phase1GapExplanations: snapshot.gapExplanations || [],
     phase1Internships: snapshot.internships || [],
-    phase1Accomplishments: snapshot.accomplishments || [],
+    phase1Accomplishments: savedAccomplishments,
   };
 
   const preferredLocations = Array.isArray(normalizedCareer?.preferredLocations)
@@ -383,9 +414,26 @@ export function buildUpdatePayloadFromPhase1EditSnapshot(
   const enriched = enrichBackendCandidateFromPhase1Snapshot(backendSeed);
   const form = buildCandidateEditForm(mapCandidateProfile(enriched));
   const payload = buildUpdatePayloadFromEditForm(form, mergedExtra);
+  const savedAt = new Date().toISOString();
+  const previousExtra =
+    payload.extraData && typeof payload.extraData === 'object' && !Array.isArray(payload.extraData)
+      ? payload.extraData
+      : {};
+  const savedSnapshot = {
+    ...snapshotForSave,
+    _phase1SnapshotSavedAt: savedAt,
+  };
 
   return {
     ...payload,
+    extraData: {
+      ...previousExtra,
+      careerPreferences: normalizedCareer,
+      phase1ProfileSnapshot: savedSnapshot,
+      phase1Accomplishments: savedAccomplishments,
+      phase1GapExplanations: snapshot.gapExplanations || [],
+      phase1Internships: snapshot.internships || [],
+    },
     firstName: editedFirstName || payload.firstName,
     lastName: editedLastName || payload.lastName,
     email: editedEmail || payload.email,

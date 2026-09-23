@@ -127,20 +127,30 @@ export function mergeCareerPreferencesRecord(
       ? (extra.careerPreferences as Record<string, unknown>)
       : {};
 
-  const merged = {
+  const merged: Record<string, unknown> = {
     ...(((phase1?.careerPreferences as Record<string, unknown> | null) || {})),
     ...extraCareer,
     ...(((candidate.careerPreferences as Record<string, unknown> | null) || {})),
     ...(override || {}),
-    ...(professional.currentBenefits ? { currentBenefits: professional.currentBenefits } : {}),
-    ...(professional.expectedBenefits ? { preferredBenefits: professional.expectedBenefits } : {}),
-    ...(professional.currentSalaryCurrency
-      ? { currentCurrency: professional.currentSalaryCurrency }
-      : {}),
-    ...(professional.expectedSalaryCurrency
-      ? { preferredCurrency: professional.expectedSalaryCurrency }
-      : {}),
   };
+
+  const hasList = (value: unknown) => {
+    if (Array.isArray(value)) return value.some((item) => String(item || '').trim());
+    return Boolean(String(value ?? '').trim());
+  };
+
+  if (!hasList(merged.currentBenefits) && professional.currentBenefits) {
+    merged.currentBenefits = professional.currentBenefits;
+  }
+  if (!hasList(merged.preferredBenefits) && professional.expectedBenefits) {
+    merged.preferredBenefits = professional.expectedBenefits;
+  }
+  if (!String(merged.currentCurrency ?? '').trim() && professional.currentSalaryCurrency) {
+    merged.currentCurrency = professional.currentSalaryCurrency;
+  }
+  if (!String(merged.preferredCurrency ?? '').trim() && professional.expectedSalaryCurrency) {
+    merged.preferredCurrency = professional.expectedSalaryCurrency;
+  }
 
   return normalizeCareerPreferencesRecord(merged, candidate) || merged;
 }

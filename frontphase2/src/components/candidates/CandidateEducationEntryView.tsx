@@ -59,7 +59,6 @@ function EducationSection({
 
 export function CandidateEducationEntryView({
   entry,
-  index,
 }: {
   entry: CandidateEducationRecord | Record<string, unknown>;
   index: number;
@@ -102,19 +101,6 @@ export function CandidateEducationEntryView({
 
   return (
     <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-4">
-      <div className="rounded-xl border border-slate-100 bg-slate-50/80 px-4 py-3">
-        <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-          Preview (how it appears on your profile)
-        </p>
-        <div className="mt-2 space-y-1">
-          <p className="text-sm font-bold uppercase tracking-wide text-slate-900">
-            {title || `Education ${index + 1}`}
-          </p>
-          {institutionLine ? <p className="text-sm text-slate-700">{institutionLine}</p> : null}
-          {dateLine ? <p className="text-sm text-slate-600">{dateLine}</p> : null}
-        </div>
-      </div>
-
       <div className="space-y-4">
         <EducationSection title="Education Details" show={hasBasics}>
           <div className="grid gap-3 sm:grid-cols-2">

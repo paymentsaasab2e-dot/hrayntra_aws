@@ -7,10 +7,10 @@ import {
   PROJECT_TYPE_OPTIONS,
   normalizeProjectRecord,
 } from '@/lib/candidateProjectFields';
-import { phase1FieldLabelClass, phase1FieldValueClass, phase1SectionTitleClass } from '@/lib/phase1Typography';
+import { phase1EditInputClass, phase1EditLabelClass, phase1EditTextareaClass, phase1SectionTitleClass } from '@/lib/phase1Typography';
 
-const inputClass = `w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 ${phase1FieldValueClass}`;
-const textareaClass = `${inputClass} min-h-[100px] resize-y`;
+const inputClass = phase1EditInputClass;
+const textareaClass = phase1EditTextareaClass;
 
 function SectionHeading({ children }: { children: React.ReactNode }) {
   return <h4 className={`${phase1SectionTitleClass} border-b border-slate-200 pb-2`}>{children}</h4>;
@@ -19,7 +19,7 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
 function FieldLabel({ label, hint }: { label: string; hint?: string }) {
   return (
     <div className="mb-1.5">
-      <span className={phase1FieldLabelClass}>{label}</span>
+      <span className={phase1EditLabelClass}>{label}</span>
       {hint ? <p className="mt-0.5 text-[11px] text-slate-400">{hint}</p> : null}
     </div>
   );
@@ -60,7 +60,7 @@ export function CandidateProjectEntryEdit({
 
       <div className="space-y-4">
         <SectionHeading>Project Details</SectionHeading>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
           <label className="block sm:col-span-2">
             <FieldLabel label="Project Title" />
             <input
@@ -117,7 +117,7 @@ export function CandidateProjectEntryEdit({
 
       <div className="space-y-4 border-t border-slate-100 pt-4">
         <SectionHeading>Dates</SectionHeading>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
           <EditDateField
             label="Start Date"
             value={normalized.startDate || ''}
