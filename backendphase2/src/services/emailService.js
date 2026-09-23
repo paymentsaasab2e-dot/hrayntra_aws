@@ -22,7 +22,16 @@ import {
   sanitizeEmailSubject,
 } from '../utils/emailDeliverability.js';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+let resendClient = null;
+function getResend() {
+  if (resendClient) return resendClient;
+  const key = String(process.env.RESEND_API_KEY || '').trim();
+  if (!key) {
+    throw new Error('Email service not configured (RESEND_API_KEY)');
+  }
+  resendClient = new Resend(key);
+  return resendClient;
+}
 
 function formatAssignedByClause(assignedByName) {
   const name = String(assignedByName || '').trim();
@@ -314,7 +323,7 @@ async function sendEmail({ senderUserId, toEmail, subject, html, attachments = [
   }
 
   // Resend SDK returns { data, error } and does not throw on API failures.
-  const result = await resend.emails.send({
+  const result = await getResend().emails.send({
     from: fromEmail,
     to: recipient,
     subject: safeSubject,

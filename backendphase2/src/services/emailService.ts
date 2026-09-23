@@ -2,7 +2,16 @@ import { Resend } from 'resend';
 import { env } from '../config/env.js';
 import { getEmailFromForTrigger } from '../config/emailFromAddresses.js';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+let resendClient: Resend | null = null;
+function getResend() {
+  if (resendClient) return resendClient;
+  const key = String(process.env.RESEND_API_KEY || '').trim();
+  if (!key) {
+    throw new Error('Email service not configured (RESEND_API_KEY)');
+  }
+  resendClient = new Resend(key);
+  return resendClient;
+}
 
 interface InviteEmailPayload {
   toEmail: string;
@@ -87,7 +96,7 @@ export async function sendInviteEmail(
 </html>
     `;
 
-    const result = await resend.emails.send({
+    const result = await getResend().emails.send({
       from: getEmailFromForTrigger('team.invite_email'),
       to: toEmail,
       subject: 'Your HRYANTRA portal login credentials',
@@ -155,7 +164,7 @@ export async function sendPasswordResetEmail(
 </html>
     `;
 
-    const result = await resend.emails.send({
+    const result = await getResend().emails.send({
       from: getEmailFromForTrigger('auth.otp_verification'),
       to: toEmail,
       subject: 'Your HRYANTRA password has been reset',
