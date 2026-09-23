@@ -258,7 +258,7 @@ Candidate documents, CVs, offer letters, client-review PDFs, and exports are not
 |--------|--------|
 | `frontphase2/next.config.js` | `ignoreBuildErrors` is `false`. A production build fails when TypeScript reports errors. |
 | `frontphase2/package.json` | `typecheck` runs `tsc --noEmit`. |
-| `backendphase2/package.json` | `test` runs the six existing unit files with `node --test`. `test:security` still runs the tenant check alone. |
+| `backendphase2/package.json` | `test` runs the six existing unit files with `node --test`. `test:security` still runs the tenant check alone. Those files can load without `DATABASE_URL` (CI does not inject one). |
 | `.github/workflows/phase2-ci.yml` | On push and pull request: CRM typecheck, then Phase 2 unit tests. |
 | `hrayntra_aws/.github/workflows/ci.yml` | Same checks when `hrayntra_aws` itself is the GitHub repo root. |
 

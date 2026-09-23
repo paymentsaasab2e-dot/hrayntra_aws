@@ -245,16 +245,25 @@ function buildTenantDatabaseUrl(tenantDbName) {
 }
 
 const defaultDbUrl = normalizeMongoDatabaseUrl(env.DATABASE_URL);
-if (!defaultDbUrl) {
+// `node --test` sets NODE_TEST_CONTEXT. Unit tests import services that pull
+// this module in; they do not query Mongo. CI has no DATABASE_URL, so skip
+// client creation instead of failing the suite at import time.
+const allowImportWithoutDatabase = !defaultDbUrl && Boolean(process.env.NODE_TEST_CONTEXT);
+if (!defaultDbUrl && !allowImportWithoutDatabase) {
   throw new Error('DATABASE_URL is not set in environment');
 }
 
-let defaultClient = getClientForUrl(defaultDbUrl);
-defaultClient.$connect().catch((error) => {
-  logger.error({ route: 'database', message: `Failed to connect to default database: ${error.message}` });
-});
+let defaultClient = allowImportWithoutDatabase ? null : getClientForUrl(defaultDbUrl);
+if (defaultClient) {
+  defaultClient.$connect().catch((error) => {
+    logger.error({ route: 'database', message: `Failed to connect to default database: ${error.message}` });
+  });
+}
 
 function getDefaultClientInstance() {
+  if (!defaultDbUrl) {
+    throw new Error('DATABASE_URL is not set in environment');
+  }
   if (isStalePrismaClient(defaultClient)) {
     defaultClient = getClientForUrl(defaultDbUrl, { forceRecreate: true });
     defaultClient.$connect().catch(() => {});
@@ -312,7 +321,7 @@ export function setTenantAuditUser(user) {
   };
 }
 
-export const prisma = new Proxy(defaultClient, {
+export const prisma = new Proxy(defaultClient || {}, {
   get(_target, property) {
     const client = getScopedClient();
     const value = client[property];
