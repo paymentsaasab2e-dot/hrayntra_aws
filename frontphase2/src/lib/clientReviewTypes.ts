@@ -1,6 +1,7 @@
 import type { CVEditorData } from './cvEditorMapping';
 import type { ClientReviewSection } from './clientPresentationSections';
 import type { ClientTrackerOptions } from './clientTrackerOptions';
+import type { SaasaCvAnnotation, SaasaCvCompanyLogo } from './saasaCvAnnotations';
 
 export interface CvWorkEntry {
   title?: string;
@@ -95,8 +96,8 @@ export interface ClientReviewData {
     fullSnapshot?: boolean;
     hasOverlays?: boolean;
     baseResumeUrl?: string | null;
-    items?: Array<Record<string, unknown>>;
-    companyLogo?: { url?: string | null } | null;
+    items?: SaasaCvAnnotation[];
+    companyLogo?: SaasaCvCompanyLogo | null;
     documentHtml?: string | null;
     pdfTextLayerHtml?: string[] | null;
   } | null;

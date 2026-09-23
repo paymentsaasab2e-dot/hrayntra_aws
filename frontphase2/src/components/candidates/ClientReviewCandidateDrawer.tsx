@@ -8,7 +8,6 @@ import { CheckCircle2, ExternalLink, FileText, FileUp, UserRound } from 'lucide-
 import { ClientReviewSectionsPanel } from './ClientReviewSectionsPanel';
 import { ResumeInlinePreview } from './ResumeInlinePreview';
 import { SaasaCvCompositePreview } from './SaasaCvCompositePreview';
-import type { SaasaCvAnnotation, SaasaCvCompanyLogo } from '../../lib/saasaCvAnnotations';
 import { DrawerCloseButton } from '../drawers/drawerLayout';
 import {
   CLIENT_PIPELINE_STAGE_CHOICES,
@@ -259,8 +258,8 @@ export function ClientReviewCandidateDrawer({
             <div className="min-h-0 flex-1 overflow-hidden rounded-2xl border border-indigo-100/80 bg-white shadow-[0_10px_30px_-18px_rgba(79,70,229,0.28)] ring-1 ring-indigo-500/5">
               <SaasaCvCompositePreview
                 baseResumeUrl={saasaBaseResumeUrl}
-                annotations={(saasaPreview?.items || []) as SaasaCvAnnotation[]}
-                companyLogo={(saasaPreview?.companyLogo as SaasaCvCompanyLogo | null) ?? null}
+                annotations={saasaPreview?.items || []}
+                companyLogo={saasaPreview?.companyLogo ?? null}
                 documentHtml={saasaPreview?.documentHtml ?? null}
                 pdfTextLayerHtml={saasaPreview?.pdfTextLayerHtml ?? null}
                 candidateName={displayName}
