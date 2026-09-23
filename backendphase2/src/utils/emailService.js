@@ -3,7 +3,16 @@ import { env } from '../config/env.js';
 import { getEmailFromForTrigger } from '../config/emailFromAddresses.js';
 import { isDeliverableEmail } from './emailDeliverability.js';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+let resendClient = null;
+function getResend() {
+  if (resendClient) return resendClient;
+  const key = String(process.env.RESEND_API_KEY || '').trim();
+  if (!key) {
+    throw new Error('Email service not configured (RESEND_API_KEY)');
+  }
+  resendClient = new Resend(key);
+  return resendClient;
+}
 
 /** Resend SDK returns { data, error } and does not throw on API failures. */
 function assertResendDelivery(result, toEmail) {
@@ -133,7 +142,7 @@ export async function sendCredentialInvite({
   }
 
   try {
-    const result = await resend.emails.send({
+    const result = await getResend().emails.send({
       from: getEmailFromForTrigger('team.invite_email'),
       to: recipient,
       subject: trialDays
@@ -203,7 +212,7 @@ export async function sendHqTeamInviteEmail({ email, loginId, tempPassword, role
   `;
 
   try {
-    const result = await resend.emails.send({
+    const result = await getResend().emails.send({
       from: getEmailFromForTrigger('team.invite_email'),
       to: email,
       subject: 'Your HRYANTRA Headquarters login credentials',
@@ -262,7 +271,7 @@ export async function sendEmployerPurchaseCredentialsEmail({
 </html>`;
 
   try {
-    const result = await resend.emails.send({
+    const result = await getResend().emails.send({
       from: getEmailFromForTrigger('client.followup_email'),
       to: email,
       subject: `Your HRYANTRA ${planLabel} workspace login credentials`,
@@ -341,7 +350,7 @@ export async function sendPasswordResetEmail({
   `;
 
   try {
-    const result = await resend.emails.send({
+    const result = await getResend().emails.send({
       from: getEmailFromForTrigger('auth.otp_verification'),
       to: email,
       subject: `Password Reset - HRYANTRA`,

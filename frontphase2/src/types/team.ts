@@ -37,8 +37,8 @@ export interface Department {
   name: string;
   description?: string;
   allowsCrossDepartmentRequests?: boolean;
-  createdAt: string;
-  updatedAt: string;
+  createdAt?: string;
+  updatedAt?: string;
   departmentRoles?: DepartmentRoleLink[];
 }
 
@@ -67,15 +67,21 @@ export interface Permission {
   permissionName: string;
   module: string;
   description?: string;
-  createdAt: string;
+  createdAt?: string;
 }
 
 export interface Role {
   id: string;
   roleName: string;
-  color: string;
+  color?: string;
   description?: string;
-  createdAt: string;
+  createdAt?: string;
+  companyAccess?: RoleCompanyAccess;
+  rolePermissions?: Array<{
+    permission: Permission;
+  }>;
+  permissions?: Permission[];
+  rank?: number;
 }
 
 export interface SystemRole extends Role {
@@ -168,20 +174,20 @@ export interface TeamMember {
   phone?: string;
   designation?: string;
   location?: string;
-  status: UserStatus;
+  status: UserStatus | 'ACTIVE' | 'INACTIVE';
   role: Role;
-  department: Department | null;
+  department?: Department | null;
   /** Department authority rank (1 = head). From department role config. */
   departmentRank?: number | null;
   managerId?: string | null;
-  manager: { id: string; firstName: string; lastName: string; email?: string } | null;
-  credential: {
+  manager?: { id: string; firstName: string; lastName: string; email?: string } | null;
+  credential?: {
     loginId: string;
     isLocked: boolean;
     lastLoginAt?: string | null;
     tempPasswordFlag: boolean;
   } | null;
-  _count: {
+  _count?: {
     tasks: number;
     assignedLeads?: number;
   };
@@ -193,8 +199,14 @@ export interface TeamMember {
   orgUnitId?: string | null;
   orgUnit?: { id: string; name: string; kind: 'company' | 'branch' } | null;
   hierarchyPurpose?: string;
-  createdAt: string;
-  updatedAt: string;
+  placements?: number | null;
+  revenueGenerated?: number | null;
+  /** Display name when the API sends a single name instead of first/last. */
+  name?: string;
+  assignedJobs?: string[];
+  managerRelation?: { id: string; firstName: string; lastName: string } | null;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface TeamMemberDetail extends TeamMember {
@@ -232,7 +244,7 @@ export interface CreateMemberPayload {
   departmentId?: string;
   roleId?: string;
   managerId?: string;
-  status?: UserStatus;
+  status?: UserStatus | 'ACTIVE' | 'INACTIVE';
   generateCredentials?: boolean;
   sendInvite?: boolean;
   loginIdOption?: 'auto' | 'email' | 'custom';
@@ -249,7 +261,7 @@ export interface UpdateMemberPayload {
   departmentId?: string;
   roleId?: string;
   managerId?: string;
-  status?: UserStatus;
+  status?: UserStatus | 'ACTIVE' | 'INACTIVE';
 }
 
 export interface GenerateCredentialsPayload {
@@ -261,8 +273,12 @@ export interface GenerateCredentialsPayload {
 export interface TeamMemberFilters {
   search?: string;
   departmentId?: string;
+  /** @deprecated use departmentId */
+  department?: string;
   roleName?: string;
-  status?: UserStatus | 'all';
+  /** @deprecated use roleName */
+  role?: string;
+  status?: UserStatus | 'ACTIVE' | 'INACTIVE' | 'all';
   managerId?: string;
   page?: number;
   limit?: number;

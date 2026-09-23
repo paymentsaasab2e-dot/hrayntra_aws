@@ -129,7 +129,7 @@ export const RoleMembersDrawer: React.FC<RoleMembersDrawerProps> = ({ isOpen, ro
               <div>
                 <h2 className="text-lg font-bold text-slate-900">Role Members</h2>
                 <div className="mt-1">
-                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full ${roleColorMap[role.color.toLowerCase()] || 'bg-gray-100 text-gray-600'}`}>
+                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full ${roleColorMap[(role.color ?? '').toLowerCase()] || 'bg-gray-100 text-gray-600'}`}>
                     {role.roleName}
                   </span>
                 </div>
@@ -181,7 +181,7 @@ export const RoleMembersDrawer: React.FC<RoleMembersDrawerProps> = ({ isOpen, ro
                           key={member.id}
                           className="flex items-center gap-4 p-4 bg-slate-50 rounded-lg border border-slate-200"
                         >
-                          <div className={`size-10 rounded-full flex items-center justify-center font-semibold text-sm ${roleColorMap[role.color.toLowerCase()] || 'bg-gray-100 text-gray-600'}`}>
+                          <div className={`size-10 rounded-full flex items-center justify-center font-semibold text-sm ${roleColorMap[(role.color ?? '').toLowerCase()] || 'bg-gray-100 text-gray-600'}`}>
                             {getInitials(member.firstName, member.lastName)}
                           </div>
                           <div className="flex-1 min-w-0">

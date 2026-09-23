@@ -111,7 +111,9 @@ export function SaasaCvPdfViewer({
       try {
         const pdfjs = await loadPdfJsFromCdn();
         const bytes = await fetchSaasaCvPdfBytes(pdfUrl);
-        const pdf = await pdfjs.getDocument(saasaPdfJsDocumentOptions(bytes)).promise;
+        const pdf = await pdfjs.getDocument(
+          saasaPdfJsDocumentOptions(bytes) as unknown as Parameters<PdfJsLib['getDocument']>[0],
+        ).promise;
         if (cancelled) return;
 
         const width = Math.max(320, container.clientWidth || 800);

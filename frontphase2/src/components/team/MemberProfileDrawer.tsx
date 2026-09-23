@@ -83,6 +83,30 @@ export const MemberProfileDrawer: React.FC<MemberProfileDrawerProps> = ({
   const [customPassword, setCustomPassword] = useState('');
   const [customPasswordConfirm, setCustomPasswordConfirm] = useState('');
   const [settingCustomPassword, setSettingCustomPassword] = useState(false);
+
+  const handleSetCustomPassword = async () => {
+    if (!member?.id || settingCustomPassword) return;
+    if (customPassword.trim().length < 8) {
+      toast.error('Password must be at least 8 characters');
+      return;
+    }
+    if (customPassword !== customPasswordConfirm) {
+      toast.error('Passwords do not match');
+      return;
+    }
+    setSettingCustomPassword(true);
+    try {
+      await setTeamMemberPassword(member.id, customPassword);
+      setSessionTempPassword(customPassword);
+      setCustomPassword('');
+      setCustomPasswordConfirm('');
+      toast.success('Password updated');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to set password');
+    } finally {
+      setSettingCustomPassword(false);
+    }
+  };
   const [profileTab, setProfileTab] = useState<'profile' | 'chat'>('profile');
 
   const { isSuperAdmin, hasAnyPermission } = usePermissions();

@@ -1,4 +1,5 @@
 'use client';
+import type { AppIcon } from '@/types/appIcon';
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
@@ -223,8 +224,9 @@ function mergeLocationFields<
     city?: string;
     country?: string;
     state?: string;
-    latitude?: number;
-    longitude?: number;
+    latitude?: number | null;
+    longitude?: number | null;
+    countryCode?: string;
   },
 >(prev: T, selection: LocationSelection): T {
   return {
@@ -731,7 +733,7 @@ function syncLeadTeamMembers(
   };
 }
 
-const getSourceFieldLabel = (source?: LeadSource) => {
+const getSourceFieldLabel = (source?: LeadSource | null) => {
   switch (source) {
     case 'Website':
       return 'Website Link';
@@ -869,7 +871,7 @@ function LeadDetailsPanelShell({
   return (
     <motion.div
       key="panel"
-      ref={panelRef}
+      ref={panelRef as React.Ref<HTMLDivElement>}
       initial={{ x: '100%' }}
       animate={{ x: 0 }}
       exit={{ x: '100%' }}
@@ -965,7 +967,7 @@ function OverviewField({
   multiline,
 }: {
   label: string;
-  icon?: React.ComponentType<{ size?: number; className?: string }>;
+  icon?: AppIcon;
   iconClassName?: string;
   required?: boolean;
   value: string;
@@ -1021,7 +1023,7 @@ function OverviewFieldDateTime({
   value,
 }: {
   label: string;
-  icon?: React.ComponentType<{ size?: number; className?: string }>;
+  icon?: AppIcon;
   iconClassName?: string;
   value: string | null | undefined;
 }) {
@@ -1189,7 +1191,7 @@ export function LeadDetailsDrawer({
   useEffect(() => {
     if (addLeadMode) {
       setActiveTab('add');
-      if (isHqOverrideMode) setHqProductLine('crm');
+      if (isHqOverrideMode) setHqProductLine(['crm']);
     }
   }, [addLeadMode, isHqOverrideMode]);
 
@@ -1372,7 +1374,7 @@ export function LeadDetailsDrawer({
                     : undefined,
                   status: 'ACTIVE' as const,
                 };
-              }),
+              }) as TeamMember[],
           );
           return;
         }
@@ -1390,6 +1392,7 @@ export function LeadDetailsDrawer({
           lastName?: string;
           name?: string;
           email?: string;
+          orgUnitId?: string;
           role?: { id?: string; roleName?: string; color?: string };
           department?: { id?: string; name?: string };
         }> = (teamMembers || [])
@@ -1493,7 +1496,7 @@ export function LeadDetailsDrawer({
                 : undefined,
               status: 'ACTIVE' as const,
             };
-          }),
+          }) as TeamMember[],
         );
       } catch (error: any) {
         const msg = String(error?.message || '').toLowerCase();
@@ -1763,8 +1766,8 @@ export function LeadDetailsDrawer({
     sourceEmail: sourceFields.sourceEmail,
     sourceOther: sourceFields.sourceOther || generated.sourceOther || form.sourceOther,
     otherDetails: Array.isArray(generated.otherDetails) ? generated.otherDetails : form.otherDetails,
-    lastFollowUp: normalizeLeadDateTimeInput(generated.lastFollowUp || form.lastFollowUp),
-    nextFollowUp: normalizeLeadDateTimeInput(generated.nextFollowUp || form.nextFollowUp),
+    lastFollowUp: normalizeLeadDateTimeInput(generated.lastFollowUp || form.lastFollowUp || ''),
+    nextFollowUp: normalizeLeadDateTimeInput(generated.nextFollowUp || form.nextFollowUp || ''),
     assignedToId: generated.assignedToId || form.assignedToId,
     assignedToName:
       (generated as { assignedToName?: string }).assignedToName?.trim() || form.assignedToName,
@@ -1933,6 +1936,7 @@ export function LeadDetailsDrawer({
     setLeadPanelPortalReady(true);
   }, []);
   const [overviewEditForm, setOverviewEditForm] = useState({
+    ...emptyAgreementTerms(),
     companyName: '',
     industry: '',
     companySize: '',
@@ -2486,7 +2490,7 @@ export function LeadDetailsDrawer({
         '',
       latitude: typeof lead.latitude === 'number' ? lead.latitude : null,
       longitude: typeof lead.longitude === 'number' ? lead.longitude : null,
-      source: lead.source,
+      source: lead.source || '',
       campaignName: lead.campaignName ?? '',
       campaignLink: lead.campaignLink ?? '',
       referralName: lead.referralName ?? '',
@@ -2511,9 +2515,13 @@ export function LeadDetailsDrawer({
                 value: String(item.value || ''),
               }))
           : [];
+        const syncedTeam = syncLeadTeamMembers(teamMembers);
         return {
           dynamicOtherDetails,
-          ...syncLeadTeamMembers(teamMembers),
+          ...syncedTeam,
+          teamMemberDesignation: syncedTeam.teamMemberDesignation ?? '',
+          teamMemberEmail: syncedTeam.teamMemberEmail ?? '',
+          teamMemberPhone: syncedTeam.teamMemberPhone ?? '',
           occasions,
         };
       })(),
@@ -2545,7 +2553,7 @@ export function LeadDetailsDrawer({
         })(),
       ),
       createdDate: lead.createdDate ?? '',
-      lastFollowUp: lead.lastFollowUp,
+      lastFollowUp: lead.lastFollowUp ?? '',
       nextFollowUp: lead.nextFollowUp ?? '',
       followUpType: 'Call',
       followUpNotes: '',
@@ -2858,7 +2866,7 @@ export function LeadDetailsDrawer({
         assignedToName: overviewEditForm.leadOwner || undefined,
         ...(isHqOverrideMode ? { leadOwner: overviewEditForm.leadOwner || undefined } : {}),
         interestedNeeds: overviewEditForm.interestedNeeds || undefined,
-        expectedBusinessValue: normalizeBusinessValueForSave(overviewEditForm.notes) || null,
+        expectedBusinessValue: normalizeBusinessValueForSave(overviewEditForm.notes) || undefined,
         notes: normalizeBusinessValueForSave(overviewEditForm.notes) || undefined,
         lastFollowUp: overviewEditForm.lastFollowUp || undefined,
         nextFollowUp: nextFollowUpValue || '',
@@ -2885,7 +2893,7 @@ export function LeadDetailsDrawer({
               },
             }
           : {}),
-        ...agreementTermsApiPayload(overviewEditForm),
+        ...agreementTermsApiPayload({ ...emptyAgreementTerms(), ...overviewEditForm }),
         agreementsFileName: overviewEditForm.agreementsFileName || undefined,
         agreementsFileUrl: overviewEditForm.agreementsFileUrl || undefined,
         agreementsUploadedAt: overviewEditForm.agreementsUploadedAt || undefined,
@@ -3148,6 +3156,7 @@ export function LeadDetailsDrawer({
               : undefined,
         assignedToName: addLeadForm.assignedToName || undefined,
         ...agreementTermsApiPayload(addLeadForm),
+        ...(options?.skipDuplicateCheck || allowDuplicateCreate ? { forceNew: true } : {}),
         ...(isHqOverrideMode
           ? {
               hqProductLine: hqProductLine.join(','),
@@ -4623,8 +4632,8 @@ export function LeadDetailsDrawer({
                           followUpPostponePreset: addLeadForm.followUpPostponePreset,
                         }}
                         onChange={(patch) => setAddLeadForm((p) => ({ ...p, ...patch }))}
-                        phoneOptions={[...(addLeadForm.phones || []), addLeadForm.phone]}
-                        emailOptions={[...(addLeadForm.emails || []), addLeadForm.email]}
+                        phoneOptions={[...(addLeadForm.phones || []).map((phone) => phone ?? ''), addLeadForm.phone ?? '']}
+                        emailOptions={[...(addLeadForm.emails || []), addLeadForm.email].filter((value): value is string => Boolean(value))}
                         teamMembers={recruiters}
                         loadingMembers={loadingRecruiters}
                         showPostpone={false}
@@ -5077,8 +5086,8 @@ export function LeadDetailsDrawer({
                               followUpPostponePreset: addLeadForm.followUpPostponePreset,
                             }}
                             onChange={(patch) => setAddLeadForm((p) => ({ ...p, ...patch }))}
-                            phoneOptions={[...(addLeadForm.phones || []), addLeadForm.phone]}
-                            emailOptions={[...(addLeadForm.emails || []), addLeadForm.email]}
+                            phoneOptions={[...(addLeadForm.phones || []).map((phone) => phone ?? ''), addLeadForm.phone ?? '']}
+                            emailOptions={[...(addLeadForm.emails || []), addLeadForm.email].filter((value): value is string => Boolean(value))}
                             teamMembers={recruiters}
                             loadingMembers={loadingRecruiters}
                             showPostpone={false}
@@ -5279,7 +5288,7 @@ export function LeadDetailsDrawer({
                             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                               <OverviewField label="Source" icon={Megaphone} iconClassName="text-amber-500" value={formatLeadSourceDisplay(lead?.source, lead?.sourceOther)} />
                               <OverviewField
-                                label={getSourceFieldLabel(lead?.source)}
+                                label={getSourceFieldLabel(lead?.source ?? undefined)}
                                 icon={Globe}
                                 iconClassName="text-amber-500"
                                 value={getLeadSourceDetailValue(lead)}
@@ -5714,8 +5723,8 @@ export function LeadDetailsDrawer({
                                   followUpNotes: overviewEditForm.followUpNotes,
                                 }}
                                 onChange={(patch) => setOverviewEditForm((p) => ({ ...p, ...patch }))}
-                                phoneOptions={[...(overviewEditForm.phones || []), overviewEditForm.phone]}
-                                emailOptions={[...(overviewEditForm.emails || []), overviewEditForm.email]}
+                                phoneOptions={[...(overviewEditForm.phones || []), overviewEditForm.phone].filter((value): value is string => Boolean(value))}
+                                emailOptions={[...(overviewEditForm.emails || []), overviewEditForm.email].filter((value): value is string => Boolean(value))}
                                 teamMembers={recruiters}
                                 loadingMembers={loadingRecruiters}
                                 inputClassName={ADD_LEAD_INPUT}
@@ -6196,7 +6205,7 @@ export function LeadDetailsDrawer({
                           <>
                             <FieldRow label="Lead Source" value={formatLeadSourceDisplay(lead?.source, lead?.sourceOther)} />
                             <FieldRow
-                              label={getSourceFieldLabel(lead?.source)}
+                              label={getSourceFieldLabel(lead?.source ?? undefined)}
                               value={getLeadSourceDetailValue(lead)}
                             />
                             <FieldRow label="Campaign Name" value={lead?.campaignName ?? ''} />
@@ -6320,15 +6329,15 @@ export function LeadDetailsDrawer({
                                   followUpNotes: overviewEditForm.followUpNotes,
                                 }}
                                 onChange={(patch) => setOverviewEditForm((p) => ({ ...p, ...patch }))}
-                                phoneOptions={[...(overviewEditForm.phones || []), overviewEditForm.phone]}
-                                emailOptions={[...(overviewEditForm.emails || []), overviewEditForm.email]}
+                                phoneOptions={[...(overviewEditForm.phones || []), overviewEditForm.phone].filter((value): value is string => Boolean(value))}
+                                emailOptions={[...(overviewEditForm.emails || []), overviewEditForm.email].filter((value): value is string => Boolean(value))}
                                 teamMembers={recruiters}
                                 loadingMembers={loadingRecruiters}
                               />
                             </div>
                             <div className="md:col-span-2">
                               <AgreementTermsSection
-                                values={overviewEditForm}
+                                values={{ ...emptyAgreementTerms(), ...overviewEditForm }}
                                 onChange={(patch) => setOverviewEditForm((p) => ({ ...p, ...patch }))}
                                 disabled={uploadingKyc || uploadingAgreements}
                                 uploadSlot={
@@ -6450,7 +6459,7 @@ export function LeadDetailsDrawer({
               ) : activeTab === 'activities' ? (
                 <div className="space-y-6">
                   <EntityAuditSummary
-                    audit={lead?.auditMeta ?? extractAuditMeta(lead as Record<string, unknown> | undefined)}
+                    audit={lead?.auditMeta ?? extractAuditMeta(lead as unknown as Record<string, unknown> | undefined)}
                   />
                   {/* Activity Filter — aligned with /leads table controls */}
                   <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">

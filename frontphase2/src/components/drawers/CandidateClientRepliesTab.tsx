@@ -12,18 +12,11 @@ import type {
 function resolveClientReviewDocumentUrl(raw?: string | null, uploadsBase = ''): string {
   const value = String(raw || '').trim();
   if (!value) return '';
-  if (value.startsWith('http')) {
-    const backendOrigin =
-      uploadsBase ||
-      (process.env.NEXT_PUBLIC_BACKEND_ORIGIN || 'https://api2.hryantra.com');
-    return value.replace(/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i, backendOrigin);
-  }
-  if (value.startsWith('/uploads/interview-client-review/')) {
-    const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api/v1';
-    const origin = apiBase.replace(/\/api\/v1\/?$/, '');
-    return `${origin}/api/v1/public/uploads/${value.replace(/^\/uploads\//, '')}`;
-  }
-  return buildFileHref(value, uploadsBase);
+  const backendOrigin =
+    uploadsBase ||
+    (process.env.NEXT_PUBLIC_BACKEND_ORIGIN || 'https://api2.hryantra.com');
+  const rewritten = value.replace(/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i, backendOrigin);
+  return buildFileHref(rewritten, uploadsBase);
 }
 
 export function CandidateClientRepliesTab({

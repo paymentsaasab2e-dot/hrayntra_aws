@@ -453,11 +453,11 @@ function mapBackendLeadToFrontend(backendLead: BackendLead): Lead {
         ? backendLead.agreementFreeReplacementValue
         : undefined,
     agreementFreeReplacementUnit: backendLead.agreementFreeReplacementUnit || undefined,
-    auditMeta: extractAuditMeta(backendLead as Record<string, unknown>),
+    auditMeta: extractAuditMeta(backendLead as unknown as Record<string, unknown>),
     addedByName:
       readIntakeAddedByName(backendLead) ||
       (String(backendLead.campaignName || '') === 'Public intake form'
-        ? extractAuditMeta(backendLead as Record<string, unknown>).createdBy?.name || undefined
+        ? extractAuditMeta(backendLead as unknown as Record<string, unknown>).createdBy?.name || undefined
         : undefined),
   };
 }
@@ -722,7 +722,9 @@ export default function RecruitmentAgencyDashboard() {
           members.map((m: CrmAssignableMember) => ({
             id: m.id,
             name: m.name || `${m.firstName || ''} ${m.lastName || ''}`.trim() || m.email || 'User',
-            email: m.email,
+            email: m.email || '',
+            role: m.role?.roleName || '',
+            isActive: true,
           })),
         );
       } catch (err) {
@@ -845,8 +847,12 @@ export default function RecruitmentAgencyDashboard() {
         
         // Backend returns: { success: true, message: "...", data: { data: [...], pagination: {...} } }
         // So response.data is { data: [...], pagination: {...} }
-        const backendLeads = response.data ? extractBackendLeads(response.data) : [];
-        const pagination = response.data?.pagination;
+        const leadsPayload = response.data;
+        const backendLeads = leadsPayload ? extractBackendLeads(leadsPayload) : [];
+        const pagination =
+          leadsPayload && typeof leadsPayload === 'object' && !Array.isArray(leadsPayload)
+            ? (leadsPayload as { pagination?: { total?: number; totalPages?: number } }).pagination
+            : undefined;
         
         if (!Array.isArray(backendLeads)) {
           console.error('backendLeads is not an array:', backendLeads);
@@ -1603,8 +1609,12 @@ export default function RecruitmentAgencyDashboard() {
       
       // Backend returns: { success: true, message: "...", data: { data: [...], pagination: {...} } }
       // So response.data is { data: [...], pagination: {...} }
-      const backendLeads = response.data ? extractBackendLeads(response.data) : [];
-      const pagination = response.data?.pagination;
+      const leadsPayload = response.data;
+      const backendLeads = leadsPayload ? extractBackendLeads(leadsPayload) : [];
+      const pagination =
+        leadsPayload && typeof leadsPayload === 'object' && !Array.isArray(leadsPayload)
+          ? (leadsPayload as { pagination?: { total?: number; totalPages?: number } }).pagination
+          : undefined;
       
       if (!Array.isArray(backendLeads)) {
         console.error('backendLeads is not an array:', backendLeads);
@@ -1860,10 +1870,11 @@ export default function RecruitmentAgencyDashboard() {
         setMetrics((prev) => {
           const next = { ...prev };
           Object.entries(payload.metricsUpdate).forEach(([key, val]: [string, any]) => {
+            const metricKey = key as keyof typeof next;
             if (val?.newTotal !== undefined) {
-              next[key] = val.newTotal;
+              next[metricKey] = val.newTotal;
             } else if (val?.delta !== undefined) {
-              next[key] = (next[key] || 0) + val.delta;
+              next[metricKey] = (next[metricKey] || 0) + val.delta;
             }
           });
           return next;
@@ -2728,14 +2739,21 @@ export default function RecruitmentAgencyDashboard() {
             }}
             onAddLead={async (_data, createdLead) => {
               try {
+                // Clear list filters first so the next fetch (and 45s auto-refresh) cannot
+                // hide the new lead behind assignee/source/priority/smart-search filters.
+                setStatusFilter('All');
+                setSourceFilter('');
+                setRecruiterFilter('');
+                setPriorityFilter('');
+                setSearchQuery('');
+                setSmartSearchLeadIds([]);
+                setCurrentPage(1);
+
                 if (createdLead) {
                   const mappedLead = mapBackendLeadToFrontend(createdLead);
                   mergeLeadOptimistically(mappedLead);
-                } else {
-                  await handleRefresh({ silent: true });
                 }
-                setStatusFilter('All');
-                setSearchQuery('');
+                await handleRefresh({ silent: true, resetFilters: true });
                 setAddLeadDrawerOpen(false);
                 setAddLeadWithAi(false);
                 toast.success('Lead created successfully');

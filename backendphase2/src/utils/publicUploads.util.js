@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -22,6 +23,44 @@ const ALLOWED_SUBDIRS = new Set([
   'email-signatures',
   'export-watermarks',
 ]);
+
+/** Offer letters and client-review PDFs. Logos and email images are not in this set. */
+const SIGNED_SUBDIRS = new Set(['placements', 'interview-client-review']);
+const SIGNED_TTL_SEC = 7 * 24 * 60 * 60;
+
+function uploadSigningSecret() {
+  return String(env.PHASE2_PORTAL_SYNC_SECRET || process.env.PHASE2_PORTAL_SYNC_SECRET || '').trim();
+}
+
+function signPayload(subPath, exp) {
+  return `upload:${subPath}:${exp}`;
+}
+
+function safeEqualHex(a, b) {
+  const left = Buffer.from(String(a || ''), 'utf8');
+  const right = Buffer.from(String(b || ''), 'utf8');
+  if (!left.length || left.length !== right.length) return false;
+  return crypto.timingSafeEqual(left, right);
+}
+
+export function signUploadSubPath(subPath, ttlSec = SIGNED_TTL_SEC) {
+  const secret = uploadSigningSecret();
+  const clean = String(subPath || '').replace(/^\/+/, '').split('?')[0];
+  if (!secret || !clean) return null;
+  const exp = Math.floor(Date.now() / 1000) + ttlSec;
+  const sig = crypto.createHmac('sha256', secret).update(signPayload(clean, exp)).digest('hex');
+  return { exp, sig };
+}
+
+export function verifySignedUpload(subPath, exp, sig) {
+  const secret = uploadSigningSecret();
+  const clean = String(subPath || '').replace(/^\/+/, '').split('?')[0];
+  const expNum = Number(exp);
+  if (!secret || !clean || !sig || !Number.isFinite(expNum)) return false;
+  if (expNum < Math.floor(Date.now() / 1000)) return false;
+  const expected = crypto.createHmac('sha256', secret).update(signPayload(clean, expNum)).digest('hex');
+  return safeEqualHex(expected, sig);
+}
 
 function sanitizeFilename(name) {
   const base = path.basename(String(name || '').trim());
@@ -78,7 +117,11 @@ export function buildPublicUploadsAccessUrl(relativePath) {
       env.BACKEND_PUBLIC_URL ||
       `http://localhost:${process.env.PORT || '5001'}`,
   ).replace(/\/+$/, '');
-  return `${base}/api/v1/public/uploads/${subPath}`;
+  const url = `${base}/api/v1/public/uploads/${subPath}`;
+  if (!SIGNED_SUBDIRS.has(subdir)) return url;
+  const signed = signUploadSubPath(subPath);
+  if (!signed) return null;
+  return `${url}?exp=${signed.exp}&sig=${signed.sig}`;
 }
 
 export function resolveStoredUploadAccessUrl(storedUrl) {

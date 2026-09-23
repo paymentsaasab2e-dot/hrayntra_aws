@@ -363,7 +363,7 @@ export async function finalizeAuthAfterTokens(data: {
 
   const userData = {
     ...user,
-    loginId: user?.loginId || resolveStoredLoginId(user as Record<string, unknown>),
+    loginId: user?.loginId || resolveStoredLoginId(user as unknown as Record<string, unknown>),
     roleName: resolvedRoleName,
     roleColor: permRes.data?.roleColor || user?.roleColor || '',
     permissions,

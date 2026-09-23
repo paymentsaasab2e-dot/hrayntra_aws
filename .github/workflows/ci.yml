@@ -1,0 +1,38 @@
+name: Phase 2 checks
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  crm-typecheck:
+    name: CRM typecheck
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontphase2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontphase2/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+
+  api-unit-tests:
+    name: Phase 2 API unit tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backendphase2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backendphase2/package-lock.json
+      - run: npm ci
+      - run: npm test

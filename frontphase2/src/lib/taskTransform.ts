@@ -136,7 +136,7 @@ export function transformBackendTaskToFrontend(
       name: backendTask.assignedTo?.name || 'Unassigned',
       avatar: '',
     },
-    auditMeta: extractAuditMeta(backendTask as Record<string, unknown>),
+    auditMeta: extractAuditMeta(backendTask as unknown as Record<string, unknown>),
   };
 }
 
@@ -201,7 +201,7 @@ export function transformBackendTaskToDrawer(
     workflowStatus,
     owner: {
       name: backendTask.assignedTo.name,
-      avatar: backendTask.assignedTo.avatar || '',
+      avatar: (backendTask.assignedTo as { avatar?: string | null }).avatar || '',
     },
     assignee: {
       id: backendTask.assignedToId || backendTask.assignedTo?.id,
@@ -257,6 +257,6 @@ export function transformBackendTaskToDrawer(
       }
       return undefined;
     })(),
-    auditMeta: extractAuditMeta(backendTask as Record<string, unknown>),
+    auditMeta: extractAuditMeta(backendTask as unknown as Record<string, unknown>),
   };
 }

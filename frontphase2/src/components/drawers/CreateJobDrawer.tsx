@@ -1452,7 +1452,7 @@ export function CreateJobDrawer({
         if (!load.isActive()) return;
         const client =
           clientResponse && typeof clientResponse === 'object' && 'id' in clientResponse
-            ? (clientResponse as BackendClient)
+            ? (clientResponse as unknown as BackendClient)
             : null;
         setContacts(
           buildJobContactPersonOptions(list as BackendContact[], client),
@@ -1945,13 +1945,21 @@ export function CreateJobDrawer({
     try {
       setLoadingJob(true);
       const response = await apiGetJob(targetJobId);
-      const job = (response as { data?: Record<string, unknown> }).data || (response as Record<string, unknown>);
+      const responseRecord = response as unknown as { data?: Record<string, unknown> };
+      const job = (responseRecord.data ?? responseRecord) as Record<string, unknown>;
+      const textOf = (value: unknown) => (typeof value === 'string' ? value : '');
       
       if (!job) {
         throw new Error('Job data not found');
       }
       
-      const salary = job.salary || {};
+      const salary = (job.salary && typeof job.salary === 'object' ? job.salary : {}) as {
+        type?: string;
+        currency?: string;
+        min?: number | string | null;
+        max?: number | string | null;
+        amount?: number | string | null;
+      };
       const salaryType = salary.type || 'Annual Salary';
       const currency = normalizeJobSalaryCurrency(salary.currency || getCachedOrgDefaultCurrency());
       let minSalary = salary.min != null ? String(salary.min) : '';
@@ -1968,7 +1976,7 @@ export function CreateJobDrawer({
       }
       
       const { min: minExperience, max: maxExperience } = parseExperienceRequiredForForm(
-        job.experienceRequired,
+        typeof job.experienceRequired === 'string' ? job.experienceRequired : null,
       );
       
       // Map job type
@@ -1982,7 +1990,7 @@ export function CreateJobDrawer({
       };
       
       // Parse location - try to extract city, state, country, locality, postalCode
-      const location = job.location || '';
+      const location = textOf(job.location);
       // Try to parse location string (format might vary)
       const locationParts = location.split(',').map((p: string) => p.trim()).filter(p => p);
       let city = '';
@@ -2045,7 +2053,7 @@ export function CreateJobDrawer({
       
       // Parse education field - might contain both qualification and specialization
       // Format could be: "Qualification - Specialization" or just "Qualification"
-      const education = job.education || '';
+      const education = textOf(job.education);
       let educationalQualification = education;
       let educationalSpecialization = '';
       if (education.includes(' - ')) {
@@ -2059,29 +2067,29 @@ export function CreateJobDrawer({
       }
       
       // Get JD file name if available
-      const jdFileName = job.jdFileName || '';
+      const jdFileName = textOf(job.jdFileName);
       setExistingOtherDocName(jdFileName);
 
-      const plainDescription = stripHtml(job.description || '');
+      const plainDescription = stripHtml(textOf(job.description));
       const responsibilitiesText =
         Array.isArray(job.keyResponsibilities) && job.keyResponsibilities.length
           ? job.keyResponsibilities.join('\n')
-          : getSectionTextFromHtml(job.description || '', 'key responsibilities');
+          : getSectionTextFromHtml(textOf(job.description), 'key responsibilities');
       const qualificationsText =
         Array.isArray(job.requirements) && job.requirements.length
           ? job.requirements.join('\n')
-          : getSectionTextFromHtml(job.description || '', 'requirements') ||
-            getSectionTextFromHtml(job.description || '', 'qualifications');
+          : getSectionTextFromHtml(textOf(job.description), 'requirements') ||
+            getSectionTextFromHtml(textOf(job.description), 'qualifications');
       const candidateRequirementsText =
         Array.isArray((job as { candidateRequirements?: string[] }).candidateRequirements) &&
         (job as { candidateRequirements?: string[] }).candidateRequirements!.length
           ? (job as { candidateRequirements?: string[] }).candidateRequirements!.join('\n')
-          : getSectionTextFromHtml(job.description || '', 'candidate requirements');
+          : getSectionTextFromHtml(textOf(job.description), 'candidate requirements');
       const benefitsText =
         Array.isArray(job.benefits) && job.benefits.length
           ? job.benefits.join('\n')
-          : getSectionTextFromHtml(job.description || '', 'benefits') ||
-            getSectionTextFromHtml(job.description || '', 'compensation');
+          : getSectionTextFromHtml(textOf(job.description), 'benefits') ||
+            getSectionTextFromHtml(textOf(job.description), 'compensation');
       const salarySummary =
         salary?.amount
           ? String(salary.amount)
@@ -2134,11 +2142,11 @@ export function CreateJobDrawer({
             passScoreOverridePercent: row.passScoreOverridePercent ?? null,
             assessment: row.assessment,
           }))
-          .filter((row) => Boolean(row.assessmentId));
+          .filter((row) => Boolean(row.assessmentId)) as JobPreScreenAssessmentLink[];
       } else {
         try {
           const assessRes = await getJobPreScreenAssessments(targetJobId);
-          const rows = Array.isArray(assessRes?.data) ? assessRes.data : [];
+          const rows = (Array.isArray(assessRes?.data) ? assessRes.data : []) as Record<string, unknown>[];
           preScreenAssessmentLinks = rows
             .map((row: Record<string, unknown>, index: number) => ({
               id: typeof row.id === 'string' ? row.id : undefined,
@@ -2152,18 +2160,18 @@ export function CreateJobDrawer({
                 typeof row.passScoreOverridePercent === 'number' ? row.passScoreOverridePercent : null,
               assessment: row.assessment as JobPreScreenAssessmentLink['assessment'],
             }))
-            .filter((row) => Boolean(row.assessmentId));
+            .filter((row) => Boolean(row.assessmentId)) as JobPreScreenAssessmentLink[];
         } catch {
           preScreenAssessmentLinks = [];
         }
       }
 
-      setFormData(prev => ({
-        ...prev,
+      setFormData((prev) => {
+        const patch = {
         nationality: jobExtras.nationality || '',
-        jobTitle: isDuplicateMode ? `${job.title || ''} Copy` : (job.title || ''),
+        jobTitle: isDuplicateMode ? `${textOf(job.title)} Copy` : textOf(job.title),
         priority: jobExtras.priority || 'Medium',
-        companyId: job.clientId || '',
+        companyId: textOf(job.clientId),
         postingOrgUnitId: String((job as { orgUnitId?: string }).orgUnitId || ''),
         postingCompanyName: String((job as { postingCompanyName?: string }).postingCompanyName || ''),
         showClientNamePublicly: (job as { showClientNamePublicly?: boolean }).showClientNamePublicly !== false,
@@ -2178,7 +2186,7 @@ export function CreateJobDrawer({
         state: jobExtras.state || state,
         city: jobExtras.city || city,
         industryType: jobExtras.jobCategory || '',
-        employmentType: mapJobTypeFromBackend(job.type),
+        employmentType: mapJobTypeFromBackend(textOf(job.type)),
         targetHireDate,
         videoMediaLink: jobExtras.videoMediaLink || '',
         forecastRevenue: jobExtras.forecastRevenue || '',
@@ -2194,17 +2202,17 @@ export function CreateJobDrawer({
               }))
               .filter((row) => row.language)
           : [],
-        jobDescriptionHtml: job.description || '',
+        jobDescriptionHtml: textOf(job.description),
         jobLocation: location,
-        jobType: mapJobTypeFromBackend(job.type),
-        jobLocationType: job.jobLocationType || '',
+        jobType: mapJobTypeFromBackend(textOf(job.type)),
+        jobLocationType: textOf(job.jobLocationType),
         salaryInput: salarySummary,
-        jobSummary: job.overview || plainDescription,
+        jobSummary: textOf(job.overview) || plainDescription,
         keyResponsibilitiesText: responsibilitiesText,
         qualificationsExperienceText: qualificationsText,
         candidateRequirementsText,
         compensationBenefitsText: benefitsText,
-        customJdSections: extractAdditionalJdSectionsFromHtml(job.description || ''),
+        customJdSections: extractAdditionalJdSectionsFromHtml(textOf(job.description)),
         minExperience,
         maxExperience,
         payRangeMin: minSalary,
@@ -2215,18 +2223,17 @@ export function CreateJobDrawer({
         maxSalary,
         educationalQualification,
         educationalSpecialization,
-        skills: job.skills || [],
+        skills: Array.isArray(job.skills)
+          ? job.skills.filter((skill): skill is string => typeof skill === 'string')
+          : [],
         locality,
-        city,
-        state,
-        country,
         postalCode,
         fullAddress: fullAddress || location,
-        enableApplicationForm: job.applicationFormEnabled || false,
+        enableApplicationForm: job.applicationFormEnabled === true,
         logoOption: parsedLogoOption,
         applicationLogoUrl: parsedApplicationLogoUrl,
         applicationQuestions: parseScreeningQuestionList(job.applicationFormQuestions),
-        noteForCandidates: job.applicationFormNote || '',
+        noteForCandidates: textOf(job.applicationFormNote),
         applicationFormSchema:
           normalizeApplicationFormSchema((job as { applicationFormSchema?: unknown }).applicationFormSchema) ||
           defaultApplicationFormSchema(),
@@ -2251,7 +2258,9 @@ export function CreateJobDrawer({
           return [...new Set([primary, ...supporting].filter(Boolean))];
         })(),
         aboutCompany: String((job as { aboutCompany?: string }).aboutCompany || ''),
-      }));
+        };
+        return { ...prev, ...patch };
+      });
       
       // Set JD file name if available (for display purposes)
       if (jdFileName) {
@@ -3991,7 +4000,6 @@ export function CreateJobDrawer({
     assignedToCompanyId: formData.assignedToCompanyId,
     assignedToIds: formData.assignedToIds,
     aboutCompany: formData.aboutCompany,
-    publicFieldVisibility: formData.publicFieldVisibility,
   };
 
   return (
@@ -4378,7 +4386,7 @@ export function CreateJobDrawer({
                       loadingUsers={loadingUsers}
                       loadingContacts={loadingContacts}
                       dropdownsOpen={dropdownsOpen}
-                      setDropdownsOpen={setDropdownsOpen}
+                      setDropdownsOpen={setDropdownsOpen as React.Dispatch<React.SetStateAction<Record<string, boolean>>>}
                       skillInput={skillInput}
                       setSkillInput={setSkillInput}
                       onAddSkill={addSkill}

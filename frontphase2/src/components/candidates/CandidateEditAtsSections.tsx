@@ -912,8 +912,10 @@ export function CandidateEditAtsSections({
 }: Props) {
   const isClientSubmit = variant === 'clientSubmit';
   const sectionVisible = (id: ClientPresentationSectionId) => clientSectionVisibility?.[id] !== false;
-  const showField = (id: SubmitToClientFieldId) =>
-    !isClientSubmit || isSubmitToClientFieldVisible(clientFieldVisibility, id);
+  const showField = (id: SubmitToClientFieldId | 'location' | 'portfolio') => {
+    if (!isClientSubmit || id === 'location' || id === 'portfolio') return true;
+    return isSubmitToClientFieldVisible(clientFieldVisibility, id);
+  };
   return (
     <div className="space-y-5">
       {showClientSectionVisibility ? (

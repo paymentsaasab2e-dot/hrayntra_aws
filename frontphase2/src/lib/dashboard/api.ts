@@ -21,6 +21,8 @@ function filtersToQuery(filters?: WidgetFilters | Record<string, string | undefi
 }
 
 /** Chart/table fields from cache or a partial API payload must be real arrays before spread/map. */
+export function asList<T>(value: readonly T[] | null | undefined): T[];
+export function asList<T = Record<string, unknown>>(value: unknown): T[];
 export function asList<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
 }
@@ -34,6 +36,7 @@ export type DashboardInsight = {
   id: string;
   severity: 'high' | 'medium' | 'info' | string;
   text: string;
+  category?: string;
   action?: string;
   href?: string;
 };

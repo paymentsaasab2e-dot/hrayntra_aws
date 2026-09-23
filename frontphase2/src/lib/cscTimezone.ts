@@ -162,7 +162,7 @@ export function inferIanaFromCountryStateCity(input: CscLocationInput): string {
   if (state?.isoCode && input.city) {
     city = findCity(City.getCitiesOfState(country.isoCode, state.isoCode), input.city);
   } else if (input.city) {
-    city = findCity(City.getCitiesOfCountry(country.isoCode), input.city);
+    city = findCity(City.getCitiesOfCountry(country.isoCode) ?? [], input.city);
   }
 
   const lat =

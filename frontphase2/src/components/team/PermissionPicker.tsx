@@ -433,7 +433,10 @@ function SwitchCompanyAccessPanel({
   const sides: Array<{ key: 'crm' | 'recruitment'; label: string; show: boolean }> = [
     { key: 'crm', label: 'CRM', show: showCrm },
     { key: 'recruitment', label: 'Recruitment', show: showRecruitment },
-  ].filter((s) => s.show);
+  ].filter(
+    (x): x is { key: 'crm' | 'recruitment'; label: string; show: boolean } =>
+      (x.key === 'crm' || x.key === 'recruitment') && x.show,
+  );
 
   if (!sides.length) return null;
 

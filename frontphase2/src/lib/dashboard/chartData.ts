@@ -127,7 +127,7 @@ export function buildWidgetTitle(
   return `${datasetLabel} — ${chartLabel}`;
 }
 
-export function pickPrimaryListDataset(datasets: { id: string; kind?: string }[]) {
+export function pickPrimaryListDataset<T extends { id: string; kind?: string }>(datasets: T[]): T | null {
   return datasets.find((d) => d.kind === 'list') || datasets[0] || null;
 }
 

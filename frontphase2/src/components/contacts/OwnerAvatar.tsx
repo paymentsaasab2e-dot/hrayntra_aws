@@ -25,7 +25,7 @@ export function OwnerAvatar({ owner }: OwnerAvatarProps) {
   return (
     <div className="flex items-center gap-2">
       <ImageWithFallback
-        src={owner.avatar}
+        src={owner.avatar ?? undefined}
         alt={owner.name}
         className="w-6 h-6 rounded-full object-cover"
         fallback={

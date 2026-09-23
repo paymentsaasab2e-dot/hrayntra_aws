@@ -287,7 +287,7 @@ export async function withApiRetry<T>(
       return await operation();
     } catch (error) {
       lastError = error;
-      if (attempt >= maxAttempts || !shouldRetry(error)) throw error;
+      if (attempt >= maxAttempts || !shouldRetry(error, attempt)) throw error;
       options.onRetry?.(attempt, error);
       const delay = baseDelayMs * 2 ** (attempt - 1);
       await sleep(delay);

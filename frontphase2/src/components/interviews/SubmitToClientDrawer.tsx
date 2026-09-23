@@ -840,9 +840,6 @@ export function SubmitToClientDrawer({
       setSelectedClients([]);
       setActiveClientId(null);
       setClientPickerOpen(false);
-      setResumePreviewOpen(false);
-      setCvEditorOpen(false);
-      setCvEditorData(null);
       setClientCatalog([]);
       setEditForm(null);
       setPhase1Snapshot(null);

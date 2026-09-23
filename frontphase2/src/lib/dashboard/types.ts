@@ -103,6 +103,7 @@ export type DashboardWidget = {
   w: number;
   h: number;
   config?: WidgetConfig;
+  filters?: Record<string, unknown>;
 };
 
 export type DatasetPayload = {

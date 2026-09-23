@@ -142,7 +142,7 @@ function crmLinkedMatches(candidate) {
   );
 }
 
-/** All job ids linked to a candidate (assign, apply, pipeline, CRM match — not AI-only scores). */
+/** All job ids linked to a candidate (assign, apply, pipeline, interview, CRM match). */
 function collectCandidateLinkedJobIds(candidate) {
   const ids = new Set();
   const push = (raw) => {
@@ -154,8 +154,18 @@ function collectCandidateLinkedJobIds(candidate) {
   }
   for (const row of Array.isArray(candidate?.applications) ? candidate.applications : []) {
     push(row?.jobId);
+    push(row?.job?.id);
   }
   for (const row of Array.isArray(candidate?.pipelineEntries) ? candidate.pipelineEntries : []) {
+    push(row?.jobId);
+    push(row?.job?.id);
+  }
+  for (const row of Array.isArray(candidate?.interviews) ? candidate.interviews : []) {
+    push(row?.jobId);
+    push(row?.job?.id);
+  }
+  for (const row of Array.isArray(candidate?.placements) ? candidate.placements : []) {
+    if (row?.deletedAt) continue;
     push(row?.jobId);
   }
   for (const row of crmLinkedMatches(candidate)) {
@@ -165,24 +175,57 @@ function collectCandidateLinkedJobIds(candidate) {
   return Array.from(ids);
 }
 
-function resolveCandidateAssignedJobTitlesForList(candidate, jobsById) {
+function resolveJobTitleFromCandidateRelations(candidate, jobId, jobsById) {
+  const id = String(jobId || '').trim();
+  if (!id) return '';
+  let title = jobsById?.get(id) || jobsById?.get(jobId);
+  if (title) return String(title).trim();
+
+  const match = (Array.isArray(candidate?.matches) ? candidate.matches : []).find(
+    (row) => String(row?.jobId || row?.job?.id || '').trim() === id,
+  );
+  title = match?.job?.title;
+  if (title) return String(title).trim();
+
+  const application = (Array.isArray(candidate?.applications) ? candidate.applications : []).find(
+    (row) => String(row?.jobId || row?.job?.id || '').trim() === id,
+  );
+  title = application?.job?.title;
+  if (title) return String(title).trim();
+
+  const pipeline = (Array.isArray(candidate?.pipelineEntries) ? candidate.pipelineEntries : []).find(
+    (row) => String(row?.jobId || row?.job?.id || '').trim() === id,
+  );
+  title = pipeline?.job?.title;
+  if (title) return String(title).trim();
+
+  const interview = (Array.isArray(candidate?.interviews) ? candidate.interviews : []).find(
+    (row) => String(row?.jobId || row?.job?.id || '').trim() === id,
+  );
+  title = interview?.job?.title;
+  if (title) return String(title).trim();
+
+  return '';
+}
+
+/**
+ * List Assigned Job titles — prefer primary job (same SoT as stage), then other links.
+ * Falls back across assign / apply / pipeline / interview / match so Applied rows
+ * are not left with "—" when stage is Applied but assignedJobs title lookup missed.
+ */
+function resolveCandidateAssignedJobTitlesForList(candidate, jobsById, tenantJobIdSet = null) {
+  const primaryId = resolvePrimaryJobIdForList(candidate, tenantJobIdSet);
+  const linkedIds = collectCandidateLinkedJobIds(candidate);
+  const orderedIds = [];
+  if (primaryId) orderedIds.push(primaryId);
+  for (const id of linkedIds) {
+    if (!orderedIds.includes(id)) orderedIds.push(id);
+  }
+
   const titles = [];
   const seen = new Set();
-  for (const jobId of collectCandidateLinkedJobIds(candidate)) {
-    let title = jobsById.get(jobId);
-    if (!title) {
-      const match = (Array.isArray(candidate?.matches) ? candidate.matches : []).find(
-        (row) => String(row?.jobId || row?.job?.id || '').trim() === jobId
-      );
-      title = match?.job?.title;
-    }
-    if (!title) {
-      const application = (Array.isArray(candidate?.applications) ? candidate.applications : []).find(
-        (row) => String(row?.jobId || '').trim() === jobId
-      );
-      title = application?.job?.title;
-    }
-    const label = String(title || '').trim();
+  for (const jobId of orderedIds) {
+    const label = resolveJobTitleFromCandidateRelations(candidate, jobId, jobsById);
     if (label && !seen.has(label)) {
       seen.add(label);
       titles.push(label);
@@ -1033,11 +1076,16 @@ const candidateListInclude = {
       status: true,
       job: { select: { id: true, title: true } },
     },
-    take: 8,
+    orderBy: { appliedAt: 'desc' },
+    take: 20,
   },
   pipelineEntries: {
-    select: { id: true, jobId: true, stage: { select: { name: true } } },
-    take: 8,
+    select: {
+      id: true,
+      jobId: true,
+      stage: { select: { name: true } },
+    },
+    take: 20,
   },
   matches: {
     select: {
@@ -1058,9 +1106,15 @@ const candidateListInclude = {
     take: 10,
   },
   interviews: {
-    select: { id: true, jobId: true, status: true, scheduledAt: true },
+    select: {
+      id: true,
+      jobId: true,
+      status: true,
+      scheduledAt: true,
+      job: { select: { id: true, title: true } },
+    },
     orderBy: { scheduledAt: 'desc' },
-    take: 5,
+    take: 10,
   },
   placements: {
     select: { id: true, jobId: true, status: true, updatedAt: true, createdAt: true, deletedAt: true },
@@ -1080,11 +1134,16 @@ const candidateListIncludeFast = {
   },
   applications: {
     select: { id: true, jobId: true, status: true, job: { select: { id: true, title: true } } },
-    take: 5,
+    orderBy: { appliedAt: 'desc' },
+    take: 15,
   },
   pipelineEntries: {
-    select: { id: true, jobId: true, stage: { select: { name: true } } },
-    take: 5,
+    select: {
+      id: true,
+      jobId: true,
+      stage: { select: { name: true } },
+    },
+    take: 15,
   },
   matches: {
     select: {
@@ -1095,7 +1154,12 @@ const candidateListIncludeFast = {
       job: { select: { id: true, title: true } },
     },
     orderBy: { createdAt: 'desc' },
-    take: 5,
+    take: 10,
+  },
+  interviews: {
+    select: { id: true, jobId: true, status: true, scheduledAt: true, job: { select: { id: true, title: true } } },
+    orderBy: { scheduledAt: 'desc' },
+    take: 8,
   },
 };
 
@@ -3824,10 +3888,11 @@ async function buildMineCandidatesScope(userId, knownJobIds) {
     : await getMyJobIds(userId);
   const cappedJobIds = myJobIds.slice(0, resolveMineJobTake());
   const orClause = buildAssigneeVisibilityOr(userId);
+  let linkedIds = [];
   if (cappedJobIds.length > 0) {
     orClause.push({ assignedJobs: { hasSome: cappedJobIds } });
     try {
-      const linkedIds = await prefetchMineLinkedCandidateIds(cappedJobIds);
+      linkedIds = await prefetchMineLinkedCandidateIds(cappedJobIds);
       if (linkedIds.length) {
         orClause.push({ id: { in: linkedIds } });
       }
@@ -3835,7 +3900,21 @@ async function buildMineCandidatesScope(userId, knownJobIds) {
       console.warn('[candidate.service] mine link prefetch failed:', err?.message || err);
     }
   }
-  return { OR: orClause };
+  // Phase 1 discovery (no link to this user's jobs) stays on All only.
+  // A non-empty assignedJobs list is not enough: foreign/missing job ids still
+  // render as Assigned Job "—" and must not leak into My.
+  const phase1OnMyJobs = [
+    ...(linkedIds.length ? [{ id: { in: linkedIds } }] : []),
+    ...(cappedJobIds.length ? [{ assignedJobs: { hasSome: cappedJobIds } }] : []),
+  ];
+  return {
+    AND: [
+      { OR: orClause },
+      {
+        OR: [{ NOT: { source: 'phase1' } }, ...phase1OnMyJobs],
+      },
+    ],
+  };
 }
 
 /**
@@ -3845,43 +3924,32 @@ async function buildMineCandidatesScope(userId, knownJobIds) {
 function candidateMatchesMineScope(candidate, userId, myJobIds) {
   if (!candidate || !userId) return false;
   const uid = String(userId);
-  if (String(candidate.createdById || candidate.createdBy?.id || '') === uid) return true;
-  if (String(candidate.assignedToId || candidate.assignedTo?.id || '') === uid) return true;
-
   const jobIdSet = new Set((myJobIds || []).map((id) => String(id)).filter(Boolean));
-  if (!jobIdSet.size) {
-    return String(candidate.createdById || candidate.createdBy?.id || '') === uid
-      || String(candidate.assignedToId || candidate.assignedTo?.id || '') === uid;
-  }
+  const hasJob = (id) => jobIdSet.has(String(id || '').trim());
 
   const assigned = Array.isArray(candidate.assignedJobs) ? candidate.assignedJobs : [];
-  if (assigned.some((id) => jobIdSet.has(String(id || '').trim()))) return true;
-
   const matchJobIds = Array.isArray(candidate.matchJobIds) ? candidate.matchJobIds : [];
-  if (matchJobIds.some((id) => jobIdSet.has(String(id || '').trim()))) return true;
-
   const applications = Array.isArray(candidate.applications) ? candidate.applications : [];
-  if (applications.some((row) => jobIdSet.has(String(row?.jobId || '').trim()))) return true;
-
   const pipelineEntries = Array.isArray(candidate.pipelineEntries) ? candidate.pipelineEntries : [];
-  if (pipelineEntries.some((row) => jobIdSet.has(String(row?.jobId || '').trim()))) return true;
-
   const matches = Array.isArray(candidate.matches) ? candidate.matches : [];
-  if (matches.some((row) => jobIdSet.has(String(row?.jobId || row?.job?.id || '').trim()))) {
-    return true;
-  }
-
   const interviews = Array.isArray(candidate.interviews) ? candidate.interviews : [];
-  if (interviews.some((row) => jobIdSet.has(String(row?.jobId || row?.job?.id || '').trim()))) {
-    return true;
-  }
-
   const placements = Array.isArray(candidate.placements) ? candidate.placements : [];
-  if (placements.some((row) => jobIdSet.has(String(row?.jobId || '').trim()))) {
-    return true;
-  }
+  const linkedToMyJobs =
+    jobIdSet.size > 0 &&
+    (assigned.some(hasJob) ||
+      matchJobIds.some(hasJob) ||
+      applications.some((row) => hasJob(row?.jobId)) ||
+      pipelineEntries.some((row) => hasJob(row?.jobId)) ||
+      matches.some((row) => hasJob(row?.jobId || row?.job?.id)) ||
+      interviews.some((row) => hasJob(row?.jobId || row?.job?.id)) ||
+      placements.some((row) => hasJob(row?.jobId)));
 
-  return false;
+  // Phase 1 with no link to this user's jobs belongs on All, even if they created the row.
+  if (isPhase1CandidateSource(candidate.source)) return linkedToMyJobs;
+
+  if (String(candidate.createdById || candidate.createdBy?.id || '') === uid) return true;
+  if (String(candidate.assignedToId || candidate.assignedTo?.id || '') === uid) return true;
+  return linkedToMyJobs;
 }
 
 /** Recruiters without view-all see candidates they own or who applied to their jobs. */
@@ -4905,13 +4973,21 @@ export const candidateService = {
     const listFilters = parseCandidateListFilters(req.query);
     const mine =
       req.query?.mine === 'true' || req.query?.mine === '1' || req.query?.mine === true;
+    const pickerMode =
+      req.query?.picker === '1' ||
+      req.query?.picker === 'true' ||
+      req.query?.picker === true;
     // My candidates is tenant CRM + portal applicants only — never the full Phase 1 pool.
-    const loadCommonPool = mine ? false : await resolveLoadCommonPool(req.query);
-    const myJobIds = mine && req.user?.id ? await getMyJobIds(req.user.id) : [];
+    // Picker skips the common-pool decision and tenant job scan — those delayed the dropdown.
+    const loadCommonPool = mine || pickerMode ? false : await resolveLoadCommonPool(req.query);
+    const canViewAllCandidates =
+      canViewAllAssignments(req) || hasAnyPermissionScope(req, ['view_all_candidates']);
+    let myJobIds = mine && req.user?.id ? await getMyJobIds(req.user.id) : [];
     // Display scoping must use the full tenant job set. Using only myJobIds here
     // wiped Assigned Job titles on My Candidates (jobs outside the mine cap → "—").
     // myJobIds still drives which rows appear via buildMineCandidatesScope.
-    const tenantJobIdSet = isTenantScopedRequest() ? await getTenantJobIdSet() : null;
+    const tenantJobIdSet =
+      pickerMode || !isTenantScopedRequest() ? null : await getTenantJobIdSet();
     const livePortalMerge = isLivePortalListMergeEnabled();
 
     if (mine && !req.user?.id) {
@@ -4941,13 +5017,11 @@ export const candidateService = {
     // the soft-delete column existed) without tripping Prisma's "Argument isDeleted is missing".
     andParts.push({ isDeleted: { not: true } });
     // Phase 1 discovery rows (no job link) appear on "All candidates" via includeCommonPool + candidatecommon merge.
-    // Skip this clause for mine=true — mine scope already limits to owned/linked rows; nesting here hung ~300s.
+    // My uses buildMineCandidatesScope, which drops Phase 1 unless linked to the user's own jobs.
     if (!loadCommonPool && !mine) {
       andParts.push(buildCrmCandidatesListScopeClause());
     }
     const superAdminScope = buildSuperAdminOwnerScope(req, ['createdById', 'assignedToId']);
-    const canViewAllCandidates =
-      canViewAllAssignments(req) || hasAnyPermissionScope(req, ['view_all_candidates']);
 
     // When mine=true, use the expanded "my candidates" scope only:
     // - created by me
@@ -4964,16 +5038,65 @@ export const candidateService = {
         andParts.push(await buildCandidateListVisibilityScope(req));
       }
     }
-    const orgScope = await applyOrgCompanyAssigneeWhere(req, {
-      assignedToIdField: 'assignedToId',
-      createdByField: 'createdById',
-    });
-    if (orgScope) andParts.push(orgScope);
+    // Company org filter is for All/shared lists. Applying it on top of mine=true can
+    // wipe Super Admin My Candidates when personal ownership is empty/untagged.
+    if (!mine) {
+      const orgScope = await applyOrgCompanyAssigneeWhere(req, {
+        assignedToIdField: 'assignedToId',
+        createdByField: 'createdById',
+      });
+      if (orgScope) andParts.push(orgScope);
+    }
     const searchClause = buildCandidateSearchWhereClause(search);
     if (searchClause) andParts.push(searchClause);
     await appendCandidateListFilterAndParts(andParts, listFilters);
     if (andParts.length) {
       where.AND = andParts;
+    }
+
+    // Schedule-interview picker: id/name/phone/job only. Skip portal merge,
+    // career prefs, and full profile hydration — those made the dropdown stall.
+    if (pickerMode) {
+      const pickerLimit = Math.min(Math.max(Number.parseInt(String(req.query.limit || '30'), 10) || 30, 1), 40);
+      const rows = await prisma.candidate.findMany({
+        where,
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          phone: true,
+          assignedJobs: true,
+        },
+        orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+        take: pickerLimit,
+      });
+      const jobIds = [
+        ...new Set(
+          rows
+            .map((row) => String(row.assignedJobs?.[0] || '').trim())
+            .filter(Boolean),
+        ),
+      ];
+      const jobs = jobIds.length
+        ? await prisma.job.findMany({
+            where: { id: { in: jobIds } },
+            select: { id: true, title: true },
+          })
+        : [];
+      const titleById = new Map(jobs.map((job) => [job.id, job.title]));
+      const data = rows.map((row) => {
+        const jobId = String(row.assignedJobs?.[0] || '').trim();
+        const title = jobId ? titleById.get(jobId) : '';
+        return {
+          id: row.id,
+          firstName: row.firstName,
+          lastName: row.lastName,
+          phone: row.phone,
+          assignedJobs: jobId ? [jobId] : [],
+          assignedJobTitles: title ? [title] : [],
+        };
+      });
+      return formatPaginationResponse(data, 1, pickerLimit, data.length);
     }
 
     let candidates = [];
@@ -5319,14 +5442,18 @@ export const candidateService = {
       }
     }
 
-    // Resolve linked job ids (assign, apply, pipeline, match) into titles for list UI.
+    // Resolve linked job ids (assign, apply, pipeline, match, interview) into titles for list UI.
+    // Use unscoped links so Applied rows still get titles when tenant scope dropped a deleted/stale id.
     const assignedJobIds = Array.from(
       new Set(
         candidates.flatMap((candidate) => {
           const scoped = scopeCandidateForActiveTenant(candidate, tenantJobIdSet);
-          return collectCandidateLinkedJobIds(scoped);
-        })
-      )
+          return [
+            ...collectCandidateLinkedJobIds(scoped),
+            ...collectCandidateLinkedJobIds(candidate),
+          ];
+        }),
+      ),
     );
 
     const jobsById = new Map();
@@ -5335,7 +5462,10 @@ export const candidateService = {
         where: { id: { in: assignedJobIds } },
         select: { id: true, title: true },
       });
-      for (const job of jobs) jobsById.set(job.id, job.title);
+      for (const job of jobs) {
+        jobsById.set(String(job.id), job.title);
+        jobsById.set(job.id, job.title);
+      }
     }
 
     // Fetch career preferences from portal DB for the visible page so that
@@ -5379,46 +5509,53 @@ export const candidateService = {
       )
         .map((id) => String(id || '').trim())
         .filter(Boolean);
-      const linkedJobIds = collectCandidateLinkedJobIds(scopedCandidate);
-      // Keep replace-assignment SoT: do not expand assignedJobs with stale
-      // pipeline/application ids from a previous job after reassignment.
+      const linkedJobIdsScoped = collectCandidateLinkedJobIds(scopedCandidate);
+      const linkedJobIdsAll = collectCandidateLinkedJobIds(candidate);
+      // Prefer scoped links; if scope wiped everything (stale/deleted job ids) keep
+      // unscoped links that still resolve to a Job title so Applied ≠ empty Assigned job.
+      const linkedJobIds =
+        linkedJobIdsScoped.length > 0
+          ? linkedJobIdsScoped
+          : linkedJobIdsAll.filter((id) => Boolean(resolveJobTitleFromCandidateRelations(candidate, id, jobsById)));
+      const primaryId =
+        resolvePrimaryJobIdForList(scopedCandidate, tenantJobIdSet) ||
+        resolvePrimaryJobIdForList(candidate, tenantJobIdSet) ||
+        linkedJobIds[0] ||
+        '';
+      const assignedJobsForRow = explicitAssigned.length
+        ? explicitAssigned
+        : primaryId
+          ? [primaryId, ...linkedJobIds.filter((id) => id !== primaryId)]
+          : linkedJobIds;
       const scopedWithJobs = {
         ...scopedCandidate,
-        assignedJobs: explicitAssigned.length
-          ? explicitAssigned
-          : linkedJobIds.length
-            ? linkedJobIds
-            : [],
+        assignedJobs: assignedJobsForRow,
+        // Keep relation rows from unscoped when scoped emptied them but titles exist.
+        applications:
+          Array.isArray(scopedCandidate.applications) && scopedCandidate.applications.length
+            ? scopedCandidate.applications
+            : candidate.applications,
+        pipelineEntries:
+          Array.isArray(scopedCandidate.pipelineEntries) && scopedCandidate.pipelineEntries.length
+            ? scopedCandidate.pipelineEntries
+            : candidate.pipelineEntries,
+        matches:
+          Array.isArray(scopedCandidate.matches) && scopedCandidate.matches.length
+            ? scopedCandidate.matches
+            : candidate.matches,
+        interviews:
+          Array.isArray(scopedCandidate.interviews) && scopedCandidate.interviews.length
+            ? scopedCandidate.interviews
+            : candidate.interviews,
       };
-      const titles = (() => {
-        if (explicitAssigned.length) {
-          const seen = new Set();
-          const out = [];
-          for (const jobId of explicitAssigned) {
-            let title = jobsById.get(jobId);
-            if (!title) {
-              const match = (Array.isArray(scopedWithJobs?.matches) ? scopedWithJobs.matches : []).find(
-                (row) => String(row?.jobId || row?.job?.id || '').trim() === jobId,
-              );
-              title = match?.job?.title;
-            }
-            if (!title) {
-              const application = (Array.isArray(scopedWithJobs?.applications)
-                ? scopedWithJobs.applications
-                : []
-              ).find((row) => String(row?.jobId || '').trim() === jobId);
-              title = application?.job?.title;
-            }
-            const label = String(title || '').trim();
-            if (label && !seen.has(label)) {
-              seen.add(label);
-              out.push(label);
-            }
-          }
-          return out;
-        }
-        return resolveCandidateAssignedJobTitlesForList(scopedWithJobs, jobsById);
-      })();
+      let titles = resolveCandidateAssignedJobTitlesForList(
+        scopedWithJobs,
+        jobsById,
+        tenantJobIdSet,
+      );
+      if (!titles.length) {
+        titles = resolveCandidateAssignedJobTitlesForList(candidate, jobsById, tenantJobIdSet);
+      }
       return annotateCandidateListFlags(
         {
           ...scopedWithJobs,
@@ -7604,7 +7741,7 @@ export const candidateService = {
       req.query?.mine === 'true' || req.query?.mine === '1' || req.query?.mine === true;
     const loadCommonPool = mine ? false : await resolveLoadCommonPool(req.query || {});
     const userId = req.user?.id;
-    const myJobIds = mine && userId ? await getMyJobIds(userId) : [];
+    let myJobIds = mine && userId ? await getMyJobIds(userId) : [];
     // Same as getAll: mine row scope ≠ display job scope. Titles need full tenant jobs.
     const tenantJobIdSet = isTenantScopedRequest() ? await getTenantJobIdSet() : null;
 
@@ -7626,7 +7763,7 @@ export const candidateService = {
     }
 
     const superAdminScope = buildSuperAdminOwnerScope(req, ['createdById', 'assignedToId']);
-    const mineScope = mine ? await buildMineCandidatesScope(userId) : null;
+    const mineScope = mine ? await buildMineCandidatesScope(userId, myJobIds) : null;
     const scopeWhere = mine ? mineScope : superAdminScope;
 
     const stages = [

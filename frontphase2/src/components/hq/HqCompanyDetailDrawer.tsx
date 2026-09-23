@@ -1,4 +1,5 @@
 'use client';
+import type { AppIcon } from '@/types/appIcon';
 
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -26,7 +27,7 @@ import {
   type HqCompanyStatus,
 } from '@/app/hq/company/hqCompaniesData';
 
-const DRAWER_TABS: { id: HqCompanyDrawerTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+const DRAWER_TABS: { id: HqCompanyDrawerTab; label: string; icon: AppIcon }[] = [
   { id: 'details', label: 'Details', icon: LayoutGrid },
   { id: 'followup', label: 'Follow-up', icon: CalendarClock },
   { id: 'remarks', label: 'Remarks', icon: MessageSquare },
@@ -822,9 +823,7 @@ export function HqCompanyDetailDrawer({
                 {activeTab === 'details' ? (
                   <HqPrimaryButton
                     type="button"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
+                    onClick={() => {
                       setIsEditing(true);
                     }}
                   >
@@ -835,6 +834,7 @@ export function HqCompanyDetailDrawer({
               </>
             )}
         </div>
+      </div>
       </div>
     </DetailsModalShell>,
     document.body

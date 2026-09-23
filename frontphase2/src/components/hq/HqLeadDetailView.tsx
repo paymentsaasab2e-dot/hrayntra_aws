@@ -1,4 +1,5 @@
 'use client';
+import type { AppIcon } from '@/types/appIcon';
 
 import React, { useMemo, useState } from 'react';
 import Link from 'next/link';
@@ -117,7 +118,7 @@ function isOverdue(at?: string | null) {
 
 type DetailTab = 'follow-up' | 'activities' | 'remarks' | 'chat' | 'files';
 
-const DETAIL_TABS: { id: DetailTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+const DETAIL_TABS: { id: DetailTab; label: string; icon: AppIcon }[] = [
   { id: 'follow-up', label: 'Follow-up', icon: CalendarClock },
   { id: 'activities', label: 'Activities', icon: Star },
   { id: 'remarks', label: 'Remarks', icon: MessageSquare },
@@ -178,7 +179,7 @@ function InfoRow({ label, value, green, link }: { label: string; value?: string 
   );
 }
 
-function SectionCard({ title, subtitle, icon: Icon, children }: { title: string; subtitle?: string; icon?: React.ComponentType<{ className?: string }>; children: React.ReactNode }) {
+function SectionCard({ title, subtitle, icon: Icon, children }: { title: string; subtitle?: string; icon?: AppIcon; children: React.ReactNode }) {
   return (
     <section className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
       <div className="mb-4">
@@ -257,7 +258,7 @@ export function HqLeadDetailView({
       items.push({ id: `rm-${r.id}`, title: 'Remark', at: r.createdAt, body: r.text || '', by: r.createdByEmail || lead.owner || 'HQ', kind: 'remark' });
     }
     if (lead.initialNotes?.trim()) {
-      items.push({ id: 'notes', title: 'Initial notes', at: lead.createdAt, body: lead.initialNotes, by: lead.owner || 'HQ', kind: 'created' });
+      items.push({ id: 'notes', title: 'Initial notes', at: lead.createdAt ?? null, body: lead.initialNotes, by: lead.owner || 'HQ', kind: 'created' });
     }
     if (lead.createdAt) {
       items.push({ id: 'created', title: 'Lead created', at: lead.createdAt, body: `${companyTitle} added to HQ CRM`, by: lead.owner || 'HQ', kind: 'created' });

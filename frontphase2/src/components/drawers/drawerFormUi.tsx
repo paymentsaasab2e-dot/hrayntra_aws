@@ -1,4 +1,5 @@
 'use client';
+import type { AppIcon } from '@/types/appIcon';
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
@@ -184,7 +185,7 @@ export function DrawerFieldLabel({
   required,
 }: {
   label: string;
-  icon?: LucideIcon | React.ComponentType<{ size?: number; className?: string }>;
+  icon?: LucideIcon | AppIcon;
   iconClassName?: string;
   required?: boolean;
 }) {

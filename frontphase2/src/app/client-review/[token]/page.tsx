@@ -58,8 +58,8 @@ export default function ClientReviewPage() {
           null,
         detail: {
           ...(row.detail || {}),
-          visibleFields: row.detail?.visibleFields ?? reviewData.visibleFields ?? null,
-          tableColumns: row.detail?.tableColumns ?? reviewData.tableColumns ?? null,
+          visibleFields: row.detail?.visibleFields ?? reviewData?.visibleFields ?? null,
+          tableColumns: row.detail?.tableColumns ?? reviewData?.tableColumns ?? null,
         },
       }));
     }
@@ -70,7 +70,10 @@ export default function ClientReviewPage() {
         matchId,
         candidateName: reviewData.candidate?.name || 'Candidate',
         designation: reviewData.candidate?.designation,
-        experience: reviewData.candidate?.experience ?? null,
+        experience:
+          typeof reviewData.candidate?.experience === 'number'
+            ? reviewData.candidate.experience
+            : null,
         jobTitle: reviewData.job?.title,
         matchScore: reviewData.matchScore ?? null,
         clientMarkedStage:

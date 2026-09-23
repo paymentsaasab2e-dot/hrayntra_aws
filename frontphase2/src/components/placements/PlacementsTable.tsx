@@ -55,6 +55,7 @@ interface PlacementsTableProps {
   onRejectOfferCandidate?: (placement: Placement) => void;
   onDelete?: (placement: Placement) => void;
   onCreateInvoice?: (placement: Placement) => void;
+  onStatusChange?: (placement: Placement, status: string) => void;
   onPageChange: (page: number) => void;
   /** Parent provides frosted card + footer pagination (Leads-style). */
   embedded?: boolean;
@@ -433,8 +434,8 @@ export function PlacementsTable({
               return (
                 <tr
                   key={placement.id}
-                  className={`${rowClass} ${onView ? 'cursor-pointer' : ''}`}
-                  onClick={() => onView?.(placement)}
+                  className={`${rowClass} cursor-pointer`}
+                  onClick={() => onView(placement)}
                 >{[
                     <td key="candidate" className={tdPad}>
                       <div className="flex items-center gap-3">

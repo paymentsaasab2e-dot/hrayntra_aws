@@ -1,4 +1,5 @@
 'use client';
+import type { AppIcon } from '@/types/appIcon';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePathname } from 'next/navigation';
@@ -70,7 +71,7 @@ const TONE_STYLES: Record<
   },
 };
 
-const ICON_MAP: Record<AppDialogTone, React.ComponentType<{ className?: string }>> = {
+const ICON_MAP: Record<AppDialogTone, AppIcon> = {
   info: Info,
   success: CheckCircle2,
   warning: AlertTriangle,

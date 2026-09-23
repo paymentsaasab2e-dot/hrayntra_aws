@@ -220,7 +220,7 @@ export async function renderSaasaPdfPages(
     host.offsetWidth ||
     host.parentElement?.clientWidth ||
     host.parentElement?.offsetWidth;
-  const width = Math.max(320, Math.floor(parentW) || 800);
+  const width = Math.max(320, Math.floor(parentW ?? 0) || 800);
   let totalHeight = 0;
   const pageHeightsPx: number[] = [];
 

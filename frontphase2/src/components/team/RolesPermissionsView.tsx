@@ -25,7 +25,7 @@ export const RolesPermissionsView: React.FC = () => {
       // Group permissions by module
       const grouped: Record<string, Permission[]> = {};
       rolesData.forEach((role) => {
-        role.permissions.forEach((perm) => {
+        (role.permissions ?? []).forEach((perm) => {
           if (!grouped[perm.module]) {
             grouped[perm.module] = [];
           }
@@ -44,7 +44,7 @@ export const RolesPermissionsView: React.FC = () => {
   };
 
   const hasPermission = (role: SystemRole, permissionName: string): boolean => {
-    return role.permissions.some((p) => p.permissionName === permissionName);
+    return (role.permissions ?? []).some((p) => p.permissionName === permissionName);
   };
 
   if (loading) {

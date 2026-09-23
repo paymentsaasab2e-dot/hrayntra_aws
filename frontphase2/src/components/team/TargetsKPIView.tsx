@@ -19,7 +19,7 @@ export const TargetsKPIView: React.FC = () => {
     setLoading(true);
     try {
       const response = await getTeamMembers({ status: 'ACTIVE', limit: 100 });
-      setMembers(response.data?.data || []);
+      setMembers(Array.isArray(response.data) ? response.data : []);
     } catch (error) {
       console.error('Failed to load members:', error);
     } finally {

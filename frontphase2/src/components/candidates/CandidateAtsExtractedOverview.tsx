@@ -475,15 +475,15 @@ export function CandidateAtsExtractedOverview({
     p.phone,
     p.age,
     p.candidateScore,
-    p.cityState,
+    p.cityState ?? '',
     p.address,
     p.zip,
-    p.image,
+    p.image ?? '',
     p.nationality,
     p.companyWebsite,
     p.maritalStatus,
     p.birthDate,
-    (p as { gender?: string }).gender,
+    (p as { gender?: string }).gender ?? '',
     p.passport,
   ]);
 
@@ -519,7 +519,7 @@ export function CandidateAtsExtractedOverview({
       s.facebook,
       s.stackOverflow,
       s.website,
-      s.portfolio,
+      s.portfolio ?? '',
     ]) + (s.links.length > 0 ? 1 : 0);
 
   const sum = model.summary;
@@ -680,7 +680,9 @@ export function CandidateAtsExtractedOverview({
             <p className="text-[10px] font-bold uppercase text-slate-400">Portfolio / project links</p>
             <ul className="mt-2 space-y-1">
               {s.links.map((link, i) => {
-                const label = [link.label, link.type].filter(Boolean).join(' — ') || 'Link';
+                const labelText =
+                  ('label' in link ? link.label : undefined) ?? ('title' in link ? link.title : undefined);
+                const label = [labelText, link.type].filter(Boolean).join(' — ') || 'Link';
                 return (
                   <li key={i}>
                     <a

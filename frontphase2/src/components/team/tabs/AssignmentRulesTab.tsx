@@ -8,8 +8,8 @@ import {
   getAllTeamMembersForDirectory,
   getAssignmentRules,
   saveAssignmentRules,
-  type TeamMember,
 } from '../../../lib/api/teamApi';
+import type { TeamMember } from '../../../types/team';
 import { apiGetAssignCompanies } from '../../../lib/org/orgApi';
 import { formatAssigneeDisplayName } from '../../../lib/assigneeDisplay';
 import { matchesQuickSearch, buildQuickSearchHaystack } from '../../../lib/quickSearch';

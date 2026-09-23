@@ -85,7 +85,8 @@ function eventFormFromRow(event: PortalEventRow) {
         }))
       : [emptySection(1)];
 
-  const accessType = event.accessType === 'purchase' || Number(event.tokenCost) > 0 ? 'purchase' : 'free';
+  const accessType: 'purchase' | 'free' =
+    event.accessType === 'purchase' || Number(event.tokenCost) > 0 ? 'purchase' : 'free';
   return {
     title: event.title || '',
     description: event.description || '',

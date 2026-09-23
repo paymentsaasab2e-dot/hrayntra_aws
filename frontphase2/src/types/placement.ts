@@ -138,6 +138,7 @@ export interface Placement {
     invoiceDate?: string | null;
     dueDate?: string | null;
   }>;
+  createdInvoice?: unknown;
 }
 
 export interface PlacementStats {

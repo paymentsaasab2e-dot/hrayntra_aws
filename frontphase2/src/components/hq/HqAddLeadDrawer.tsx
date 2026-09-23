@@ -1,4 +1,5 @@
 'use client';
+import type { AppIcon } from '@/types/appIcon';
 
 /**
  * HQ-only Add Lead drawer — CRM / Recruitment selector + sectioned form.
@@ -59,7 +60,7 @@ const SECTIONS: Array<{
   id: SectionId;
   label: string;
   hint: string;
-  icon: React.ComponentType<{ className?: string; size?: number }>;
+  icon: AppIcon;
 }> = [
   { id: 'workspace', label: 'Workspace', hint: 'CRM or Recruitment', icon: Target },
   { id: 'company', label: 'Company', hint: 'Organization details', icon: Building2 },
@@ -113,7 +114,7 @@ function SectionCard({
   id: SectionId;
   label: string;
   hint: string;
-  icon: React.ComponentType<{ className?: string; size?: number }>;
+  icon: AppIcon;
   open: boolean;
   onToggle: () => void;
   children: React.ReactNode;

@@ -336,6 +336,7 @@ export interface JobForDrawer {
   id: string;
   title: string;
   client: string;
+  clientName?: string;
   /** CRM client id — required for scheduling interviews from the job drawer */
   clientId?: string;
   location: string;
@@ -396,7 +397,10 @@ export interface JobForDrawer {
   state?: string;
   city?: string;
   priority?: string;
-  languages?: Array<{ language: string; proficiency: string }>;
+  languages?: Array<{ language?: string; proficiency?: string }>;
+  publicFieldVisibility?: Record<string, boolean> | null;
+  createdAt?: string;
+  updatedAt?: string;
   workMode?: string;
   expectedClosureDate?: string;
   jdFileName?: string;
@@ -2071,8 +2075,8 @@ export function JobDetailsDrawer({
             ? (payload as { data: unknown[] }).data
             : [];
 
-        const mappedStages = stages
-          .map((stage: { id?: string; name?: string }) => ({
+        const mappedStages = (stages as { id?: string; name?: string }[])
+          .map((stage) => ({
             id: String(stage.id || ''),
             name: String(stage.name || '').trim(),
           }))
@@ -2372,8 +2376,8 @@ export function JobDetailsDrawer({
             : Array.isArray((payload as { data?: unknown })?.data)
               ? (payload as { data: unknown[] }).data
               : [];
-          const mappedStages = stages
-            .map((stage: { id?: string; name?: string }) => ({
+        const mappedStages = (stages as { id?: string; name?: string }[])
+          .map((stage) => ({
               id: String(stage.id || ''),
               name: String(stage.name || '').trim(),
             }))
@@ -5256,7 +5260,7 @@ export function JobDetailsDrawer({
                 return (
                   <div className="space-y-5">
                     <EntityAuditSummary
-                      audit={job?.auditMeta ?? extractAuditMeta(job as Record<string, unknown> | undefined)}
+                      audit={job?.auditMeta ?? extractAuditMeta(job as unknown as Record<string, unknown> | undefined)}
                     />
                     <DrawerSectionCard
                       title="Activity Filters"

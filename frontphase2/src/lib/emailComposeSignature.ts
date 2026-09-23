@@ -167,7 +167,8 @@ export async function ensureEmailComposeSignatureStateLoaded(): Promise<EmailCom
       return applyCache(sig, logoUrl);
     } catch {
       const legacy = readLegacyLocalStorage();
-      return applyCache(legacy, memoryCache?.logoUrl || '');
+      const cached = memoryCache as { logoUrl?: string } | null;
+      return applyCache(legacy, cached?.logoUrl || '');
     } finally {
       loadPromise = null;
     }
@@ -193,7 +194,9 @@ export async function saveEmailComposeSignature(raw: string): Promise<string> {
 /** Persist signature logo URL (empty string clears). */
 export async function saveEmailComposeSignatureLogoUrl(raw: string): Promise<string> {
   const next = normalizeLogoUrl(raw);
-  const res = await apiPatchUserCommunicationPrefs({ emailComposeSignatureLogoUrl: next || null });
+  const res = await apiPatchUserCommunicationPrefs({
+    emailComposeSignatureLogoUrl: (next || null) ?? undefined,
+  });
   const fromApi = normalizeLogoUrl(
     res?.data?.settings?.emailComposeSignatureLogoUrl ?? next,
   );

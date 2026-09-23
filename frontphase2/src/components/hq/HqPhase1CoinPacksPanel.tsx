@@ -80,7 +80,7 @@ function draftsEqual(a: PackDraft[], b: PackDraft[]) {
 
 function toPayload(list: PackDraft[]): HqPhase1TokenPack[] {
   return normalizeDrafts(list).map((p, index) => ({
-    ...(p.id ? { id: p.id } : {}),
+    id: p.id || '',
     name: p.name,
     tokens: Math.max(0, Math.floor(Number(p.tokens) || 0)),
     priceAmount: Math.max(0, Number(p.priceAmount) || 0),

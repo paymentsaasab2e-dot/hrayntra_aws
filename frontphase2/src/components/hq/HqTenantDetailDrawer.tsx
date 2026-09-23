@@ -1,4 +1,5 @@
 'use client';
+import type { AppIcon } from '@/types/appIcon';
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -58,7 +59,7 @@ type DetailTab = 'overview' | 'pricing' | 'analytics' | 'tabs' | 'status';
 const DETAIL_TABS: Array<{
   id: DetailTab;
   label: string;
-  icon: React.ComponentType<{ className?: string; size?: number }>;
+  icon: AppIcon;
 }> = [
   { id: 'overview', label: 'Overview', icon: Building2 },
   { id: 'pricing', label: 'Pricing', icon: CreditCard },

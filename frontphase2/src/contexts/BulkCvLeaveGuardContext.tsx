@@ -157,7 +157,7 @@ export function BulkCvLeaveGuardProvider({ children }: { children: React.ReactNo
       requestLeave({
         leaveActionLabel: 'leave this page',
         onConfirmed: () => {
-          if (anchor.target === '_blank') {
+          if ((anchor as HTMLAnchorElement).target === '_blank') {
             window.open(url.href, '_blank', 'noopener,noreferrer');
             return;
           }

@@ -1,4 +1,5 @@
 'use client';
+import type { AppIcon } from '@/types/appIcon';
 
 import React, { useMemo, useState } from 'react';
 import { motion } from 'motion/react';
@@ -28,7 +29,7 @@ type KpiDef = {
   key: string;
   label: string;
   href: string;
-  icon: React.ComponentType<{ size?: number; className?: string }>;
+  icon: AppIcon;
   iconBg: string;
   iconColor: string;
   format?: 'number' | 'money' | 'percent';

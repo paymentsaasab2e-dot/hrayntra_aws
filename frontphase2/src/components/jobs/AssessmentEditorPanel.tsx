@@ -265,7 +265,12 @@ function McqEditor({
         durationMinutes?: number;
         passScorePercent?: number;
         config?: McqAssessmentConfig;
-      }>(res);
+      }>(res.data as unknown as {
+        title?: string;
+        durationMinutes?: number;
+        passScorePercent?: number;
+        config?: McqAssessmentConfig;
+      });
       const parsedConfig = parseAssessmentConfig('MCQ', generated?.config);
       const questions = (parsedConfig as McqAssessmentConfig).questions || [];
       if (questions.length < 1) {
@@ -645,7 +650,12 @@ function CodingEditor({
         durationMinutes?: number;
         passScorePercent?: number;
         config?: CodingAssessmentConfig;
-      }>(res);
+      }>(res.data as unknown as {
+        title?: string;
+        durationMinutes?: number;
+        passScorePercent?: number;
+        config?: CodingAssessmentConfig;
+      });
       const parsedConfig = parseAssessmentConfig('CODING', generated?.config) as CodingAssessmentConfig;
       const nextQuestions = parsedConfig.questions || [];
       if (!nextQuestions.length) {

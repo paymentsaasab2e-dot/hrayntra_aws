@@ -392,7 +392,7 @@ export async function fetchSaasaCvLogoBytes(
 async function loadLogoImageForCanvas(url: string): Promise<HTMLImageElement | null> {
   const fetched = await fetchSaasaCvLogoBytes(url);
   if (fetched) {
-    const blob = new Blob([fetched.bytes], { type: fetched.mime });
+    const blob = new Blob([new Uint8Array(fetched.bytes)], { type: fetched.mime });
     const objectUrl = URL.createObjectURL(blob);
     try {
       return await loadImageElement(objectUrl, false);

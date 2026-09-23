@@ -280,7 +280,7 @@ function mapBackendClientToFrontend(backendClient: BackendClient): Client {
     lastActivity: backendClient.updatedAt ? formatDateDMY(backendClient.updatedAt) : 'Never',
     updatedAt: backendClient.updatedAt || backendClient.createdAt || undefined,
     createdAt: backendClient.createdAt || undefined,
-    auditMeta: extractAuditMeta(backendClient as Record<string, unknown>),
+    auditMeta: extractAuditMeta(backendClient as unknown as Record<string, unknown>),
     logo: backendClient.logo || '',
     revenue: backendClient.revenueGenerated || undefined,
     companySize: backendClient.companySize || undefined,
@@ -637,7 +637,9 @@ export default function App() {
           members.map((member) => ({
             id: member.id,
             name: member.name || `${member.firstName || ''} ${member.lastName || ''}`.trim() || member.email || 'User',
-            email: member.email,
+            email: member.email || '',
+            role: member.role?.roleName || '',
+            isActive: true,
           })),
         );
       } catch (err) {

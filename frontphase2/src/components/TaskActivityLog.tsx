@@ -1,4 +1,5 @@
 'use client';
+import type { AppIcon } from '@/types/appIcon';
 
 import React, { useMemo } from 'react';
 import {
@@ -23,7 +24,7 @@ export interface TaskActivityLogProps {
   className?: string;
 }
 
-type IconComponent = React.ComponentType<{ size?: number; className?: string }>;
+type IconComponent = AppIcon;
 const ACTION_ICONS: Record<TaskActivityEventType, IconComponent> = {
   created: PlusCircle as IconComponent,
   edited: Pencil as IconComponent,

@@ -1,3 +1,4 @@
+import type { AppIcon } from '@/types/appIcon';
 import React from 'react';
 import { BriefcaseBusiness, ChevronDown, Filter, UserRound, Video, X, CalendarDays, CircleDot } from 'lucide-react';
 import type { InterviewFiltersState } from '../../types/interview.types';
@@ -14,7 +15,7 @@ interface InterviewFiltersProps {
 const fieldMeta: Array<{
   key: keyof InterviewFiltersState;
   label: string;
-  icon: React.ComponentType<{ className?: string }>;
+  icon: AppIcon;
   options: string[];
 }> = [
   { key: 'date', label: 'Date', icon: CalendarDays, options: ['This Week', 'Today', 'This Month'] },

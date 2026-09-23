@@ -68,7 +68,13 @@ export function buildCrmComboMetrics(overview: CrmOverview | null | undefined): 
   const k = overview?.kpis || {};
   const leads = asList(overview?.leadsTable);
   const clients = asList(overview?.clientsTable);
-  const fu = overview?.followups || {};
+  const fu: NonNullable<CrmOverview['followups']> = overview?.followups ?? {
+    today: 0,
+    tomorrow: 0,
+    overdue: 0,
+    completed: 0,
+    upcoming: [],
+  };
   const lb = asList(overview?.leaderboard);
   const b = overview?.businessSummary;
 
@@ -253,7 +259,13 @@ export function buildCrmTeamStats(
   const lb = asList(overview?.leaderboard);
   const leads = asList(overview?.leadsTable);
   const comm = overview?.communication;
-  const fu = overview?.followups || {};
+  const fu: NonNullable<CrmOverview['followups']> = overview?.followups ?? {
+    today: 0,
+    tomorrow: 0,
+    overdue: 0,
+    completed: 0,
+    upcoming: [],
+  };
 
   const teamSize = lb.length || 0;
   const totalOverdue = lb.reduce((s, r) => s + (r.overdueFollowups || 0), 0);
@@ -383,7 +395,13 @@ export function buildCrmPipelineStats(
   const k = overview?.kpis || {};
   const leads = asList(overview?.leadsTable);
   const clients = asList(overview?.clientsTable);
-  const fu = overview?.followups || {};
+  const fu: NonNullable<CrmOverview['followups']> = overview?.followups ?? {
+    today: 0,
+    tomorrow: 0,
+    overdue: 0,
+    completed: 0,
+    upcoming: [],
+  };
   const b = overview?.businessSummary;
 
   const totalLeads = Number(k.totalLeads ?? leads.length) || leads.length;
@@ -619,7 +637,7 @@ export function buildCrmInsightCategories(overview: CrmOverview | null | undefin
     pick('newToContact'),
     pick('engagement'),
   ]
-    .filter((m): m is CrmComboMetric => Boolean(m))
+    .filter((m): m is NonNullable<typeof m> => Boolean(m))
     .map((m) => ({
       ...m,
       category: 'leads' as const,
@@ -676,7 +694,7 @@ export function buildCrmInsightCategories(overview: CrmOverview | null | undefin
           info: 'Total client accounts in CRM, with active and hot breakdown.',
         }
       : null,
-  ].filter((m): m is CrmComboMetric => Boolean(m));
+  ].filter((m) => Boolean(m)) as CrmComboMetric[];
 
   const team = buildCrmTeamStats(overview)
     .slice(0, 4)

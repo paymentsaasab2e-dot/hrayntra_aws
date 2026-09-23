@@ -60,7 +60,7 @@ export default function AccessPage() {
           ? {
               name: data.member.name,
               email: data.member.email,
-              roleName: data.member.roleName,
+              roleName: data.member.roleName || '',
             }
           : null,
       );

@@ -151,7 +151,7 @@ function parsePipelineStagesPayload(payload: unknown): PipelineStageColumn[] {
         color: typeof item.color === 'string' ? item.color : undefined,
       };
     })
-    .filter((row): row is PipelineStageColumn => Boolean(row));
+    .filter((row) => Boolean(row)) as PipelineStageColumn[];
 }
 
 function mergePipelineStageColumns(

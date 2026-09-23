@@ -65,9 +65,13 @@ export function CandidateWorkExperienceEntryView({
   headline?: string;
 }) {
   const normalized = normalizeWorkExperienceRecord(entry);
+  const cvEntry = {
+    ...normalized,
+    responsibilities: Array.isArray(normalized.responsibilities) ? normalized.responsibilities : undefined,
+  };
   const title = headline || [normalized.jobTitle, normalized.companyName].filter(Boolean).join(' @ ') || `Role ${index + 1}`;
-  const meta = formatWorkEntryMeta(normalized);
-  const tenureLabel = formatWorkEntryTenureLabel(normalized);
+  const meta = formatWorkEntryMeta(cvEntry);
+  const tenureLabel = formatWorkEntryTenureLabel(cvEntry);
   const skills = Array.isArray(normalized.workSkills) ? normalized.workSkills : [];
   const documents = Array.isArray(normalized.documents) ? normalized.documents : [];
   const hasRoleDetails = Boolean(

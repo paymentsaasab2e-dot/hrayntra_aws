@@ -43,7 +43,7 @@ function formatDateDisplay(iso?: string | null): string {
 function formatReplacementTerms(client: BackendClient): string {
   const value = client.agreementFreeReplacementValue;
   const unit = client.agreementFreeReplacementUnit;
-  if (value == null || value === '') return '';
+  if (value == null || String(value) === '') return '';
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) return '';
   const unitLabel = unit === 'DAYS' ? (n === 1 ? 'day' : 'days') : n === 1 ? 'month' : 'months';
@@ -313,7 +313,7 @@ export function applyClientContextToInvoice(
   const paymentDaysMatch = String(legalTerms.paymentTerms || '').match(/(\d+)/);
   const dueDate =
     paymentDaysMatch && invoice.invoiceDate
-      ? addDaysIso(Number(paymentDaysMatch[1]), invoice.invoiceDate)
+      ? addDaysIso(Number(paymentDaysMatch[1]), new Date(invoice.invoiceDate))
       : invoice.dueDate;
 
   const shortNote = `Placement invoice for ${candidateName || jobTitle || clientName || 'client'}.`;

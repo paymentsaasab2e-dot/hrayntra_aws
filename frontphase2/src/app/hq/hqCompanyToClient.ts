@@ -98,5 +98,5 @@ export function mapHqCompanyToBackendClient(row: HqCompanyApiRow): BackendClient
     phones: row.phones || [],
     otherDetails: row.otherDetails || [],
     logo: row.logo || null,
-  } as BackendClient;
+  } as unknown as BackendClient;
 }

@@ -256,7 +256,7 @@ export default function HqReportsPage() {
 
     const label = SOURCE_LABELS[key];
     const timeoutMs = sourceTimeoutMs(key);
-    let run: Promise<void>;
+    let run: Promise<void> = Promise.resolve();
     run = (async () => {
       if (!readyRef.current.has(key)) {
         setSourceStatus((prev) => ({ ...prev, [key]: 'loading' }));

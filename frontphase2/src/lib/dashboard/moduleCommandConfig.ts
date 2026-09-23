@@ -284,8 +284,8 @@ export const DASHBOARD_MODULE_TABS: ModuleCommandConfig[] = [
         { label: 'Completed', value: completed, color: 'green' },
         {
           label: 'Feedback pending',
-          value: metrics.find((m) => String(m.metric).includes('pending'))?.value ?? '—',
-          color: 'yellow',
+          value: Number(metrics.find((m) => String(m.metric).includes('pending'))?.value) || 0,
+          color: 'yellow' satisfies SummaryCardColor,
         },
       ];
     },
@@ -325,13 +325,13 @@ export const DASHBOARD_MODULE_TABS: ModuleCommandConfig[] = [
         { label: 'Total records', value: rows.length, color: 'blue' },
         {
           label: 'Revenue',
-          value: revenue || stats.find((s) => String(s.metric).includes('revenue'))?.value || 0,
-          color: 'purple',
+          value: Number(revenue || stats.find((s) => String(s.metric).includes('revenue'))?.value) || 0,
+          color: 'purple' satisfies SummaryCardColor,
         },
         {
           label: 'Pending',
-          value: stats.find((s) => String(s.metric).includes('pending'))?.value ?? '—',
-          color: 'yellow',
+          value: Number(stats.find((s) => String(s.metric).includes('pending'))?.value) || 0,
+          color: 'yellow' satisfies SummaryCardColor,
         },
       ];
     },
@@ -360,8 +360,8 @@ export const DASHBOARD_MODULE_TABS: ModuleCommandConfig[] = [
       return [
         { label: 'Pipeline total', value: total, color: 'blue' },
         { label: 'Funnel stages', value: funnel.length || stages.length, color: 'indigo' },
-        { label: 'Applied', value: stages.find((s) => s.stage === 'Applied')?.count ?? 0, color: 'cyan' },
-        { label: 'Hired', value: stages.find((s) => s.stage === 'Hired')?.count ?? 0, color: 'green' },
+        { label: 'Applied', value: Number(stages.find((s) => s.stage === 'Applied')?.count) || 0, color: 'cyan' satisfies SummaryCardColor },
+        { label: 'Hired', value: Number(stages.find((s) => s.stage === 'Hired')?.count) || 0, color: 'green' satisfies SummaryCardColor },
       ];
     },
     kpiCards: [

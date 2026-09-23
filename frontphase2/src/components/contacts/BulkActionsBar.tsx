@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Trash2, X } from 'lucide-react';
+import { Trash2, User, X } from 'lucide-react';
 import { apiGetUsers } from '../../lib/api';
 import { requestConfirm } from '../../lib/appDialog';
 

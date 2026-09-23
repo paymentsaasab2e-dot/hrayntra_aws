@@ -31,8 +31,10 @@ type FileSystemEntry = {
   isDirectory: boolean;
   name: string;
   fullPath?: string;
-  file: (cb: (file: File) => void) => void;
-  createReader: () => { readEntries: (cb: (entries: FileSystemEntry[]) => void) => void };
+  file: (cb: (file: File) => void, errorCb?: (err: unknown) => void) => void;
+  createReader: () => {
+    readEntries: (cb: (entries: FileSystemEntry[]) => void, errorCb?: (err: unknown) => void) => void;
+  };
 };
 
 function readEntryFiles(entry: FileSystemEntry, pathPrefix: string): Promise<File[]> {

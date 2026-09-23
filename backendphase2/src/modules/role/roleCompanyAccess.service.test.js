@@ -4,7 +4,6 @@ import {
   emptyRoleCompanyAccess,
   normalizeRoleCompanyAccess,
   resolveAccessForRole,
-  accessForAllCompanies,
 } from './roleCompanyAccess.service.js';
 
 test('normalizeRoleCompanyAccess drops unknown company ids', () => {
@@ -16,15 +15,14 @@ test('normalizeRoleCompanyAccess drops unknown company ids', () => {
   assert.deepEqual(next.recruitment, ['c', 'a']);
 });
 
-test('legacy view_all_companies hydrates every organization until the role is saved again', () => {
-  const all = ['org-1', 'org-2'];
+test('retired view_all_companies does not grant every organization', () => {
   const access = resolveAccessForRole({
     roleId: 'role-1',
     permissionNames: ['switch_companies', 'view_all_companies'],
     stored: {},
-    allCompanyIds: all,
+    allCompanyIds: ['org-1', 'org-2'],
   });
-  assert.deepEqual(access, accessForAllCompanies(all));
+  assert.deepEqual(access, emptyRoleCompanyAccess());
 });
 
 test('stored company picks win over the retired view_all_companies tick', () => {

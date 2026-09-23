@@ -85,7 +85,7 @@ export function parseVisaDocuments(value: unknown): CandidateWorkExperienceDocum
         size: Number.isFinite(sizeValue) && sizeValue > 0 ? sizeValue : undefined,
       };
     })
-    .filter((doc): doc is CandidateWorkExperienceDocument => Boolean(doc?.name || doc?.url));
+    .filter((doc) => Boolean(doc?.name || doc?.url)) as CandidateWorkExperienceDocument[];
 }
 
 export function countryDisplayName(codeOrName?: string): string {

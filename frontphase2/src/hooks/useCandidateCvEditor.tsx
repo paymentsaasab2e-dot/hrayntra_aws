@@ -224,11 +224,15 @@ export function useCandidateCvEditor({
         const contentPatch = cvEditorDataToCandidatePatch(data);
         const patch = overlayEditorSaveOnCandidate(baseCandidate, contentPatch, persist);
 
-        const updatedRaw = await apiUpdateCandidate(baseCandidate.id, {
+        const rawPayload = {
           ...contentPatch,
           ...persist,
-          extraData: patch.extraData,
-        });
+          extraData: patch.extraData ?? undefined,
+        };
+        const payload = Object.fromEntries(
+          Object.entries(rawPayload).map(([key, value]) => [key, value === null ? undefined : value]),
+        ) as Parameters<typeof apiUpdateCandidate>[1];
+        const updatedRaw = await apiUpdateCandidate(baseCandidate.id, payload);
         const updated = extractApiData<BackendCandidate>(updatedRaw);
         let hydrated = overlayEditorSaveOnCandidate(
           enrichBackendCandidateFromPhase1Snapshot({
@@ -384,9 +388,9 @@ export function useCandidateCvEditor({
         hasOriginalResume,
       });
       const updatedRaw = await apiUpdateCandidate(baseCandidate.id, {
-        cvSummary: null,
-        cvEducationEntries: null,
-        cvWorkExperienceEntries: null,
+        cvSummary: undefined,
+        cvEducationEntries: undefined,
+        cvWorkExperienceEntries: undefined,
         avatar: null,
         extraData,
       });

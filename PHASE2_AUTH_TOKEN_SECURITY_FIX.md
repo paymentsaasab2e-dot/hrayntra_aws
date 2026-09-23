@@ -200,3 +200,79 @@ Git history may still contain old values until history is rewritten. **Treat lea
 - Real secrets → `.env` / secret manager only.
 - Docs / `.env.example` → placeholders only.
 - Never commit `USER_CREDENTIALS*.md` with passwords.
+
+---
+
+# 4. Public upload folders (CVs / files with no login)
+
+**Date:** 2026-09-23  
+**Status:** Fixed. Private files need a login or a 7-day signed link. Logos and email images stay public.
+
+**Finding:** Both APIs mounted the whole on-disk `uploads` folder with `express.static` and no auth. A resume or PDF that landed on disk was world-readable.
+
+## Fix
+
+| API | Now |
+|-----|-----|
+| `backendphase2` `GET /uploads/*` | Anonymous only for public media: `email-signatures`, `export-watermarks`, `hq-company-logos`, `portal-events`, `lms-courses`, `lms-course-videos`, `company-logos`, `company-post-media`. Temp CVs, bulk extracts, jobs, tasks, reports, and every other folder return **401** unless the request has a valid CRM access token. |
+| `backend1` `GET /uploads/*` and `GET /api/uploads/*` | The open static mount is gone. `lms-assignments` is served only with a candidate LMS token. Every other path is **404**. |
+
+CRM “open file” links for private `/uploads/...` paths, including offer letters and client-review PDFs, go through `/api/download-file`, which attaches the `accessToken` cookie as `Authorization: Bearer`.
+
+`GET /api/v1/public/uploads/placements/:filename` and `.../interview-client-review/:filename` now require `exp` and `sig` (HMAC with `PHASE2_PORTAL_SYNC_SECRET`, 7 days). The candidate portal signs the link when the application is loaded. A filename alone is not enough. Email-signature and watermark images on that route stay unsigned.
+
+### Files
+
+- `backendphase2/src/middleware/uploadsStatic.middleware.js`
+- `backendphase2/src/app.js`
+- `backend1/src/middleware/uploadsStatic.middleware.js`
+- `backend1/src/server.js`
+- `frontphase2/src/utils/cloudinaryUrls.ts`
+- `frontphase2/src/app/api/download-file/route.ts`
+
+## Still public on purpose
+
+Only assets that have to load with no login:
+
+| Folder | Why |
+|--------|-----|
+| `email-signatures`, `export-watermarks` | Images inside emails |
+| `company-logos`, `hq-company-logos`, `company-post-media` | Public company page |
+| `portal-events` | Public events page |
+| `lms-courses`, `lms-course-videos` | Public course catalog |
+
+Candidate documents, CVs, offer letters, client-review PDFs, and exports are not in that list.
+
+---
+
+# 5. TypeScript build and tests
+
+**Date:** 2026-09-23  
+**Status:** Gate is on. `npm test` passes (45). The `'use client'` build break is fixed. `npm run typecheck` in `frontphase2` passes (0 errors, down from 865).
+
+**Finding:** `frontphase2/next.config.js` had `ignoreBuildErrors: true`, so `next build` could ship type errors. There was no GitHub Actions workflow. Phase 2 had unit files but no `test` script.
+
+## Fix
+
+| Change | Detail |
+|--------|--------|
+| `frontphase2/next.config.js` | `ignoreBuildErrors` is `false`. A production build fails when TypeScript reports errors. |
+| `frontphase2/package.json` | `typecheck` runs `tsc --noEmit`. |
+| `backendphase2/package.json` | `test` runs the six existing unit files with `node --test`. `test:security` still runs the tenant check alone. Those files can load without `DATABASE_URL` or `RESEND_API_KEY` (CI does not inject them). |
+| `.github/workflows/phase2-ci.yml` | On push and pull request: CRM typecheck, then Phase 2 unit tests. |
+| `hrayntra_aws/.github/workflows/ci.yml` | Same checks when `hrayntra_aws` itself is the GitHub repo root. |
+
+Two HQ drawer files were missing a closing `div` (`HqCompanyDetailDrawer.tsx`, `HqLeadDetailDrawer.tsx`). Those parse errors are fixed.
+
+One unit test still expected the retired `view_all_companies` permission to grant every organization. It now matches the code: that permission does not.
+
+Shared fixes that removed whole groups of errors:
+
+| Change | Effect |
+|--------|--------|
+| `asList` in `src/lib/dashboard/api.ts` | Keeps the row type of dashboard tables instead of turning every row into `unknown`. |
+| `AppIcon` in `src/types/appIcon.ts` | Lucide icons are allowed on icon props. Used across HQ, billing, tasks, and drawers. |
+
+## Still open
+
+Nothing left on this issue. `npx tsc --noEmit --incremental false` in `frontphase2` exits 0. `'use client'` is the first line in the client files that Turbopack was rejecting. Shared types (jobs, leads, team members, dashboard widgets) match the forms that use them, and the remaining call sites were aligned with those types. `ignoreBuildErrors` stays `false`, so a production `next build` fails again if new type errors are introduced. `npm test` in `backendphase2` passes.

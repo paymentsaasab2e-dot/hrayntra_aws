@@ -10,6 +10,7 @@ import {
 } from './middleware/tenant-context.middleware.js';
 import { requestLoggerMiddleware, responseTimingMiddleware } from './middleware/request-logger.middleware.js';
 import { securityHeaders } from './middleware/securityHeaders.middleware.js';
+import { createUploadsStatic } from './middleware/uploadsStatic.middleware.js';
 import {
   publicFormRateLimit,
   publicTokenRateLimit,
@@ -153,12 +154,14 @@ app.use((req, res, next) => {
   next();
 });
 
-// Serve static files from uploads directory (one level up from src)
-// IMPORTANT: This must be before API routes to avoid conflicts
+// Public media only. CVs, exports, and other private files need a CRM access token.
 const uploadsPath = path.join(__dirname, '..', 'uploads');
-app.use('/uploads', express.static(uploadsPath, {
+const publicUploadsStatic = express.static(uploadsPath, {
+  index: false,
+  dotfiles: 'deny',
+  redirect: false,
+  fallthrough: false,
   setHeaders: (res, filePath) => {
-    // Set proper content type for images
     if (filePath.endsWith('.jpeg') || filePath.endsWith('.jpg')) {
       res.setHeader('Content-Type', 'image/jpeg');
     } else if (filePath.endsWith('.png')) {
@@ -173,16 +176,11 @@ app.use('/uploads', express.static(uploadsPath, {
       res.setHeader('Content-Type', 'video/webm');
     } else if (filePath.endsWith('.mov')) {
       res.setHeader('Content-Type', 'video/quicktime');
-    } else if (filePath.endsWith('.pdf')) {
-      // Default `application/octet-stream` forces a download — the
-      // recruiter wants to *view* the offer letter inline, so let the
-      // browser's PDF viewer pick it up. `inline` keeps the filename
-      // sane if the user does choose to save it.
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', 'inline');
     }
+    res.setHeader('X-Content-Type-Options', 'nosniff');
   },
-}));
+});
+app.use('/uploads', createUploadsStatic(uploadsPath), publicUploadsStatic);
 
 // Root route
 app.get('/', (req, res) => {

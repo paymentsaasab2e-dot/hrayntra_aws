@@ -37,6 +37,7 @@ export interface Lead {
   type: LeadType;
   source?: LeadSource | null;
   contactPerson: string;
+  contactName?: string;
   directorSalutation?: string;
   directorName?: string;
   email: string;
@@ -51,6 +52,7 @@ export interface Lead {
     id?: string;
     name: string;
     avatar: string;
+    email?: string;
   };
   assignedToId?: string;
   /** Multi-assignee ids, includes the primary `assignedToId` as the first element. */

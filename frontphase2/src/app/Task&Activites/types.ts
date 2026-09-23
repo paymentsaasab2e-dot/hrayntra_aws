@@ -58,6 +58,7 @@ export interface Task {
   relatedTo: { id: string; name: string; type: TaskRelatedTo };
   dueDate: string;
   time: string;
+  dueTime?: string;
   priority: TaskPriority;
   status: TaskStatus;
   assignee: TaskAssignee;

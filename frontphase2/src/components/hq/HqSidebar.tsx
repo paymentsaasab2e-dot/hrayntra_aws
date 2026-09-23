@@ -1,4 +1,5 @@
 'use client';
+import type { AppIcon } from '@/types/appIcon';
 
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
@@ -71,7 +72,7 @@ export const HQ_NAV_ITEMS: {
   id: HqNavId;
   label: string;
   href: string;
-  icon: React.ComponentType<{ className?: string; size?: number; strokeWidth?: number }>;
+  icon: AppIcon;
   accent: HqNavAccent;
   group: 'employees' | 'employers' | 'platform' | 'crm' | 'ops';
 }[] = [
@@ -439,7 +440,7 @@ function CollapsibleNavGroup({
   children,
 }: {
   label: string;
-  icon: React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
+  icon: AppIcon;
   accentActiveClass: string;
   open: boolean;
   onToggle: () => void;

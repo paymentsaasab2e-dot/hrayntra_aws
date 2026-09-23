@@ -1,6 +1,9 @@
 import { apiFetch } from '../api';
 import { slugId } from './core';
-import type { LeadsSmartSearchParseResult } from '../../app/leads/leadsSmartSearch';
+import type {
+  LeadsSmartSearchParseResult,
+  SmartSearchKeywordChip as LeadsSmartSearchKeywordChip,
+} from '../../app/leads/leadsSmartSearch';
 import type {
   CandidatesSmartSearchResult,
   ClientsSmartSearchResult,
@@ -62,6 +65,18 @@ type AiSmartSearchResponse = {
   };
 };
 
+function toLeadsKeywordChip(chip: SmartSearchKeywordChip): LeadsSmartSearchKeywordChip {
+  const kind =
+    chip.kind === 'status' ||
+    chip.kind === 'source' ||
+    chip.kind === 'recruiter' ||
+    chip.kind === 'priority' ||
+    chip.kind === 'text'
+      ? chip.kind
+      : 'text';
+  return { id: chip.id, value: chip.value, label: chip.label, kind };
+}
+
 function normalizeKeywords(
   raw: AiSmartSearchResponse['keywords'] | undefined,
 ): SmartSearchKeywordChip[] {
@@ -117,7 +132,7 @@ export function mapAiToLeadsResult(ai: AiSmartSearchResponse): LeadsSmartSearchP
     filters.searchText ||
     ai.keywords.filter((k) => k.kind === 'text').map((k) => k.value).join(' ');
   return {
-    keywords: ai.keywords,
+    keywords: normalizeKeywords(ai.keywords).map(toLeadsKeywordChip),
     status: filters.status || null,
     source: filters.source || null,
     recruiterId: filters.recruiterId || null,
@@ -145,7 +160,7 @@ export function mapAiToJobsResult(ai: AiSmartSearchResponse): JobsSmartSearchRes
     filters.searchText ||
     ai.keywords.filter((k) => k.kind === 'text').map((k) => k.value).join(' ');
   return {
-    keywords: ai.keywords,
+    keywords: normalizeKeywords(ai.keywords),
     status,
     clientId: filters.clientId || null,
     recruiterId: filters.recruiterId || null,
@@ -169,7 +184,7 @@ export function mapAiToClientsResult(ai: AiSmartSearchResponse): ClientsSmartSea
     filters.searchText ||
     ai.keywords.filter((k) => k.kind === 'text').map((k) => k.value).join(' ');
   return {
-    keywords: ai.keywords,
+    keywords: normalizeKeywords(ai.keywords),
     activeTab,
     priority: filters.priority || null,
     ownerScope: filters.ownerScope === 'me' ? 'me' : null,
@@ -189,7 +204,7 @@ export function mapAiToCandidatesResult(ai: AiSmartSearchResponse): CandidatesSm
     filters.searchText ||
     ai.keywords.filter((k) => k.kind === 'text').map((k) => k.value).join(' ');
   return {
-    keywords: ai.keywords,
+    keywords: normalizeKeywords(ai.keywords),
     stage: filters.stage || stageChip?.value || '',
     status: filters.status || statusChip?.value || '',
     source: filters.source || '',
@@ -210,7 +225,7 @@ export function mapAiToInterviewsResult(ai: AiSmartSearchResponse): InterviewsSm
     filters.searchText ||
     ai.keywords.filter((k) => k.kind === 'text').map((k) => k.value).join(' ');
   return {
-    keywords: ai.keywords,
+    keywords: normalizeKeywords(ai.keywords),
     status: filters.status || '',
     round: filters.round || '',
     mode: filters.mode || '',
@@ -228,7 +243,7 @@ export function mapAiToPlacementsResult(ai: AiSmartSearchResponse): PlacementsSm
     filters.searchText ||
     ai.keywords.filter((k) => k.kind === 'text').map((k) => k.value).join(' ');
   return {
-    keywords: ai.keywords,
+    keywords: normalizeKeywords(ai.keywords),
     status: filters.status || '',
     companyId: filters.companyId || '',
     recruiterId: filters.recruiterId || '',

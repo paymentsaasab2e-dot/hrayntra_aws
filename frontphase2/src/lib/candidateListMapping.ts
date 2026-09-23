@@ -178,7 +178,9 @@ export function resolveCandidateListStage(c: BackendCandidate): string {
 
 /** Job titles / links shown on Candidates list — assign, apply, pipeline, or match. */
 export function resolveCandidateAssignedJobTitles(c: BackendCandidate): string[] {
-  const fromTitles = (c.assignedJobTitles || []).filter((title) => Boolean(title && title.trim()));
+  const fromTitles = (c.assignedJobTitles || [])
+    .map((title) => String(title || '').trim())
+    .filter(Boolean);
   if (fromTitles.length) return fromTitles;
 
   const seen = new Set<string>();
@@ -190,11 +192,36 @@ export function resolveCandidateAssignedJobTitles(c: BackendCandidate): string[]
     titles.push(label);
   };
 
+  // Prefer the same primary job used for stage / submit-to-client.
+  const primaryJobId = resolveSubmitJobIdFromBackend(c);
+  if (primaryJobId) {
+    const primaryApp = (c.applications || []).find(
+      (row) => String((row as { jobId?: string; job?: { id?: string } })?.jobId || (row as { job?: { id?: string } })?.job?.id || '').trim() === primaryJobId,
+    ) as { job?: { title?: string | null } } | undefined;
+    push(primaryApp?.job?.title);
+    const primaryMatch = crmLinkedMatches(c).find(
+      (row) => String(row?.jobId || row?.job?.id || '').trim() === primaryJobId,
+    );
+    push(primaryMatch?.job?.title);
+    const primaryPipe = (c.pipelineEntries || []).find(
+      (row) => String((row as { jobId?: string })?.jobId || '').trim() === primaryJobId,
+    ) as { job?: { title?: string | null } } | undefined;
+    push(primaryPipe?.job?.title);
+  }
+
   for (const match of crmLinkedMatches(c)) {
     push(match.job?.title);
   }
   for (const app of c.applications || []) {
     const row = app as { job?: { title?: string | null } };
+    push(row.job?.title);
+  }
+  for (const entry of c.pipelineEntries || []) {
+    const row = entry as { job?: { title?: string | null } };
+    push(row.job?.title);
+  }
+  for (const interview of c.interviews || []) {
+    const row = interview as { job?: { title?: string | null } };
     push(row.job?.title);
   }
 

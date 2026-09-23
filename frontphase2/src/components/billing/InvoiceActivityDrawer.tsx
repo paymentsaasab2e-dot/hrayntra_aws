@@ -1,4 +1,5 @@
 'use client';
+import type { AppIcon } from '@/types/appIcon';
 
 /**
  * Drawer that opens when a user clicks the "next" arrow on an invoice row.
@@ -67,7 +68,7 @@ const KIND_TONE: Record<InvoiceActivityEvent['kind'], Tone> = {
   activity: { bg: 'bg-zinc-50', ring: 'ring-zinc-200', icon: 'text-zinc-600' },
 };
 
-const KIND_ICON: Record<InvoiceActivityEvent['kind'], React.ComponentType<{ size?: number; className?: string }>> = {
+const KIND_ICON: Record<InvoiceActivityEvent['kind'], AppIcon> = {
   lead: Sparkles,
   client: Building2,
   job: Briefcase,

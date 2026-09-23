@@ -244,7 +244,7 @@ export function SmartDashboardHeader({ overview, onRefresh }: Props) {
               {userMeta.name
                 .split(/\s+/)
                 .slice(0, 2)
-                .map((p) => p[0])
+                .map((p: string) => p[0])
                 .join('')
                 .toUpperCase()}
             </div>

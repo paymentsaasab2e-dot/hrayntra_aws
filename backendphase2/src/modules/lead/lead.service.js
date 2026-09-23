@@ -818,11 +818,8 @@ async function attachAssignees(leads) {
 
 export const leadService = {
   async getAll(req) {
-    await mergeDuplicateLeadsByCompanyName().catch((err) => {
-      console.warn('Lead duplicate merge skipped:', err?.message || err);
-    });
-    // Default page size higher than generic API (10): assignees and super admins must see assigned leads
-    // without missing rows due to createdAt ordering + small first page.
+    // Do not soft-delete "duplicate" company rows on list. That merge made newly
+    // created leads flash in the UI then vanish on the next refresh/poll.
     const page = Math.max(Number.parseInt(String(req.query.page ?? '1'), 10) || 1, 1);
     const limit = Math.min(Math.max(Number.parseInt(String(req.query.limit ?? '100'), 10) || 100, 1), 500);
     const skip = (page - 1) * limit;

@@ -77,6 +77,7 @@ import {
   apiAppendInterviewType,
   apiGenerateCandidateInterviewMeetingLink,
   apiGetCandidate,
+  apiGetCandidates,
   apiGetClient,
   apiGetClients,
   apiGetInterviewTypeCatalog,
@@ -537,7 +538,7 @@ function CandidateTagSystem({
     <div className="flex flex-wrap items-center gap-2">
       {existingTags.map((tag, index) => (
         <CandidateTagChip
-          key={tag.id || tag.label || `existing-tag-${index}`}
+          key={`${String(tag.id || tag.label || 'tag').trim()}-${index}`}
           tag={tag}
           removable
           onRemove={() => onRemoveTag?.(candidateId, tag.id)}
@@ -787,7 +788,7 @@ function mapInterviewListItemToScheduled(
   const status = String(item.status || '').toUpperCase();
   return {
     id: item.id,
-    candidateId: item.candidate.id,
+    candidateId: item.candidate?.id ?? '',
     jobId: item.job?.id || null,
     jobTitle: item.job?.title || null,
     type: item.round || item.type || 'Interview',
@@ -812,8 +813,8 @@ function mapInterviewListItemToScheduled(
     location: item.location || null,
     phoneNumber: null,
     interviewers: (item.panel || []).map((member) => ({
-      id: member.user.id,
-      name: member.user.name,
+      id: member.user?.id ?? '',
+      name: member.user?.name ?? '',
       role: 'Interviewer' as const,
     })),
     notes: item.notes || '',
@@ -847,6 +848,7 @@ interface ScheduleInterviewModalProps {
   jobs?: CandidatePipelineJobOption[];
   interviewers: CandidateInterviewerOption[];
   existingInterviews: CandidateScheduledInterview[];
+  bulkScheduleForCandidateIds?: string[];
   isOpen: boolean;
   onClose: () => void;
   onSchedule?: (interviewData: CandidateScheduledInterview) => void | Promise<void>;
@@ -894,6 +896,10 @@ export function ScheduleInterviewModal({
   const [selectedCandidateIds, setSelectedCandidateIds] = useState<string[]>([]);
   const [candidateSearch, setCandidateSearch] = useState('');
   const [candidatePickerOpen, setCandidatePickerOpen] = useState(false);
+  const [remoteCandidateOptions, setRemoteCandidateOptions] = useState<
+    ScheduleInterviewCandidateOption[]
+  >([]);
+  const [loadingCandidateOptions, setLoadingCandidateOptions] = useState(false);
   const hydratedPrimaryCandidateRef = useRef('');
   const [interviewType, setInterviewType] = useState('');
   const [roundNumber, setRoundNumber] = useState(1);
@@ -960,9 +966,88 @@ export function ScheduleInterviewModal({
   const selectedClient = clientOptions.find((client) => client.id === selectedClientId);
 
   // Standalone usage (e.g. /interviews page): pick one or more candidates here.
-  // When a fixed candidate is passed, the picker stays hidden.
-  const allowCandidatePick =
-    !fixedCandidate && Array.isArray(candidateOptions) && candidateOptions.length > 0;
+  // Show the field as soon as the parent asks for a picker — do not wait for the
+  // full CRM candidate list. Options load from the lightweight picker endpoint.
+  const pickerRequested = !fixedCandidate && Array.isArray(candidateOptions);
+  const allowCandidatePick = pickerRequested && !editInterview;
+
+  useEffect(() => {
+    if (!isOpen || !pickerRequested) {
+      setLoadingCandidateOptions(false);
+      return;
+    }
+
+    let cancelled = false;
+    const query = candidateSearch.trim();
+    const timer = window.setTimeout(() => {
+      setLoadingCandidateOptions(true);
+      void apiGetCandidates(
+        {
+          search: query || undefined,
+          limit: 30,
+          picker: true,
+          includeCommonPool: false,
+        },
+      )
+        .then((response) => {
+          if (cancelled) return;
+          const payload = response?.data as
+            | BackendCandidate[]
+            | { data?: BackendCandidate[] }
+            | undefined;
+          const rows = Array.isArray(payload)
+            ? payload
+            : Array.isArray(payload?.data)
+              ? payload.data
+              : [];
+          setRemoteCandidateOptions(
+            rows
+              .filter((row) => row?.id)
+              .map((row) => {
+                const name = `${row.firstName || ''} ${row.lastName || ''}`.trim() || 'Candidate';
+                const jobId = String(row.assignedJobs?.[0] || '').trim();
+                return {
+                  id: String(row.id),
+                  name,
+                  phone: row.phone || null,
+                  assignedJobId: jobId || null,
+                  assignedJob: row.assignedJobTitles?.[0] || null,
+                };
+              }),
+          );
+        })
+        .catch(() => {
+          if (!cancelled) setRemoteCandidateOptions([]);
+        })
+        .finally(() => {
+          if (!cancelled) setLoadingCandidateOptions(false);
+        });
+    }, query ? 200 : 0);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [candidateSearch, isOpen, pickerRequested]);
+
+  const pickerCandidateOptions = useMemo(() => {
+    const seeded = Array.isArray(candidateOptions) ? candidateOptions : [];
+    if (candidateSearch.trim()) return remoteCandidateOptions;
+    const byId = new Map<string, ScheduleInterviewCandidateOption>();
+    for (const option of seeded) byId.set(option.id, option);
+    for (const option of remoteCandidateOptions) {
+      const previous = byId.get(option.id);
+      byId.set(option.id, {
+        ...previous,
+        ...option,
+        assignedJob: option.assignedJob || previous?.assignedJob || null,
+        assignedJobId: option.assignedJobId || previous?.assignedJobId || null,
+        assignedClientId: previous?.assignedClientId || option.assignedClientId || null,
+        phone: option.phone || previous?.phone || null,
+      });
+    }
+    return Array.from(byId.values());
+  }, [candidateOptions, candidateSearch, remoteCandidateOptions]);
   const selectedCandidates = useMemo(() => {
     if (fixedCandidate) {
       return [
@@ -975,11 +1060,16 @@ export function ScheduleInterviewModal({
         },
       ];
     }
-    const options = Array.isArray(candidateOptions) ? candidateOptions : [];
+    const options = pickerCandidateOptions;
+    const seeded = Array.isArray(candidateOptions) ? candidateOptions : [];
+    const lookup = new Map<string, ScheduleInterviewCandidateOption>();
+    for (const option of [...seeded, ...remoteCandidateOptions, ...options]) {
+      if (option?.id) lookup.set(option.id, option);
+    }
     return selectedCandidateIds
-      .map((id) => options.find((option) => option.id === id))
+      .map((id) => lookup.get(id))
       .filter(Boolean) as ScheduleInterviewCandidateOption[];
-  }, [fixedCandidate, candidateOptions, selectedCandidateIds]);
+  }, [fixedCandidate, candidateOptions, pickerCandidateOptions, remoteCandidateOptions, selectedCandidateIds]);
 
   /** Primary candidate for shared fields (round, phone, meeting-link generation). */
   const candidate = useMemo(() => {
@@ -996,7 +1086,7 @@ export function ScheduleInterviewModal({
   }, [selectedCandidates]);
 
   const filteredCandidateOptions = useMemo(() => {
-    const options = Array.isArray(candidateOptions) ? candidateOptions : [];
+    const options = pickerCandidateOptions;
     const query = candidateSearch.trim();
     if (!query) return options;
     return options.filter((option) =>
@@ -1005,7 +1095,7 @@ export function ScheduleInterviewModal({
         query,
       ),
     );
-  }, [candidateOptions, candidateSearch]);
+  }, [pickerCandidateOptions, candidateSearch]);
 
   const isEditingInterview = Boolean(editInterview);
   const minimumDate = getYmdInTimeZone(timezone);
@@ -2053,7 +2143,9 @@ export function ScheduleInterviewModal({
                                 </div>
                               </div>
                               <div className="max-h-56 overflow-y-auto overscroll-contain py-1">
-                                {filteredCandidateOptions.length === 0 ? (
+                                {loadingCandidateOptions && filteredCandidateOptions.length === 0 ? (
+                                  <p className="px-3 py-3 text-sm text-slate-500">Loading candidates…</p>
+                                ) : filteredCandidateOptions.length === 0 ? (
                                   <p className="px-3 py-3 text-sm text-slate-500">
                                     No candidates match your search
                                   </p>
@@ -5188,7 +5280,7 @@ export function CandidateProfileDrawer({
   };
 
   const candidateEditFormSections =
-    isPhase1PortalCandidate(candidate) && phase1EditSnapshot ? (
+    candidate && isPhase1PortalCandidate(candidate) && phase1EditSnapshot ? (
       <>
         {editForm ? (
           <CandidateHiringEditSection
@@ -5198,11 +5290,13 @@ export function CandidateProfileDrawer({
             jobs={jobs}
           />
         ) : null}
+        {candidate ? (
         <CandidatePhase1SubmitEditSections
           candidate={candidate}
           snapshot={phase1EditSnapshot}
           onChange={setPhase1EditSnapshot}
         />
+        ) : null}
       </>
     ) : editForm ? (
       <CandidateEditAtsSections
@@ -5804,7 +5898,7 @@ export function CandidateProfileDrawer({
                     <EntityAuditSummary
                       audit={
                         candidate?.auditMeta ??
-                        extractAuditMeta(candidate as Record<string, unknown> | undefined)
+                        extractAuditMeta(candidate as unknown as Record<string, unknown> | undefined)
                       }
                     />
                     <DrawerSectionCard

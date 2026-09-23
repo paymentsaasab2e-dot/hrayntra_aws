@@ -116,7 +116,7 @@ export function RecPipelineSection({ overview }: { overview: RecruitmentOverview
   const source = section === 'jobs' ? jobs : cands;
 
   const filtered = useMemo(() => {
-    let rows = section === 'jobs' ? [...jobs] : [...cands];
+    let rows: Array<JobRow | CandRow> = section === 'jobs' ? [...jobs] : [...cands];
     if (section === 'jobs') {
       if (quick === 'hot') rows = rows.filter((r) => Boolean((r as JobRow).hot));
       else if (quick === 'empty') rows = rows.filter((r) => Boolean((r as JobRow).noCandidates));
@@ -199,7 +199,10 @@ export function RecPipelineSection({ overview }: { overview: RecruitmentOverview
   const placementSlices = (placementStatus.length ? placementStatus : placementFallback).map((d, i) => ({
     name: d.name,
     value: d.value,
-    color: ('color' in d && d.color) || STATUS_COLORS[i % STATUS_COLORS.length],
+    color:
+      'color' in d && typeof d.color === 'string' && d.color
+        ? d.color
+        : STATUS_COLORS[i % STATUS_COLORS.length],
   }));
   const placementTotal = placementSlices.reduce((s, d) => s + d.value, 0) || recKpi(overview, 'totalPlacements');
   const clientDemand = clients.length

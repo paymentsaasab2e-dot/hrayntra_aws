@@ -48,7 +48,9 @@ export function LinkedInConnect() {
         )}
         <button
           type="button"
-          onClick={disconnect}
+          onClick={() => {
+            void disconnect();
+          }}
           className="text-xs text-slate-500 hover:text-slate-700 underline"
         >
           Disconnect
@@ -61,7 +63,9 @@ export function LinkedInConnect() {
     <div className="space-y-2">
       <button
         type="button"
-        onClick={connect}
+        onClick={() => {
+          void connect();
+        }}
         className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-[#0077b5] text-white rounded-xl hover:bg-[#006399] transition-colors text-sm font-medium"
       >
         <Linkedin size={18} />

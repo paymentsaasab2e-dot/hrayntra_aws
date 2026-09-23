@@ -1,4 +1,5 @@
 'use client';
+import type { AppIcon } from '@/types/appIcon';
 
 import React, { useState, useMemo } from 'react';
 import {
@@ -23,14 +24,14 @@ export interface CandidateInteractionLogsProps {
   className?: string;
 }
 
-const TYPE_CONFIG: Record<CandidateInteractionType, { label: string; icon: React.ComponentType<{ size?: number; className?: string }>; iconBg: string }> = {
-  whatsapp_sent: { label: 'WhatsApp', icon: WhatsAppIcon as React.ComponentType<{ size?: number; className?: string }>, iconBg: 'bg-emerald-600 text-white' },
-  email_sent: { label: 'Email', icon: Mail as React.ComponentType<{ size?: number; className?: string }>, iconBg: 'bg-amber-500 text-white' },
-  call_attempted: { label: 'Call', icon: Phone as React.ComponentType<{ size?: number; className?: string }>, iconBg: 'bg-slate-500 text-white' },
-  call_connected: { label: 'Call', icon: Phone as React.ComponentType<{ size?: number; className?: string }>, iconBg: 'bg-blue-600 text-white' },
-  candidate_replied: { label: 'Response', icon: UserCheck as React.ComponentType<{ size?: number; className?: string }>, iconBg: 'bg-violet-500 text-white' },
-  interview_reminder_sent: { label: 'Reminder', icon: Calendar as React.ComponentType<{ size?: number; className?: string }>, iconBg: 'bg-blue-600 text-white' },
-  candidate_reschedule_request: { label: 'Request', icon: RotateCcw as React.ComponentType<{ size?: number; className?: string }>, iconBg: 'bg-amber-500 text-white' },
+const TYPE_CONFIG: Record<CandidateInteractionType, { label: string; icon: AppIcon; iconBg: string }> = {
+  whatsapp_sent: { label: 'WhatsApp', icon: WhatsAppIcon as AppIcon, iconBg: 'bg-emerald-600 text-white' },
+  email_sent: { label: 'Email', icon: Mail as AppIcon, iconBg: 'bg-amber-500 text-white' },
+  call_attempted: { label: 'Call', icon: Phone as AppIcon, iconBg: 'bg-slate-500 text-white' },
+  call_connected: { label: 'Call', icon: Phone as AppIcon, iconBg: 'bg-blue-600 text-white' },
+  candidate_replied: { label: 'Response', icon: UserCheck as AppIcon, iconBg: 'bg-violet-500 text-white' },
+  interview_reminder_sent: { label: 'Reminder', icon: Calendar as AppIcon, iconBg: 'bg-blue-600 text-white' },
+  candidate_reschedule_request: { label: 'Request', icon: RotateCcw as AppIcon, iconBg: 'bg-amber-500 text-white' },
 };
 
 const CHANNEL_FILTERS: { id: CandidateInteractionChannel; label: string }[] = [

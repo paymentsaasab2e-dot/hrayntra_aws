@@ -1,4 +1,5 @@
 'use client';
+import type { AppIcon } from '@/types/appIcon';
 
 import React, { useState, useMemo } from 'react';
 import { Sparkles, CheckSquare, X, Users, Calendar, Briefcase, FileCheck } from 'lucide-react';
@@ -25,11 +26,11 @@ const PRIORITY_STYLES: Record<AITaskSuggestionPriority, string> = {
   Low: 'bg-slate-100 text-slate-600 border-slate-200',
 };
 
-const CATEGORY_ICONS: Record<Exclude<AITaskSuggestionCategory, 'all'>, React.ComponentType<{ size?: number; className?: string }>> = {
-  Candidate: Users as React.ComponentType<{ size?: number; className?: string }>,
-  Interview: Calendar as React.ComponentType<{ size?: number; className?: string }>,
-  Client: Briefcase as React.ComponentType<{ size?: number; className?: string }>,
-  Offer: FileCheck as React.ComponentType<{ size?: number; className?: string }>,
+const CATEGORY_ICONS: Record<Exclude<AITaskSuggestionCategory, 'all'>, AppIcon> = {
+  Candidate: Users as AppIcon,
+  Interview: Calendar as AppIcon,
+  Client: Briefcase as AppIcon,
+  Offer: FileCheck as AppIcon,
 };
 
 function SuggestionCard({

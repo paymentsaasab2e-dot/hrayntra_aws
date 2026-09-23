@@ -1,4 +1,5 @@
 'use client';
+import type { AppIcon } from '@/types/appIcon';
 
 import Link from 'next/link';
 import { Briefcase, LayoutDashboard, Users } from 'lucide-react';
@@ -9,7 +10,7 @@ const VIEWS: {
   id: HqAnalyticsView;
   label: string;
   href: string;
-  icon: React.ComponentType<{ className?: string }>;
+  icon: AppIcon;
   blurb: string;
 }[] = [
   {

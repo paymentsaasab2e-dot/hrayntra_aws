@@ -76,11 +76,46 @@ export function getPdfViewerUrl(url: string): string {
   return cloudinaryPdfViewerHref(url);
 }
 
+const PUBLIC_UPLOAD_DIRS = new Set([
+  'email-signatures',
+  'export-watermarks',
+  'hq-company-logos',
+  'portal-events',
+  'lms-courses',
+  'lms-course-videos',
+  'company-logos',
+  'company-post-media',
+]);
+
+function localUploadPath(fileUrl: string, uploadsBase: string): string | null {
+  if (fileUrl.startsWith('/uploads/')) return fileUrl.split(/[?#]/)[0];
+  if (!/^https?:\/\//i.test(fileUrl) || !uploadsBase) return null;
+  try {
+    const file = new URL(fileUrl);
+    const base = new URL(uploadsBase);
+    if (file.host !== base.host || !file.pathname.startsWith('/uploads/')) return null;
+    return file.pathname;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Build href for uploaded files: relative paths join API base; Cloudinary PDFs use /api proxy.
+ * Private on-disk files go through the same-origin download route so the access token is sent.
  */
 export function buildFileHref(fileUrl: string | null | undefined, uploadsBase: string): string {
   if (!fileUrl) return '#';
+  const uploadPath = localUploadPath(fileUrl, uploadsBase);
+  if (uploadPath) {
+    const top = uploadPath.split('/').filter(Boolean)[1] || '';
+    const base = uploadsBase.replace(/\/+$/, '');
+    if (PUBLIC_UPLOAD_DIRS.has(top)) {
+      return cloudinaryPdfViewerHref(normalizeCloudinaryDocumentUrl(`${base}${uploadPath}`));
+    }
+    const params = new URLSearchParams({ path: uploadPath, preview: '1' });
+    return `/api/download-file?${params.toString()}`;
+  }
   const href = /^https?:\/\//i.test(fileUrl) ? fileUrl : `${uploadsBase}${fileUrl}`;
   const normalized = normalizeCloudinaryDocumentUrl(href);
   return cloudinaryPdfViewerHref(normalized);

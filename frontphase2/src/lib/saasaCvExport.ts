@@ -554,7 +554,7 @@ async function stampLogoFromVisiblePreview(
     const { fetchSaasaCvLogoBytes } = await import('./saasaCvPaintCanvas');
     const fetched = await fetchSaasaCvLogoBytes(src);
     if (!fetched) return false;
-    const blob = new Blob([fetched.bytes], { type: fetched.mime });
+    const blob = new Blob([new Uint8Array(fetched.bytes)], { type: fetched.mime });
     const objectUrl = URL.createObjectURL(blob);
     try {
       const image = await new Promise<HTMLImageElement>((resolve, reject) => {
@@ -788,7 +788,7 @@ export async function buildSaasaCvPdfPreservingSource(options: {
     return null;
   }
 
-  let blob: Blob = new Blob([saved], { type: 'application/pdf' });
+  let blob: Blob = new Blob([new Uint8Array(saved)], { type: 'application/pdf' });
   try {
     const { fetchAndCacheOrgWatermark } = await import('./useOrgExportWatermark');
     const { stampDownloadBlob, preloadOrgWatermarkLogo, readCachedOrgWatermark } = await import(

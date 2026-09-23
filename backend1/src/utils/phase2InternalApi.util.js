@@ -1,3 +1,17 @@
+const crypto = require('crypto');
+
+const SIGNED_UPLOAD_DIRS = new Set(['placements', 'interview-client-review']);
+const SIGNED_UPLOAD_TTL_SEC = 7 * 24 * 60 * 60;
+
+function signUploadSubPath(subPath) {
+  const secret = String(process.env.PHASE2_PORTAL_SYNC_SECRET || '').trim();
+  const clean = String(subPath || '').replace(/^\/+/, '').split('?')[0];
+  if (!secret || !clean) return null;
+  const exp = Math.floor(Date.now() / 1000) + SIGNED_UPLOAD_TTL_SEC;
+  const sig = crypto.createHmac('sha256', secret).update(`upload:${clean}:${exp}`).digest('hex');
+  return { exp, sig };
+}
+
 /**
  * Resolve backendphase2 internal API base URL for portal sync / employer provisioning.
  * In production, never call localhost — default to api2.hryantra.com when env is missing.
@@ -84,8 +98,13 @@ function toPublicUploadsApiUrl(origin, input) {
     return raw;
   }
 
-  const subPath = relative.replace(/^\/uploads\//, '');
-  return `${String(origin || '').replace(/\/+$/, '')}/api/v1/public/uploads/${subPath}`;
+  const subPath = relative.replace(/^\/uploads\//, '').split('?')[0];
+  const [subdir] = subPath.split('/');
+  const url = `${String(origin || '').replace(/\/+$/, '')}/api/v1/public/uploads/${subPath}`;
+  if (!SIGNED_UPLOAD_DIRS.has(subdir)) return url;
+  const signed = signUploadSubPath(subPath);
+  if (!signed) return '';
+  return `${url}?exp=${signed.exp}&sig=${signed.sig}`;
 }
 
 function resolvePhase2UploadUrl(rawUrl, relativeUrl) {

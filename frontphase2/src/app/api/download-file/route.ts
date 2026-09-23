@@ -27,6 +27,14 @@ function inferFilename(sourceUrl: string, explicitFilename: string | null) {
   }
 }
 
+function bearerFromRequest(req: NextRequest): string | null {
+  const authHeader = req.headers.get('authorization');
+  if (authHeader) return authHeader;
+  const match = String(req.headers.get('cookie') || '').match(/(?:^|;\s*)accessToken=([^;]*)/);
+  const token = match?.[1] ? decodeURIComponent(match[1]) : '';
+  return token ? `Bearer ${token}` : null;
+}
+
 function resolveSourceUrl(rawUrl: string, backendOrigin: string) {
   if (!rawUrl) return null;
 
@@ -55,7 +63,7 @@ export async function GET(req: NextRequest) {
   const explicitFilename = req.nextUrl.searchParams.get('filename');
   const previewMode = req.nextUrl.searchParams.get('preview') === '1';
   const sourceUrl = resolveSourceUrl(rawUrl, backendOrigin);
-  const authHeader = req.headers.get('authorization');
+  const authHeader = bearerFromRequest(req);
   const cookieHeader = req.headers.get('cookie');
 
   if (!sourceUrl) {

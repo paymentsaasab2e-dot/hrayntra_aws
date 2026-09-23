@@ -111,6 +111,12 @@ export function formatSalaryFrequency(type?: string | null): string {
   }
 }
 
+function toNum(v: string | number | null | undefined): number | null {
+  if (v == null || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 export function formatCandidateSalaryDisplay(
   amount: number | null | undefined,
   currency?: string | null,
@@ -669,7 +675,7 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
     c,
   ) as CandidateProfileDrawerData['careerPreferences'] | null;
   const expectedSalaryFromPrefs = formatCandidateSalaryDisplay(
-    c.expectedSalary ?? mergedCareerPrefs?.preferredSalary ?? null,
+    toNum(c.expectedSalary ?? mergedCareerPrefs?.preferredSalary ?? null),
     mergedCareerPrefs?.preferredCurrency || c.salary?.currency || null,
     mergedCareerPrefs?.preferredSalaryType || null
   );
@@ -706,8 +712,8 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
     linkedIn: c.linkedIn || null,
     designation: c.currentTitle || null,
     expectedSalary: expectedSalaryDisplay || '—',
-    expectedSalaryValue: c.expectedSalary ?? mergedCareerPrefs?.preferredSalary ?? null,
-    currentSalaryValue: c.currentSalary ?? mergedCareerPrefs?.currentSalary ?? null,
+    expectedSalaryValue: toNum(c.expectedSalary ?? mergedCareerPrefs?.preferredSalary ?? null),
+    currentSalaryValue: toNum(c.currentSalary ?? mergedCareerPrefs?.currentSalary ?? null),
     salaryCurrency: mergedCareerPrefs?.preferredCurrency || c.salary?.currency || 'INR',
     noticePeriod: c.noticePeriod || mergedCareerPrefs?.noticePeriod || '—',
     careerPreferences: mergedCareerPrefs,
@@ -739,13 +745,13 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
     cvAvailability: c.availability || mergedCareerPrefs?.availabilityToStart || null,
     cvExpectedSalary:
       formatCandidateSalaryDisplay(
-        c.expectedSalary ?? mergedCareerPrefs?.preferredSalary ?? null,
+        toNum(c.expectedSalary ?? mergedCareerPrefs?.preferredSalary ?? null),
         mergedCareerPrefs?.preferredCurrency || c.salary?.currency || null,
         mergedCareerPrefs?.preferredSalaryType || null
       ) || salary.expected || null,
     cvCurrentSalary:
       formatCandidateSalaryDisplay(
-        c.currentSalary ?? mergedCareerPrefs?.currentSalary ?? null,
+        toNum(c.currentSalary ?? mergedCareerPrefs?.currentSalary ?? null),
         mergedCareerPrefs?.currentCurrency || mergedCareerPrefs?.preferredCurrency || c.salary?.currency || null,
         mergedCareerPrefs?.currentSalaryType || null
       ) || null,
@@ -903,7 +909,7 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
               }))
           : insightItems,
     },
-    auditMeta: extractAuditMeta(c as Record<string, unknown>),
+    auditMeta: extractAuditMeta(c as unknown as Record<string, unknown>),
   };
 }
 

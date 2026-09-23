@@ -1985,6 +1985,8 @@ export type HqLeadApiRow = {
   users: number;
   owner: string;
   stage: 'new' | 'demo' | 'trial' | 'contacted' | 'qualified' | 'converted' | 'lost';
+  updatedAt?: string | null;
+  closedAt?: string | null;
   nextFollowUp: string;
   nextFollowUpAt?: string | null;
   email?: string;
@@ -2439,6 +2441,7 @@ export type HqHelpTicket = {
   userId?: string | null;
   status: HqHelpTicketStatus;
   source?: string;
+  meta?: Record<string, unknown> | null;
 };
 
 export type HqHelpTicketStats = {
@@ -5214,6 +5217,7 @@ interface AuthUser {
   role?: string;
   roleName?: string;
   roleColor?: string;
+  hqTeamMemberId?: string;
 }
 
 interface AuthPayload {
@@ -5354,7 +5358,7 @@ export async function apiLogin(
     localStorage.setItem('currentUser', JSON.stringify(userData));
 
     const hqPermissionIds = Array.isArray((res.data as { hqPermissionIds?: string[] })?.hqPermissionIds)
-      ? (res.data as { hqPermissionIds: string[] }).hqPermissionIds.filter((id) => String(id).startsWith('hq_'))
+      ? (res.data as unknown as { hqPermissionIds: string[] }).hqPermissionIds.filter((id) => String(id).startsWith('hq_'))
       : userData.isHqTeamMember && Array.isArray(permissions)
         ? permissions.filter((id) => String(id).startsWith('hq_'))
         : [];
@@ -5568,9 +5572,11 @@ export interface BackendUser {
   name: string;
   firstName?: string | null;
   lastName?: string | null;
-  email: string;
+  email?: string;
   loginId?: string | null;
   role: string;
+  roleName?: string;
+  roleColor?: string;
   department?: string | null;
   designation?: string | null;
   location?: string | null;
@@ -5579,7 +5585,7 @@ export interface BackendUser {
   avatar?: string | null;
   isActive: boolean;
   lastLogin?: string;
-  createdAt: string;
+  createdAt?: string;
   updatedAt?: string;
   /** Reporting manager on the team hierarchy (User.managerId). */
   managerId?: string | null;
@@ -5804,7 +5810,9 @@ export interface BackendJob {
     matches: number;
     interviews: number;
     placements?: number;
+    applications?: number;
   };
+  jobCategory?: string | null;
   department?: string;
   hiringManager?: string;
   hiringManagerId?: string;
@@ -6411,6 +6419,11 @@ export interface BackendCandidate {
   currentTitle?: string | null;
   currentCompany?: string | null;
   resume?: string | null;
+  /** Alias used by profile and client-review views. Same file as `resume` when only one is stored. */
+  resumeUrl?: string | null;
+  nextFollowUp?: string | null;
+  designation?: string | null;
+  cvCountry?: string | null;
   /** Profile photo URL (Cloudinary, S3, etc.) */
   avatar?: string | null;
   skills?: string[];
@@ -6433,7 +6446,15 @@ export interface BackendCandidate {
     status?: string;
     job?: { id?: string; title?: string | null };
   }>;
-  pipelineEntries?: Array<{ id?: string; jobId?: string }>;
+  pipelineEntries?: Array<{
+    id?: string;
+    jobId?: string;
+    stageId?: string;
+    movedAt?: string;
+    notes?: string | null;
+    stage?: { id?: string; name?: string } | null;
+    job?: { id?: string; title?: string } | null;
+  }>;
   poolOrigin?: 'phase1_common' | 'phase1' | 'tenant' | string | null;
   tags?: string[];
   expectedSalary?: number | null;
@@ -6528,17 +6549,6 @@ export interface BackendCandidate {
       };
     };
   }>;
-  pipelineEntries?: Array<{
-    id?: string;
-    jobId?: string;
-    stageId?: string;
-    movedAt?: string;
-    notes?: string | null;
-    stage?: {
-      id?: string;
-      name?: string;
-    } | null;
-  }>;
   interviews?: Array<{
     id: string;
     status?: string;
@@ -6628,7 +6638,6 @@ export interface BackendCandidate {
   };
   rating?: number | null;
   hotlist: boolean;
-  avatar?: string | null;
   createdById?: string | null;
   clientReplies?: Array<{
     id: string;
@@ -6667,6 +6676,8 @@ export async function apiGetCandidates(
     mine?: boolean;
     /** Merge verified Phase 1 snapshots from candidatecommon DB */
     includeCommonPool?: boolean;
+    /** Lightweight id/name/phone/job rows for the schedule-interview picker. */
+    picker?: boolean;
   },
   options: { signal?: AbortSignal } = {},
 ) {
@@ -6674,7 +6685,7 @@ export async function apiGetCandidates(
   Object.entries(params).forEach(([key, value]) => {
     if (value === undefined || value === null || value === '') return;
     if (typeof value === 'boolean') {
-      if (key === 'includeCommonPool' || key === 'mine') {
+      if (key === 'includeCommonPool' || key === 'mine' || key === 'picker') {
         query.set(key, value ? 'true' : 'false');
         return;
       }
@@ -7166,6 +7177,7 @@ export const apiParseAgreementDocument = async (
 export type KycDocumentParseData = {
   form: Partial<import('./clientKycForm').PostServiceKycFormValues>;
   filledCount: number;
+  totalExtractable?: number;
   textLength?: number;
   sourceType?: string;
   message?: string | null;
@@ -7389,7 +7401,7 @@ export const apiScheduleCandidateInterview = async (
     duration: string;
     timezone?: string;
     mode: 'video' | 'in-person' | 'phone';
-    platform?: 'GOOGLE_MEET' | 'ZOOM' | null;
+    platform?: 'GOOGLE_MEET' | 'ZOOM' | string | null;
     meetingLink?: string | null;
     location?: string | null;
     phoneNumber?: string | null;
@@ -7422,7 +7434,7 @@ export const apiUpdateCandidateInterview = async (
     duration?: string;
     timezone?: string;
     mode?: 'video' | 'in-person' | 'phone';
-    platform?: 'GOOGLE_MEET' | 'ZOOM' | null;
+    platform?: 'GOOGLE_MEET' | 'ZOOM' | string | null;
     meetingLink?: string | null;
     location?: string | null;
     phoneNumber?: string | null;
@@ -8719,6 +8731,11 @@ export interface CreateLeadData {
    * Used only for activity logging; not stored directly on the Lead model.
    */
   statusRemark?: string;
+  /**
+   * When true, always insert a new lead even if an existing live lead shares
+   * the same company name (used by "Create anyway" after duplicate warning).
+   */
+  forceNew?: boolean;
 }
 
 export const apiGetLeads = async (params: {
@@ -8743,10 +8760,9 @@ export const apiGetLeads = async (params: {
   const path = `/leads${qs ? `?${qs}` : ''}`;
   // Backend returns: { success: true, message: "...", data: { data: [...], pagination: {...} } }
   const response = await apiFetch<{ data: BackendLead[]; pagination?: any } | BackendLead[]>(path, { auth: true });
-  return {
-    ...response,
-    data: dedupeCompanyNamedPayload(response.data),
-  };
+  // Do not collapse same-company leads on the list — that hid newly created rows
+  // that shared a normalized company name with an older lead.
+  return response;
 };
 
 export const apiGetLead = async (id: string) => {
@@ -8943,6 +8959,13 @@ export interface BackendActivity {
   action: string;
   description: string | null;
   performedBy: {
+    id: string;
+    name: string;
+    email: string;
+    avatar: string | null;
+  };
+  /** Some activity payloads use `user` instead of `performedBy`. */
+  user?: {
     id: string;
     name: string;
     email: string;

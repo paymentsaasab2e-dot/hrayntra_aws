@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import { getTeamMemberById, resetPassword, resendInvite, lockAccount, unlockAccount } from '../../../lib/api/teamApi';
 import { ImageWithFallback } from '../../../components/ImageWithFallback';
-import { ContactTypeBadge } from '../../contacts/ContactTypeBadge';
+import { ContactTypeBadge } from '../../../components/contacts/ContactTypeBadge';
 import { toast } from 'sonner';
 import { EditMemberModal } from '../../../components/team/EditMemberModal';
 import { GenerateCredentialsModal } from '../../../components/team/GenerateCredentialsModal';
@@ -252,7 +252,7 @@ export default function TeamMemberProfilePage() {
                     {member.manager && (
                       <div>
                         <h3 className="text-sm font-semibold text-slate-700 mb-2">Reports To</h3>
-                        <p className="text-sm text-slate-600">{member.manager.name}</p>
+                        <p className="text-sm text-slate-600">{`${member.manager.firstName || ''} ${member.manager.lastName || ''}`.trim()}</p>
                       </div>
                     )}
                   </div>
