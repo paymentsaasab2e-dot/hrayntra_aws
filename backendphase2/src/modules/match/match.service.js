@@ -13,6 +13,7 @@ import { createRequire } from 'module';
 import {
   createClientReviewToken,
   normalizeSubmissionType,
+  resolveSaasaCvShareUrl,
   toClientReviewUrl,
 } from '../../services/interview.service.js';
 import {
@@ -1179,6 +1180,17 @@ export const matchService = {
         const versionUrl = String(versionFile?.fileUrl || '').trim();
         if (versionUrl) {
           snapshot.resume = versionUrl;
+        }
+      }
+      if (cvShareMode === 'saasa' && snapshot && typeof snapshot === 'object') {
+        const saasaUrl = await resolveSaasaCvShareUrl(
+          freshCandidate,
+          [],
+          snapshot.saasaCvUrl,
+        );
+        if (saasaUrl) {
+          snapshot.saasaCvUrl = saasaUrl;
+          snapshot.resume = saasaUrl;
         }
       }
       await prisma.candidate.update({

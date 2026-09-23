@@ -11,16 +11,14 @@ import {
   decodeStoredGrade,
   encodeStoredGrade,
   formatEducationDateLine,
-  formatEducationTitle,
-  formatInstitutionLine,
   isSchoolCertificateEntry,
   normalizeEducationRecord,
   type EducationGradeMetricType,
 } from '@/lib/candidateEducationFields';
 import { searchCscCities } from '@/lib/cscData';
-import { phase1FieldLabelClass, phase1FieldValueClass, phase1SectionTitleClass } from '@/lib/phase1Typography';
+import { phase1EditInputClass, phase1EditLabelClass, phase1SectionTitleClass } from '@/lib/phase1Typography';
 
-const inputClass = `w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 ${phase1FieldValueClass}`;
+const inputClass = phase1EditInputClass;
 
 function SectionHeading({ children }: { children: React.ReactNode }) {
   return <h4 className={`${phase1SectionTitleClass} border-b border-slate-200 pb-2`}>{children}</h4>;
@@ -29,7 +27,7 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
 function FieldLabel({ label, hint }: { label: string; hint?: string }) {
   return (
     <div className="mb-1.5">
-      <span className={phase1FieldLabelClass}>{label}</span>
+      <span className={phase1EditLabelClass}>{label}</span>
       {hint ? <p className="mt-0.5 text-[11px] text-slate-400">{hint}</p> : null}
     </div>
   );
@@ -121,14 +119,6 @@ export function CandidateEducationEntryEdit({
     normalized.currentlyStudying === true,
   );
 
-  const previewTitle = formatEducationTitle(
-    normalized.educationLevel || '',
-    normalized.degreeProgram || '',
-  );
-  const previewInstitution = formatInstitutionLine(
-    normalized.institutionName || '',
-    normalized.institutionLocation,
-  );
   const previewDates = formatEducationDateLine(
     normalized.startYear || '',
     normalized.startMonth || '',
@@ -141,20 +131,9 @@ export function CandidateEducationEntryEdit({
     <div className="space-y-5 rounded-xl border border-slate-200 bg-white p-4">
       <p className="text-sm font-semibold text-slate-900">Education {index + 1}</p>
 
-      <div className="rounded-xl border border-slate-100 bg-slate-50/80 px-4 py-3">
-        <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-          Preview (how it appears on your profile)
-        </p>
-        <div className="mt-2 space-y-1">
-          <p className="text-sm font-bold uppercase tracking-wide text-slate-900">{previewTitle || '—'}</p>
-          <p className="text-sm text-slate-700">{previewInstitution || '—'}</p>
-          <p className="text-sm text-slate-600">{previewDates || '—'}</p>
-        </div>
-      </div>
-
       <div className="space-y-4">
         <SectionHeading>Education Details</SectionHeading>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
           <label className="block sm:col-span-2">
             <FieldLabel label="Education Level" />
             <select
@@ -242,7 +221,7 @@ export function CandidateEducationEntryEdit({
 
       <div className="space-y-4 border-t border-slate-100 pt-4">
         <SectionHeading>Dates</SectionHeading>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
           <div>
             <FieldLabel label="Start Date" />
             <div className="grid grid-cols-2 gap-2">
@@ -374,7 +353,7 @@ export function CandidateEducationEntryEdit({
       {!isSchoolCert ? (
         <div className="space-y-4 border-t border-slate-100 pt-4">
           <SectionHeading>Academic Details</SectionHeading>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
             <div className="sm:col-span-2">
               <FieldLabel label="Grade / Percentage / GPA" hint="Use letters, numbers, and common grade symbols only." />
               <div className="grid gap-2 sm:grid-cols-[minmax(9rem,11rem)_1fr]">

@@ -11,7 +11,11 @@ export async function GET(
 ) {
   const { token } = await context.params;
   const matchId = req.nextUrl.searchParams.get('matchId') || '';
-  const query = matchId ? `?matchId=${encodeURIComponent(matchId)}` : '';
+  const source = req.nextUrl.searchParams.get('source') || '';
+  const params = new URLSearchParams();
+  if (matchId) params.set('matchId', matchId);
+  if (source) params.set('source', source);
+  const query = params.toString() ? `?${params.toString()}` : '';
   const target = `${backendApiBase(req)}/interviews/public/review/${encodeURIComponent(token)}/resume${query}`;
 
   try {

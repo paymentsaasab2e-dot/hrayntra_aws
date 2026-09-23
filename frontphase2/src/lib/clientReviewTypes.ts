@@ -1,6 +1,7 @@
 import type { CVEditorData } from './cvEditorMapping';
 import type { ClientReviewSection } from './clientPresentationSections';
 import type { ClientTrackerOptions } from './clientTrackerOptions';
+import type { SaasaCvAnnotation, SaasaCvCompanyLogo } from './saasaCvAnnotations';
 
 export interface CvWorkEntry {
   title?: string;
@@ -89,6 +90,17 @@ export interface ClientReviewData {
     comments: string;
   }>;
   cvEditorPreview?: CVEditorData | null;
+  /** HRYantra CV overlays. The shared file is the exported PDF; this draws marks when that file is missing. */
+  saasaCvPreview?: {
+    hasExport?: boolean;
+    fullSnapshot?: boolean;
+    hasOverlays?: boolean;
+    baseResumeUrl?: string | null;
+    items?: SaasaCvAnnotation[];
+    companyLogo?: SaasaCvCompanyLogo | null;
+    documentHtml?: string | null;
+    pdfTextLayerHtml?: string[] | null;
+  } | null;
   sharedResumeUrl?: string | null;
   activeMatchId?: string;
   batchCandidates?: ClientReviewBatchRow[];

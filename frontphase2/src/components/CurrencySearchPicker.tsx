@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
-import { Check, Search, X } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Check, ChevronDown, Search, X } from 'lucide-react';
+import { phase1EditInputClass, phase1EditLabelClass } from '@/lib/phase1Typography';
 import { SUPPORTED_CURRENCIES } from '@/utils/currency';
 import { WORLD_CURRENCIES } from '@/lib/hqWorldCurrencies';
 import { HQ_CURRENCY_FLAGS } from '@/lib/hqCurrency';
@@ -48,7 +49,9 @@ export function CurrencySearchPicker({
   className = '',
 }: CurrencySearchPickerProps) {
   const [search, setSearch] = useState('');
-  const selected = String(value || 'USD').toUpperCase();
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const selected = String(value || (compact ? '' : 'USD')).trim().toUpperCase();
 
   const quickPicks = useMemo(() => {
     return Array.from(new Set([...SUPPORTED_CURRENCIES, 'CNY', selected]));
@@ -73,7 +76,84 @@ export function CurrencySearchPicker({
   const pick = (code: string) => {
     onChange(String(code || '').toUpperCase());
     setSearch('');
+    setOpen(false);
   };
+
+  useEffect(() => {
+    if (!compact || !open) return undefined;
+    const onPointerDown = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+        setSearch('');
+      }
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    return () => document.removeEventListener('mousedown', onPointerDown);
+  }, [compact, open]);
+
+  const selectedRow = WORLD_CURRENCIES.find((row) => row.code === selected);
+  const closedLabel = selectedRow
+    ? `${selectedRow.code} — ${selectedRow.name}`
+    : selected;
+
+  if (compact) {
+    return (
+      <div ref={rootRef} className={`relative min-w-0 ${className}`}>
+        {label ? <p className={`mb-1 ${phase1EditLabelClass}`}>{label}</p> : null}
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+          <input
+            type="text"
+            value={open ? search : closedLabel}
+            disabled={disabled}
+            onFocus={() => {
+              setOpen(true);
+              setSearch('');
+            }}
+            onChange={(e) => {
+              setOpen(true);
+              setSearch(e.target.value);
+            }}
+            placeholder="Search currency"
+            className={`${phase1EditInputClass} pl-8 pr-8`}
+          />
+          <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+        </div>
+        {open ? (
+          <ul className="absolute z-30 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+            {listRows.length === 0 ? (
+              <li className="px-3 py-2 text-sm text-slate-500">No matching currency</li>
+            ) : (
+              listRows.map((row) => {
+                const active = row.code === selected;
+                return (
+                  <li key={row.code}>
+                    <button
+                      type="button"
+                      disabled={disabled}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => pick(row.code)}
+                      className={`flex w-full items-center justify-between gap-2 px-2.5 py-1.5 text-left text-sm hover:bg-indigo-50 disabled:opacity-50 ${
+                        active ? 'bg-indigo-50 text-indigo-800' : 'text-slate-800'
+                      }`}
+                    >
+                      <span className="min-w-0 truncate">
+                        <span className="mr-1.5">{flagForCode(row.code)}</span>
+                        <span className="font-semibold">{row.code}</span>
+                        <span className="ml-1.5 text-slate-500">{row.name}</span>
+                      </span>
+                      {active ? <Check className="h-3.5 w-3.5 shrink-0 text-indigo-600" /> : null}
+                    </button>
+                  </li>
+                );
+              })
+            )}
+          </ul>
+        ) : null}
+        {hint ? <p className="mt-1 text-[11px] font-normal text-slate-500">{hint}</p> : null}
+      </div>
+    );
+  }
 
   return (
     <div className={className}>

@@ -25,7 +25,11 @@ import type { CandidateProfileDrawerData } from '../drawers/CandidateProfileDraw
 import { DrawerLinkActions, looksLikeHttpUrl } from '../drawers/DrawerLinkActions';
 import { getPhase1ProfileSnapshot, resolvePhase1PersonalInfo } from '@/lib/phase1ProfileSnapshot';
 import { joinCandidateNameParts } from '@/lib/mapCandidateProfile';
-import type { Phase1ClientSectionId, Phase1ClientSectionVisibility } from '@/lib/phase1ClientPresentationSections';
+import {
+  PHASE1_CLIENT_SECTION_IDS,
+  type Phase1ClientSectionId,
+  type Phase1ClientSectionVisibility,
+} from '@/lib/phase1ClientPresentationSections';
 import {
   resolvePhase1AcademicAchievements,
   resolvePhase1Accomplishments,
@@ -43,7 +47,14 @@ import {
   resolvePhase1VisaWorkAuthorization,
   SKILL_CATEGORIES,
 } from '@/lib/phase1OverviewResolvers';
-import { normalizeAccomplishmentRecord } from '@/lib/candidateAccomplishmentFields';
+import {
+  accomplishmentHasContent,
+  normalizeAccomplishmentRecord,
+} from '@/lib/candidateAccomplishmentFields';
+import {
+  buildCareerPreferencesViewModel,
+  countCareerPreferencesFilled,
+} from '@/lib/candidateCareerPreferencesModel';
 import { extractVisaDisplayEntries } from '@/lib/candidateVisaWorkAuthorizationFields';
 import { hasVaccinationContent, normalizeVaccinationRecord } from '@/lib/candidateVaccinationFields';
 import {
@@ -316,10 +327,6 @@ export function CandidatePhase1DetailSections({
 
   const [open, setOpen] = useState<Record<SectionId, boolean>>(DEFAULT_OPEN);
 
-  useEffect(() => {
-    setOpen(DEFAULT_OPEN);
-  }, [candidate.id]);
-
   const toggle = (key: SectionId) => {
     setOpen((prev) => ({ ...prev, [key]: !prev[key] }));
   };
@@ -349,9 +356,9 @@ export function CandidatePhase1DetailSections({
   );
   const accomplishments = useMemo(
     () =>
-      resolvePhase1Accomplishments(snap, candidate).map((row) =>
-        normalizeAccomplishmentRecord(row as Record<string, unknown>),
-      ),
+      resolvePhase1Accomplishments(snap, candidate)
+        .map((row) => normalizeAccomplishmentRecord(row as Record<string, unknown>))
+        .filter((row) => accomplishmentHasContent(row)),
     [snap, candidate],
   );
   const careerPrefs = useMemo(() => resolvePhase1CareerPreferences(snap, candidate), [snap, candidate]);
@@ -413,6 +420,42 @@ export function CandidatePhase1DetailSections({
     ];
   }, [snap, candidate]);
 
+  const summaryText = snap?.summaryText || candidate.cvSummary || candidate.summary || '';
+  const careerFilled = countCareerPreferencesFilled(
+    buildCareerPreferencesViewModel(candidate, careerPrefs),
+  );
+  const filledSectionKey = [
+    personInfoRows.some((row) => display(row.value)) ? 'personal' : '',
+    summaryText.trim() ? 'summary' : '',
+    workEntries.length ? 'work' : '',
+    internships.length ? 'internships' : '',
+    gapExplanations.length ? 'gap' : '',
+    eduEntries.length ? 'education' : '',
+    academicAchievements.length ? 'academic' : '',
+    competitiveExams.length ? 'exams' : '',
+    skills.length ? 'skills' : '',
+    languages.length ? 'languages' : '',
+    projects.length ? 'projects' : '',
+    portfolioLinks.length ? 'portfolio' : '',
+    certifications.length ? 'certifications' : '',
+    accomplishments.length ? 'accomplishments' : '',
+    careerFilled ? 'careerPreferences' : '',
+    visaEntries.length ? 'visa' : '',
+    hasVaccinationContent(vaccination) ? 'vaccination' : '',
+  ]
+    .filter(Boolean)
+    .join('|');
+
+  useEffect(() => {
+    const filled = new Set(filledSectionKey.split('|').filter(Boolean));
+    setOpen(
+      Object.fromEntries(PHASE1_CLIENT_SECTION_IDS.map((id) => [id, filled.has(id)])) as Record<
+        SectionId,
+        boolean
+      >,
+    );
+  }, [candidate.id, filledSectionKey]);
+
   const hasAnyOverviewData =
     Boolean(snap) ||
     workEntries.length > 0 ||
@@ -424,8 +467,6 @@ export function CandidatePhase1DetailSections({
     internships.length > 0 ||
     accomplishments.length > 0 ||
     Boolean(careerPrefs);
-
-  const summaryText = snap?.summaryText || candidate.cvSummary || candidate.summary || '';
 
   return (
     <div className="space-y-5">

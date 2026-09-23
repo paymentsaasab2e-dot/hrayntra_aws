@@ -84,7 +84,7 @@ import {
   CLIENT_PREVIEW_STAGE_CATALOG,
 } from '../utils/clientTrackerOptions.js';
 import { detectResumeContentType, fetchS3ResumeDocumentBuffer } from '../utils/s3PdfFetch.js';
-import { isOurS3PdfUrl } from '../utils/s3.js';
+import { isOurS3PdfUrl, publicUrlForS3Key } from '../utils/s3.js';
 
 const SUBMIT_TO_CLIENT_VISIBILITY_DEFAULTS_KEY = 'submitToClientFieldVisibility';
 
@@ -293,7 +293,7 @@ const buildInterviewDateTime = (dateValue, timeValue) => {
 const normalizeMode = (value) => {
   if (!value) return null;
   const upper = String(value).toUpperCase();
-  // Frontend often sends video / in-person / phone ‚Äî map to stored enum values.
+  // Frontend often sends video / in-person / phone ù map to stored enum values.
   if (upper === 'VIDEO' || upper === 'VIRTUAL' || upper === 'REMOTE') return 'ONLINE';
   if (upper === 'IN-PERSON' || upper === 'IN_PERSON' || upper === 'ONSITE' || upper === 'ON-SITE') {
     return 'OFFLINE';
@@ -450,20 +450,101 @@ export const normalizeSubmissionType = (value) => {
 };
 
 // Token works for either an interview submission or a match submission. We
-// keep the JWT `type` constant so the existing public route handles both ‚Äî
+// keep the JWT `type` constant so the existing public route handles both ù
 // the resolver branches on whichever ID is present in the payload.
 const normalizeCvShareMode = (value) => {
   const mode = String(value || '').trim().toLowerCase();
   return mode === 'edited' || mode === 'original' || mode === 'saasa' ? mode : null;
 };
 
-const readSaasaCvFileUrl = (extraData) => {
-  if (!extraData || typeof extraData !== 'object' || Array.isArray(extraData)) return '';
+const SAASA_CV_FILE_TYPE = 'SAASA_CV';
+
+const readSaasaCvAnnotationBag = (extraData) => {
+  if (!extraData || typeof extraData !== 'object' || Array.isArray(extraData)) return null;
   const raw = extraData.saasaCvAnnotations;
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return '';
-  const fileUrl = String(raw.fileUrl || '').trim();
-  return fileUrl.startsWith('http') ? fileUrl : '';
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  return raw;
 };
+
+const readSaasaCvFileUrl = (extraData) => {
+  const bag = readSaasaCvAnnotationBag(extraData);
+  return normalizeShareableFileUrl(bag?.fileUrl);
+};
+
+function normalizeShareableFileUrl(fileUrl) {
+  const raw = String(fileUrl || '').trim();
+  if (!raw) return '';
+  if (/^https?:\/\//i.test(raw)) return raw;
+  if (raw.startsWith('uploads/')) {
+    try {
+      return publicUrlForS3Key(raw);
+    } catch {
+      return '';
+    }
+  }
+  return '';
+}
+
+function urlsLookLikeSameFile(left, right) {
+  const a = String(left || '').trim().replace(/[?#].*$/, '').toLowerCase();
+  const b = String(right || '').trim().replace(/[?#].*$/, '').toLowerCase();
+  return Boolean(a && b && a === b);
+}
+
+function saasaAnnotationHasOverlays(bag) {
+  if (!bag) return false;
+  if (Array.isArray(bag.items) && bag.items.length > 0) return true;
+  if (String(bag.companyLogo?.url || '').trim()) return true;
+  if (String(bag.documentHtml || '').trim()) return true;
+  return Array.isArray(bag.pdfTextLayerHtml)
+    && bag.pdfTextLayerHtml.some((html) => String(html || '').trim());
+}
+
+/**
+ * HRYantra CV the recruiter saved ù annotations.fileUrl, that file id, or the
+ * latest SAASA_CV upload. Never the candidate's original resume.
+ */
+export async function resolveSaasaCvShareUrl(candidate, candidateFiles = [], snapshotUrl = '') {
+  const extra =
+    candidate?.extraData && typeof candidate.extraData === 'object' && !Array.isArray(candidate.extraData)
+      ? candidate.extraData
+      : {};
+  const bag = readSaasaCvAnnotationBag(extra);
+  const fileId = String(bag?.fileId || '').trim();
+  const originalResume = String(candidate?.resume || candidate?.resumeUrl || '').trim();
+  const files = Array.isArray(candidateFiles) ? candidateFiles : [];
+
+  let row = fileId
+    ? files.find((file) => String(file?.id || '').trim() === fileId)
+    : null;
+  if (!row) {
+    row = files.find((file) => /^SAASA_CV$/i.test(String(file?.fileType || '').trim()));
+  }
+  if (!row) {
+    row = files.find((file) => /hryantra[_\s-]*cv/i.test(String(file?.fileName || '')));
+  }
+
+  const candidateId = String(candidate?.id || '').trim();
+  if (!row && candidateId) {
+    const recent = await prisma.candidateFile.findMany({
+      where: { candidateId },
+      orderBy: { uploadDate: 'desc' },
+      take: 40,
+      select: { id: true, fileUrl: true, fileType: true, fileName: true },
+    });
+    row = (fileId && recent.find((file) => String(file?.id || '') === fileId))
+      || recent.find((file) => /^SAASA_CV$/i.test(String(file?.fileType || '').trim()))
+      || recent.find((file) => /hryantra[_\s-]*cv/i.test(String(file?.fileName || '')))
+      || null;
+  }
+
+  const candidates = [
+    normalizeShareableFileUrl(row?.fileUrl),
+    normalizeShareableFileUrl(bag?.fileUrl),
+    normalizeShareableFileUrl(snapshotUrl),
+  ].filter(Boolean);
+  return candidates.find((url) => !urlsLookLikeSameFile(url, originalResume)) || '';
+}
 
 const readCandidateCvShareMode = (candidate) => {
   const extra = candidate?.extraData;
@@ -501,7 +582,7 @@ function inferSubmissionTypeFromNotes(notes) {
     const line = lines[i].trim();
     if (!line.startsWith('[Submitted to client]')) continue;
     const rest = line.replace('[Submitted to client]', '').trim();
-    const beforeArrow = rest.split('‚Üí')[0].trim();
+    const beforeArrow = rest.split('?')[0].trim();
     const normalized = beforeArrow.toUpperCase().replace(/\s+/g, '_');
     const typed = normalizeSubmissionType(normalized);
     if (typed) return typed;
@@ -738,6 +819,13 @@ async function persistCvSubmissionForCandidate(
     const versionUrl = String(versionFile?.fileUrl || '').trim();
     if (versionUrl) snapshot.resume = versionUrl;
   }
+  if (cvShareMode === 'saasa' && snapshot) {
+    const saasaUrl = await resolveSaasaCvShareUrl(fresh, [], snapshot.saasaCvUrl);
+    if (saasaUrl) {
+      snapshot.saasaCvUrl = saasaUrl;
+      snapshot.resume = saasaUrl;
+    }
+  }
   const patch = {
     shareMode: cvShareMode,
     snapshot,
@@ -889,6 +977,9 @@ function applyTrackerOptionsToReviewPayload(payload, trackerOptions) {
   }
   if (!trackerOptions.downloadResume) {
     next.sharedResumeUrl = null;
+    next.saasaCvPreview = null;
+    next.saasaCvFileUrl = '';
+    next.saasaCvBaseUrl = '';
     if (next.candidate) next.candidate = { ...next.candidate, resume: '' };
   }
   if (!trackerOptions.downloadFiles) {
@@ -936,10 +1027,15 @@ function isClientStorageUrl(value) {
   );
 }
 
-function clientReviewResumeHref(token, matchId) {
+function clientReviewResumeHref(token, matchId, source = '') {
   const base = `/client-review/${token}/resume`;
+  const params = new URLSearchParams();
   const id = String(matchId || '').trim();
-  return id ? `${base}?matchId=${encodeURIComponent(id)}` : base;
+  const variant = String(source || '').trim();
+  if (id) params.set('matchId', id);
+  if (variant) params.set('source', variant);
+  const query = params.toString();
+  return query ? `${base}?${query}` : base;
 }
 
 function clientReviewFileHref(token, fileId, matchId) {
@@ -967,6 +1063,18 @@ function maskReviewDetailStorageUrls(detail, token) {
   if (isClientStorageUrl(next.offerLetterUrl)) {
     next.offerLetterUrl = clientReviewFileHref(token, 'offer', matchId);
   }
+  if (next.saasaCvPreview && typeof next.saasaCvPreview === 'object') {
+    const preview = { ...next.saasaCvPreview };
+    if (preview.baseResumeUrl) {
+      preview.baseResumeUrl = clientReviewResumeHref(token, matchId, 'base');
+    }
+    if (preview.companyLogo && typeof preview.companyLogo === 'object' && isClientStorageUrl(preview.companyLogo.url)) {
+      preview.companyLogo = { ...preview.companyLogo, url: '' };
+    }
+    next.saasaCvPreview = preview;
+  }
+  delete next.saasaCvFileUrl;
+  delete next.saasaCvBaseUrl;
 
   next.candidateFiles = Array.isArray(next.candidateFiles)
     ? next.candidateFiles.map((file) => ({
@@ -1243,7 +1351,7 @@ export async function resolveClientReviewAccess(rawToken) {
 // Walk the list of known tenant DBs and return the first one that owns the
 // given record. Used as a fallback when the JWT didn't capture a tenant
 // (older tokens, or service-to-service calls that minted tokens outside a
-// tenant context). The lookup is keyed off whichever id is present ‚Äî
+// tenant context). The lookup is keyed off whichever id is present ù
 // interviewId for the interview path, matchId for the match path.
 const findTenantForRecord = async ({ interviewId = null, matchId = null }) => {
   if (!interviewId && !matchId) return '';
@@ -1279,7 +1387,7 @@ const findTenantForRecord = async ({ interviewId = null, matchId = null }) => {
   return '';
 };
 
-/** CandidateFile.uploadedById is required ‚Äî resolve a valid user for public client uploads. */
+/** CandidateFile.uploadedById is required ù resolve a valid user for public client uploads. */
 async function resolveCandidateFileUploaderId({ uploaderId, candidateId, jobId }) {
   if (uploaderId) return uploaderId;
   try {
@@ -1635,7 +1743,7 @@ async function serializeInterviewForClientReview(
     resume: c.resume || c.resumeUrl || '',
   };
 
-  // Live Settings ‚Üí Submit to Client wins so hiding a field updates existing preview links.
+  // Live Settings ? Submit to Client wins so hiding a field updates existing preview links.
   const snapshotFields = resolveClientReviewVisibleFields(cRaw);
   const liveDefaults =
     liveVisibleFields !== undefined && liveTableColumns !== undefined
@@ -1659,9 +1767,12 @@ async function serializeInterviewForClientReview(
     cRaw?.extraData && typeof cRaw.extraData === 'object' && !Array.isArray(cRaw.extraData)
       ? cRaw.extraData
       : {};
-  const saasaCvUrl = String(
-    readSaasaCvFileUrl(candidateExtra) || submissionSnapshot?.saasaCvUrl || '',
-  ).trim();
+  const saasaBag = readSaasaCvAnnotationBag(candidateExtra);
+  const saasaCvUrl = cvShareMode === 'saasa'
+    ? await resolveSaasaCvShareUrl(cRaw, candidateFiles, submissionSnapshot?.saasaCvUrl)
+    : '';
+  const saasaHasOverlays = saasaAnnotationHasOverlays(saasaBag);
+  const saasaFullSnapshot = Boolean(saasaCvUrl) && saasaBag?.fullSnapshot === true;
 
   const resolvedResumeFileId =
     String(resumeFileId || '').trim() ||
@@ -1683,14 +1794,25 @@ async function serializeInterviewForClientReview(
       '',
   ).trim();
 
+  const saasaBaseResumeUrl = String(
+    normalizeShareableFileUrl(saasaBag?.resumeUrl)
+      || c.resume
+      || c.resumeUrl
+      || '',
+  ).trim();
+  const saasaBaseForComposite = urlsLookLikeSameFile(saasaBaseResumeUrl, saasaCvUrl)
+    ? String(c.resume || c.resumeUrl || '').trim()
+    : saasaBaseResumeUrl;
+
   let candidateForClient;
   if (cvShareMode === 'saasa') {
+    // The file sent to the client is the saved HRYantra CV. Do not substitute the original resume.
     candidateForClient = {
       ...baseCandidate,
-      resume: saasaCvUrl || baseCandidate.resume,
+      resume: saasaCvUrl || '',
     };
   } else if (cvShareMode === 'original') {
-    // Original CV link mode ‚Äî still show tenant profile fields in table/comparative.
+    // Original CV link mode ù still show tenant profile fields in table/comparative.
     candidateForClient = {
       ...baseCandidate,
       resume: originalResumeUrl || baseCandidate.resume,
@@ -1725,6 +1847,18 @@ async function serializeInterviewForClientReview(
       : cvShareMode === 'original'
         ? originalResumeUrl
         : String(c.resume || c.resumeUrl || submissionSnapshot?.resume || '').trim();
+  const saasaCvPreview = cvShareMode === 'saasa'
+    ? {
+        hasExport: Boolean(saasaCvUrl),
+        fullSnapshot: saasaFullSnapshot,
+        hasOverlays: saasaHasOverlays,
+        baseResumeUrl: saasaBaseForComposite || null,
+        items: Array.isArray(saasaBag?.items) ? saasaBag.items : [],
+        companyLogo: saasaBag?.companyLogo || null,
+        documentHtml: saasaBag?.documentHtml || null,
+        pdfTextLayerHtml: Array.isArray(saasaBag?.pdfTextLayerHtml) ? saasaBag.pdfTextLayerHtml : null,
+      }
+    : null;
   presentationSections = attachSharedResumeToClientReviewSections(
     presentationSections,
     sharedResumeUrl,
@@ -1742,6 +1876,9 @@ async function serializeInterviewForClientReview(
     visibleFields: visibleFields || null,
     tableColumns,
     cvEditorPreview,
+    saasaCvPreview,
+    saasaCvFileUrl: saasaCvUrl || '',
+    saasaCvBaseUrl: saasaBaseForComposite || '',
     sharedResumeUrl: sharedResumeUrl.startsWith('http') ? sharedResumeUrl : null,
     job: {
       title: interview.job?.title || '',
@@ -2120,7 +2257,7 @@ export const interviewService = {
     }
 
     // Move the candidate to the Interviewing stage on the CRM tenant AND mirror the change
-    // to the job-portal application (status ‚Üí INTERVIEW) and portal candidate row. Without
+    // to the job-portal application (status ? INTERVIEW) and portal candidate row. Without
     // this the candidate keeps showing "Applied" on /candidate and `/applications` even
     // though an interview has been scheduled. updateCandidateStage handles both DBs.
     try {
@@ -2192,7 +2329,7 @@ export const interviewService = {
     queueAiEntryRecommendation({
       entityType: 'INTERVIEW',
       entityId: result.id,
-      entityLabel: `${interviewCandidateName} ‚Äî ${result.job?.title || job.title}`,
+      entityLabel: `${interviewCandidateName} ù ${result.job?.title || job.title}`,
       snapshot: buildEntitySnapshot('INTERVIEW', result),
       recipientUserId: result.interviewerId || user?.id,
       actorUserId: user?.id,
@@ -2211,7 +2348,7 @@ export const interviewService = {
     const nextCandidateId = payload.candidateId || current.candidate.id;
     const nextJobId = payload.jobId || current.job.id;
 
-    // Same portal‚Üítenant fallback as create() ‚Äî needed when the recruiter swaps the candidate
+    // Same portal?tenant fallback as create() ù needed when the recruiter swaps the candidate
     // on an existing interview to one that came from the job portal merged list.
     const [candidate, job, explicitClient, panelUsers] = await Promise.all([
       payload.candidateId
@@ -2339,7 +2476,7 @@ export const interviewService = {
     queueAiEntryRecommendation({
       entityType: 'INTERVIEW',
       entityId: refreshed.id,
-      entityLabel: `${interviewCandidateName} ‚Äî ${refreshed.job?.title || 'Interview'}`,
+      entityLabel: `${interviewCandidateName} ù ${refreshed.job?.title || 'Interview'}`,
       snapshot: buildEntitySnapshot('INTERVIEW', refreshed),
       recipientUserId: refreshed.interviewerId || user?.id,
       actorUserId: user?.id,
@@ -2489,7 +2626,7 @@ export const interviewService = {
     queueAiEntryRecommendation({
       entityType: 'INTERVIEW',
       entityId: updated.id,
-      entityLabel: `${interviewCandidateName} ‚Äî ${updated.job?.title || 'Interview'}`,
+      entityLabel: `${interviewCandidateName} ù ${updated.job?.title || 'Interview'}`,
       snapshot: buildEntitySnapshot('INTERVIEW', updated),
       recipientUserId: updated.interviewerId || user?.id,
       actorUserId: user?.id,
@@ -2984,11 +3121,11 @@ export const interviewService = {
 
     const purposeLabel =
       submissionType === 'OFFER_CONFIRMATION'
-        ? 'Final clarification ‚Äî please attach the signed offer letter.'
+        ? 'Final clarification ù please attach the signed offer letter.'
         : submissionType === 'INTERIM_REVIEW'
-          ? 'Mid-cycle review ‚Äî please confirm next steps.'
+          ? 'Mid-cycle review ù please confirm next steps.'
           : submissionType === 'INITIAL_REVIEW'
-            ? 'Initial review ‚Äî please confirm the candidate is a fit before scheduling.'
+            ? 'Initial review ù please confirm the candidate is a fit before scheduling.'
             : 'Please review this candidate.';
 
     const emailResult = await sendMatchSubmissionEmail({
@@ -3021,7 +3158,7 @@ export const interviewService = {
           notes: `${interview.notes || ''}\n[Submitted to client] ${submissionType.replace(
             /_/g,
             ' '
-          )} ‚Üí ${recipients.join(', ')}`.trim(),
+          )} ? ${recipients.join(', ')}`.trim(),
         },
       });
       await logActivity(prisma, {
@@ -3114,7 +3251,9 @@ export const interviewService = {
             return serializeInterviewForClientReview(interview, {
               submissionType,
               cvShareMode:
-                readCandidateCvShareMode(match.candidate) || cvShareMode,
+                normalizeCvShareMode(decoded?.cvShareMode) ||
+                readCandidateCvShareMode(match.candidate) ||
+                cvShareMode,
               resumeFileId:
                 readCandidateResumeFileId(match.candidate, decoded) || tokenResumeFileId,
               offerLetterFile: offerFile,
@@ -3210,7 +3349,10 @@ export const interviewService = {
 
     const payload = await serializeInterviewForClientReview(interview, {
       submissionType,
-      cvShareMode: readCandidateCvShareMode(interview.candidate) || cvShareMode,
+      cvShareMode:
+        normalizeCvShareMode(decoded?.cvShareMode) ||
+        readCandidateCvShareMode(interview.candidate) ||
+        cvShareMode,
       resumeFileId:
         readCandidateResumeFileId(interview.candidate, decoded) || tokenResumeFileId,
       offerLetterFile,
@@ -3264,7 +3406,7 @@ export const interviewService = {
       : withWatermark;
   },
 
-  async streamPublicClientReviewAsset(token, { kind = 'resume', fileId = '', matchId = '' } = {}) {
+  async streamPublicClientReviewAsset(token, { kind = 'resume', fileId = '', matchId = '', source = '' } = {}) {
     const payload = await this.getPublicClientReview(token, { maskStorage: false });
     const detail = pickReviewDetailForAsset(payload, matchId);
     const tracker = normalizeClientTrackerOptions(detail?.trackerOptions);
@@ -3274,10 +3416,19 @@ export const interviewService = {
       if (!tracker.downloadResume) {
         throw new Error('Resume download is not enabled on this preview');
       }
-      const sourceUrl = String(detail?.sharedResumeUrl || detail?.candidate?.resume || '').trim();
+      const wantBase = String(source || '').trim().toLowerCase() === 'base';
+      const saasaFileUrl = String(detail?.saasaCvFileUrl || '').trim();
+      const saasaBaseUrl = String(detail?.saasaCvBaseUrl || '').trim();
+      const sourceUrl = String(
+        detail?.cvShareMode === 'saasa'
+          ? (wantBase ? saasaBaseUrl : saasaFileUrl)
+          : (detail?.sharedResumeUrl || detail?.candidate?.resume || ''),
+      ).trim();
       const loaded = await loadReviewAssetBuffer(sourceUrl);
+      const resumeLabel =
+        detail?.cvShareMode === 'saasa' && !wantBase ? 'HRYantra_CV' : 'Resume';
       const baseName = safeDownloadFilename(
-        `${detail?.candidate?.name || 'Candidate'}_Resume.pdf`,
+        `${detail?.candidate?.name || 'Candidate'}_${resumeLabel}.pdf`,
       );
       try {
         const { getPublicClientReviewExportWatermark } = await import(
@@ -3457,7 +3608,7 @@ export const interviewService = {
         });
         if (!candidateFileUploaderId) {
           console.warn(
-            '[interview.submitPublicClientTag] no uploader id ‚Äî offer file saved on disk but not linked to candidate_files'
+            '[interview.submitPublicClientTag] no uploader id ù offer file saved on disk but not linked to candidate_files'
           );
         } else {
           try {
@@ -3479,7 +3630,7 @@ export const interviewService = {
         }
         offerLetterUrl = fileUrl;
 
-        // Only OFFER_CONFIRMATION uploads should attach to a placement ‚Äî
+        // Only OFFER_CONFIRMATION uploads should attach to a placement ù
         // earlier-stage submissions are review attachments, not the signed
         // offer. We still keep the candidate-file row so recruiters can see
         // the document on the candidate Documents tab regardless.
@@ -3597,7 +3748,7 @@ export const interviewService = {
       }
 
       // Sync client-chosen stage (including custom labels) into CRM pipeline +
-      // Candidate.stage so Job Details ‚Üí Candidates shows the same stage.
+      // Candidate.stage so Job Details ? Candidates shows the same stage.
       if (resolvedStage) {
         try {
           await updateCandidateStage({

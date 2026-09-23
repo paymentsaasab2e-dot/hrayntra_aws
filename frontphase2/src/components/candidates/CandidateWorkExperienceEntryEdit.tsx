@@ -15,11 +15,11 @@ import {
   type CandidateWorkExperienceRecord,
 } from '@/lib/candidateWorkExperienceFields';
 import { searchCscCities } from '@/lib/cscData';
-import { phase1FieldLabelClass, phase1FieldValueClass, phase1SectionTitleClass } from '@/lib/phase1Typography';
+import { phase1EditInputClass, phase1EditLabelClass, phase1EditTextareaClass, phase1SectionTitleClass } from '@/lib/phase1Typography';
 import { EditDateField } from './EditDateField';
 
-const inputClass = `w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 ${phase1FieldValueClass}`;
-const textareaClass = `${inputClass} min-h-[100px] resize-y`;
+const inputClass = phase1EditInputClass;
+const textareaClass = phase1EditTextareaClass;
 
 function SectionHeading({ children }: { children: React.ReactNode }) {
   return <h4 className={`${phase1SectionTitleClass} border-b border-slate-200 pb-2`}>{children}</h4>;
@@ -36,7 +36,7 @@ function FieldLabel({
 }) {
   return (
     <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
-      <span className={phase1FieldLabelClass}>{label}</span>
+      <span className={phase1EditLabelClass}>{label}</span>
       {action}
       {hint ? <p className="w-full text-[11px] text-slate-400">{hint}</p> : null}
     </div>
@@ -142,7 +142,7 @@ export function CandidateWorkExperienceEntryEdit({
 
       <div className="space-y-4">
         <SectionHeading>Role Details</SectionHeading>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
           <label className="block">
             <FieldLabel label="Job Title" />
             <input
@@ -250,7 +250,7 @@ export function CandidateWorkExperienceEntryEdit({
 
       <div className="space-y-4 border-t border-slate-100 pt-4">
         <SectionHeading>Duration</SectionHeading>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
           <EditDateField
             label="Start Date"
             value={normalized.startDate || ''}
@@ -286,7 +286,7 @@ export function CandidateWorkExperienceEntryEdit({
 
       <div className="space-y-4 border-t border-slate-100 pt-4">
         <SectionHeading>Location & Work Mode</SectionHeading>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
           <div className="relative">
             <FieldLabel
               label="Work Location"

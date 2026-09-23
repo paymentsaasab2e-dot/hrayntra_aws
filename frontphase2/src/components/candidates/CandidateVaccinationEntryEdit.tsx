@@ -7,10 +7,10 @@ import {
   VACCINATION_MONTH_OPTIONS,
   type VaccinationValidityMode,
 } from '@/lib/candidateVaccinationFields';
-import { phase1FieldLabelClass, phase1FieldValueClass, phase1SectionTitleClass } from '@/lib/phase1Typography';
+import { phase1EditInputClass, phase1EditLabelClass, phase1SectionTitleClass } from '@/lib/phase1Typography';
 import { EditDateField } from './EditDateField';
 
-const inputClass = `w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 ${phase1FieldValueClass}`;
+const inputClass = phase1EditInputClass;
 const selectClass = `${inputClass} appearance-none`;
 
 function SectionHeading({ children }: { children: React.ReactNode }) {
@@ -20,7 +20,7 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
 function FieldLabel({ label, hint }: { label: string; hint?: string }) {
   return (
     <div className="mb-1.5">
-      <span className={phase1FieldLabelClass}>{label}</span>
+      <span className={phase1EditLabelClass}>{label}</span>
       {hint ? <p className="mt-0.5 text-[11px] text-slate-400">{hint}</p> : null}
     </div>
   );
@@ -104,7 +104,7 @@ export function CandidateVaccinationEntryEdit({
         </label>
 
         {validityMode === 'custom' ? (
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
             <label className="block">
               <FieldLabel label="Month" />
               <select

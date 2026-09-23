@@ -3458,8 +3458,9 @@ function mergeCareerPreferencesIntoCandidate(candidate, careerPrefs) {
     portalUpdatedAt = Number.isFinite(ms) ? ms : 0;
   }
 
-  // Prefer recruiter/candidate Overview snapshot when it is newer than portal collection.
-  const preferSnap = Boolean(fromSnap && snapAt && (!portalUpdatedAt || snapAt >= portalUpdatedAt));
+  // A stamped Overview save is what the recruiter just stored. Keep it in front of the
+  // portal career_preferences row, which this same save also upserts a moment later.
+  const preferSnap = Boolean(fromSnap && snapAt);
   const normalized = preferSnap
     ? { ...(fromPortal || {}), ...fromSnap }
     : fromPortal
@@ -3596,6 +3597,13 @@ async function upsertPortalCareerPreferences(candidateId, prefs) {
   if (currentSalaryType) setDoc.currentSalaryType = currentSalaryType;
   if (preferredSalaryType) setDoc.preferredSalaryType = preferredSalaryType;
   if (preferredWorkMode) setDoc.preferredWorkMode = preferredWorkMode;
+  if (Array.isArray(prefs.workModes) && prefs.workModes.length) {
+    setDoc.workModes = prefs.workModes.map(String).filter(Boolean);
+  }
+  if (Array.isArray(prefs.functionalAreas) && prefs.functionalAreas.length) {
+    setDoc.functionalAreas = prefs.functionalAreas.map(String).filter(Boolean);
+  }
+  if (prefs.currentRole) setDoc.currentRole = String(prefs.currentRole);
   if (Number.isFinite(currentSalary)) setDoc.currentSalary = currentSalary;
   if (Number.isFinite(preferredSalary)) setDoc.preferredSalary = preferredSalary;
   if (prefs.passportNumbersByLocation && typeof prefs.passportNumbersByLocation === 'object') {

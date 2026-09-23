@@ -7,6 +7,7 @@ import { AnimatePresence, motion, type Variants } from 'motion/react';
 import { CheckCircle2, ExternalLink, FileText, FileUp, UserRound } from 'lucide-react';
 import { ClientReviewSectionsPanel } from './ClientReviewSectionsPanel';
 import { ResumeInlinePreview } from './ResumeInlinePreview';
+import { SaasaCvCompositePreview } from './SaasaCvCompositePreview';
 import { DrawerCloseButton } from '../drawers/drawerLayout';
 import {
   CLIENT_PIPELINE_STAGE_CHOICES,
@@ -185,10 +186,20 @@ export function ClientReviewCandidateDrawer({
   const showEditedCv = tracker.downloadResume && !showSaasaCv && cvShareMode !== 'original';
   const showOriginalResume = tracker.downloadResume && cvShareMode === 'original';
   const cvEditorPreview = reviewData?.cvEditorPreview ?? null;
+  const saasaPreview = reviewData?.saasaCvPreview ?? null;
   const sharedResumeUrl = String(
-    reviewData?.sharedResumeUrl || reviewData?.candidate?.resume || '',
+    showSaasaCv
+      ? reviewData?.sharedResumeUrl || ''
+      : reviewData?.sharedResumeUrl || reviewData?.candidate?.resume || '',
   ).trim();
-  const canOpenResume = sharedResumeUrl.startsWith('http') || isClientReviewFileHref(sharedResumeUrl);
+  const saasaBaseResumeUrl = String(saasaPreview?.baseResumeUrl || '').trim();
+  const showSaasaComposite =
+    showSaasaCv &&
+    Boolean(saasaPreview?.hasOverlays) &&
+    (saasaBaseResumeUrl.startsWith('http') || isClientReviewFileHref(saasaBaseResumeUrl));
+  const canOpenResume =
+    (sharedResumeUrl.startsWith('http') || isClientReviewFileHref(sharedResumeUrl)) &&
+    (!showSaasaCv || Boolean(saasaPreview?.hasExport) || !showSaasaComposite);
   const hasCvPreview = Boolean(showEditedCv && cvEditorPreview);
   const hasCvTab = Boolean(
     tracker.downloadResume && (hasCvPreview || canOpenResume || showSaasaCv || showOriginalResume),
@@ -243,7 +254,23 @@ export function ClientReviewCandidateDrawer({
             </div>
           ) : null}
 
-          {canOpenResume && !hasCvPreview ? (
+          {showSaasaComposite ? (
+            <div className="min-h-0 flex-1 overflow-hidden rounded-2xl border border-indigo-100/80 bg-white shadow-[0_10px_30px_-18px_rgba(79,70,229,0.28)] ring-1 ring-indigo-500/5">
+              <SaasaCvCompositePreview
+                baseResumeUrl={saasaBaseResumeUrl}
+                annotations={saasaPreview?.items || []}
+                companyLogo={saasaPreview?.companyLogo ?? null}
+                documentHtml={saasaPreview?.documentHtml ?? null}
+                pdfTextLayerHtml={saasaPreview?.pdfTextLayerHtml ?? null}
+                candidateName={displayName}
+                enabled
+                minHeightClass="min-h-[70vh]"
+                className="rounded-2xl"
+              />
+            </div>
+          ) : null}
+
+          {canOpenResume && !hasCvPreview && !showSaasaComposite ? (
             <div className="min-h-0 flex-1 overflow-hidden rounded-2xl border border-indigo-100/80 bg-white shadow-[0_10px_30px_-18px_rgba(79,70,229,0.28)] ring-1 ring-indigo-500/5">
               <ResumeInlinePreview
                 resumeUrl={sharedResumeUrl}
@@ -269,7 +296,7 @@ export function ClientReviewCandidateDrawer({
             </div>
           ) : null}
 
-          {!hasCvPreview && !canOpenResume ? (
+          {!hasCvPreview && !canOpenResume && !showSaasaComposite ? (
             <p className="rounded-2xl border border-indigo-100/80 bg-white px-5 py-8 text-center text-sm text-slate-500 ring-1 ring-indigo-500/5">
               No CV was shared on this preview.
             </p>

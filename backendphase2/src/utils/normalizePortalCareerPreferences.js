@@ -1,8 +1,10 @@
 /** Normalize raw job-portal `career_preferences` Mongo docs for Phase 2 CRM display. */
 
 function normalizeStringArray(value) {
-  if (!Array.isArray(value)) return [];
-  return value.map((item) => String(item || '').trim()).filter(Boolean);
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item || '').trim()).filter(Boolean);
+  }
+  return parseSemicolonList(value);
 }
 
 function parseSemicolonList(value) {
@@ -34,7 +36,12 @@ function normalizeWorkMode(value) {
   return String(value).trim();
 }
 
-function extractWorkModes(passportNumbersByLocation, preferredWorkMode) {
+function extractWorkModes(passportNumbersByLocation, preferredWorkMode, explicitWorkModes) {
+  const explicit = parseSemicolonList(explicitWorkModes)
+    .map((mode) => (mode === 'On Site' ? 'On-site' : normalizeWorkMode(mode) || mode))
+    .filter(Boolean);
+  if (explicit.length) return [...new Set(explicit)];
+
   const rawMeta = passportNumbersByLocation;
   const rawModes =
     rawMeta && typeof rawMeta === 'object' && Array.isArray(rawMeta.__workModes)
@@ -79,7 +86,11 @@ export function normalizePortalCareerPreferences(raw, candidate = {}) {
   const functionalAreas = parseSemicolonList(raw.functionalAreas).length
     ? parseSemicolonList(raw.functionalAreas)
     : parseSemicolonList(raw.functionalArea);
-  const workModes = extractWorkModes(raw.passportNumbersByLocation, raw.preferredWorkMode);
+  const workModes = extractWorkModes(
+    raw.passportNumbersByLocation,
+    raw.preferredWorkMode,
+    raw.workModes,
+  );
   const noticePeriod =
     String(raw.noticePeriod || '').trim() ||
     (raw.noticePeriodDays != null && Number.isFinite(Number(raw.noticePeriodDays))

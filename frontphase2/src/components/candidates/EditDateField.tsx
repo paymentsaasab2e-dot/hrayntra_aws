@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarDays } from 'lucide-react';
 import { isoToDMYDate, maskDateDMYInput, parseDMYToYMD } from '@/utils/formatLeadDateTime';
-import { phase1FieldLabelClass, phase1FieldValueClass } from '@/lib/phase1Typography';
+import { phase1EditInputClass, phase1EditLabelClass } from '@/lib/phase1Typography';
 
 export function normalizeDateFieldValue(value: string): string {
   const trimmed = value.trim();
@@ -73,12 +73,12 @@ export function EditDateField({
 
   const labelClass =
     variant === 'phase1'
-      ? phase1FieldLabelClass
-      : 'text-xs font-medium uppercase tracking-wide text-slate-500';
+      ? phase1EditLabelClass
+      : 'text-xs font-medium text-slate-500';
   const inputClass =
     variant === 'phase1'
-      ? phase1FieldValueClass
-      : 'text-sm text-slate-700';
+      ? phase1EditInputClass
+      : 'h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-sm font-normal text-slate-800 shadow-sm outline-none';
 
   const commit = (nextDate: string) => {
     const d = nextDate.trim();
@@ -135,7 +135,7 @@ export function EditDateField({
 
   return (
     <div className="block">
-      {hideLabel ? null : <span className={`mb-1.5 block ${labelClass}`}>{label}</span>}
+      {hideLabel ? null : <span className={`mb-1 block ${labelClass}`}>{label}</span>}
       <div className="relative">
         <input
           type="text"
@@ -146,11 +146,9 @@ export function EditDateField({
           disabled={disabled}
           onChange={(e) => setDateText(maskDateDMYInput(e.target.value))}
           onBlur={() => commit(dateText)}
-          className={`w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 pr-11 outline-none ${
-            variant === 'ats'
-              ? 'focus:border-blue-400 focus:ring-2 focus:ring-blue-100'
-              : 'focus:border-violet-400 focus:ring-2 focus:ring-violet-100'
-          } ${inputClass} ${error ? 'border-red-300 focus:border-red-400 focus:ring-red-100' : ''}`}
+          className={`${inputClass} pr-9 ${
+            variant === 'ats' ? 'focus:border-blue-400 focus:ring-2 focus:ring-blue-100' : ''
+          } ${error ? 'border-red-300 focus:border-red-400 focus:ring-red-100' : ''}`}
         />
         <input
           ref={pickerRef}

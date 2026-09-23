@@ -5500,110 +5500,32 @@ export function CandidateProfileDrawer({
               >
                 <div className="flex h-full w-full flex-col bg-slate-50">
               <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 backdrop-blur">
-                <div className="flex items-start justify-between gap-4 px-5 py-5 sm:px-6">
-                  <div className="flex min-w-0 gap-4">
+                <div className="flex items-start justify-between gap-3 px-5 pt-3 sm:px-6">
+                  <div className="flex min-w-0 items-center gap-3">
                     <ImageWithFallback
                       src={candidate.avatar || ''}
                       fallbackInitials={initialsFromDisplayName(candidate.name)}
                       alt={candidate.name}
-                      className="h-16 w-16 shrink-0 rounded-2xl object-cover text-lg ring-1 ring-slate-200"
+                      className="h-11 w-11 shrink-0 rounded-xl object-cover text-base ring-1 ring-slate-200"
                     />
-
                     <div className="min-w-0">
-                      <h2 className="truncate text-2xl font-bold text-slate-900">{candidate.name}</h2>
-                      <p className="mt-1 truncate text-sm text-slate-500">{titleLine}</p>
-
-                      <div className="mt-4 space-y-2 text-sm">
-                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-slate-700">
-                          {onAddToPipeline ? (
-                            <button
-                              type="button"
-                              onClick={() => setShowAddToPipelineModal(true)}
-                              title={
-                                linkedJobLabel || candidate.assignedJob
-                                  ? 'Change or assign job'
-                                  : 'Assign job'
-                              }
-                              className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2.5 py-1 text-xs transition-colors hover:bg-indigo-100 hover:ring-2 hover:ring-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-300"
-                            >
-                              <span className="font-medium text-indigo-600">Assigned Job</span>
-                              <span className="font-semibold text-indigo-900">
-                                {linkedJobLabel || candidate.assignedJob || '—'}
-                              </span>
-                              <span className="ml-0.5 text-[10px] font-bold uppercase tracking-wide text-indigo-500">
-                                {linkedJobLabel || candidate.assignedJob ? 'Edit' : 'Assign'}
-                              </span>
-                            </button>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2.5 py-1 text-xs">
-                              <span className="font-medium text-indigo-600">Assigned Job</span>
-                              <span className="font-semibold text-indigo-900">
-                                {linkedJobLabel || candidate.assignedJob || '—'}
-                              </span>
-                            </span>
-                          )}
-                          <span
-                            className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold ${getStageClasses(
-                              candidate.stage
-                            )}`}
-                          >
-                            <span className="opacity-80">Stage</span>
-                            <span>{candidate.stage || '—'}</span>
-                          </span>
-                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs">
-                            <span className="font-medium text-emerald-600">Team Member</span>
-                            <span className="font-semibold text-emerald-900">{candidate.recruiter || '—'}</span>
-                          </span>
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-slate-700">
-                          <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                            Quick Contact
-                          </span>
-                          <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-1 text-xs">
-                            <span className="font-medium text-blue-600">Email</span>
-                            <span className="font-semibold text-blue-900">{candidate.email || '—'}</span>
-                          </span>
-                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1 text-xs">
-                            <span className="font-medium text-amber-600">Phone</span>
-                            <span className="font-semibold text-amber-900">{candidate.phone || '—'}</span>
-                          </span>
-                          <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2.5 py-1 text-xs">
-                            <span className="font-medium text-violet-600">Location</span>
-                            <span className="font-semibold text-violet-900">{candidate.location || '—'}</span>
-                          </span>
-                          <span className="inline-flex items-center gap-1 rounded-full bg-teal-50 px-2.5 py-1 text-xs">
-                            <span className="font-medium text-teal-600">Experience (CV)</span>
-                            <span className="font-semibold text-teal-900">{experienceDisplay}</span>
-                          </span>
-                        </div>
-                      </div>
+                      <h2 className="truncate text-lg font-bold text-slate-900">{candidate.name}</h2>
+                      <p className="truncate text-xs text-slate-500">{titleLine}</p>
                     </div>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => void requestCandidateDrawerClose()}
-                    className="rounded-xl p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
-                    aria-label="Close candidate profile"
-                  >
-                    <X size={20} />
-                  </button>
-                </div>
-
-                <div className="px-5 pb-4 sm:px-6">
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
                     {onUpdateCandidate ? (
                       <button
                         type="button"
                         onClick={startOverviewEdit}
-                        className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium ${
+                        className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium ${
                           showEditModal
                             ? 'border-blue-200 bg-blue-50 text-blue-800'
                             : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
                         }`}
                       >
-                        <SquarePen size={15} />
+                        <SquarePen size={13} />
                         {showEditModal ? 'Editing Overview' : 'Edit Candidate'}
                       </button>
                     ) : null}
@@ -5612,9 +5534,9 @@ export function CandidateProfileDrawer({
                         type="button"
                         onClick={() => saasaCv.openModal()}
                         disabled={saasaCv.busy}
-                        className="inline-flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
                       >
-                        <MessageSquare size={15} />
+                        <MessageSquare size={13} />
                         HRYantra CV
                         {saasaCv.annotationCount > 0 ? (
                           <span className="rounded-full bg-amber-200 px-1.5 py-0.5 text-[10px] font-bold tabular-nums">
@@ -5626,14 +5548,14 @@ export function CandidateProfileDrawer({
                     <button
                       type="button"
                       onClick={() => handleAction('move-stage')}
-                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                      className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
                     >
                       Move Stage
                     </button>
                     <button
                       type="button"
                       onClick={() => handleAction('schedule-interview')}
-                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                      className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
                     >
                       Schedule Interview
                     </button>
@@ -5641,12 +5563,83 @@ export function CandidateProfileDrawer({
                       <button
                         type="button"
                         onClick={() => openClientReviewLink(latestClientReview.reviewUrl)}
-                        className="inline-flex items-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-sm font-medium text-violet-800 hover:bg-violet-100"
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1.5 text-xs font-medium text-violet-800 hover:bg-violet-100"
                       >
-                        <ExternalLink size={15} />
+                        <ExternalLink size={13} />
                         Client view
                       </button>
                     ) : null}
+                    <button
+                      type="button"
+                      onClick={() => void requestCandidateDrawerClose()}
+                      className="rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
+                      aria-label="Close candidate profile"
+                    >
+                      <X size={18} />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="px-5 py-2 sm:px-6">
+                  <div className="flex flex-nowrap items-center gap-2 overflow-x-auto text-sm [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                    {onAddToPipeline ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowAddToPipelineModal(true)}
+                        title={
+                          linkedJobLabel || candidate.assignedJob
+                            ? 'Change or assign job'
+                            : 'Assign job'
+                        }
+                        className="inline-flex shrink-0 items-center gap-1 rounded-full bg-indigo-50 px-2.5 py-1 text-xs transition-colors hover:bg-indigo-100 hover:ring-2 hover:ring-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                      >
+                        <span className="font-medium text-indigo-600">Assigned Job</span>
+                        <span className="font-semibold text-indigo-900">
+                          {linkedJobLabel || candidate.assignedJob || '—'}
+                        </span>
+                        <span className="ml-0.5 text-[10px] font-bold uppercase tracking-wide text-indigo-500">
+                          {linkedJobLabel || candidate.assignedJob ? 'Edit' : 'Assign'}
+                        </span>
+                      </button>
+                    ) : (
+                      <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-indigo-50 px-2.5 py-1 text-xs">
+                        <span className="font-medium text-indigo-600">Assigned Job</span>
+                        <span className="font-semibold text-indigo-900">
+                          {linkedJobLabel || candidate.assignedJob || '—'}
+                        </span>
+                      </span>
+                    )}
+                    <span
+                      className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold ${getStageClasses(
+                        candidate.stage
+                      )}`}
+                    >
+                      <span className="opacity-80">Stage</span>
+                      <span>{candidate.stage || '—'}</span>
+                    </span>
+                    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs">
+                      <span className="font-medium text-emerald-600">Team Member</span>
+                      <span className="font-semibold text-emerald-900">{candidate.recruiter || '—'}</span>
+                    </span>
+                    <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                      Quick Contact
+                    </span>
+                    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-blue-50 px-2.5 py-1 text-xs">
+                      <span className="font-medium text-blue-600">Email</span>
+                      <span className="font-semibold text-blue-900">{candidate.email || '—'}</span>
+                    </span>
+                    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1 text-xs">
+                      <span className="font-medium text-amber-600">Phone</span>
+                      <span className="font-semibold text-amber-900">{candidate.phone || '—'}</span>
+                    </span>
+                    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-violet-50 px-2.5 py-1 text-xs">
+                      <span className="font-medium text-violet-600">Location</span>
+                      <span className="font-semibold text-violet-900">{candidate.location || '—'}</span>
+                    </span>
+                    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-teal-50 px-2.5 py-1 text-xs">
+                      <span className="font-medium text-teal-600">Experience (CV)</span>
+                      <span className="font-semibold text-teal-900">{experienceDisplay}</span>
+                    </span>
                   </div>
                 </div>
 
@@ -5655,6 +5648,7 @@ export function CandidateProfileDrawer({
                   tabs={visibleTabs}
                   activeId={activeTab}
                   onChange={setActiveTab}
+                  compact
                 />
               </div>
 

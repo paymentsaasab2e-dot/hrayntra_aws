@@ -120,6 +120,7 @@ function entryFromVisaParts(
     isPrimary?: boolean;
     country?: string;
     countryName?: string;
+    requiresVisa?: string;
     visaDetails?: Record<string, unknown> | null;
     visaWorkpermitRequired?: string;
     additionalRemarks?: string;
@@ -129,13 +130,22 @@ function entryFromVisaParts(
   const visaType = str(details.visaType);
   const country = str(parts.country);
   const countryName = str(parts.countryName) || countryDisplayName(country);
+  const explicitRequires = str(parts.requiresVisa);
+  const requiresVisa =
+    explicitRequires === 'Yes' || explicitRequires === 'No'
+      ? explicitRequires
+      : visaType
+        ? 'Yes'
+        : str(parts.visaWorkpermitRequired)
+          ? 'No'
+          : '';
 
   return {
     id: parts.id,
     isPrimary: parts.isPrimary,
     country: country || undefined,
     countryName: countryName || undefined,
-    requiresVisa: visaType ? 'Yes' : str(parts.visaWorkpermitRequired) ? 'No' : '',
+    requiresVisa,
     visaType: visaType || undefined,
     visaStatus: str(details.visaStatus) || undefined,
     visaExpiryDate: str(details.visaExpiryDate) || undefined,
@@ -144,6 +154,24 @@ function entryFromVisaParts(
     documents: parseVisaDocuments(details.documents),
     additionalRemarks: str(parts.additionalRemarks) || undefined,
   };
+}
+
+export function visaEntryHasContent(entry: CandidateVisaEntryRecord | Record<string, unknown>): boolean {
+  const row = entry as Record<string, unknown>;
+  const documents = Array.isArray(row.documents) ? row.documents : [];
+  return Boolean(
+    str(row.country) ||
+      str(row.countryName) ||
+      str(row.destination) ||
+      str(row.requiresVisa) ||
+      str(row.visaType) ||
+      str(row.visaExpiryDate) ||
+      str(row.workPermitNumber) ||
+      str(row.itemFamilyNumber) ||
+      str(row.visaWorkpermitRequired) ||
+      str(row.additionalRemarks) ||
+      documents.length,
+  );
 }
 
 export function extractVisaDisplayEntries(
@@ -164,13 +192,26 @@ export function extractVisaDisplayEntries(
   }
 
   const destination = str(visa.selectedDestination);
-  if (destination) {
+  const primaryDetails =
+    visa.visaDetailsExpected && typeof visa.visaDetailsExpected === 'object'
+      ? (visa.visaDetailsExpected as Record<string, unknown>)
+      : null;
+  const hasPrimary = Boolean(
+    destination ||
+      str(visa.requiresVisa) ||
+      str(visa.visaWorkpermitRequired) ||
+      str(visa.additionalRemarks) ||
+      str(primaryDetails?.visaType) ||
+      str(primaryDetails?.itemFamilyNumber),
+  );
+  if (hasPrimary) {
     entries.push(
       entryFromVisaParts({
         id: 'primary',
         isPrimary: true,
         country: destination,
-        visaDetails: (visa.visaDetailsExpected as Record<string, unknown>) || null,
+        requiresVisa: str(visa.requiresVisa),
+        visaDetails: primaryDetails,
         visaWorkpermitRequired: str(visa.visaWorkpermitRequired),
         additionalRemarks: str(visa.additionalRemarks),
       }),
@@ -181,12 +222,29 @@ export function extractVisaDisplayEntries(
   for (const raw of nestedEntries) {
     if (!raw || typeof raw !== 'object') continue;
     const row = raw as Record<string, unknown>;
+    const country = str(row.country) || str(row.destination);
+    if (destination && country && country === destination) continue;
+    const details =
+      row.visaDetails && typeof row.visaDetails === 'object'
+        ? (row.visaDetails as Record<string, unknown>)
+        : str(row.visaType) || str(row.workPermitNumber)
+          ? {
+              visaType: row.visaType,
+              visaStatus: row.visaStatus,
+              visaExpiryDate: row.visaExpiryDate,
+              itemFamilyNumber: row.workPermitNumber,
+              documents: row.documents,
+            }
+          : null;
     entries.push(
       entryFromVisaParts({
         id: str(row.id) || undefined,
-        country: str(row.country) || str(row.destination),
+        isPrimary: row.isPrimary === true,
+        country,
         countryName: str(row.countryName),
-        visaDetails: (row.visaDetails as Record<string, unknown>) || null,
+        requiresVisa: str(row.requiresVisa),
+        visaDetails: details,
+        visaWorkpermitRequired: str(row.visaWorkpermitRequired),
         additionalRemarks: str(row.additionalRemarks),
       }),
     );
@@ -227,52 +285,51 @@ export function normalizeVisaEntryRecord(
   };
 }
 
+function storedVisaEntry(entry: CandidateVisaEntryRecord): Record<string, unknown> {
+  return {
+    id: entry.id || `visa-${Date.now()}`,
+    isPrimary: entry.isPrimary === true,
+    country: entry.country || '',
+    countryName: entry.countryName || countryDisplayName(entry.country),
+    requiresVisa: entry.requiresVisa || '',
+    visaWorkpermitRequired: entry.requiresVisa === 'No' ? entry.visaWorkpermitRequired || '' : '',
+    visaType: entry.visaType || '',
+    visaStatus: entry.visaStatus || '',
+    visaExpiryDate: entry.visaExpiryDate || '',
+    workPermitNumber: entry.workPermitNumber || '',
+    visaDetails:
+      entry.requiresVisa === 'Yes'
+        ? buildVisaDetailsPayload(entry)
+        : { id: 'expected', visaType: '', visaStatus: 'Active', documents: [] },
+    additionalRemarks: entry.additionalRemarks || '',
+    documents: entry.documents || [],
+  };
+}
+
 export function visaDisplayEntriesToSnapshot(
   entries: CandidateVisaEntryRecord[],
   previous?: Record<string, unknown> | null,
 ): Record<string, unknown> {
   const normalized = entries.map((entry) => normalizeVisaEntryRecord(entry));
-  const primary = normalized.find((entry) => entry.isPrimary) ?? normalized[0];
-  const rest = normalized.filter((entry) => entry !== primary && (entry.country || entry.countryName));
-
-  if (!primary) {
-    return {
-      ...(previous || {}),
-      selectedDestination: '',
-      visaDetailsExpected: undefined,
-      visaWorkpermitRequired: '',
-      additionalRemarks: '',
-      visaEntries: rest.map((entry) => ({
-        id: entry.id || `visa-${Date.now()}`,
-        country: entry.country || '',
-        countryName: entry.countryName || countryDisplayName(entry.country),
-        visaDetails:
-          entry.requiresVisa === 'Yes'
-            ? buildVisaDetailsPayload(entry)
-            : { id: 'expected', visaType: '', visaStatus: 'Active', documents: [] },
-        additionalRemarks: entry.additionalRemarks || '',
-      })),
-    };
-  }
+  const primary =
+    normalized.find((entry) => entry.isPrimary && visaEntryHasContent(entry)) ||
+    normalized.find((entry) => entry.country || entry.countryName) ||
+    normalized.find((entry) => visaEntryHasContent(entry)) ||
+    null;
+  const rest = normalized.filter((entry) => entry !== primary && visaEntryHasContent(entry));
+  const previousRecord = { ...(previous || {}) };
+  delete previousRecord.editorEntries;
 
   return {
-    ...(previous || {}),
-    openForAll: previous?.openForAll === true,
-    selectedDestination: primary.country || primary.countryName || '',
+    ...previousRecord,
+    openForAll: previous?.openForAll === true && !primary,
+    selectedDestination: primary?.country || primary?.countryName || '',
+    requiresVisa: primary?.requiresVisa || '',
     visaDetailsExpected:
-      primary.requiresVisa === 'Yes' ? buildVisaDetailsPayload(primary) : undefined,
+      primary?.requiresVisa === 'Yes' ? buildVisaDetailsPayload(primary) : undefined,
     visaWorkpermitRequired:
-      primary.requiresVisa === 'No' ? primary.visaWorkpermitRequired || '' : '',
-    additionalRemarks: primary.additionalRemarks || '',
-    visaEntries: rest.map((entry) => ({
-      id: entry.id || `visa-${Date.now()}`,
-      country: entry.country || '',
-      countryName: entry.countryName || countryDisplayName(entry.country),
-      visaDetails:
-        entry.requiresVisa === 'Yes'
-          ? buildVisaDetailsPayload(entry)
-          : { id: 'expected', visaType: '', visaStatus: 'Active', documents: [] },
-      additionalRemarks: entry.additionalRemarks || '',
-    })),
+      primary?.requiresVisa === 'No' ? primary.visaWorkpermitRequired || '' : '',
+    additionalRemarks: primary?.additionalRemarks || '',
+    visaEntries: rest.map((entry) => storedVisaEntry(entry)),
   };
 }

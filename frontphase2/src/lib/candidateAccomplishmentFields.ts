@@ -105,6 +105,21 @@ export function normalizeAccomplishmentRecord(
   };
 }
 
+export function accomplishmentHasContent(
+  entry: CandidateAccomplishmentRecord | Record<string, unknown>,
+): boolean {
+  const row = normalizeAccomplishmentRecord(entry);
+  return Boolean(
+    row.title ||
+      row.category ||
+      row.organization ||
+      row.achievementDate ||
+      row.description ||
+      row.supportingDocument ||
+      (row.documents && row.documents.length),
+  );
+}
+
 export function accomplishmentRecordToSnapshotRow(
   entry: CandidateAccomplishmentRecord,
 ): Record<string, unknown> {

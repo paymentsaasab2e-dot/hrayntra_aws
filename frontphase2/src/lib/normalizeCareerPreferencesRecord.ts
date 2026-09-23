@@ -1,8 +1,10 @@
 /** Client-side normalization aligned with Phase 1 profile GET + portal DB shape. */
 
 function normalizeStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value.map((item) => String(item || '').trim()).filter(Boolean);
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item || '').trim()).filter(Boolean);
+  }
+  return parseSemicolonList(value);
 }
 
 export function parseSemicolonList(value: unknown): string[] {
@@ -34,7 +36,16 @@ export function normalizeCareerWorkModeLabel(value: unknown): string {
   return String(value).trim();
 }
 
-function extractWorkModes(passportNumbersByLocation: unknown, preferredWorkMode: unknown): string[] {
+function extractWorkModes(
+  passportNumbersByLocation: unknown,
+  preferredWorkMode: unknown,
+  explicitWorkModes?: unknown,
+): string[] {
+  const explicit = parseSemicolonList(explicitWorkModes)
+    .map((mode) => (mode === 'On Site' ? 'On-site' : normalizeCareerWorkModeLabel(mode) || mode))
+    .filter(Boolean);
+  if (explicit.length) return [...new Set(explicit)];
+
   const rawMeta = passportNumbersByLocation;
   const rawModes =
     rawMeta && typeof rawMeta === 'object' && !Array.isArray(rawMeta) && Array.isArray((rawMeta as Record<string, unknown>).__workModes)
@@ -81,7 +92,11 @@ export function normalizeCareerPreferencesRecord(
   const functionalAreas = parseSemicolonList(raw.functionalAreas).length
     ? parseSemicolonList(raw.functionalAreas)
     : parseSemicolonList(raw.functionalArea);
-  const workModes = extractWorkModes(raw.passportNumbersByLocation, raw.preferredWorkMode);
+  const workModes = extractWorkModes(
+    raw.passportNumbersByLocation,
+    raw.preferredWorkMode,
+    raw.workModes,
+  );
   const noticePeriod =
     String(raw.noticePeriod ?? '').trim() ||
     (raw.noticePeriodDays != null && Number.isFinite(Number(raw.noticePeriodDays))
