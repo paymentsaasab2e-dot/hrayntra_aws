@@ -42,19 +42,70 @@ function asStringArray(value) {
   return [];
 }
 
-function formatPrefValue(value) {
-  if (Array.isArray(value)) return asStringArray(value).join(', ');
-  if (value && typeof value === 'object') {
+/** Readable text for client review. Arrays and JSON lists never render as `[...]`. */
+export function formatReviewText(value) {
+  if (value === undefined || value === null) return '';
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  if (typeof value === 'number') return Number.isFinite(value) ? String(value) : '';
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => formatReviewText(item))
+      .filter((item) => item && item !== '[object Object]')
+      .join(', ');
+  }
+  if (typeof value === 'object') {
+    return Object.values(value)
+      .map((item) => formatReviewText(item))
+      .filter(Boolean)
+      .join(', ');
+  }
+  const text = String(value).trim();
+  if (
+    !text ||
+    text === '[' ||
+    text === ']' ||
+    text === '[object Object]' ||
+    text === '[]' ||
+    text === '{}' ||
+    text === 'null'
+  ) {
+    return '';
+  }
+  if (
+    (text.startsWith('[') && text.endsWith(']')) ||
+    (text.startsWith('{') && text.endsWith('}'))
+  ) {
     try {
-      const parts = Object.values(value)
-        .map((item) => String(item || '').trim())
-        .filter(Boolean);
-      if (parts.length) return parts.join(', ');
+      return formatReviewText(JSON.parse(text));
     } catch {
-      /* ignore */
+      return text.replace(/^\[/, '').replace(/\]$/, '').trim();
     }
   }
-  return isNonEmptyValue(value) ? String(value).trim() : '';
+  return text;
+}
+
+function formatPrefValue(value) {
+  return formatReviewText(value);
+}
+
+/** Later records win per key when they actually contain a value. */
+function mergeCareerPreferenceRecords(...sources) {
+  const merged = {};
+  for (const source of sources) {
+    if (!source || typeof source !== 'object' || Array.isArray(source)) continue;
+    for (const [key, value] of Object.entries(source)) {
+      if (!isNonEmptyValue(value)) continue;
+      if (key === 'passportNumbersByLocation' && merged.passportNumbersByLocation) {
+        merged.passportNumbersByLocation = {
+          ...merged.passportNumbersByLocation,
+          ...value,
+        };
+        continue;
+      }
+      merged[key] = value;
+    }
+  }
+  return merged;
 }
 
 function snapshotFillScore(snapshot) {
@@ -125,7 +176,7 @@ function mergePhase1Snapshots(primary, secondary) {
     merged[key] = fromA.length >= fromB.length ? fromA : fromB;
   }
   merged.summaryText = pickPreferred(a.summaryText, b.summaryText);
-  merged.careerPreferences = pickPreferred(a.careerPreferences, b.careerPreferences);
+  merged.careerPreferences = mergeCareerPreferenceRecords(b.careerPreferences, a.careerPreferences);
   merged.visaWorkAuthorization = pickPreferred(a.visaWorkAuthorization, b.visaWorkAuthorization);
   merged.vaccination = pickPreferred(a.vaccination, b.vaccination);
   merged.resume = pickPreferred(a.resume, b.resume);
@@ -531,42 +582,26 @@ function pipelineSection(extra, key) {
 }
 
 function formatListValue(value) {
-  if (!isNonEmptyValue(value)) return '';
-  if (Array.isArray(value)) {
-    return value
-      .map((item) => {
-        if (item && typeof item === 'object') {
-          const lang = item.language || item.name || '';
-          const prof = item.proficiency || item.level || '';
-          const joined = [lang, prof]
-            .map((part) => String(part || '').trim())
-            .filter(Boolean)
-            .join(' | ');
-          if (joined) return joined;
-          return Object.values(item)
-            .map((part) => (typeof part === 'object' ? '' : String(part || '').trim()))
-            .filter(Boolean)
-            .join(' | ');
-        }
-        return String(item || '').trim();
-      })
-      .filter(Boolean)
-      .join('\n');
+  return formatReviewText(value);
+}
+
+function preferReviewText(...values) {
+  for (const value of values) {
+    const text = formatReviewText(value);
+    if (text) return text;
   }
-  return String(value).trim();
+  return '';
 }
 
 function extraProfileBag(candidate) {
   const extra = parseExtra(candidate?.extraData);
   const phase1 = resolveLivePhase1Snapshot(candidate);
   const personal = phase1?.personalInfo && typeof phase1.personalInfo === 'object' ? phase1.personalInfo : {};
-  const prefs =
-    (candidate?.careerPreferences && typeof candidate.careerPreferences === 'object'
-      ? candidate.careerPreferences
-      : null) ||
-    (extra.careerPreferences && typeof extra.careerPreferences === 'object' ? extra.careerPreferences : null) ||
-    (phase1?.careerPreferences && typeof phase1.careerPreferences === 'object' ? phase1.careerPreferences : {}) ||
-    {};
+  const prefs = mergeCareerPreferenceRecords(
+    candidate?.careerPreferences,
+    extra.careerPreferences,
+    phase1?.careerPreferences,
+  );
   return {
     extra,
     personal,
@@ -746,22 +781,40 @@ function buildEditFormFromCandidate(hydrated) {
     remarks: pickPreferred(hydrated.remarks, professionalPipe.remarks || extra.remarks),
     currentSalary: pickPreferred(
       hydrated.currentSalary,
-      extra.currentSalary || salary.current || salary.min,
+      prefs.currentSalary || extra.currentSalary || salary.current || salary.min,
     ),
-    currentSalaryCurrency: pickPreferred(
+    currentSalaryCurrency: preferReviewText(
+      prefs.currentCurrency,
       professionalPipe.currentSalaryCurrency,
-      extra.currentSalaryCurrency || salary.currency,
+      extra.currentSalaryCurrency,
+      salary.currency,
     ),
-    currentBenefits: pickPreferred(professionalPipe.currentBenefits, extra.currentBenefits),
+    currentBenefits: preferReviewText(
+      prefs.currentBenefits,
+      professionalPipe.currentBenefits,
+      extra.currentBenefits,
+    ),
     expectedSalary: pickPreferred(
       hydrated.expectedSalary,
-      extra.expectedSalary || salary.expected || salary.max || salary.amount || prefs.preferredSalary || prefs.salaryAmount,
+      prefs.preferredSalary ||
+        prefs.salaryAmount ||
+        extra.expectedSalary ||
+        salary.expected ||
+        salary.max ||
+        salary.amount,
     ),
-    expectedSalaryCurrency: pickPreferred(
+    expectedSalaryCurrency: preferReviewText(
+      prefs.preferredCurrency,
+      prefs.salaryCurrency,
       professionalPipe.expectedSalaryCurrency,
-      extra.expectedSalaryCurrency || salary.currency || prefs.preferredCurrency,
+      extra.expectedSalaryCurrency,
+      salary.currency,
     ),
-    expectedBenefits: pickPreferred(professionalPipe.expectedBenefits, extra.expectedBenefits),
+    expectedBenefits: preferReviewText(
+      prefs.preferredBenefits,
+      professionalPipe.expectedBenefits,
+      extra.expectedBenefits,
+    ),
     noticePeriod: pickPreferred(hydrated.noticePeriod, prefs.noticePeriod),
     workHistoryText: pickPreferred(
       summaryPipe.workHistory,
@@ -776,7 +829,11 @@ function buildEditFormFromCandidate(hydrated) {
     p1PreferredIndustries: formatPrefValue(prefs.preferredIndustries || prefs.preferredIndustry),
     p1FunctionalAreas: formatPrefValue(prefs.functionalAreas || prefs.functionalArea),
     p1JobTypes: formatPrefValue(prefs.jobTypes),
-    p1WorkModes: formatPrefValue(prefs.workModes || prefs.preferredWorkMode),
+    p1WorkModes: formatPrefValue(
+      prefs.workModes ||
+        prefs.preferredWorkMode ||
+        prefs.passportNumbersByLocation?.__workModes,
+    ),
     p1PreferredLocations: formatPrefValue(prefs.preferredLocations),
     p1Relocation: formatPrefValue(prefs.relocationPreference),
     p1AvailabilityToStart: formatPrefValue(prefs.availabilityToStart || hydrated.availability),

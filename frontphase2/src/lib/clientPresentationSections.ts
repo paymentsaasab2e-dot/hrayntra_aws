@@ -49,14 +49,35 @@ export const DEFAULT_CLIENT_SECTION_VISIBILITY: ClientSectionVisibility = {
 
 function str(value: unknown): string {
   if (value === undefined || value === null) return '';
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  if (typeof value === 'number') return Number.isFinite(value) ? String(value) : '';
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => str(item))
+      .filter((item) => item && item !== '[object Object]')
+      .join(', ');
+  }
   if (typeof value === 'object') {
+    return Object.values(value as Record<string, unknown>)
+      .map((item) => str(item))
+      .filter(Boolean)
+      .join(', ');
+  }
+  const text = String(value).trim();
+  if (!text || text === '[object Object]' || text === '[]' || text === '{}' || text === 'null') {
+    return '';
+  }
+  if (
+    (text.startsWith('[') && text.endsWith(']')) ||
+    (text.startsWith('{') && text.endsWith('}'))
+  ) {
     try {
-      return JSON.stringify(value);
+      return str(JSON.parse(text) as unknown);
     } catch {
-      return '';
+      return text.replace(/^\[/, '').replace(/\]$/, '').trim();
     }
   }
-  return String(value).trim();
+  return text;
 }
 
 function reviewField(label: string, value: unknown): ClientReviewField {
