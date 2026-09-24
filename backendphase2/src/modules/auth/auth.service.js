@@ -182,9 +182,38 @@ async function rerunLoginInResolvedTenant(loginIdOrEmail, user, credential, reru
 }
 
 /**
+ * Password did not match the workspace we tried first (stale directory row or
+ * header). Search every other tenant DB and continue login in the one where
+ * this password is valid.
+ */
+async function retryLoginWherePasswordMatches(
+  loginIdOrEmail,
+  password,
+  ipAddress,
+  userAgent,
+  deviceMeta,
+  loginFn
+) {
+  if (deviceMeta?._passwordTenantScanDone) return null;
+  const active = String(getActiveTenantDbName() || '').trim();
+  const matched = await headquartersAuthService.findTenantDbNameForUserByPassword(
+    loginIdOrEmail,
+    password,
+    active
+  );
+  if (!matched || matched === active) return null;
+  return runWithTenantContext(matched, () =>
+    loginFn(loginIdOrEmail, password, ipAddress, userAgent, {
+      ...deviceMeta,
+      _passwordTenantScanDone: true,
+      _tenantCredentialScanDone: true,
+    })
+  );
+}
+
+/**
  * HQ map missed or pointed at the wrong tenant (user/credential not found).
  * Scan all known + Mongo tenant DBs for this identity, cache the mapping, retry login once.
- * Does NOT run when the password was wrong in the correct tenant.
  */
 async function retryLoginAfterTenantCredentialScan(
   loginIdOrEmail,
@@ -996,6 +1025,15 @@ export const authService = {
         if (hqTeamResult) {
           return hqTeamResult;
         }
+        const passwordRetry = await retryLoginWherePasswordMatches(
+          loginIdOrEmail,
+          password,
+          ipAddress,
+          userAgent,
+          deviceMeta,
+          (a, b, c, d, e) => this.login(a, b, c, d, e)
+        );
+        if (passwordRetry) return passwordRetry;
         const scannedRetry = await retryLoginAfterTenantCredentialScan(
           loginIdOrEmail,
           password,
@@ -1012,6 +1050,15 @@ export const authService = {
 
       // Check if user status is INACTIVE
       if (!user || user.status === 'INACTIVE') {
+        const passwordRetry = await retryLoginWherePasswordMatches(
+          loginIdOrEmail,
+          password,
+          ipAddress,
+          userAgent,
+          deviceMeta,
+          (a, b, c, d, e) => this.login(a, b, c, d, e)
+        );
+        if (passwordRetry) return passwordRetry;
         throw new Error('Account is deactivated');
       }
 
@@ -1046,6 +1093,15 @@ export const authService = {
         if (hqTeamResult) {
           return hqTeamResult;
         }
+        const passwordRetry = await retryLoginWherePasswordMatches(
+          loginIdOrEmail,
+          password,
+          ipAddress,
+          userAgent,
+          deviceMeta,
+          (a, b, c, d, e) => this.login(a, b, c, d, e)
+        );
+        if (passwordRetry) return passwordRetry;
         throw new Error('Invalid credentials');
       }
 
@@ -1194,6 +1250,15 @@ export const authService = {
       if (hqTeamResult) {
         return hqTeamResult;
       }
+      const passwordRetry = await retryLoginWherePasswordMatches(
+        loginIdOrEmail,
+        password,
+        ipAddress,
+        userAgent,
+        deviceMeta,
+        (a, b, c, d, e) => this.login(a, b, c, d, e)
+      );
+      if (passwordRetry) return passwordRetry;
       const scannedRetry = await retryLoginAfterTenantCredentialScan(
         loginIdOrEmail,
         password,
@@ -1214,6 +1279,15 @@ export const authService = {
       if (hqTeamResult) {
         return hqTeamResult;
       }
+      const passwordRetry = await retryLoginWherePasswordMatches(
+        loginIdOrEmail,
+        password,
+        ipAddress,
+        userAgent,
+        deviceMeta,
+        (a, b, c, d, e) => this.login(a, b, c, d, e)
+      );
+      if (passwordRetry) return passwordRetry;
       throw new Error('Invalid credentials');
     }
 
@@ -1249,6 +1323,15 @@ export const authService = {
         if (hqTeamResult) {
           return hqTeamResult;
         }
+        const passwordRetry = await retryLoginWherePasswordMatches(
+          loginIdOrEmail,
+          password,
+          ipAddress,
+          userAgent,
+          deviceMeta,
+          (a, b, c, d, e) => this.login(a, b, c, d, e)
+        );
+        if (passwordRetry) return passwordRetry;
         throw new Error('Invalid credentials');
       }
 
@@ -1374,6 +1457,15 @@ export const authService = {
         if (hqTeamResult) {
           return hqTeamResult;
         }
+        const passwordRetry = await retryLoginWherePasswordMatches(
+          loginIdOrEmail,
+          password,
+          ipAddress,
+          userAgent,
+          deviceMeta,
+          (a, b, c, d, e) => this.login(a, b, c, d, e)
+        );
+        if (passwordRetry) return passwordRetry;
         throw new Error('Invalid credentials');
       }
 

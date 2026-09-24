@@ -262,7 +262,9 @@ async function refreshAccessTokenSingleFlight(): Promise<string | null> {
         method: 'POST',
         body: { refreshToken },
         auth: false,
-        includeTenantHeader: true,
+        // Token already names the workspace. A saved tenant header from another
+        // account makes refresh look in the wrong database and ends the session.
+        includeTenantHeader: false,
       });
       const nextAccess = refreshResponse?.data?.accessToken;
       if (!nextAccess) return null;
@@ -6716,6 +6718,7 @@ export interface UpdateCandidatePayload {
   resume?: string | null;
   skills?: string[];
   experience?: number | null;
+  experienceYears?: number | null;
   currentTitle?: string;
   currentCompany?: string;
   designation?: string;

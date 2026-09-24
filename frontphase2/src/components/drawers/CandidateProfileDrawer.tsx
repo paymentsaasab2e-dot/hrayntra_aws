@@ -4759,6 +4759,8 @@ export function CandidateProfileDrawer({
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [rejectModalJobId, setRejectModalJobId] = useState<string | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [totalExperienceDraft, setTotalExperienceDraft] = useState('');
+  const [totalExperienceFocused, setTotalExperienceFocused] = useState(false);
   const [phase1EditSnapshot, setPhase1EditSnapshot] = useState<Phase1ProfileSnapshot | null>(null);
   const [editForm, setEditForm] = useState<CandidateEditFormState | null>(null);
   const [editAvatarFile, setEditAvatarFile] = useState<File | null>(null);
@@ -4945,6 +4947,41 @@ export function CandidateProfileDrawer({
     const years = resolveCandidateExperienceYears(candidate);
     return formatCandidateExperienceForTable(years, work.length);
   }, [candidate]);
+
+  useEffect(() => {
+    if (totalExperienceFocused || showEditModal) return;
+    setTotalExperienceDraft(
+      candidate?.totalNoOfExperience != null ? String(candidate.totalNoOfExperience) : '',
+    );
+  }, [candidate?.totalNoOfExperience, candidate?.id, totalExperienceFocused, showEditModal]);
+
+  const persistTotalExperience = useCallback(
+    async (raw: string) => {
+      if (!candidate || !onUpdateCandidate) return;
+      const trimmed = String(raw || '').trim();
+      let next: number | null;
+      if (!trimmed) {
+        next = null;
+      } else {
+        const parsed = Number.parseInt(trimmed, 10);
+        if (!Number.isFinite(parsed) || parsed < 0) {
+          setTotalExperienceDraft(
+            candidate.totalNoOfExperience != null ? String(candidate.totalNoOfExperience) : '',
+          );
+          return;
+        }
+        next = parsed;
+      }
+      if ((candidate.totalNoOfExperience ?? null) === next) return;
+      await Promise.resolve(
+        onUpdateCandidate(candidate.id, { experience: next, experienceYears: next }),
+      );
+      if (onRefreshCandidate) {
+        await Promise.resolve(onRefreshCandidate(candidate.id));
+      }
+    },
+    [candidate, onUpdateCandidate, onRefreshCandidate],
+  );
 
   const titleLine = useMemo(() => {
     if (!candidate) return '—';
@@ -5636,10 +5673,35 @@ export function CandidateProfileDrawer({
                       <span className="font-medium text-violet-600">Location</span>
                       <span className="font-semibold text-violet-900">{candidate.location || '—'}</span>
                     </span>
-                    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-teal-50 px-2.5 py-1 text-xs">
-                      <span className="font-medium text-teal-600">Experience (CV)</span>
-                      <span className="font-semibold text-teal-900">{experienceDisplay}</span>
-                    </span>
+                    <label className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-teal-50 px-2.5 py-1 text-xs">
+                      <span className="font-medium text-teal-700">Total No. of Experience</span>
+                      <input
+                        value={
+                          showEditModal && editForm
+                            ? editForm.experience
+                            : totalExperienceDraft
+                        }
+                        onChange={(event) => {
+                          const next = event.target.value;
+                          if (showEditModal && editForm) {
+                            updateEditField('experience', next);
+                            return;
+                          }
+                          setTotalExperienceDraft(next);
+                        }}
+                        onFocus={() => setTotalExperienceFocused(true)}
+                        onBlur={(event) => {
+                          setTotalExperienceFocused(false);
+                          if (showEditModal) return;
+                          void persistTotalExperience(event.currentTarget.value);
+                        }}
+                        placeholder="e.g. 5"
+                        inputMode="decimal"
+                        disabled={!onUpdateCandidate}
+                        className="w-14 bg-transparent text-xs font-semibold text-teal-950 outline-none placeholder:font-normal placeholder:text-teal-400 disabled:cursor-default"
+                        aria-label="Total No. of Experience"
+                      />
+                    </label>
                   </div>
                 </div>
 

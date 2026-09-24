@@ -285,7 +285,8 @@ export function buildCandidateEditForm(candidate: CandidateProfileDrawerData): C
       candidate.currentTitle && candidate.currentTitle !== 'â€”' ? candidate.currentTitle : '',
     currentCompany:
       candidate.currentCompany && candidate.currentCompany !== 'â€”' ? candidate.currentCompany : '',
-    experience: candidate.experience != null ? String(candidate.experience) : '',
+    experience:
+      candidate.totalNoOfExperience != null ? String(candidate.totalNoOfExperience) : '',
     location: candidate.location && candidate.location !== 'â€”' ? candidate.location : '',
     stage: candidate.stage && candidate.stage !== 'â€”' ? candidate.stage : 'Applied',
     status: candidate.status && candidate.status !== 'â€”' ? candidate.status : 'NEW',
@@ -666,6 +667,7 @@ export function buildUpdatePayloadFromEditForm(
     designation:
       str(normalizedCareer?.currentRole) || str(editForm.currentTitle) || undefined,
     experience: parseOptionalNumber(editForm.experience),
+    experienceYears: parseOptionalNumber(editForm.experience),
     location:
       str(normalizedCareer?.currentLocation) || str(editForm.location) || undefined,
     stage: str(editForm.stage) || undefined,
@@ -1095,14 +1097,6 @@ export function CandidateEditAtsSections({
           <div className="md:col-span-2">
             <EditTextarea label="Remarks" value={form.remarks} onChange={(v) => onChange('remarks', v)} rows={3} />
           </div>
-        ) : null}
-        {showField('experience') ? (
-          <EditField
-            label="Experience (years)"
-            value={form.experience}
-            onChange={(v) => onChange('experience', v)}
-            type="number"
-          />
         ) : null}
         {showField('currentCompany') ? (
           <EditField

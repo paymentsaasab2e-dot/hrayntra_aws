@@ -706,6 +706,9 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
     currentCompany: c.currentCompany || null,
     stage,
     experience: resolveCandidateExperienceYears(c) ?? 0,
+    totalNoOfExperience:
+      toNum(c.experience) ??
+      toNum((c as { experienceYears?: number | null }).experienceYears),
     location: c.location || '—',
     email: displayCandidateEmail(c.email) || c.email || '',
     phone: c.phone || '—',

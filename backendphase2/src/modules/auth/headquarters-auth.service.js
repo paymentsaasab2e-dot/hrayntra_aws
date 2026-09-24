@@ -1304,6 +1304,92 @@ export const headquartersAuthService = {
   },
 
   /**
+   * Find the workspace where this user id AND password match.
+   * Skips the tenant already tried so a wrong directory row does not block login.
+   */
+  async findTenantDbNameForUserByPassword(identifier, password, skipTenant = '') {
+    const plain = String(password || '');
+    if (!plain) return '';
+    const normalizedLogin = normalizeLookupValue(identifier);
+    const normalizedEmail = normalizeEmail(identifier);
+    if (!normalizedLogin && !normalizedEmail) return '';
+    const skip = normalizeLookupValue(skipTenant);
+
+    let tenants = [];
+    try {
+      const registryTenants = await this.listDistinctTenantDbNames();
+      const mongoTenants = await this.listTenantDbNamesFromMongo();
+      const seen = new Set();
+      tenants = [...registryTenants, ...mongoTenants].filter((raw) => {
+        const name = normalizeLookupValue(raw);
+        if (!name || name === skip || seen.has(name)) return false;
+        seen.add(name);
+        return true;
+      });
+    } catch {
+      return '';
+    }
+
+    let bcrypt;
+    try {
+      bcrypt = (await import('bcryptjs')).default;
+    } catch {
+      return '';
+    }
+
+    for (const tenantDbName of tenants) {
+      let matched = false;
+      try {
+        matched = await runWithTenantContext(tenantDbName, async () => {
+          const or = [];
+          if (normalizedLogin) {
+            or.push({ loginId: normalizedLogin });
+            or.push({ loginId: normalizedLogin.toLowerCase() });
+          }
+          if (normalizedEmail) {
+            or.push({ user: { email: normalizedEmail } });
+          }
+          if (or.length) {
+            const creds = await prisma.userCredential.findMany({
+              where: { OR: or },
+              take: 8,
+              select: {
+                hashedPassword: true,
+                user: { select: { status: true, isActive: true } },
+              },
+            });
+            for (const cred of creds) {
+              const status = String(cred?.user?.status || '').toUpperCase();
+              if (status === 'INACTIVE' || cred?.user?.isActive === false) continue;
+              if (!cred?.hashedPassword) continue;
+              if (await bcrypt.compare(plain, cred.hashedPassword)) return true;
+            }
+          }
+          if (!normalizedEmail) return false;
+          const legacy = await prisma.user.findUnique({
+            where: { email: normalizedEmail },
+            select: { passwordHash: true, status: true, isActive: true },
+          });
+          if (!legacy?.passwordHash) return false;
+          if (legacy.isActive === false) return false;
+          if (String(legacy.status || '').toUpperCase() === 'INACTIVE') return false;
+          return bcrypt.compare(plain, legacy.passwordHash);
+        });
+      } catch {
+        matched = false;
+      }
+      if (!matched) continue;
+      await this.upsertTenantUserDirectoryEntry({
+        email: normalizedEmail || undefined,
+        loginId: normalizedLogin || undefined,
+        tenantDbName,
+      });
+      return tenantDbName;
+    }
+    return '';
+  },
+
+  /**
    * When `_tenant_user_directory` has no row (or HQ map is stale), scan known
    * tenants then every Mongo DB for a matching `UserCredential` so plain
    * `/login` still routes to the correct workspace.
