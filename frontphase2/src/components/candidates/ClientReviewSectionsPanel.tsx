@@ -84,19 +84,30 @@ function display(value: unknown): string {
       .filter(Boolean)
       .join(', ');
   }
+  if (typeof value === 'object') {
+    return Object.values(value as Record<string, unknown>)
+      .map((item) => display(item))
+      .filter(Boolean)
+      .join(', ');
+  }
   const raw = String(value).trim();
-  if (!raw || raw === 'No entries provided' || raw === '[]' || raw === '{}') return '';
+  if (
+    !raw ||
+    raw === 'No entries provided' ||
+    raw === '[]' ||
+    raw === '{}' ||
+    raw === '[' ||
+    raw === ']' ||
+    raw === '[object Object]' ||
+    raw === 'null'
+  ) {
+    return '';
+  }
   if ((raw.startsWith('[') && raw.endsWith(']')) || (raw.startsWith('{') && raw.endsWith('}'))) {
     try {
-      const parsed = JSON.parse(raw) as unknown;
-      if (Array.isArray(parsed)) {
-        return parsed
-          .map((item) => display(item))
-          .filter(Boolean)
-          .join(', ');
-      }
+      return display(JSON.parse(raw) as unknown);
     } catch {
-      /* keep raw */
+      return raw.replace(/^\[/, '').replace(/\]$/, '').trim();
     }
   }
   return raw;

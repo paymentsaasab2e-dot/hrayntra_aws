@@ -50,8 +50,33 @@ const EMPTY_SECTION_FIELD = { label: 'Entries', value: 'No entries provided' };
 function str(value) {
   if (value === undefined || value === null) return '';
   if (typeof value === 'boolean') return value ? 'Yes' : 'No';
-  if (Array.isArray(value)) return value.filter(Boolean).map(String).join(', ');
-  return String(value).trim();
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => str(item))
+      .filter((item) => item && item !== '[object Object]')
+      .join(', ');
+  }
+  if (typeof value === 'object') {
+    return Object.values(value)
+      .map((item) => str(item))
+      .filter(Boolean)
+      .join(', ');
+  }
+  const text = String(value).trim();
+  if (!text || text === '[object Object]' || text === '[]' || text === '{}' || text === 'null') {
+    return '';
+  }
+  if (
+    (text.startsWith('[') && text.endsWith(']')) ||
+    (text.startsWith('{') && text.endsWith('}'))
+  ) {
+    try {
+      return str(JSON.parse(text));
+    } catch {
+      return text.replace(/^\[/, '').replace(/\]$/, '').trim();
+    }
+  }
+  return text;
 }
 
 function field(label, value) {
@@ -262,12 +287,17 @@ export function buildPhase1ClientReviewSections(snapshot, visibility) {
         ['Preferred industries', prefs.preferredIndustries || prefs.preferredIndustry],
         ['Functional areas', prefs.functionalAreas || prefs.functionalArea],
         ['Job types', prefs.jobTypes],
-        ['Work modes', prefs.workModes || prefs.preferredWorkMode],
+        ['Work modes', prefs.workModes || prefs.preferredWorkMode || prefs.passportNumbersByLocation?.__workModes],
         ['Preferred locations', prefs.preferredLocations],
         ['Relocation', prefs.relocationPreference],
         ['Notice period', prefs.noticePeriod],
         ['Availability to start', prefs.availabilityToStart],
-        ['Salary expectation', prefs.preferredSalary || prefs.salaryAmount],
+        ['Current Salary', prefs.currentSalary],
+        ['Current Salary Currency', prefs.currentCurrency],
+        ['Current Benefits', prefs.currentBenefits],
+        ['Expected Salary', prefs.preferredSalary || prefs.salaryAmount],
+        ['Expected Salary Currency', prefs.preferredCurrency || prefs.salaryCurrency],
+        ['Expected Benefits', prefs.preferredBenefits],
       ]),
     );
   }

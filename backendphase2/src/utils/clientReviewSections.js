@@ -3,6 +3,7 @@
  */
 
 import { buildPhase1ClientReviewSections } from './phase1ClientReviewSections.js';
+import { formatReviewText } from './clientPresentationDraft.js';
 
 const SECTION_LABELS = {
   personal: 'Personal Information',
@@ -25,37 +26,21 @@ const DEFAULT_VISIBILITY = {
 };
 
 function str(value) {
-  if (value === undefined || value === null) return '';
   if (Array.isArray(value)) {
     return value
       .map((item) => {
-        if (item && typeof item === 'object') {
+        if (item && typeof item === 'object' && !Array.isArray(item)) {
           const title = item.title || item.jobTitle || item.degree || item.degreeProgram || item.name || '';
           const extra = item.company || item.companyName || item.institution || item.institutionName || '';
           const joined = [title, extra].map((part) => String(part || '').trim()).filter(Boolean).join(' @ ');
           if (joined) return joined;
-          return Object.values(item)
-            .map((part) => (typeof part === 'object' ? '' : String(part || '').trim()))
-            .filter(Boolean)
-            .join(' | ');
         }
-        return String(item || '').trim();
+        return formatReviewText(item);
       })
       .filter(Boolean)
       .join(', ');
   }
-  if (typeof value === 'object') {
-    try {
-      const json = JSON.stringify(value);
-      if (!json || json === '{}' || json === '[]' || json === 'null') return '';
-      return json;
-    } catch {
-      return '';
-    }
-  }
-  const text = String(value).trim();
-  if (text === '[]' || text === '{}' || text === 'null') return '';
-  return text;
+  return formatReviewText(value);
 }
 
 function reviewField(label, value) {
@@ -1034,7 +1019,13 @@ export function buildClientReviewSectionsFromPresentation(saved) {
   ingest(fromStoredSections);
 
   const merged = order.map((id) => byId.get(id)).filter(Boolean);
-  return foldDuplicateClientReviewSections(merged);
+  return foldDuplicateClientReviewSections(merged).map((section) => ({
+    ...section,
+    fields: (section.fields || []).map((row) => ({
+      ...row,
+      value: str(row.value),
+    })),
+  }));
 }
 
 export function buildClientReviewSectionsFromEditForm(editForm, visibleSections) {
@@ -1207,7 +1198,18 @@ export function parseClientReviewTableColumns(raw, visibleFields) {
 
 function isBlankClientReviewValue(value) {
   const raw = String(value ?? '').trim();
-  return !raw || raw === 'No entries provided' || raw === '—' || raw === '-';
+  return (
+    !raw ||
+    raw === 'No entries provided' ||
+    raw === '—' ||
+    raw === '-' ||
+    raw === '[' ||
+    raw === ']' ||
+    raw === '[]' ||
+    raw === '{}' ||
+    raw === '[object Object]' ||
+    raw === 'null'
+  );
 }
 
 function parseBirthDate(value) {
@@ -1286,10 +1288,13 @@ function fallbackValuesFromCandidate(candidate, matchScore) {
     candidate?.birthDate || candidate?.dob || candidate?.dateOfBirth || '',
   ).trim();
   const age = storedAge(candidate?.age) || ageFromBirthDate(birthDate);
-  const money = (value) => {
-    if (value === undefined || value === null || value === '') return '';
-    return String(value).trim();
-  };
+  const money = (value) => formatReviewText(value);
+  const prefs =
+    candidate?.careerPreferences &&
+    typeof candidate.careerPreferences === 'object' &&
+    !Array.isArray(candidate.careerPreferences)
+      ? candidate.careerPreferences
+      : {};
   return {
     'first name': parts[0] || String(candidate?.firstName || '').trim(),
     'middle name': String(candidate?.middleName || '').trim(),
@@ -1317,13 +1322,30 @@ function fallbackValuesFromCandidate(candidate, matchScore) {
     'current employer': String(candidate?.currentCompany || '').trim(),
     'experience (years)': experience,
     'candidate score': score,
-    'current salary': money(candidate?.currentSalary),
-    'current salary currency': String(candidate?.currentSalaryCurrency || '').trim(),
-    'current benefits': String(candidate?.currentBenefits || '').trim(),
-    'expected salary': money(candidate?.expectedSalary),
-    'expected salary currency': String(candidate?.expectedSalaryCurrency || '').trim(),
-    'expected benefits': String(candidate?.expectedBenefits || '').trim(),
-    'notice period': String(candidate?.noticePeriod || '').trim(),
+    'current salary': money(candidate?.currentSalary ?? prefs.currentSalary),
+    'current salary currency': formatReviewText(
+      candidate?.currentSalaryCurrency || prefs.currentCurrency,
+    ),
+    'current benefits': formatReviewText(candidate?.currentBenefits || prefs.currentBenefits),
+    'expected salary': money(
+      candidate?.expectedSalary ?? prefs.preferredSalary ?? prefs.salaryAmount,
+    ),
+    'expected salary currency': formatReviewText(
+      candidate?.expectedSalaryCurrency || prefs.preferredCurrency || prefs.salaryCurrency,
+    ),
+    'expected benefits': formatReviewText(candidate?.expectedBenefits || prefs.preferredBenefits),
+    'notice period': formatReviewText(candidate?.noticePeriod || prefs.noticePeriod),
+    'preferred job titles': formatReviewText(prefs.preferredJobTitles || prefs.preferredRoles),
+    'preferred industries': formatReviewText(prefs.preferredIndustries || prefs.preferredIndustry),
+    'functional areas': formatReviewText(prefs.functionalAreas || prefs.functionalArea),
+    'job types': formatReviewText(prefs.jobTypes),
+    'work modes': formatReviewText(
+      prefs.workModes || prefs.preferredWorkMode || prefs.passportNumbersByLocation?.__workModes,
+    ),
+    relocation: formatReviewText(prefs.relocationPreference),
+    'availability to start': formatReviewText(
+      prefs.availabilityToStart || candidate?.availability,
+    ),
     remarks: String(candidate?.remarks || '').trim(),
     skills: joinClientReviewList(candidate?.skills),
     'language & proficiency': joinClientReviewList(

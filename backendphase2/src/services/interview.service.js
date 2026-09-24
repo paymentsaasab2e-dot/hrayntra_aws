@@ -1723,6 +1723,7 @@ async function serializeInterviewForClientReview(
     currentSalary: c.currentSalary ?? '',
     currentSalaryCurrency: c.currentSalaryCurrency || '',
     currentBenefits: c.currentBenefits || '',
+    careerPreferences: c.careerPreferences || null,
     expectedSalary: c.expectedSalary ?? '',
     expectedSalaryCurrency: c.expectedSalaryCurrency || '',
     expectedBenefits: c.expectedBenefits || '',
