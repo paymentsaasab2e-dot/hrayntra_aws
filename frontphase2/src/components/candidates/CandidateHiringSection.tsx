@@ -86,12 +86,13 @@ export function CandidateHiringOverview({ candidate, onAssignJob }: HiringOvervi
     candidate.recruiter,
     candidate.source,
     candidate.availability,
+    candidate.totalNoOfExperience,
   ].filter((value) => display(value)).length;
 
   return (
     <DrawerSectionCard
       title="Hiring & assignment"
-      subtitle={`${filledCount}/6 fields set${assignedJob ? ` · ${assignedJob}` : ''}`}
+      subtitle={`${filledCount}/7 fields set${assignedJob ? ` · ${assignedJob}` : ''}`}
       icon={Briefcase}
       accent="indigo"
       collapsible
@@ -124,6 +125,12 @@ export function CandidateHiringOverview({ candidate, onAssignJob }: HiringOvervi
         <OverviewField label="Assigned recruiter" value={candidate.recruiter} />
         <OverviewField label="Source" value={candidate.source} />
         <OverviewField label="Availability" value={candidate.availability} />
+        <OverviewField
+          label="Total No. of Experience"
+          value={
+            candidate.totalNoOfExperience != null ? String(candidate.totalNoOfExperience) : ''
+          }
+        />
       </div>
       {pipelineSummary ? (
         <div className="rounded-xl border border-indigo-100 bg-slate-50/80 px-3 py-2.5">
@@ -139,10 +146,12 @@ function EditField({
   label,
   value,
   onChange,
+  placeholder,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
+  placeholder?: string;
 }) {
   return (
     <label className="block">
@@ -150,6 +159,8 @@ function EditField({
       <input
         value={value}
         onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        inputMode="decimal"
         className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
       />
     </label>
@@ -257,6 +268,12 @@ export function CandidateHiringEditSection({ form, onChange, recruiters, jobs }:
           options={SALARY_CURRENCY_OPTIONS.map((value) => ({ label: value, value }))}
           onChange={(v) => onChange('salaryCurrency', v)}
         />
+        <EditField
+          label="Total No. of Experience"
+          value={form.experience}
+          onChange={(v) => onChange('experience', v)}
+          placeholder="e.g. 5"
+        />
       </div>
     </section>
   );
@@ -289,5 +306,14 @@ export function applyHiringFieldsFromEditForm(
       min: payload.salary?.min ?? null,
       max: payload.salary?.max ?? null,
     },
+    experience: parseTotalExperienceYears(editForm.experience),
+    experienceYears: parseTotalExperienceYears(editForm.experience),
   };
+}
+
+function parseTotalExperienceYears(value: string): number | null {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) return null;
+  const parsed = Number.parseInt(trimmed, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }

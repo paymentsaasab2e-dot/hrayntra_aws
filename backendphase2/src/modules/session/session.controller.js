@@ -14,11 +14,25 @@ async function resolveTenantDbNameForLoginIdentifier(loginIdentifier, preferredT
   return String(resolved || preferred || active || '').trim();
 }
 
-async function runWithResolvedTenant(loginIdentifier, preferredTenant, fn) {
+async function runWithResolvedTenant(loginIdentifier, preferredTenant, fn, password = '') {
   const tenantDbName = await resolveTenantDbNameForLoginIdentifier(loginIdentifier, preferredTenant);
-  if (!tenantDbName) return fn();
-  if (tenantDbName === getActiveTenantDbName()) return fn();
-  return runWithTenantContext(tenantDbName, fn);
+  const run = (name) => {
+    if (!name) return fn();
+    if (name === getActiveTenantDbName()) return fn();
+    return runWithTenantContext(name, fn);
+  };
+  try {
+    return await run(tenantDbName);
+  } catch (error) {
+    if (!password || error?.message !== 'Invalid credentials') throw error;
+    const matched = await headquartersAuthService.findTenantDbNameForUserByPassword(
+      loginIdentifier,
+      password,
+      tenantDbName,
+    );
+    if (!matched || matched === tenantDbName) throw error;
+    return run(matched);
+  }
 }
 
 export const sessionController = {
@@ -69,6 +83,7 @@ export const sessionController = {
             tenantDbName: getActiveTenantDbName() || preferredTenant || undefined,
           };
         },
+        password,
       );
       sendResponse(res, 200, 'Login request sent to active session', {
         ...result,
@@ -141,7 +156,7 @@ export const sessionController = {
           ...tokens,
           tenantDbName: getActiveTenantDbName() || preferredTenant || undefined,
         };
-      });
+      }, password);
 
       sendResponse(res, 200, 'Login successful', {
         accessToken: tokensPayload.accessToken,

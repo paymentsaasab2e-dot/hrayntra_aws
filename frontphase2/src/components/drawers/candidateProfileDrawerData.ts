@@ -52,6 +52,9 @@ export interface CandidateProfileDrawerData {
   currentCompany?: string | null;
   stage?: string | null;
   experience?: number | null;
+  /** Years typed in Total No. of Experience. Kept separate from computed CV experience. */
+  totalNoOfExperience?: number | null;
+  experienceYears?: number | null;
   location?: string | null;
   email?: string | null;
   phone?: string | null;
