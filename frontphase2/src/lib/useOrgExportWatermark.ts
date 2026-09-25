@@ -12,12 +12,21 @@ import {
 } from './exportWatermark';
 
 let inflight: Promise<ExportWatermarkSettings> | null = null;
+let inflightTenant = '';
 
 export async function fetchAndCacheOrgWatermark(): Promise<ExportWatermarkSettings> {
-  if (inflight) return inflight;
+  const tenant =
+    typeof window !== 'undefined' ? String(window.localStorage.getItem('tenantDbName') || '').trim() : '';
+  if (inflight && inflightTenant === tenant) return inflight;
+  inflightTenant = tenant;
   inflight = (async () => {
     try {
       const res = await apiGetOrgWatermark();
+      const still =
+        typeof window !== 'undefined'
+          ? String(window.localStorage.getItem('tenantDbName') || '').trim()
+          : '';
+      if (still !== tenant) return readCachedOrgWatermark();
       const next = normalizeExportWatermark(res.data?.watermark);
       writeCachedOrgWatermark(next);
       if (next.enabled) {
@@ -34,7 +43,7 @@ export async function fetchAndCacheOrgWatermark(): Promise<ExportWatermarkSettin
     } catch {
       return readCachedOrgWatermark();
     } finally {
-      inflight = null;
+      if (inflightTenant === tenant) inflight = null;
     }
   })();
   return inflight;
@@ -47,11 +56,18 @@ export function useOrgExportWatermark() {
   );
 
   useEffect(() => {
-    setSettings(readCachedOrgWatermark());
-    void fetchAndCacheOrgWatermark().then(setSettings);
+    const load = () => {
+      setSettings(readCachedOrgWatermark());
+      void fetchAndCacheOrgWatermark().then(setSettings);
+    };
+    load();
     const onCache = () => setSettings(readCachedOrgWatermark());
     window.addEventListener(ORG_WATERMARK_CACHE_EVENT, onCache);
-    return () => window.removeEventListener(ORG_WATERMARK_CACHE_EVENT, onCache);
+    window.addEventListener('hryantra:tenant-changed', load);
+    return () => {
+      window.removeEventListener(ORG_WATERMARK_CACHE_EVENT, onCache);
+      window.removeEventListener('hryantra:tenant-changed', load);
+    };
   }, []);
 
   const refresh = useCallback(async () => {

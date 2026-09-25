@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useMemo } from 'react';
+import { useOrgExportWatermark } from '../../lib/useOrgExportWatermark';
+import { resolveWatermarkImageSrc } from '../../lib/exportWatermark';
 
 interface PortalTailoredCvStudioPreviewProps {
   html: string;
@@ -8,15 +10,40 @@ interface PortalTailoredCvStudioPreviewProps {
   className?: string;
 }
 
+function stripBuiltInWatermarks(html: string): string {
+  return String(html || '')
+    .replace(/<div[^>]*data-saasa-watermark=["'][^"']*["'][^>]*>[\s\S]*?<\/div>/gi, '')
+    .replace(/<div[^>]*data-hryantra-watermark(?:=["'][^"']*["'])?[^>]*>[\s\S]*?<\/div>/gi, '')
+    .replace(/<div[^>]*data-tenant-watermark=["']1["'][^>]*>[\s\S]*?<\/div>/gi, '');
+}
+
+function tenantWatermarkHtml(logoUrl: string, text: string, opacity: number): string {
+  const safeOpacity = Math.min(0.5, Math.max(0.05, opacity || 0.18));
+  const src = logoUrl.replace(/"/g, '&quot;');
+  const safeText = text.replace(/[<>"']/g, '');
+  if (src) {
+    return `<div aria-hidden="true" data-tenant-watermark="1" style="position:absolute;inset:0;pointer-events:none;z-index:20;display:flex;align-items:center;justify-content:center;">
+  <img src="${src}" alt="" draggable="false" style="max-height:42%;max-width:55%;object-fit:contain;opacity:${safeOpacity};user-select:none;" />
+</div>`;
+  }
+  if (safeText) {
+    return `<div aria-hidden="true" data-tenant-watermark="1" style="position:absolute;inset:0;pointer-events:none;z-index:20;display:flex;align-items:center;justify-content:center;">
+  <span style="font-size:42px;font-weight:700;letter-spacing:0.08em;color:#64748b;opacity:${safeOpacity};transform:rotate(-24deg);user-select:none;">${safeText}</span>
+</div>`;
+  }
+  return '';
+}
+
 /**
- * Renders the exact LMS studio preview HTML captured on portal apply
- * (template, HRYANTRA watermark, section layout from Phase 1).
+ * Renders the job-portal CV HTML with this tenant’s single export watermark.
+ * The built-in center and corner logos are removed so only the Super Admin stamp shows.
  */
 export function PortalTailoredCvStudioPreview({
   html,
   templateId,
   className = '',
 }: PortalTailoredCvStudioPreviewProps) {
+  const { settings: watermark } = useOrgExportWatermark();
   const jobPortalBase = useMemo(() => {
     const configured = process.env.NEXT_PUBLIC_JOBPORTAL_URL || process.env.NEXT_PUBLIC_PORTAL_URL;
     return String(configured || 'http://localhost:3000').replace(/\/$/, '');
@@ -24,27 +51,18 @@ export function PortalTailoredCvStudioPreview({
 
   const srcDoc = useMemo(() => {
     const safeTemplate = String(templateId || 'studio').replace(/[<>"']/g, '');
-    const phase2Origin =
-      typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3001';
-    const logoUrl = `${phase2Origin}/hryantra-logo.png`;
-    const watermark = `<div aria-hidden="true" style="position:absolute;inset:0;pointer-events:none;z-index:20;display:flex;align-items:center;justify-content:center;">
-  <img src="${logoUrl}" alt="" style="max-height:54%;max-width:70%;object-fit:contain;opacity:0.13;" />
-</div>
-<div aria-hidden="true" style="position:absolute;bottom:1.25rem;right:1.25rem;pointer-events:none;z-index:21;">
-  <img src="${logoUrl}" alt="" style="height:2rem;width:auto;max-width:96px;object-fit:contain;opacity:0.8;" />
-</div>`;
-    const normalizedHtml = html
+    const normalizedHtml = stripBuiltInWatermarks(html)
       .replace(/\boverflow-hidden\b/g, 'overflow-visible')
       .replace(/overflow\s*:\s*hidden/gi, 'overflow:visible');
-    const bodyHtml =
-      /SAASA%20Logo|SAASA Logo|hryantra-logo|data-hryantra-watermark|data-saasa-watermark/i.test(
-        normalizedHtml,
-      )
-        ? normalizedHtml.replace(
-            /src=(["'])(?:\/SAASA%20Logo\.png|\/SAASA Logo\.png|\/hryantra-logo\.png)\1/gi,
-            `src="${logoUrl}"`,
-          )
-        : `<div style="position:relative;overflow:visible;padding-bottom:2.5rem;">${normalizedHtml}${watermark}</div>`;
+    const logoUrl = watermark.enabled
+      ? resolveWatermarkImageSrc(watermark.imageDataUrl || watermark.imageUrl)
+      : '';
+    const stamp = watermark.enabled
+      ? tenantWatermarkHtml(logoUrl, watermark.text, watermark.opacity)
+      : '';
+    const bodyHtml = stamp
+      ? `<div style="position:relative;overflow:visible;padding-bottom:2.5rem;">${normalizedHtml}${stamp}</div>`
+      : normalizedHtml;
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -76,7 +94,7 @@ export function PortalTailoredCvStudioPreview({
   <div class="portal-tailored-cv-root">${bodyHtml}</div>
 </body>
 </html>`;
-  }, [html, jobPortalBase, templateId]);
+  }, [html, jobPortalBase, templateId, watermark]);
 
   return (
     <div className={`h-full min-h-0 overflow-auto bg-slate-200/80 p-3 sm:p-4 ${className}`.trim()}>

@@ -162,7 +162,7 @@ export function WatermarkSettings() {
         <SettingsPageHero
           eyebrow="Organization"
           title="Export watermark"
-          description="Configured by Super Admin. This stamp is applied automatically when any team member exports PDFs, Excel, or CSV."
+          description="Set by this tenant’s Super Admin. Every team member in this tenant uses this one stamp on export. Another tenant’s watermark is not used here."
           icon={<Droplets className="h-3.5 w-3.5" />}
         />
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
@@ -209,7 +209,7 @@ export function WatermarkSettings() {
       <SettingsPageHero
         eyebrow="Organization"
         title="Export watermark"
-        description="Add text and/or a logo image that appears on every Phase 2 PDF, Excel, and CSV export. All team members inherit this setting automatically."
+        description="One watermark for this tenant. Super Admin saves it once, and every team member’s PDF, Excel, and CSV export uses that same stamp. Other tenants keep their own."
         icon={<Droplets className="h-3.5 w-3.5" />}
         actions={
           <button
@@ -243,8 +243,8 @@ export function WatermarkSettings() {
                   Enable watermark on exports
                 </span>
                 <span className="mt-0.5 block text-xs text-slate-500">
-                  When on, text and/or logo below are stamped on PDF / Excel / CSV downloads across
-                  Phase 2.
+                  When on, this tenant’s team exports carry one stamp: the logo if you uploaded one,
+                  otherwise the text.
                 </span>
               </span>
             </label>
@@ -394,17 +394,16 @@ export function WatermarkSettings() {
                     className="mx-auto max-h-24 max-w-[220px] object-contain"
                     style={{ opacity: draft.opacity, transform: 'rotate(-18deg)' }}
                   />
-                ) : null}
-                {draft.text.trim() ? (
+                ) : (
                   <p
-                    className="mt-4 select-none text-2xl font-semibold tracking-wide text-indigo-400"
+                    className="select-none text-2xl font-semibold tracking-wide text-indigo-400"
                     style={{ opacity: draft.opacity, transform: 'rotate(-18deg)' }}
                   >
                     {draft.text.trim()}
                   </p>
-                ) : null}
+                )}
                 <p className="mt-6 text-[11px] font-medium uppercase tracking-wider text-slate-400">
-                  Export preview
+                  One stamp on this tenant’s exports
                 </p>
               </div>
             ) : null}

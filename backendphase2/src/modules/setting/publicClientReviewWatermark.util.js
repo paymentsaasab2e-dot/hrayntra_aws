@@ -47,12 +47,19 @@ export async function getPublicClientReviewExportWatermark() {
 
   let imageDataUrl = '';
   const ref = parseWatermarkLogoRef(watermark.imageUrl);
-  if (ref?.filename) {
+  const activeTenant = String(getActiveTenantDbName() || '').trim();
+  // Public review has no login. Only the tenant that owns this request may supply the logo.
+  const logoTenant = activeTenant || String(ref?.tenantDbName || '').trim();
+  const foreignLogo =
+    Boolean(activeTenant) &&
+    Boolean(ref?.tenantDbName) &&
+    String(ref.tenantDbName).trim() !== activeTenant;
+  if (ref?.filename && logoTenant && !foreignLogo) {
     try {
       const file = await loadPublicUpload({
         subdir: 'export-watermarks',
         filename: ref.filename,
-        tenantDbName: ref.tenantDbName,
+        tenantDbName: logoTenant,
       });
       if (file?.buffer?.length) {
         const mime = mimeFromFilename(file.filename || ref.filename);

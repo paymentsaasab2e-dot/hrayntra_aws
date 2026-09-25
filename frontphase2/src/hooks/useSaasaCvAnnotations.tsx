@@ -520,31 +520,69 @@ export function useSaasaCvAnnotations({
       const fresh = await resolveFreshExtraForSave();
       const existingExtra = fresh.extra;
       const prevStored = readSaasaCvAnnotations(existingExtra);
+      const pinnedOriginal = String(
+        existingExtra.firstOriginalResumeUrl || existingExtra.originalResumeUrl || resumeUrl || ''
+      ).trim();
 
-      if (prevStored?.fileId) {
+      const idsToDelete = new Set<string>();
+      if (prevStored?.fileId) idsToDelete.add(prevStored.fileId);
+      try {
+        const filesRaw = await filesApiGet('candidate', candidateId);
+        const files =
+          extractApiData<Array<{ id?: string; fileUrl?: string | null; fileType?: string; fileName?: string }>>(
+            filesRaw
+          ) ?? [];
+        const savedKeys = new Set(
+          [prevStored?.fileUrl, prevStored?.resumeUrl]
+            .map((url) => normalizeUrl(String(url || '')))
+            .filter((key) => key && key !== normalizeUrl(pinnedOriginal))
+        );
+        for (const file of files) {
+          if (!file.id) continue;
+          const type = String(file.fileType || '').trim();
+          const name = String(file.fileName || '');
+          const key = normalizeUrl(String(file.fileUrl || ''));
+          if (/^SAASA_CV$/i.test(type) || /(?:SAASA|HRYantra|HRYANTRA)[\s_-]*CV/i.test(name)) {
+            idsToDelete.add(file.id);
+            continue;
+          }
+          if (key && savedKeys.has(key) && !/^resume$/i.test(type) && !/^cv$/i.test(type)) {
+            idsToDelete.add(file.id);
+          }
+        }
+      } catch {
+        /* still clear the saved HRYantra CV record */
+      }
+      for (const fileId of idsToDelete) {
         try {
-          await filesApiDelete('candidate', candidateId, prevStored.fileId);
+          await filesApiDelete('candidate', candidateId, fileId);
         } catch {
           /* file may already be gone */
         }
       }
 
-      const nextExtra = buildSaasaCvSaveExtra(existingExtra, {
-        resumeUrl: effectiveResumeUrl,
-        items: [],
-        companyLogo: null,
-        fileId: undefined,
-        fileUrl: null,
-        fileName: undefined,
-      });
+      const nextExtra = buildSaasaCvSaveExtra(
+        existingExtra,
+        {
+          resumeUrl: pinnedOriginal || null,
+          items: [],
+          companyLogo: null,
+          fileId: undefined,
+          fileUrl: null,
+          fileName: undefined,
+        },
+        { resumeCvViewMode: 'original' }
+      );
       const response = await apiUpdateCandidate(candidateId, { extraData: nextExtra });
       const updated = enrichBackendCandidateFromPhase1Snapshot(
         extractApiData<BackendCandidate>(response) ?? ({} as BackendCandidate)
       );
       if (updated?.id) setBackendCandidate(updated);
+      setPreferredResumeViewMode('original');
+      onViewModeChange?.('original');
       await onCandidateUpdated?.();
       await onFilesRefresh?.();
-      onToast?.('HRYantra CV removed from Files.');
+      onToast?.('HRYantra CV deleted.');
       return true;
     } catch (error: unknown) {
       onToast?.(
@@ -557,11 +595,12 @@ export function useSaasaCvAnnotations({
   }, [
     candidateId,
     canEdit,
-    effectiveResumeUrl,
+    resumeUrl,
     resolveFreshExtraForSave,
     onCandidateUpdated,
     onFilesRefresh,
     onToast,
+    onViewModeChange,
   ]);
 
   useEffect(() => {

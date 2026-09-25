@@ -142,12 +142,19 @@ function buildS3KeyCandidates(subdir, filename, tenantDbName) {
   if (!safeName || !ALLOWED_SUBDIRS.has(subdir)) return [];
 
   const phase = getS3AppFolder();
-  const tenants = [
-    sanitizeTenantSegment(tenantDbName),
-    'default',
-    'gho01',
-    'rus01',
-  ].filter((value, index, arr) => value && arr.indexOf(value) === index);
+  const requested = sanitizeTenantSegment(tenantDbName || '');
+  // Watermark art must stay in the tenant that uploaded it. Do not borrow
+  // default/gho01/rus01 when this tenant has no file.
+  if (subdir === 'export-watermarks') {
+    if (!requested || requested === 'default') return [];
+    return [
+      `uploads/${phase}/tenants/${requested}/${subdir}/${safeName}`,
+      `uploads/${phase}/tenants/${requested}/jobportal/${subdir}/${safeName}`,
+    ];
+  }
+  const tenants = [requested, 'default', 'gho01', 'rus01'].filter(
+    (value, index, arr) => value && arr.indexOf(value) === index,
+  );
 
   const keys = [];
   for (const tenant of tenants) {

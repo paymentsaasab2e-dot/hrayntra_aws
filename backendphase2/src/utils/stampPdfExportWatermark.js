@@ -68,7 +68,7 @@ export async function stampPdfBufferWithExportWatermark(buffer, watermark) {
           console.warn('[stampPdf] drawImage failed:', err?.message || err);
         }
       }
-      if (text && font) {
+      if (text && font && !embeddedImage) {
         try {
           const size = Math.max(18, Math.min(48, Math.floor(width / 8)));
           page.drawText(text, {

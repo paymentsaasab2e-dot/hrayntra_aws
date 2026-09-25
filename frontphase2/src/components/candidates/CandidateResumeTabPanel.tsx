@@ -250,6 +250,7 @@ interface CandidateResumeTabPanelProps {
   onCandidateUpdated?: () => void | Promise<void>;
   onToast?: (message: string) => void;
   onOpenSaasaCv?: () => void;
+  onDeleteSaasaCv?: () => Promise<boolean>;
 }
 
 const MODE_LABELS: Record<ResumeCvViewMode, string> = {
@@ -267,6 +268,7 @@ export function CandidateResumeTabPanel({
   onCandidateUpdated,
   onToast,
   onOpenSaasaCv,
+  onDeleteSaasaCv,
   saasaSavedFileUrl = null,
   preferredResumeViewMode: preferredResumeViewModeProp = null,
   onPreferredResumeViewModeChange,
@@ -1022,6 +1024,32 @@ export function CandidateResumeTabPanel({
     onPreferredResumeViewModeChange?.(mode);
   };
 
+  const [deletingSaasa, setDeletingSaasa] = useState(false);
+  const canDeleteSaasaCv = canEdit && Boolean(onDeleteSaasaCv) && availableModes.includes('saasa');
+
+  const handleDeleteSaasaCv = async () => {
+    if (!onDeleteSaasaCv || deletingSaasa || !canDeleteSaasaCv) return;
+    const confirmed = await requestConfirm(
+      'Delete this HRYantra CV? The Original CV will stay. You can edit and save a new HRYantra CV anytime.',
+      {
+        title: SYSTEM_ALERT_TITLE,
+        tone: 'warning',
+        confirmLabel: 'Delete',
+        cancelLabel: 'Cancel',
+      }
+    );
+    if (!confirmed) return;
+    setDeletingSaasa(true);
+    try {
+      const removed = await onDeleteSaasaCv();
+      if (!removed) return;
+      await refreshBackend();
+      selectViewMode('original');
+    } finally {
+      setDeletingSaasa(false);
+    }
+  };
+
   const buildResumeFilename = (sourceUrl: string, label: string) => {
     const ext = getResumeExtension(sourceUrl);
     const base = String(candidate.name || 'candidate').replace(/[\\/:*?"<>|]+/g, '_').trim() || 'candidate';
@@ -1206,7 +1234,9 @@ export function CandidateResumeTabPanel({
                   >
                     {availableModes.map((mode) => {
                       const active = viewMode === mode;
-                      const deletable = mode === 'updated' && canDeleteUpdatedCv;
+                      const deletable =
+                        (mode === 'updated' && canDeleteUpdatedCv) ||
+                        (mode === 'saasa' && canDeleteSaasaCv);
                       return (
                         <div
                           key={mode}
@@ -1233,15 +1263,19 @@ export function CandidateResumeTabPanel({
                               type="button"
                               title={`Delete ${MODE_LABELS[mode]}`}
                               aria-label={`Delete ${MODE_LABELS[mode]}`}
-                              disabled={busy || replacingCv}
-                              onClick={() => void handleDeleteUpdatedCv()}
+                              disabled={busy || replacingCv || deletingSaasa}
+                              onClick={() =>
+                                void (mode === 'saasa' ? handleDeleteSaasaCv() : handleDeleteUpdatedCv())
+                              }
                               className={`inline-flex items-center border-l px-2.5 py-2 transition-colors disabled:opacity-60 ${
                                 active
                                   ? 'border-blue-500 hover:bg-blue-700'
                                   : 'border-slate-200 hover:bg-red-50 hover:text-red-700'
                               }`}
                             >
-                              {busy && active ? (
+                              {busy && active && mode !== 'saasa' ? (
+                                <Loader2 size={14} className="animate-spin" />
+                              ) : deletingSaasa && mode === 'saasa' ? (
                                 <Loader2 size={14} className="animate-spin" />
                               ) : (
                                 <Trash2 size={14} />
@@ -1390,6 +1424,17 @@ export function CandidateResumeTabPanel({
                       >
                         <Pencil size={16} />
                         Edit HRYantra CV
+                      </button>
+                    ) : null}
+                    {canDeleteSaasaCv ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleDeleteSaasaCv()}
+                        disabled={deletingSaasa}
+                        className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-60"
+                      >
+                        {deletingSaasa ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
+                        Delete
                       </button>
                     ) : null}
                     <button
