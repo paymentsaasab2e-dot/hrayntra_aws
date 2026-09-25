@@ -363,3 +363,40 @@ export async function sendPasswordResetEmail({
     throw new Error(`Failed to send email: ${error.message}`);
   }
 }
+
+/**
+ * Ask a job-portal candidate to finish registration (HQ, one or many).
+ */
+export async function sendCompleteRegistrationEmail({ email, name }) {
+  const to = String(email || '').trim().toLowerCase();
+  if (!to || !isDeliverableEmail(to)) {
+    throw new Error('A valid email is required');
+  }
+  const portal =
+    String(
+      process.env.PHASE1_FRONTEND_URL ||
+        process.env.JOB_PORTAL_FRONTEND_URL ||
+        process.env.NEXT_PUBLIC_PHASE1_FRONTEND_URL ||
+        'http://localhost:3000',
+    ).replace(/\/$/, '') + '/en/whatsapp';
+  const greeting = String(name || '')
+    .replace(/[<>&"]/g, '')
+    .trim();
+  const hello = greeting && greeting !== '—' ? `Hello ${greeting},` : 'Hello,';
+  const html = `
+    <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a;max-width:560px">
+      <p>${hello}</p>
+      <p>Please complete your HRYantra registration.</p>
+      <p><a href="${portal}">Open HRYantra</a></p>
+      <p>HRYantra Support</p>
+    </div>`;
+  const result = await resend.emails.send({
+    from: getEmailFromForTrigger('auth.otp_verification'),
+    to,
+    subject: 'Please complete your HRYantra registration',
+    html,
+    text: `${hello}\n\nPlease complete your HRYantra registration.\n${portal}\n\nHRYantra Support`,
+  });
+  const messageId = assertResendDelivery(result, to);
+  return { success: true, messageId };
+}

@@ -1813,8 +1813,23 @@ export type HqAccountSupportLookup = {
     lastLoginAt?: string | null;
     createdAt?: string | null;
     portalFrontendUrl?: string;
+    onboardingState?: string | null;
+    incompleteShell?: boolean;
+    stuckParse?: boolean;
+    hasResumeFile?: boolean;
+    hasName?: boolean;
+    parseStatus?: string | null;
+    parseError?: string | null;
+    uploadHintUrl?: string | null;
     relatedTickets?: HqAccountSupportLookup['relatedTickets'];
     ticketCount?: number;
+  } | null;
+  relatedTickets?: HqAccountSupportLookup['relatedTickets'];
+  lookupError?: string | null;
+  suggestedActions?: {
+    askReuploadCv?: boolean;
+    createOrReusePortalAccount?: boolean;
+    uploadHintUrl?: string | null;
   } | null;
 };
 
@@ -1877,6 +1892,57 @@ export async function apiHqAccountSupportImpersonateEmployee(body: {
     token?: string | null;
     expiresIn?: string;
   }>('/hq/account-support/impersonate-employee', {
+    method: 'POST',
+    auth: true,
+    body,
+  });
+}
+
+export async function apiHqAccountSupportRepairEmployee(body: {
+  email?: string;
+  candidateId?: string;
+}) {
+  return apiFetch<{
+    candidateId?: string;
+    email?: string | null;
+    name?: string | null;
+    message?: string;
+    actions?: string[];
+    onboardingState?: string | null;
+    incompleteShell?: boolean;
+    stuckParse?: boolean;
+    hasResumeFile?: boolean;
+    uploadHintUrl?: string | null;
+    parseStatus?: string | null;
+  }>('/hq/account-support/repair-employee', {
+    method: 'POST',
+    auth: true,
+    body,
+  });
+}
+
+export async function apiHqAccountSupportProvisionEmployee(body: {
+  email: string;
+  name?: string;
+  phone?: string;
+  forceOverrideIncomplete?: boolean;
+  sendPasswordEmail?: boolean;
+}) {
+  return apiFetch<{
+    mode?: 'created' | 'reused_incomplete' | 'already_exists' | string;
+    candidateId?: string;
+    email?: string | null;
+    name?: string | null;
+    message?: string;
+    actions?: string[];
+    askUserToReuploadCv?: boolean;
+    uploadHintUrl?: string | null;
+    loginHintUrl?: string | null;
+    credentialEmailSent?: boolean;
+    credentialEmailError?: string | null;
+    tempPassword?: string | null;
+    onboardingState?: string | null;
+  }>('/hq/account-support/provision-employee', {
     method: 'POST',
     auth: true,
     body,
@@ -2977,6 +3043,21 @@ export async function apiHqListCandidates() {
     >;
     storage: HqPortalStorageInfo;
   }>('/hq/candidates', { auth: true });
+}
+
+export async function apiHqEmailCompleteRegistration(body: {
+  recipients: Array<{ email: string; name?: string }>;
+}) {
+  return apiFetch<{
+    sentCount: number;
+    failedCount: number;
+    sent: string[];
+    failed: Array<{ email: string; error: string }>;
+  }>('/hq/candidates/complete-registration-email', {
+    method: 'POST',
+    auth: true,
+    body,
+  });
 }
 
 export type HqKycInterviewerRow = {

@@ -1,5 +1,6 @@
 const { prisma } = require('../lib/prisma');
 const { buildSessionClosePatch } = require('../utils/session-tracking.util');
+const { purgeCandidateById } = require('./candidate.controller');
 
 /**
  * Get user settings
@@ -410,10 +411,8 @@ async function deleteAccount(req, res) {
       });
     }
 
-    // Delete candidate (cascade will handle related records)
-    await prisma.candidate.delete({
-      where: { id: candidateId },
-    });
+    // Same purge as HQ delete: portal rows and the Phase 1 common-pool copy.
+    await purgeCandidateById(candidateId);
 
     res.json({
       success: true,

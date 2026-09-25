@@ -20,7 +20,9 @@ import {
   apiHqAccountSupportImpersonateEmployee,
   apiHqAccountSupportImpersonateEmployer,
   apiHqAccountSupportLookup,
+  apiHqAccountSupportProvisionEmployee,
   apiHqAccountSupportRegeneratePassword,
+  apiHqAccountSupportRepairEmployee,
   type HqAccountSupportLookup,
 } from '@/lib/api';
 
@@ -83,7 +85,10 @@ export default function HqAccountSupportPage() {
   const [query, setQuery] = useState(initialQuery);
   const [loading, setLoading] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
+  const [repairing, setRepairing] = useState(false);
+  const [provisioning, setProvisioning] = useState(false);
   const [loggingInAs, setLoggingInAs] = useState<'employer' | 'employee' | null>(null);
+  const [provisionNote, setProvisionNote] = useState<string | null>(null);
   const [showHiddenTools, setShowHiddenTools] = useState(false);
   const [result, setResult] = useState<HqAccountSupportLookup | null>(null);
 
@@ -188,6 +193,78 @@ export default function HqAccountSupportPage() {
     }
   };
 
+  const repairEmployee = async () => {
+    if (!employee?.candidateId && !employee?.email) return;
+    setRepairing(true);
+    try {
+      const res = await apiHqAccountSupportRepairEmployee({
+        email: employee.email || undefined,
+        candidateId: employee.candidateId,
+      });
+      const actions = res.data?.actions || [];
+      if (actions.includes('needs_cv_reupload')) {
+        toast.warning(
+          res.data?.message ||
+            'No CV file on server — ask the candidate to re-upload, or open upload link.',
+        );
+        if (res.data?.uploadHintUrl) {
+          window.open(res.data.uploadHintUrl, '_blank', 'noopener,noreferrer');
+        }
+      } else {
+        toast.success(res.data?.message || 'Candidate repair started');
+      }
+      await runLookup(employee.email || employee.candidateId || query);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Repair failed');
+    } finally {
+      setRepairing(false);
+    }
+  };
+
+  const provisionEmployee = async () => {
+    const email =
+      result?.query?.email ||
+      (query.includes('@') ? query.trim().toLowerCase() : '') ||
+      employee?.email ||
+      '';
+    if (!email || !email.includes('@')) {
+      toast.error('Enter a valid email first, then create / reuse portal account');
+      return;
+    }
+    setProvisioning(true);
+    setProvisionNote(null);
+    try {
+      const res = await apiHqAccountSupportProvisionEmployee({
+        email,
+        forceOverrideIncomplete: true,
+        sendPasswordEmail: true,
+      });
+      const mode = res.data?.mode || 'created';
+      const msg =
+        res.data?.message ||
+        (mode === 'reused_incomplete'
+          ? 'Reused incomplete portal ID and overrode half-parsed data'
+          : mode === 'already_exists'
+            ? 'Account already existed'
+            : 'Created new portal candidate ID');
+      toast.success(msg);
+      if (res.data?.tempPassword) {
+        setProvisionNote(
+          `Temp password (also emailed if delivery worked): ${res.data.tempPassword}`,
+        );
+      }
+      if (res.data?.askUserToReuploadCv && res.data?.uploadHintUrl) {
+        toast.message('Ask the user to re-upload their CV to finish the profile');
+        window.open(res.data.uploadHintUrl, '_blank', 'noopener,noreferrer');
+      }
+      await runLookup(email);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Could not create / reuse account');
+    } finally {
+      setProvisioning(false);
+    }
+  };
+
   return (
     <HqModulePageLayout
       title="Account support"
@@ -236,15 +313,58 @@ export default function HqAccountSupportPage() {
           <Panel>
             <div className="flex items-start gap-3">
               <XCircle className="mt-0.5 h-5 w-5 text-rose-500" />
-              <div>
+              <div className="min-w-0 flex-1">
                 <p className="text-sm font-semibold text-slate-900">Account does not exist</p>
                 <p className="mt-1 text-xs text-slate-500">
-                  No entrepreneur CRM or job-portal candidate matched{' '}
+                  No complete entrepreneur CRM or job-portal candidate matched{' '}
                   <span className="font-mono">
                     {result.query?.email || result.query?.customerId || query}
                   </span>
-                  .
+                  . If the user hit a connectivity drop mid-upload, create/reuse below will keep the
+                  same incomplete ID when one exists for that email — otherwise it creates a fresh ID.
                 </p>
+                {result.lookupError ? (
+                  <p className="mt-2 text-xs text-amber-700">Lookup note: {result.lookupError}</p>
+                ) : null}
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {result.suggestedActions?.askReuploadCv || result.query?.email ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const url =
+                          result.suggestedActions?.uploadHintUrl ||
+                          'http://localhost:3000/uploadcv';
+                        window.open(url, '_blank', 'noopener,noreferrer');
+                        toast.message('Ask the user to sign in and re-upload their CV');
+                      }}
+                      className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      Ask user: re-upload CV
+                    </button>
+                  ) : null}
+                  {result.query?.email || query.includes('@') ? (
+                    <button
+                      type="button"
+                      onClick={() => void provisionEmployee()}
+                      disabled={provisioning}
+                      className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+                    >
+                      {provisioning ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <UserRound className="h-3.5 w-3.5" />
+                      )}
+                      Create / reuse portal ID
+                    </button>
+                  ) : null}
+                </div>
+                {provisionNote ? (
+                  <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 font-mono text-[11px] text-amber-900">
+                    {provisionNote}
+                  </p>
+                ) : null}
               </div>
             </div>
           </Panel>
@@ -322,13 +442,34 @@ export default function HqAccountSupportPage() {
               <UserRound className="h-3.5 w-3.5" />
               Employee · Job portal candidate
             </div>
-            <div className="mb-4">
-              <p className="text-lg font-semibold text-slate-900">{employee.name || employee.email}</p>
-              <p className="mt-1 text-sm text-slate-600">{employee.email}</p>
-              <p className="mt-1 font-mono text-[11px] text-slate-400">
-                candidateId · {employee.candidateId || '—'}
-                {employee.isVerified ? ' · verified' : ' · not verified'}
-              </p>
+            <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-lg font-semibold text-slate-900">{employee.name || employee.email}</p>
+                <p className="mt-1 text-sm text-slate-600">{employee.email}</p>
+                <p className="mt-1 font-mono text-[11px] text-slate-400">
+                  candidateId · {employee.candidateId || '—'}
+                  {employee.isVerified ? ' · verified' : ' · not verified'}
+                </p>
+              </div>
+              {(employee.incompleteShell ||
+                employee.stuckParse ||
+                employee.onboardingState === 'needs_cv_upload' ||
+                employee.onboardingState === 'needs_parse_repair' ||
+                employee.onboardingState === 'needs_profile_hydrate') && (
+                <button
+                  type="button"
+                  onClick={() => void repairEmployee()}
+                  disabled={repairing}
+                  className="inline-flex items-center gap-2 rounded-xl bg-amber-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-60"
+                >
+                  {repairing ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4" />
+                  )}
+                  Repair incomplete profile
+                </button>
+              )}
             </div>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <StatusPill ok label="Portal account exists" detail={`Status: ${employee.status || '—'}`} />
@@ -344,9 +485,22 @@ export default function HqAccountSupportPage() {
                 }
               />
               <StatusPill
-                ok={(employee.ticketCount || 0) > 0}
-                label={`${employee.ticketCount || 0} related ticket${(employee.ticketCount || 0) === 1 ? '' : 's'}`}
-                detail="Employee help tickets"
+                ok={
+                  !employee.incompleteShell &&
+                  employee.onboardingState !== 'needs_cv_upload' &&
+                  employee.onboardingState !== 'needs_parse_repair'
+                }
+                label={
+                  employee.onboardingState === 'ok'
+                    ? 'Onboarding complete'
+                    : `Onboarding: ${employee.onboardingState || 'unknown'}`
+                }
+                detail={
+                  employee.parseError ||
+                  (employee.hasResumeFile
+                    ? `Parse: ${employee.parseStatus || '—'}`
+                    : 'No CV file stored yet')
+                }
               />
             </div>
           </Panel>
@@ -403,15 +557,19 @@ export default function HqAccountSupportPage() {
         ) : null}
 
         {((employer?.relatedTickets || []).length > 0 ||
-          (employee?.relatedTickets || []).length > 0) && (
+          (employee?.relatedTickets || []).length > 0 ||
+          ((result?.relatedTickets || []).length > 0 && !result?.exists)) && (
           <Panel>
             <div className="mb-3 flex items-center gap-2">
               <Ticket className="h-4 w-4 text-rose-500" />
               <h3 className="text-sm font-semibold text-slate-800">Related tickets</h3>
             </div>
             <ul className="divide-y divide-slate-100">
-              {[...(employer?.relatedTickets || []), ...(employee?.relatedTickets || [])].map(
-                (ticket) => (
+              {[
+                ...(employer?.relatedTickets || []),
+                ...(employee?.relatedTickets || []),
+                ...(!result?.exists ? result?.relatedTickets || [] : []),
+              ].map((ticket) => (
                   <li key={`${ticket.audience}-${ticket.id}`} className="flex items-start justify-between gap-3 py-2.5">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium text-slate-800">{ticket.subject}</p>
@@ -427,8 +585,7 @@ export default function HqAccountSupportPage() {
                       Open tickets
                     </Link>
                   </li>
-                ),
-              )}
+                ))}
             </ul>
           </Panel>
         )}

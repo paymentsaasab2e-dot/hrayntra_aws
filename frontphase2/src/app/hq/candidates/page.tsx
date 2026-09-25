@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { matchesQuickSearch, buildQuickSearchHaystack } from '../../../lib/quickSearch';
-import { RefreshCw, Search, UserRound } from 'lucide-react';
+import { Mail, RefreshCw, Search, UserRound } from 'lucide-react';
 import {
   HqModulePageLayout,
   HQ_TABLE_BODY_SCROLL_CLASS,
@@ -15,6 +15,7 @@ import { HqSecondaryButton, HqStatCard } from '@/components/hq/hqUi';
 import { HqPhase1ConnectionBar } from '@/components/hq/HqPhase1ConnectionBar';
 import { HqCandidateBehaviorPanel } from '@/components/hq/HqCandidateBehaviorPanel';
 import {
+  apiHqEmailCompleteRegistration,
   apiHqListCandidates,
   type HqPortalCandidateRow,
   type HqPortalStorageInfo,
@@ -57,6 +58,12 @@ function OriginBadge({ origin }: { origin: HqPortalCandidateRow['origin'] }) {
   );
 }
 
+function isIncompleteRegistration(row: HqPortalCandidateRow) {
+  const name = String(row.name || '').replace(/[—–-]/g, '').trim();
+  const parts = name.split(/\s+/).filter(Boolean);
+  return parts.length < 2;
+}
+
 function StatusPill({ value }: { value: string }) {
   return (
     <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-600 ring-1 ring-slate-200">
@@ -79,6 +86,10 @@ export default function HqCandidatesPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [originFilter, setOriginFilter] = useState<OriginFilter>('all');
+  const [incompleteOnly, setIncompleteOnly] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [sendingMail, setSendingMail] = useState(false);
+  const [mailNote, setMailNote] = useState<string | null>(null);
   const [selectedCandidate, setSelectedCandidate] = useState<HqPortalCandidateRow | null>(null);
 
   const loadCandidates = useCallback(async () => {
@@ -119,6 +130,7 @@ export default function HqCandidatesPage() {
   const filteredCandidates = useMemo(() => {
     return candidates.filter((row) => {
       if (originFilter !== 'all' && row.origin !== originFilter) return false;
+      if (incompleteOnly && !isIncompleteRegistration(row)) return false;
       if (!needle) return true;
       const hay = [
         row.name,
@@ -136,7 +148,55 @@ export default function HqCandidatesPage() {
         .toLowerCase();
       return matchesQuickSearch(hay, needle);
     });
-  }, [candidates, needle, originFilter]);
+  }, [candidates, needle, originFilter, incompleteOnly]);
+
+  const incompleteCount = useMemo(
+    () => candidates.filter(isIncompleteRegistration).length,
+    [candidates],
+  );
+
+  const selectedRows = useMemo(
+    () => filteredCandidates.filter((row) => selectedIds.includes(`${row.origin}-${row.id}`)),
+    [filteredCandidates, selectedIds],
+  );
+
+  const toggleRow = (key: string) => {
+    setSelectedIds((current) =>
+      current.includes(key) ? current.filter((id) => id !== key) : [...current, key],
+    );
+  };
+
+  const toggleAllListed = () => {
+    const keys = filteredCandidates
+      .filter((row) => row.email)
+      .map((row) => `${row.origin}-${row.id}`);
+    const allOn = keys.length > 0 && keys.every((key) => selectedIds.includes(key));
+    setSelectedIds(allOn ? [] : keys);
+  };
+
+  const sendRegistrationEmails = async () => {
+    const recipients = selectedRows
+      .filter((row) => row.email)
+      .map((row) => ({ email: row.email, name: row.name }));
+    if (!recipients.length) return;
+    setSendingMail(true);
+    setMailNote(null);
+    try {
+      const res = await apiHqEmailCompleteRegistration({ recipients });
+      const sent = res.data?.sentCount ?? 0;
+      const failed = res.data?.failedCount ?? 0;
+      setMailNote(
+        failed
+          ? `Sent ${sent}. ${failed} could not be sent.`
+          : `Sent ${sent} registration email${sent === 1 ? '' : 's'}.`,
+      );
+      setSelectedIds([]);
+    } catch (err) {
+      setMailNote(err instanceof Error ? err.message : 'Could not send emails');
+    } finally {
+      setSendingMail(false);
+    }
+  };
 
   const tabCounts = useMemo(
     () => ({
@@ -235,6 +295,33 @@ export default function HqCandidatesPage() {
                 );
               })}
             </div>
+            <button
+              type="button"
+              onClick={() => setIncompleteOnly((on) => !on)}
+              className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold ${
+                incompleteOnly ? 'bg-amber-600 text-white' : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              Incomplete
+              <span
+                className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+                  incompleteOnly ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'
+                }`}
+              >
+                {incompleteCount}
+              </span>
+            </button>
+            <button
+              type="button"
+              disabled={sendingMail || selectedRows.length === 0}
+              onClick={() => void sendRegistrationEmails()}
+              className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              <Mail className="h-4 w-4" />
+              {sendingMail
+                ? 'Sending…'
+                : `Email selected${selectedRows.length ? ` (${selectedRows.length})` : ''}`}
+            </button>
             <div className="relative min-w-[220px] flex-1">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
@@ -251,11 +338,25 @@ export default function HqCandidatesPage() {
                 : `${filteredCandidates.length} of ${candidates.length} listed · click a row for behaviour analysis`}
             </p>
           </div>
+          {mailNote ? <p className="px-4 pb-2 text-xs font-medium text-slate-600">{mailNote}</p> : null}
 
           <div className={HQ_TABLE_BODY_SCROLL_CLASS}>
             <table className={HQ_TABLE_CLASS}>
               <thead>
                 <tr>
+                  <th>
+                    <input
+                      type="checkbox"
+                      aria-label="Select listed candidates"
+                      checked={
+                        filteredCandidates.some((row) => row.email) &&
+                        filteredCandidates
+                          .filter((row) => row.email)
+                          .every((row) => selectedIds.includes(`${row.origin}-${row.id}`))
+                      }
+                      onChange={toggleAllListed}
+                    />
+                  </th>
                   <th>#</th>
                   <th>Candidate</th>
                   <th>Contact</th>
@@ -269,7 +370,7 @@ export default function HqCandidatesPage() {
               <tbody>
                 {filteredCandidates.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-4 py-10 text-center text-slate-500">
+                    <td colSpan={9} className="px-4 py-10 text-center text-slate-500">
                       {loading ? 'Loading candidates…' : 'No Phase 1 candidates found.'}
                     </td>
                   </tr>
@@ -280,6 +381,15 @@ export default function HqCandidatesPage() {
                       onClick={() => setSelectedCandidate(row)}
                       className="cursor-pointer border-b border-slate-100 transition hover:bg-indigo-50/40"
                     >
+                      <td className="px-4 py-3" onClick={(event) => event.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${row.email || row.name}`}
+                          disabled={!row.email}
+                          checked={selectedIds.includes(`${row.origin}-${row.id}`)}
+                          onChange={() => toggleRow(`${row.origin}-${row.id}`)}
+                        />
+                      </td>
                       <td className="px-4 py-3 text-xs text-slate-400">{index + 1}</td>
                       <td className="px-4 py-3">
                         <div className="font-semibold text-slate-900">{row.name}</div>

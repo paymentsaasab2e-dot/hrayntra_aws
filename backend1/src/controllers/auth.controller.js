@@ -175,11 +175,21 @@ async function logout(req, res) {
   }
 }
 
+function hasRealProfileName(candidate) {
+  const full = String(candidate?.profile?.fullName || '').trim();
+  const combined = [candidate?.firstName, candidate?.lastName].filter(Boolean).join(' ').trim();
+  const name = full || combined;
+  if (!name || isPortalPlaceholderFullName(name)) return false;
+  return /[A-Za-z]/.test(name);
+}
+
 async function computeSkipCvUpload(candidate) {
   const onboarding = await retryQuery(async () => {
     return await prisma.candidate.findUnique({
       where: { id: candidate.id },
       select: {
+        firstName: true,
+        lastName: true,
         profile: { select: { fullName: true, profileCompleteness: true } },
         resume: { select: { fileUrl: true, fileName: true } },
       },
@@ -190,12 +200,7 @@ async function computeSkipCvUpload(candidate) {
     String(onboarding?.resume?.fileUrl || '').trim() ||
       String(onboarding?.resume?.fileName || '').trim()
   );
-  if (hasUploadedResume) return true;
-
-  const completeness = Number(onboarding?.profile?.profileCompleteness || 0);
-  if (completeness >= 25) return true;
-
-  return false;
+  return hasUploadedResume && hasRealProfileName(onboarding);
 }
 
 async function syncProfilePhone(candidate) {
@@ -613,6 +618,12 @@ async function getOrCreateCandidateForOtp({
   });
 }
 
+function registrationStage(candidate) {
+  if (!candidate?.isVerified) return 'verify_otp';
+  if (!candidate?.passwordHash) return 'set_password';
+  return 'sign_in';
+}
+
 /**
  * Send OTP to WhatsApp number
  * POST /api/auth/send-otp
@@ -655,11 +666,23 @@ async function sendOTP(req, res) {
         });
       });
 
-      if (!existingAccount || !existingAccount.isVerified || !existingAccount.whatsappNumber) {
+      if (!existingAccount) {
         return res.status(404).json({
           success: false,
           code: 'ACCOUNT_NOT_FOUND',
-          message: 'No account found for this email. Create an account to continue.',
+          channel: 'email',
+          message: 'No HRYantra account is linked to this email address. Please create an account to continue.',
+        });
+      }
+
+      if (!existingAccount.whatsappNumber) {
+        return res.status(409).json({
+          success: false,
+          code: 'ACCOUNT_INCOMPLETE',
+          stage: 'verify_otp',
+          needsPhone: true,
+          channel: 'email',
+          message: 'Please add your mobile number. A verification code will then be sent to your email.',
         });
       }
 
@@ -715,11 +738,12 @@ async function sendOTP(req, res) {
         }
       }
 
-      if (!existingAccount || !existingAccount.isVerified) {
+      if (!existingAccount) {
         return res.status(404).json({
           success: false,
           code: 'ACCOUNT_NOT_FOUND',
-          message: 'No account found for this number. Create an account to continue.',
+          channel: 'phone',
+          message: 'No HRYantra account is linked to this mobile number. Please create an account to continue.',
         });
       }
 
@@ -824,6 +848,7 @@ async function sendOTP(req, res) {
         emailSent: emailResult.success,
         emailMessageId: emailResult.messageId,
         expiresAt: expiresAt.toISOString(),
+        stage: registrationStage(candidate),
       },
     });
   } catch (error) {
@@ -1209,14 +1234,26 @@ async function loginWithPassword(req, res) {
       }
     }
 
-    // Account does not exist (or never completed verification) → create account
-    if (!candidate || !candidate.isVerified) {
+    // Account does not exist → create account
+    if (!candidate) {
       return res.status(404).json({
         success: false,
         code: 'ACCOUNT_NOT_FOUND',
         message: hasEmail
-          ? 'No account found for this email. Create an account to continue.'
-          : 'No account found for this number. Create an account to continue.',
+          ? 'No HRYantra account is linked to this email address. Please create an account to continue.'
+          : 'No HRYantra account is linked to this mobile number. Please create an account to continue.',
+        channel: hasEmail ? 'email' : 'phone',
+      });
+    }
+
+    // Shell / half-finished registration (Rajesh-style): exists for signup, fails password login
+    if (!candidate.isVerified) {
+      return res.status(409).json({
+        success: false,
+        code: 'ACCOUNT_INCOMPLETE',
+        stage: 'verify_otp',
+        channel: hasEmail ? 'email' : 'phone',
+        message: 'Email verification is required. Please enter the code sent to your email.',
       });
     }
 
@@ -1224,7 +1261,9 @@ async function loginWithPassword(req, res) {
       return res.status(400).json({
         success: false,
         code: 'PASSWORD_NOT_SET',
-        message: 'No password is set for this account yet. Create one via Create account.',
+        stage: 'set_password',
+        channel: hasEmail ? 'email' : 'phone',
+        message: 'A password is required. Please enter the code sent to your email, then set your password.',
       });
     }
 
@@ -1369,7 +1408,7 @@ async function checkCredential(req, res) {
         });
       });
 
-      if (existing && (existing.isVerified || existing.passwordHash || intent === 'signup')) {
+      if (existing && existing.isVerified && existing.passwordHash) {
         return res.json({
           success: true,
           available: false,
@@ -1379,6 +1418,18 @@ async function checkCredential(req, res) {
             intent === 'profile'
               ? 'This email is already used by another account.'
               : 'An account with this email already exists. Sign in instead.',
+        });
+      }
+
+      // Incomplete shell (signup started, never verified / no password) — allow Create account to resume
+      if (existing) {
+        return res.json({
+          success: true,
+          available: true,
+          takenByOther: false,
+          code: 'INCOMPLETE_REGISTRATION_REUSABLE',
+          message:
+            'Please continue registration to verify your email, set a password, and upload your CV.',
         });
       }
 
@@ -1426,7 +1477,7 @@ async function checkCredential(req, res) {
       existing = await findCandidateByWhatsAppFlexible(normalizedFull, excludeCandidateId);
     }
 
-    if (existing && (existing.isVerified || existing.passwordHash || intent === 'signup')) {
+    if (existing && existing.isVerified && existing.passwordHash) {
       return res.json({
         success: true,
         available: false,
@@ -1436,6 +1487,17 @@ async function checkCredential(req, res) {
           intent === 'profile'
             ? 'This mobile number is already used by another account.'
             : 'An account with this mobile number already exists. Sign in instead.',
+      });
+    }
+
+    if (existing) {
+      return res.json({
+        success: true,
+        available: true,
+        takenByOther: false,
+        code: 'INCOMPLETE_REGISTRATION_REUSABLE',
+        message:
+          'Please continue registration to verify your details, set a password, and upload your CV.',
       });
     }
 
@@ -1868,6 +1930,10 @@ async function getMe(req, res) {
           whatsappNumber: true,
           email: true,
           isVerified: true,
+          firstName: true,
+          lastName: true,
+          passwordHash: true,
+          resume: { select: { fileUrl: true, fileName: true } },
           profile: {
             select: {
               fullName: true,
@@ -1903,6 +1969,12 @@ async function getMe(req, res) {
         name,
         profilePhotoUrl: profile.profilePhotoUrl || null,
         isVerified: Boolean(candidate.isVerified),
+        hasPassword: Boolean(candidate.passwordHash),
+        hasResume: Boolean(
+          String(candidate.resume?.fileUrl || '').trim() ||
+            String(candidate.resume?.fileName || '').trim(),
+        ),
+        hasProfileName: hasRealProfileName(candidate),
         personalInfo: {
           firstName: split.firstName || '',
           middleName: split.middleName || '',

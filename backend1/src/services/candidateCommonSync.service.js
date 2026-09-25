@@ -199,6 +199,20 @@ async function loadCandidateForCommonSync(candidateId) {
   });
 }
 
+function isIncompletePortalShell(candidate, data) {
+  const first = String(candidate?.firstName || data?.firstName || '').trim();
+  const last = String(candidate?.lastName || data?.lastName || '').trim();
+  const hasName = Boolean(first || last);
+  const hasResume = Boolean(
+    String(data?.resumeUrl || candidate?.resume?.fileUrl || candidate?.resumeUrl || '').trim(),
+  );
+  const hasWork =
+    Array.isArray(data?.cvWorkExperienceEntries) && data.cvWorkExperienceEntries.length > 0;
+  const hasSkills = Array.isArray(data?.skills) && data.skills.length > 0;
+  // Email-only stubs (connectivity drop mid-upload) — do not pollute CRM until CV finishes.
+  return !hasName && !hasResume && !hasWork && !hasSkills;
+}
+
 /**
  * Upsert full Phase 1 candidate snapshot into the candidatecommon database.
  */
@@ -217,6 +231,12 @@ async function syncCandidateToCommon(candidateId, options = {}) {
     if (!candidate) return null;
 
     const data = buildCommonPayload(candidate, options);
+    if (!options.forceShell && isIncompletePortalShell(candidate, data)) {
+      if (process.env.CANDIDATE_COMMON_SYNC_LOG === 'true') {
+        console.log(`[candidateCommon] skip incomplete shell ${id}`);
+      }
+      return null;
+    }
     const { id: rowId, ...mutableFields } = data;
     const row = await commonPrisma.candidateCommon.upsert({
       where: { candidateId: id },
@@ -280,4 +300,5 @@ module.exports = {
   syncCandidateCommonFromDashboard,
   buildCommonPayload,
   loadCandidateForCommonSync,
+  isIncompletePortalShell,
 };

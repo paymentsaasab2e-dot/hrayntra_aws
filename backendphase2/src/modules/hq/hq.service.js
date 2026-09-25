@@ -1314,6 +1314,37 @@ export const hqService = {
     return hqPortalService.listAllCandidates();
   },
 
+  async emailIncompleteCandidates(reqUser, body = {}) {
+    assertPlatformProvisioner(reqUser);
+    const { sendCompleteRegistrationEmail } = await import('../../utils/emailService.js');
+    const rows = Array.isArray(body.recipients) ? body.recipients : [];
+    const unique = [];
+    const seen = new Set();
+    for (const row of rows) {
+      const email = String(row?.email || '').trim().toLowerCase();
+      if (!email || seen.has(email)) continue;
+      seen.add(email);
+      unique.push({ email, name: String(row?.name || '').trim() });
+    }
+    if (!unique.length) {
+      throw Object.assign(new Error('Select at least one candidate with an email'), { statusCode: 400 });
+    }
+    if (unique.length > 100) {
+      throw Object.assign(new Error('Send to 100 people or fewer at a time'), { statusCode: 400 });
+    }
+    const sent = [];
+    const failed = [];
+    for (const person of unique) {
+      try {
+        await sendCompleteRegistrationEmail(person);
+        sent.push(person.email);
+      } catch (err) {
+        failed.push({ email: person.email, error: err?.message || 'Failed to send' });
+      }
+    }
+    return { sentCount: sent.length, failedCount: failed.length, sent, failed };
+  },
+
   async listKycInterviewers(reqUser) {
     assertPlatformProvisioner(reqUser);
     return hqKycInterviewersService.listInterviewers();
@@ -1521,5 +1552,17 @@ export const hqService = {
     assertPlatformProvisioner(reqUser);
     const { hqAccountSupportService } = await import('./hq-account-support.service.js');
     return hqAccountSupportService.impersonateEmployee(body);
+  },
+
+  async repairAccountSupportEmployee(body, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    const { hqAccountSupportService } = await import('./hq-account-support.service.js');
+    return hqAccountSupportService.repairIncompleteEmployee(body);
+  },
+
+  async provisionAccountSupportEmployee(body, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    const { hqAccountSupportService } = await import('./hq-account-support.service.js');
+    return hqAccountSupportService.provisionOrReuseEmployee(body);
   },
 };

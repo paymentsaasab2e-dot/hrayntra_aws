@@ -210,7 +210,9 @@ async function claimQueuedJob(candidateId, workerId) {
           'resumeJson.parseLockedAt': nowIso,
           'resumeJson.parseStartedAt': nowIso,
           'resumeJson.parseUpdatedAt': nowIso,
-          updatedAt: new Date(),
+          // Raw commands must use Extended JSON. A JS Date is stored as a quoted
+          // string, and the next Prisma read then fails with P2023.
+          updatedAt: { $date: nowIso },
         },
       },
       new: true,
