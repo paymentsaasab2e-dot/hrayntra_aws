@@ -538,12 +538,28 @@ export async function resolveSaasaCvShareUrl(candidate, candidateFiles = [], sna
       || null;
   }
 
-  const candidates = [
-    normalizeShareableFileUrl(row?.fileUrl),
-    normalizeShareableFileUrl(bag?.fileUrl),
-    normalizeShareableFileUrl(snapshotUrl),
-  ].filter(Boolean);
-  return candidates.find((url) => !urlsLookLikeSameFile(url, originalResume)) || '';
+  const rowUrl = normalizeShareableFileUrl(row?.fileUrl);
+  const rowIsHryantra = Boolean(
+    row && (
+      /^SAASA_CV$/i.test(String(row.fileType || '')) ||
+      /hryantra[_\s-]*cv/i.test(String(row.fileName || ''))
+    ),
+  );
+  if (rowUrl && (rowIsHryantra || !urlsLookLikeSameFile(rowUrl, originalResume))) {
+    return rowUrl;
+  }
+
+  const bagUrl = normalizeShareableFileUrl(bag?.fileUrl);
+  const bagIsHryantra = /hryantra[_\s-]*cv/i.test(
+    String(bag?.fileName || bag?.fileType || ''),
+  );
+  if (bagUrl && (bagIsHryantra || !urlsLookLikeSameFile(bagUrl, originalResume))) {
+    return bagUrl;
+  }
+
+  const snap = normalizeShareableFileUrl(snapshotUrl);
+  if (snap && !urlsLookLikeSameFile(snap, originalResume)) return snap;
+  return '';
 }
 
 const readCandidateCvShareMode = (candidate) => {
@@ -1852,8 +1868,10 @@ async function serializeInterviewForClientReview(
     ? {
         hasExport: Boolean(saasaCvUrl),
         fullSnapshot: saasaFullSnapshot,
-        hasOverlays: saasaHasOverlays,
-        baseResumeUrl: saasaBaseForComposite || null,
+        // A saved HRYantra file is the CV the client should see. Marks on the
+        // original resume must not replace that file.
+        hasOverlays: Boolean(saasaCvUrl) ? false : saasaHasOverlays,
+        baseResumeUrl: saasaCvUrl ? null : (saasaBaseForComposite || null),
         items: Array.isArray(saasaBag?.items) ? saasaBag.items : [],
         companyLogo: saasaBag?.companyLogo || null,
         documentHtml: saasaBag?.documentHtml || null,
@@ -3422,7 +3440,7 @@ export const interviewService = {
       const saasaBaseUrl = String(detail?.saasaCvBaseUrl || '').trim();
       const sourceUrl = String(
         detail?.cvShareMode === 'saasa'
-          ? (wantBase ? saasaBaseUrl : saasaFileUrl)
+          ? (saasaFileUrl || (wantBase ? saasaBaseUrl : ''))
           : (detail?.sharedResumeUrl || detail?.candidate?.resume || ''),
       ).trim();
       const loaded = await loadReviewAssetBuffer(sourceUrl);

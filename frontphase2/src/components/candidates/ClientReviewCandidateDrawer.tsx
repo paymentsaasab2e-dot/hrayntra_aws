@@ -195,6 +195,7 @@ export function ClientReviewCandidateDrawer({
   const saasaBaseResumeUrl = String(saasaPreview?.baseResumeUrl || '').trim();
   const showSaasaComposite =
     showSaasaCv &&
+    !saasaPreview?.hasExport &&
     Boolean(saasaPreview?.hasOverlays) &&
     (saasaBaseResumeUrl.startsWith('http') || isClientReviewFileHref(saasaBaseResumeUrl));
   const canOpenResume =

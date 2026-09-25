@@ -1446,12 +1446,17 @@ export function attachSharedResumeToClientReviewSections(sections, resumeUrl) {
   return list.map((section) => {
     if (section?.id !== 'resume') return section;
     const fields = Array.isArray(section.fields) ? [...section.fields] : [];
-    if (fields.some((row) => isOpenableClientResumeHref(row?.value))) return section;
-    const idx = fields.findIndex((row) => {
+    const isResumeLabel = (row) => {
       const key = String(row?.label || '').trim().toLowerCase();
-      return (key === 'resume / cv' || key === 'resume') && !String(row?.value || '').trim();
-    });
-    if (idx >= 0) fields[idx] = { ...fields[idx], value: url };
+      return key === 'resume / cv' || key === 'resume' || key === 'resume url' || key === 'cv';
+    };
+    const idx = fields.findIndex(isResumeLabel);
+    if (idx >= 0) {
+      fields[idx] = { ...fields[idx], value: url };
+      return { ...section, fields };
+    }
+    const hrefIdx = fields.findIndex((row) => isOpenableClientResumeHref(row?.value));
+    if (hrefIdx >= 0) fields[hrefIdx] = { ...fields[hrefIdx], value: url };
     else fields.unshift({ label: 'Resume / CV', value: url });
     return { ...section, fields };
   });

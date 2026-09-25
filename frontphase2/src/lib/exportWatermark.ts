@@ -599,9 +599,14 @@ export async function stampDownloadBlob(
     if (!cfg.applyToPdf) return blob;
     try {
       const { PDFDocument, StandardFonts, rgb, degrees } = await import('pdf-lib');
-      const pdfDoc = await PDFDocument.load(await blob.arrayBuffer(), {
+      const raw = await blob.arrayBuffer();
+      const marker = new TextDecoder().decode(raw);
+      if (marker.includes('HryantraWm:stamped')) return blob;
+      if (marker.includes('pdf-lib') && !marker.includes('HryantraWm:clean')) return blob;
+      const pdfDoc = await PDFDocument.load(raw, {
         ignoreEncryption: true,
       });
+      pdfDoc.setKeywords(['HryantraWm:stamped']);
       const pages = pdfDoc.getPages();
       if (!pages.length) return blob;
       const opacity = Math.min(0.5, Math.max(0.05, cfg.opacity));
