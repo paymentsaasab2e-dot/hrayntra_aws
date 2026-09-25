@@ -18,6 +18,8 @@ export interface ResumeWordFileViewerProps {
   minHeight?: string;
   /** Always use docx-preview (required for HRYantra CV text editing). */
   preferBuiltIn?: boolean;
+  /** Stay on the Office viewer. The built-in preview stretches designed Word pages. */
+  allowBuiltInFallback?: boolean;
   /** Allow inline text edits on the rendered Word HTML. */
   editable?: boolean;
   /** Restored edited HTML from a previous HRYantra CV save. */
@@ -214,6 +216,7 @@ export function ResumeWordFileViewer({
   className = '',
   minHeight = 'min(720px, calc(100vh - 14rem))',
   preferBuiltIn = false,
+  allowBuiltInFallback = true,
   editable = false,
   initialDocumentHtml = null,
   onDocumentHtmlChange,
@@ -237,14 +240,14 @@ export function ResumeWordFileViewer({
   }, [officeEmbedUrl, resumeUrl]);
 
   useEffect(() => {
-    if (!enabled || !useWordOnline || useBuiltInFallback) return;
+    if (!enabled || !useWordOnline || useBuiltInFallback || !allowBuiltInFallback) return;
     const timer = window.setTimeout(() => {
       if (!officeFrameLoaded) {
         setUseBuiltInFallback(true);
       }
     }, 12000);
     return () => window.clearTimeout(timer);
-  }, [enabled, useWordOnline, useBuiltInFallback, officeFrameLoaded, officeEmbedUrl]);
+  }, [enabled, useWordOnline, useBuiltInFallback, allowBuiltInFallback, officeFrameLoaded, officeEmbedUrl]);
 
   const rootClass = `resume-word-file-viewer relative h-full w-full ${className}`.trim();
 
