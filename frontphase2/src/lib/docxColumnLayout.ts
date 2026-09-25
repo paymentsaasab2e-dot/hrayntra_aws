@@ -52,6 +52,10 @@ function readU32(bytes: Uint8Array, offset: number): number {
   );
 }
 
+function asBlobPart(data: Uint8Array): BlobPart {
+  return new Uint8Array(data) as BlobPart;
+}
+
 function findEocd(bytes: Uint8Array): number {
   const start = Math.max(0, bytes.length - 22 - 65535);
   for (let i = bytes.length - 22; i >= start; i -= 1) {
@@ -61,12 +65,12 @@ function findEocd(bytes: Uint8Array): number {
 }
 
 async function inflateRaw(data: Uint8Array): Promise<Uint8Array> {
-  const stream = new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+  const stream = new Blob([asBlobPart(data)]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
 async function deflateRaw(data: Uint8Array): Promise<Uint8Array> {
-  const stream = new Blob([data]).stream().pipeThrough(new CompressionStream('deflate-raw'));
+  const stream = new Blob([asBlobPart(data)]).stream().pipeThrough(new CompressionStream('deflate-raw'));
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
@@ -208,7 +212,7 @@ export async function restoreResumeDocxAfterEditor(blob: Blob): Promise<Blob> {
     document.data = new TextEncoder().encode(next);
     document.method = 8;
     const restored = await writeZip(entries);
-    return new Blob([restored], { type: blob.type || 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+    return new Blob([asBlobPart(restored)], { type: blob.type || 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
   } catch {
     return blob;
   }

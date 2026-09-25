@@ -2148,22 +2148,22 @@ export function SaasaCvAnnotationModal({
                             if (!host) return;
                             let best: HTMLElement | null = null;
                             let bestDist = 36;
-                            host.querySelectorAll('.saasa-pdf-inplace-line').forEach((node) => {
-                              if (!(node instanceof HTMLElement)) return;
+                            for (const node of host.querySelectorAll('.saasa-pdf-inplace-line')) {
+                              if (!(node instanceof HTMLElement)) continue;
                               const rect = node.getBoundingClientRect();
-                              if (rect.width < 1 || rect.height < 1) return;
+                              if (rect.width < 1 || rect.height < 1) continue;
                               const near =
                                 event.clientX >= rect.left - 10 &&
                                 event.clientX <= rect.right + 10 &&
                                 event.clientY >= rect.top - 8 &&
                                 event.clientY <= rect.bottom + 8;
-                              if (!near) return;
+                              if (!near) continue;
                               const dist = Math.abs(event.clientY - (rect.top + rect.height / 2));
                               if (dist < bestDist) {
                                 bestDist = dist;
                                 best = node;
                               }
-                            });
+                            }
                             best?.focus();
                           }}
                         />

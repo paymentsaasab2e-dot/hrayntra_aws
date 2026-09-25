@@ -77,6 +77,10 @@ const CRC_TABLE = (() => {
   return table;
 })();
 
+function asBlobPart(data: Uint8Array): BlobPart {
+  return new Uint8Array(data) as BlobPart;
+}
+
 function crc32(data: Uint8Array): number {
   let crc = 0xffffffff;
   for (let i = 0; i < data.length; i += 1) {
@@ -86,12 +90,12 @@ function crc32(data: Uint8Array): number {
 }
 
 async function inflateRaw(data: Uint8Array): Promise<Uint8Array> {
-  const stream = new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+  const stream = new Blob([asBlobPart(data)]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
 async function deflateRaw(data: Uint8Array): Promise<Uint8Array> {
-  const stream = new Blob([data]).stream().pipeThrough(new CompressionStream('deflate-raw'));
+  const stream = new Blob([asBlobPart(data)]).stream().pipeThrough(new CompressionStream('deflate-raw'));
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
@@ -452,7 +456,7 @@ export async function prepareDocxBlobForPreview(blob: Blob): Promise<{
     entry.uncompressedSize = uncompressed.length;
     const packed = await writeZip(entries);
     return {
-      blob: new Blob([packed], { type: blob.type || 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }),
+      blob: new Blob([asBlobPart(packed)], { type: blob.type || 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }),
       layout,
     };
   } catch {
