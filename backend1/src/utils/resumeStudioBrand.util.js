@@ -13,16 +13,13 @@ function absoluteSaasaLogoUrl(origin) {
   return `${base}${SAASA_LOGO_PATH}`;
 }
 
-function buildSaasaWatermarkOverlayHtml(logoUrl) {
-  const src = String(logoUrl || '').replace(/"/g, '&quot;');
-  return `<div aria-hidden="true" data-saasa-watermark="center" style="position:absolute;inset:0;pointer-events:none;z-index:20;display:flex;align-items:center;justify-content:center;">
-  <img src="${src}" alt="" draggable="false" style="max-height:54%;max-width:70%;object-fit:contain;opacity:0.13;user-select:none;" />
-</div>`;
+function buildSaasaWatermarkOverlayHtml(_logoUrl) {
+  return '';
 }
 
 function stripCornerWatermark(html) {
   return String(html || '').replace(
-    /<div[^>]*data-saasa-watermark=["']corner["'][^>]*>[\s\S]*?<\/div>/gi,
+    /<div[^>]*data-saasa-watermark=["'][^"']*["'][^>]*>[\s\S]*?<\/div>/gi,
     '',
   );
 }

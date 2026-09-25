@@ -783,6 +783,7 @@ export async function buildSaasaCvPdfPreservingSource(options: {
     }
   }
 
+  pdfDoc.setKeywords(['HryantraWm:clean']);
   const saved = await pdfDoc.save();
   if (saved.byteLength < Math.min(8000, sourceBytes.byteLength * 0.25)) {
     return null;
@@ -942,6 +943,7 @@ export async function canvasToSaasaCvPdfBlob(
     }
 
     if (pdfDoc.getPageCount() > 0) {
+      pdfDoc.setKeywords(['HryantraWm:clean']);
       const saved = await pdfDoc.save();
       const bytes = saved instanceof Uint8Array ? saved : new Uint8Array(saved as ArrayBuffer);
       const copy = new Uint8Array(bytes.byteLength);

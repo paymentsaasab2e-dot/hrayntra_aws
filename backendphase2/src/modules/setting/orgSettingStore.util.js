@@ -28,6 +28,19 @@ async function dropStaleSettingsCandidateIdIndex() {
   }
 }
 
+export async function deleteOtherOrgSettingRows(key, keepId) {
+  const settingKey = String(key || '').trim();
+  const id = String(keepId || '').trim();
+  if (!settingKey || !id) return;
+  await prisma.setting.deleteMany({
+    where: {
+      key: settingKey,
+      scope: ORG_SETTING_SCOPE,
+      NOT: { id },
+    },
+  });
+}
+
 export async function findOrgSettingRow(key) {
   return prisma.setting.findFirst({
     where: { key: String(key), scope: ORG_SETTING_SCOPE },

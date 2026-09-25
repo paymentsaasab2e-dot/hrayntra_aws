@@ -21,8 +21,19 @@ export async function stampPdfBufferWithExportWatermark(buffer, watermark) {
   const head = input.subarray(0, 5).toString('utf8');
   if (!head.startsWith('%PDF')) return input;
 
+  // Already stamped on a previous open — do not paint a second layer.
+  if (input.includes('HryantraWm:stamped')) return input;
+
+  // Older HRYantra exports already have a watermark in the page image and
+  // were written by pdf-lib. Stamping those again stacks a second copy.
+  // New exports are tagged HryantraWm:clean so they still receive one stamp.
+  const producedByPdfLib = input.includes('pdf-lib');
+  const explicitlyClean = input.includes('HryantraWm:clean');
+  if (producedByPdfLib && !explicitlyClean) return input;
+
   try {
     const pdfDoc = await PDFDocument.load(input, { ignoreEncryption: true });
+    pdfDoc.setKeywords(['HryantraWm:stamped']);
     const pages = pdfDoc.getPages();
     if (!pages.length) return input;
 
