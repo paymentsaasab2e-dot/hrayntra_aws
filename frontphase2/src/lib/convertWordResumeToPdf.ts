@@ -264,11 +264,39 @@ export async function rememberWordPdfForUrl(sourceUrl: string, pdf: Uint8Array):
   await writeFile(urlPdfCachePath(sourceUrl), pdf);
 }
 
+/** pdf, legacy .doc, or .docx — Word will not open a file saved with the wrong extension. */
+export function sniffResumeBytes(bytes: Uint8Array): 'pdf' | 'doc' | 'docx' {
+  if (
+    bytes.length >= 5 &&
+    bytes[0] === 0x25 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x44 &&
+    bytes[3] === 0x46
+  ) {
+    return 'pdf';
+  }
+  if (
+    bytes.length >= 8 &&
+    bytes[0] === 0xd0 &&
+    bytes[1] === 0xcf &&
+    bytes[2] === 0x11 &&
+    bytes[3] === 0xe0
+  ) {
+    return 'doc';
+  }
+  return 'docx';
+}
+
 /** Render a Word resume with Microsoft Word and return the PDF bytes. */
 export async function convertWordResumeToPdf(docxBytes: Uint8Array): Promise<Uint8Array> {
+  if (sniffResumeBytes(docxBytes) === 'pdf') {
+    if (docxBytes.byteLength < 1000) throw new Error('PDF resume was empty');
+    return docxBytes;
+  }
+  const extension = sniffResumeBytes(docxBytes) === 'doc' ? 'doc' : 'docx';
   const hash = createHash('sha256').update(docxBytes).digest('hex');
   const pdfPath = path.join(cacheDir, `${hash}.pdf`);
-  const docxPath = path.join(cacheDir, `${hash}.docx`);
+  const docxPath = path.join(cacheDir, `${hash}.${extension}`);
   await mkdir(cacheDir, { recursive: true });
   try {
     const cached = await readFile(pdfPath);

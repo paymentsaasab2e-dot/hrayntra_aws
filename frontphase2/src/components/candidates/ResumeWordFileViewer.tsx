@@ -73,6 +73,7 @@ function ResumeDocxBuiltInViewer({
   const styleRef = useRef<HTMLDivElement>(null);
   const loadSeqRef = useRef(0);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     if (!enabled || !resumeUrl) {
@@ -87,6 +88,7 @@ function ResumeDocxBuiltInViewer({
     let cancelled = false;
 
     setLoading(true);
+    setError('');
     bodyEl.innerHTML = '';
     if (styleRef.current) styleRef.current.innerHTML = '';
 
@@ -141,11 +143,15 @@ function ResumeDocxBuiltInViewer({
           applyDocxInlineEditMode(bodyEl, editable);
           onReady?.();
         } else {
-          onError?.('No preview content was rendered');
+          const message = 'No preview content was rendered';
+          setError(message);
+          onError?.(message);
         }
       } catch (err: unknown) {
         if (!cancelled && loadSeqRef.current === seq) {
-          onError?.(err instanceof Error ? err.message : 'Preview unavailable');
+          const message = err instanceof Error ? err.message : 'Preview unavailable';
+          setError(message);
+          onError?.(message);
         }
       } finally {
         if (!cancelled && loadSeqRef.current === seq) {
@@ -189,6 +195,11 @@ function ResumeDocxBuiltInViewer({
             <div className="mx-auto mb-3 h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-blue-600" />
             <p className="text-sm text-slate-600">Loading document…</p>
           </div>
+        </div>
+      ) : null}
+      {!loading && error ? (
+        <div className="absolute inset-0 z-[1] flex items-center justify-center bg-white p-6 text-center">
+          <p className="max-w-md text-sm text-slate-600">{error}</p>
         </div>
       ) : null}
     </div>

@@ -293,17 +293,19 @@ export async function getResumeDocxBytes(req, res) {
 
   const { decoded, ext } = parsed;
 
-  if (ext === 'doc') {
-    return res.status(400).send('Legacy .doc files cannot be previewed inline');
-  }
-
   try {
     const buffer = await fetchDocumentBuffer(decoded);
+    const isLegacyDoc = ext === 'doc';
     res.setHeader(
       'Content-Type',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      isLegacyDoc
+        ? 'application/msword'
+        : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
     );
-    res.setHeader('Content-Disposition', 'inline; filename="resume.docx"');
+    res.setHeader(
+      'Content-Disposition',
+      isLegacyDoc ? 'inline; filename="resume.doc"' : 'inline; filename="resume.docx"'
+    );
     res.setHeader('Cache-Control', 'private, max-age=300');
     return res.status(200).send(buffer);
   } catch (error) {
