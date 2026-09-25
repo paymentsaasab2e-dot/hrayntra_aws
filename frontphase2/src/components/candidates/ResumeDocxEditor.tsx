@@ -40,6 +40,42 @@ type ResumeDocxEditorProps = {
   canEdit: boolean;
 };
 
+const EMU_PER_CSS_PX = 9525;
+
+/** Pull a page that hangs off the left edge back into the editor. */
+function showFullDocumentPage(root: HTMLElement) {
+  const page = root.querySelector('.superdoc-page');
+  if (!(page instanceof HTMLElement)) return;
+  const hostRect = root.getBoundingClientRect();
+  const pageRect = page.getBoundingClientRect();
+  if (hostRect.width < 200 || pageRect.width < 80) return;
+  const overflowLeft = hostRect.left - pageRect.left;
+  const spareRight = hostRect.right - pageRect.right;
+  if (overflowLeft > 4 && spareRight > overflowLeft) {
+    const current = Number.parseFloat(page.style.marginLeft || '0') || 0;
+    page.style.marginLeft = `${current + overflowLeft + 8}px`;
+  }
+}
+
+/** Some Word drawings are laid out in EMUs and paint as a page-sized blob. */
+function shrinkEmuSizedBoxes(root: HTMLElement) {
+  root.querySelectorAll<HTMLElement>('[style*="width"], [style*="height"]').forEach((node) => {
+    const width = Number.parseFloat(node.style.width);
+    const height = Number.parseFloat(node.style.height);
+    const left = Number.parseFloat(node.style.left);
+    const top = Number.parseFloat(node.style.top);
+    const tooWide = Number.isFinite(width) && Math.abs(width) >= 20000;
+    const tooTall = Number.isFinite(height) && Math.abs(height) >= 20000;
+    const tooFarX = Number.isFinite(left) && Math.abs(left) >= 20000;
+    const tooFarY = Number.isFinite(top) && Math.abs(top) >= 20000;
+    if (!tooWide && !tooTall && !tooFarX && !tooFarY) return;
+    if (tooWide) node.style.width = `${Math.max(1, width / EMU_PER_CSS_PX)}px`;
+    if (tooTall) node.style.height = `${Math.max(1, height / EMU_PER_CSS_PX)}px`;
+    if (tooFarX) node.style.left = `${left / EMU_PER_CSS_PX}px`;
+    if (tooFarY) node.style.top = `${top / EMU_PER_CSS_PX}px`;
+  });
+}
+
 function fileNameFromUrl(resumeUrl: string): string {
   try {
     const last = new URL(resumeUrl).pathname.split('/').filter(Boolean).pop() || 'resume.docx';
@@ -105,6 +141,7 @@ export const ResumeDocxEditor = forwardRef<ResumeDocxEditorHandle, ResumeDocxEdi
       let cancelled = false;
       let editor: SuperDoc | null = null;
       let retryTimer = 0;
+      const fitTimers: number[] = [];
       readyRef.current = false;
       const timeout = window.setTimeout(() => {
         if (!cancelled) {
@@ -172,6 +209,14 @@ export const ResumeDocxEditor = forwardRef<ResumeDocxEditorHandle, ResumeDocxEdi
                 readyRef.current = true;
                 window.clearTimeout(timeout);
                 window.clearTimeout(retryTimer);
+                const fitDrawings = () => {
+                  if (cancelled || !hostRef.current) return;
+                  shrinkEmuSizedBoxes(hostRef.current);
+                  showFullDocumentPage(hostRef.current);
+                };
+                fitDrawings();
+                fitTimers.push(window.setTimeout(fitDrawings, 250));
+                fitTimers.push(window.setTimeout(fitDrawings, 1000));
                 setStatus('ready');
                 setMessage('');
               },
@@ -220,6 +265,7 @@ export const ResumeDocxEditor = forwardRef<ResumeDocxEditorHandle, ResumeDocxEdi
         cancelled = true;
         window.clearTimeout(timeout);
         window.clearTimeout(retryTimer);
+        fitTimers.forEach((timer) => window.clearTimeout(timer));
         editorRef.current = null;
         try {
           editor?.destroy();
@@ -232,28 +278,44 @@ export const ResumeDocxEditor = forwardRef<ResumeDocxEditorHandle, ResumeDocxEdi
     return (
       <div className="saasa-docx-editor relative flex h-full min-h-0 w-full flex-1 flex-col bg-[#e8eaed]">
         <style>{`
+          .saasa-docx-editor .superdoc--contained,
           .saasa-docx-editor .superdoc--contained .superdoc__layers,
           .saasa-docx-editor .superdoc--contained .superdoc__document,
           .saasa-docx-editor .superdoc--contained .superdoc__sub-document,
           .saasa-docx-editor .superdoc--contained .v2-super-editor,
           .saasa-docx-editor .superdoc--contained .v2-super-editor__visuals,
-          .saasa-docx-editor .superdoc--contained .v2-super-editor__stage,
-          .saasa-docx-editor .superdoc--contained .presentation-editor {
+          .saasa-docx-editor .superdoc--contained .v2-super-editor__stage {
             min-width: 0;
             max-width: 100%;
             width: 100%;
           }
+          .saasa-docx-editor .superdoc--contained,
+          .saasa-docx-editor .superdoc--contained .superdoc__layers,
+          .saasa-docx-editor .superdoc--contained .superdoc__document,
+          .saasa-docx-editor .superdoc--contained .superdoc__sub-document {
+            height: 100%;
+          }
           .saasa-docx-editor .superdoc--contained .superdoc__sub-document {
             overflow: auto;
           }
+          .saasa-docx-editor .superdoc-page {
+            box-sizing: border-box;
+            max-width: 100%;
+          }
+          .saasa-docx-editor .superdoc-drawing-fragment img,
+          .saasa-docx-editor .superdoc-vector-shape img,
           .saasa-docx-editor .superdoc-shape-group__child img,
-          .saasa-docx-editor .superdoc-drawing-inner img,
           .saasa-docx-editor .superdoc-image-fragment img {
+            object-fit: contain !important;
+            max-width: 100%;
+            max-height: 100%;
+          }
+          .saasa-docx-editor [data-sd-headerfooter-kind] img {
             object-fit: fill !important;
           }
         `}</style>
         <div ref={toolbarRef} className="z-20 shrink-0 border-b border-slate-200 bg-white" />
-        <div ref={hostRef} className="min-h-0 w-full flex-1 overflow-hidden" />
+        <div ref={hostRef} className="min-h-0 w-full flex-1 overflow-auto bg-[#e8eaed]" />
         {status === 'error' ? (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-white px-6 text-center text-sm text-slate-600">
             {message}
