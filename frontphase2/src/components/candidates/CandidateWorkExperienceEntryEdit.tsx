@@ -366,6 +366,16 @@ export function CandidateWorkExperienceEntryEdit({
             />
           </div>
           <div>
+            <FieldLabel label="Company website" />
+            <input
+              type="url"
+              value={normalized.companyWebsite || ''}
+              onChange={(e) => patch({ companyWebsite: e.target.value })}
+              placeholder="https://company.com"
+              className={inputClass}
+            />
+          </div>
+          <div>
             <FieldLabel label="Company Turnover" />
             <div className="flex gap-2">
               <select

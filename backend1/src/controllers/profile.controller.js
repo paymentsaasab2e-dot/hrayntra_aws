@@ -56,6 +56,7 @@ function mapEducationForClient(edu) {
     grade: edu.grade || '',
     modeOfStudy: edu.modeOfStudy || '',
     courseDuration: edu.courseDuration || '',
+    additionalCourses: edu.additionalCourses || '',
     description: edu.description || '',
     documents: Array.isArray(edu.documents) ? edu.documents : [],
   };
@@ -372,6 +373,23 @@ async function getProfileData(req, res) {
         nationality: candidate.profile.nationality || '',
         passportNumber: candidate.profile.passportNumber || '',
         linkedinUrl: candidate.profile.linkedinUrl || '',
+        maritalStatus:
+          mapMaritalLabel(candidate.profile.maritalStatus) ||
+          (candidate.profile.portalExtras && typeof candidate.profile.portalExtras === 'object'
+            ? String(candidate.profile.portalExtras.maritalStatus || '')
+            : ''),
+        state:
+          candidate.profile.portalExtras && typeof candidate.profile.portalExtras === 'object'
+            ? String(candidate.profile.portalExtras.state || '')
+            : '',
+        zip:
+          candidate.profile.portalExtras && typeof candidate.profile.portalExtras === 'object'
+            ? String(candidate.profile.portalExtras.zip || '')
+            : '',
+        portalExtras:
+          candidate.profile.portalExtras && typeof candidate.profile.portalExtras === 'object'
+            ? candidate.profile.portalExtras
+            : {},
       } : null,
       summaryText: candidate.summary?.summaryText || '',
       gapExplanation: latestGapExplanation,
@@ -400,6 +418,8 @@ async function getProfileData(req, res) {
         grade: edu.grade || '',
         modeOfStudy: edu.modeOfStudy || '',
         courseDuration: edu.courseDuration || '',
+        additionalCourses: edu.additionalCourses || '',
+        description: edu.description || '',
         documents: Array.isArray(edu.documents) ? edu.documents : [],
       })),
       workExperience: candidate.workExperiences.map((exp) =>
@@ -659,6 +679,39 @@ async function getProfileCompleteness(req, res) {
   }
 }
 
+function mapMaritalLabel(value) {
+  const map = {
+    SINGLE: 'Single',
+    MARRIED: 'Married',
+    DIVORCED: 'Divorced',
+    WIDOWED: 'Widowed',
+  };
+  const key = String(value || '').trim().toUpperCase();
+  return map[key] || '';
+}
+
+function mapMaritalToDb(value) {
+  const key = String(value || '').trim().toLowerCase();
+  const map = {
+    single: 'SINGLE',
+    married: 'MARRIED',
+    divorced: 'DIVORCED',
+    widowed: 'WIDOWED',
+  };
+  return map[key] || null;
+}
+
+function normalizePortalExtras(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const out = {};
+  for (const [key, raw] of Object.entries(value)) {
+    const text = String(raw ?? '').trim();
+    if (!text) continue;
+    out[key] = text;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
 /**
  * Update personal information
  * PUT /api/profile/personal-info/:candidateId
@@ -694,6 +747,7 @@ async function updatePersonalInfo(req, res) {
       passportNumber: normalizeNullableText(personalInfo.passportNumber),
       linkedinUrl: normalizeNullableText(personalInfo.linkedinUrl),
       employment: normalizeNullableText(personalInfo.employment),
+      portalExtras: normalizePortalExtras(personalInfo.portalExtras),
     };
 
     // JWT is authoritative (storage URL param can be stale after re-login / email-based ids).
@@ -748,6 +802,7 @@ async function updatePersonalInfo(req, res) {
         'Employed': 'EMPLOYED',
         'Unemployed': 'UNEMPLOYED',
         'Freelancing': 'FREELANCING',
+        'Self-Employed': 'FREELANCING',
         'Student': 'STUDENT',
         'Other': 'OTHER',
       };
@@ -761,9 +816,35 @@ async function updatePersonalInfo(req, res) {
         'Male': 'MALE',
         'Female': 'FEMALE',
         'Other': 'OTHER',
+        'Prefer not to say': 'OTHER',
       };
       gender = genderMap[normalizedInfo.gender] || null;
     }
+
+    const hasLinkedin = Object.prototype.hasOwnProperty.call(personalInfo, 'linkedinUrl');
+    const hasMarital = Object.prototype.hasOwnProperty.call(personalInfo, 'maritalStatus');
+    const maritalStatus = mapMaritalToDb(personalInfo.maritalStatus);
+    const relocatedExtraKeys = [
+      'age',
+      'location',
+      'maritalStatus',
+      'currentCompanyWebsite',
+      'preferredLocation',
+      'twitter',
+      'xing',
+      'skypeId',
+      'facebook',
+      'stackOverflow',
+      'website',
+      'educationCourses',
+      'extracurricular',
+      'volunteers',
+      'hackathons',
+      'workHistoryText',
+      'remarks',
+      'notes',
+      'candidateScore',
+    ];
 
     const normalizedEmail = normalizedInfo.email;
     if (!normalizedEmail) {
@@ -833,37 +914,51 @@ async function updatePersonalInfo(req, res) {
       }
     }
 
+    const existingProfile = await prisma.candidateProfile.findUnique({
+      where: { candidateId: saveCandidateId },
+      select: { portalExtras: true },
+    });
+    const mergedExtras = {
+      ...(existingProfile?.portalExtras &&
+      typeof existingProfile.portalExtras === 'object' &&
+      !Array.isArray(existingProfile.portalExtras)
+        ? existingProfile.portalExtras
+        : {}),
+    };
+    for (const key of relocatedExtraKeys) delete mergedExtras[key];
+    const incomingExtras = normalizedInfo.portalExtras || {};
+    const stateValue = normalizeNullableText(personalInfo.state) || incomingExtras.state || '';
+    const zipValue = normalizeNullableText(personalInfo.zip) || incomingExtras.zip || '';
+    if (stateValue) mergedExtras.state = stateValue;
+    else delete mergedExtras.state;
+    if (zipValue) mergedExtras.zip = zipValue;
+    else delete mergedExtras.zip;
+    const portalExtrasToSave = Object.keys(mergedExtras).length ? mergedExtras : null;
+
+    const profileWrite = {
+      fullName,
+      email: emailToPersist || '',
+      phoneNumber: localPhone || normalizedInfo.phone,
+      gender: gender || undefined,
+      dateOfBirth: dateOfBirth || undefined,
+      country: normalizedInfo.country,
+      city: normalizedInfo.city,
+      address: normalizedInfo.address,
+      nationality: normalizedInfo.nationality,
+      passportNumber: normalizedInfo.passportNumber,
+      employmentStatus: employmentStatus || undefined,
+      portalExtras: portalExtrasToSave,
+    };
+    if (hasLinkedin) profileWrite.linkedinUrl = normalizedInfo.linkedinUrl;
+    if (hasMarital) profileWrite.maritalStatus = maritalStatus;
+
     // Upsert candidate profile
     await prisma.candidateProfile.upsert({
       where: { candidateId: saveCandidateId },
-      update: {
-        fullName,
-        email: emailToPersist || '',
-        phoneNumber: localPhone || normalizedInfo.phone,
-        gender: gender || undefined,
-        dateOfBirth: dateOfBirth || undefined,
-        country: normalizedInfo.country,
-        city: normalizedInfo.city,
-        address: normalizedInfo.address,
-        nationality: normalizedInfo.nationality,
-        passportNumber: normalizedInfo.passportNumber,
-        linkedinUrl: normalizedInfo.linkedinUrl,
-        employmentStatus: employmentStatus || undefined,
-      },
+      update: profileWrite,
       create: {
         candidateId: saveCandidateId,
-        fullName,
-        email: emailToPersist || '',
-        phoneNumber: localPhone || normalizedInfo.phone,
-        gender: gender || undefined,
-        dateOfBirth: dateOfBirth || undefined,
-        country: normalizedInfo.country,
-        city: normalizedInfo.city,
-        address: normalizedInfo.address,
-        nationality: normalizedInfo.nationality,
-        passportNumber: normalizedInfo.passportNumber,
-        linkedinUrl: normalizedInfo.linkedinUrl,
-        employmentStatus: employmentStatus || undefined,
+        ...profileWrite,
       },
     });
 
@@ -1016,6 +1111,7 @@ async function saveEducation(req, res) {
       grade: education.grade?.trim() || null,
       modeOfStudy: education.modeOfStudy?.trim() || null,
       courseDuration: education.courseDuration?.trim() || null,
+      additionalCourses: education.additionalCourses?.trim() || null,
       description: education.description?.trim() || null,
       documents: Array.isArray(education.documents) 
         ? education.documents.map(doc => typeof doc === 'string' ? doc : doc.url || doc.name).filter(Boolean)
@@ -1186,6 +1282,7 @@ async function saveWorkExperience(req, res) {
       employmentType,
       numberOfReportees: experience.numberOfReportees?.trim() || null,
       companyProfile: experience.companyProfile?.trim() || null,
+      companyWebsite: experience.companyWebsite?.trim() || null,
       companyTurnover: experience.companyTurnover?.trim() || null,
       achievements: experience.achievements?.trim() || null,
       workSkills: Array.isArray(experience.workSkills) ? experience.workSkills.filter(skill => skill && skill.trim()) : [],

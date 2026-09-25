@@ -109,7 +109,13 @@ import {
   resolveDefaultCvShareMode,
   type CvShareMode,
 } from '../../lib/cvEditorMapping';
-import { resolveSaasaCvPreviewUrl } from '../../lib/saasaCvAnnotations';
+import {
+  guardHryantraDocxResumeVersions,
+  hasSaasaCvSaved,
+  readSaasaCvAnnotations,
+  resolveSaasaCvPreviewUrl,
+  SAASA_CV_FILE_TYPE,
+} from '../../lib/saasaCvAnnotations';
 import {
   DEFAULT_JOB_STATUS_OPTIONS,
   isProtectedJobStatus,
@@ -757,9 +763,12 @@ function buildPickerResumeVersions(
     candidate?.extraData && typeof candidate.extraData === 'object' && !Array.isArray(candidate.extraData)
       ? (candidate.extraData as Record<string, unknown>)
       : {};
-  const primary = String(
+  const rawPrimary = String(
     candidate?.resumeUrl || candidate?.resume || extra.originalResumeUrl || '',
   ).trim();
+  const guarded = guardHryantraDocxResumeVersions(extra, rawPrimary);
+  const primary = guarded.versionPrimaryUrl;
+  const excludedResumeKeys = new Set(guarded.excludeKeys);
   const primaryKey = normalizePickerResumeUrl(primary);
   const originalKey =
     primaryKey || normalizePickerResumeUrl(String(extra.firstOriginalResumeUrl || '').trim());
@@ -769,7 +778,7 @@ function buildPickerResumeVersions(
     if (!isPickerResumeFile(file)) continue;
     const raw = String(file.fileUrl || '').trim();
     const key = normalizePickerResumeUrl(raw);
-    if (!key) continue;
+    if (!key || excludedResumeKeys.has(key)) continue;
     fileByUrl.set(key, {
       id: file.id,
       fileUrl: raw,
@@ -792,7 +801,7 @@ function buildPickerResumeVersions(
       };
       const raw = String(item.fileUrl || '').trim();
       const key = normalizePickerResumeUrl(raw);
-      if (!raw || !key) return null;
+      if (!raw || !key || excludedResumeKeys.has(key)) return null;
       const matchedFile = fileByUrl.get(key);
       return {
         id: String(item.id || '').trim() || matchedFile?.id || `stored-${index}-${key}`,
@@ -879,13 +888,28 @@ function buildPickerCvMeta(
     resumeVersions[0]?.fileUrl ||
     String(candidate?.resumeUrl || candidate?.resume || '').trim() ||
     null;
+  const extra =
+    candidate?.extraData && typeof candidate.extraData === 'object' && !Array.isArray(candidate.extraData)
+      ? (candidate.extraData as Record<string, unknown>)
+      : null;
+  const storedSaasa = readSaasaCvAnnotations(extra);
+  const saasaFile = files.find((file) => {
+    const type = String(file.fileType || '').trim();
+    const name = String(file.fileName || '');
+    return type === SAASA_CV_FILE_TYPE || /(?:SAASA|HRYantra|HRYANTRA)[\s_-]*CV/i.test(name);
+  });
+  const guardedSaasa = guardHryantraDocxResumeVersions(
+    extra,
+    String(candidate?.resumeUrl || candidate?.resume || '').trim(),
+  );
   const saasaUrl =
-    resolveSaasaCvPreviewUrl(
-      (candidate?.extraData as Record<string, unknown> | null | undefined) || null,
-    ) || null;
+    resolveSaasaCvPreviewUrl(extra, files) ||
+    String(saasaFile?.fileUrl || '').trim() ||
+    guardedSaasa.hryantraUrl ||
+    null;
   return {
     hasOriginal: Boolean(originalUrl) || resumeVersions.length > 0,
-    hasSaasa: Boolean(saasaUrl),
+    hasSaasa: Boolean(saasaUrl) || hasSaasaCvSaved(storedSaasa),
     hasEdited: hasEditedCvAvailable(candidate ?? null),
     originalUrl,
     saasaUrl,
@@ -5981,17 +6005,16 @@ export function JobDetailsDrawer({
                                 <button
                                   type="button"
                                   onClick={() => {
-                                    if (hasSaasa) {
-                                      setPickerCvModeById((prev) => ({
-                                        ...prev,
-                                        [row.id]: 'saasa',
-                                      }));
+                                    if (!hasSaasa) {
+                                      toast.error(
+                                        'No HRYantra CV saved yet. Use Edit HRYantra to create one.',
+                                      );
                                       return;
                                     }
-                                    void openPickerUpdatedCvEditor(
-                                      row.id,
-                                      row.candidateName || 'Candidate',
-                                    );
+                                    setPickerCvModeById((prev) => ({
+                                      ...prev,
+                                      [row.id]: 'saasa',
+                                    }));
                                   }}
                                   className={`rounded-lg border px-2 py-1 text-[11px] font-semibold transition ${
                                     mode === 'saasa'

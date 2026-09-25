@@ -16,9 +16,10 @@ import {
   type EducationGradeMetricType,
 } from '@/lib/candidateEducationFields';
 import { searchCscCities } from '@/lib/cscData';
-import { phase1EditInputClass, phase1EditLabelClass, phase1SectionTitleClass } from '@/lib/phase1Typography';
+import { phase1EditInputClass, phase1EditLabelClass, phase1EditTextareaClass, phase1SectionTitleClass } from '@/lib/phase1Typography';
 
 const inputClass = phase1EditInputClass;
+const textareaClass = phase1EditTextareaClass;
 
 function SectionHeading({ children }: { children: React.ReactNode }) {
   return <h4 className={`${phase1SectionTitleClass} border-b border-slate-200 pb-2`}>{children}</h4>;
@@ -443,6 +444,28 @@ export function CandidateEducationEntryEdit({
           </div>
         </div>
       ) : null}
+
+      <div className="space-y-4 border-t border-slate-100 pt-4">
+        <SectionHeading>Courses & activities</SectionHeading>
+        <label className="block">
+          <FieldLabel label="Courses" />
+          <textarea
+            value={normalized.additionalCourses || ''}
+            onChange={(e) => patch({ additionalCourses: e.target.value })}
+            placeholder="Courses taken alongside this education"
+            className={textareaClass}
+          />
+        </label>
+        <label className="block">
+          <FieldLabel label="Extracurricular activities" />
+          <textarea
+            value={normalized.description || ''}
+            onChange={(e) => patch({ description: e.target.value })}
+            placeholder="Clubs, sports, competitions, and other activities"
+            className={textareaClass}
+          />
+        </label>
+      </div>
 
       <div className="space-y-4 border-t border-slate-100 pt-4">
         <SectionHeading>Certificates & Documents</SectionHeading>

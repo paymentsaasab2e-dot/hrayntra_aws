@@ -6,6 +6,7 @@ import { Lock, Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiGetMe, buildApiUrl } from '../../lib/api';
 import { resolveStoredLoginId } from '../../lib/sessionAuth';
+import { fetchClientPublicIp } from '../../utils/clientPublicIp';
 
 export default function ResetPasswordPage() {
   const router = useRouter();
@@ -80,6 +81,7 @@ export default function ResetPasswordPage() {
       const userId = user.id;
 
       const token = localStorage.getItem('accessToken');
+      const clientPublicIp = await fetchClientPublicIp();
       const res = await fetch(buildApiUrl('/auth/change-password'), {
         method: 'POST',
         headers: {
@@ -89,6 +91,7 @@ export default function ResetPasswordPage() {
         body: JSON.stringify({
           userId,
           newPassword,
+          clientPublicIp,
         }),
       });
 

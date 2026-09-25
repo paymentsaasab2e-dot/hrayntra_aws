@@ -311,6 +311,9 @@ type Props = {
   sectionVisibility?: Partial<Phase1ClientSectionVisibility> | null;
   onAssignJob?: () => void;
   onEditCareerPreferences?: () => void;
+  includeSectionIds?: Phase1ClientSectionId[];
+  hideHiring?: boolean;
+  hideEmptyState?: boolean;
 };
 
 /** Phase 1 candidate profile sections for the profile drawer (no duplicate-policy banner). */
@@ -319,6 +322,9 @@ export function CandidatePhase1DetailSections({
   sectionVisibility,
   onAssignJob,
   onEditCareerPreferences,
+  includeSectionIds,
+  hideHiring = false,
+  hideEmptyState = false,
 }: Props) {
   const snap = useMemo(
     () => getPhase1ProfileSnapshot(candidate.extraData),
@@ -331,7 +337,8 @@ export function CandidatePhase1DetailSections({
     setOpen((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
-  const sectionVisible = (id: Phase1ClientSectionId) => sectionVisibility?.[id] !== false;
+  const sectionVisible = (id: Phase1ClientSectionId) =>
+    (!includeSectionIds || includeSectionIds.includes(id)) && sectionVisibility?.[id] !== false;
 
   const skills = useMemo(() => resolvePhase1Skills(snap, candidate), [snap, candidate]);
   const languages = useMemo(() => resolvePhase1Languages(snap, candidate), [snap, candidate]);
@@ -417,6 +424,11 @@ export function CandidatePhase1DetailSections({
       { label: 'City & country', value: cityStateCountry || candidate.location },
       { label: 'Passport number', value: pi.passportNumber },
       { label: 'LinkedIn', value: pi.linkedinUrl || candidate.linkedIn },
+      { label: 'State', value: pi.state },
+      { label: 'Zip', value: pi.zip },
+      { label: 'Marital status', value: pi.maritalStatus },
+      { label: 'Candidate score', value: pi.candidateScore },
+      { label: 'Internal notes', value: pi.notes },
     ];
   }, [snap, candidate]);
 
@@ -470,9 +482,9 @@ export function CandidatePhase1DetailSections({
 
   return (
     <div className="space-y-5">
-      <CandidateHiringOverview candidate={candidate} onAssignJob={onAssignJob} />
+      {hideHiring ? null : <CandidateHiringOverview candidate={candidate} onAssignJob={onAssignJob} />}
 
-      {!hasAnyOverviewData ? (
+      {!hideEmptyState && !hasAnyOverviewData ? (
         <div className="rounded-2xl border border-dashed border-violet-300 bg-violet-50/50 p-8 text-center">
           <FileText className="mx-auto text-violet-300" size={32} />
           <p className="mt-3 text-sm font-medium text-slate-700">Phase 1 profile details not synced yet</p>
@@ -663,13 +675,18 @@ export function CandidatePhase1DetailSections({
                   className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5"
                 >
                   <p className="text-sm font-semibold text-slate-900">{lang.name}</p>
-                  {lang.proficiency ? (
-                    <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
-                      {lang.proficiency}
-                    </span>
-                  ) : (
-                    <span className="text-xs italic text-slate-400">Proficiency not set</span>
-                  )}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {lang.proficiency ? (
+                      <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
+                        {lang.proficiency}
+                      </span>
+                    ) : (
+                      <span className="text-xs italic text-slate-400">Proficiency not set</span>
+                    )}
+                    {lang.speak ? <span className="text-xs text-slate-500">Speak</span> : null}
+                    {lang.read ? <span className="text-xs text-slate-500">Read</span> : null}
+                    {lang.write ? <span className="text-xs text-slate-500">Write</span> : null}
+                  </div>
                 </div>
               ))}
             </div>
@@ -713,6 +730,9 @@ export function CandidatePhase1DetailSections({
                 <p className="text-sm font-semibold text-slate-900">
                   {link.label || link.type || `Link ${index + 1}`}
                 </p>
+                {link.description ? (
+                  <p className="mt-1 text-sm text-slate-600">{link.description}</p>
+                ) : null}
                 {link.url && looksLikeHttpUrl(link.url) ? (
                   <div className="mt-1">
                     <DrawerLinkActions url={link.url} shareTitle={link.label || link.type || 'Portfolio link'} />

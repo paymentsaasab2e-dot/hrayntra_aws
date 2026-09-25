@@ -35,6 +35,21 @@ export type Phase1ClientSectionId =
   | 'visa'
   | 'vaccination';
 
+/** Phase 1 sections the tenant create/edit form does not already collect. */
+export const TENANT_FORM_MISSING_PHASE1_SECTIONS: Phase1ClientSectionId[] = [
+  'internships',
+  'work',
+  'gap',
+  'education',
+  'academic',
+  'exams',
+  'skills',
+  'projects',
+  'certifications',
+  'visa',
+  'vaccination',
+];
+
 export const PHASE1_CLIENT_SECTION_IDS: Phase1ClientSectionId[] = [
   'personal',
   'resume',
@@ -177,33 +192,32 @@ function appendVisibleSection(
   sections.push({
     id,
     title: PHASE1_CLIENT_SECTION_LABELS[id],
-    fields: entries ? [] : fields.length > 0 ? fields : [EMPTY_SECTION_FIELD],
+    fields: fields.length > 0 ? fields : entries ? [] : [EMPTY_SECTION_FIELD],
     entries,
   });
 }
 
 function normalizeWorkEntry(entry: Record<string, unknown>): Record<string, unknown> {
   return {
+    ...entry,
     title: entry.jobTitle ?? entry.title,
+    jobTitle: entry.jobTitle ?? entry.title,
     company: entry.company ?? entry.companyName,
+    companyName: entry.companyName ?? entry.company,
     location: entry.workLocation ?? entry.location,
-    startDate: entry.startDate,
-    endDate: entry.endDate,
-    responsibilities: entry.responsibilities,
-    description: entry.description,
+    workLocation: entry.workLocation ?? entry.location,
   };
 }
 
 function normalizeEducationEntry(entry: Record<string, unknown>): Record<string, unknown> {
   return {
+    ...entry,
     degreeProgram: entry.degreeProgram ?? entry.degree,
+    degree: entry.degree ?? entry.degreeProgram,
     institutionName: entry.institutionName ?? entry.institution,
-    educationLevel: entry.educationLevel,
+    institution: entry.institution ?? entry.institutionName,
     fieldOfStudy: entry.fieldOfStudy ?? entry.field,
-    startYear: entry.startYear,
-    endYear: entry.endYear,
-    grade: entry.grade,
-    currentlyStudying: entry.currentlyStudying,
+    field: entry.field ?? entry.fieldOfStudy,
   };
 }
 
@@ -238,7 +252,10 @@ export function buildPhase1ClientReviewSections(
         ['Country', pi.country],
         ['Employment status', pi.employment],
         ['Passport number', pi.passportNumber],
-        ['LinkedIn', pi.linkedinUrl],
+        ['Age', pi.age],
+        ['State', pi.state],
+        ['Zip', pi.zip],
+        ['Marital status', pi.maritalStatus],
       ]),
     );
   }
@@ -256,7 +273,14 @@ export function buildPhase1ClientReviewSections(
   }
 
   if (isSectionVisible('summary', visible)) {
-    appendVisibleSection(sections, 'summary', fieldsFromPairs([['Summary', snapshot.summaryText]]));
+    appendVisibleSection(
+      sections,
+      'summary',
+      fieldsFromPairs([
+        ['Summary', snapshot.summaryText],
+        ['Remarks', pi.remarks],
+      ]),
+    );
   }
 
   if (isSectionVisible('internships', visible)) {
@@ -267,17 +291,54 @@ export function buildPhase1ClientReviewSections(
   }
 
   if (isSectionVisible('education', visible)) {
-    const entries = Array.isArray(snapshot.education)
-      ? snapshot.education.map((entry) => normalizeEducationEntry(entry as Record<string, unknown>))
-      : [];
-    appendVisibleSection(sections, 'education', [], { entries });
+    const rawEducation = Array.isArray(snapshot.education) ? snapshot.education : [];
+    const entries = rawEducation.map((entry) =>
+      normalizeEducationEntry(entry as Record<string, unknown>),
+    );
+    const courseLines = [
+      pi.educationCourses,
+      ...rawEducation.map((entry) => (entry as Record<string, unknown>).additionalCourses),
+    ];
+    const activityLines = [
+      pi.extracurricular,
+      ...rawEducation.map((entry) => (entry as Record<string, unknown>).description),
+    ];
+    appendVisibleSection(
+      sections,
+      'education',
+      fieldsFromPairs([
+        ['Courses', courseLines],
+        ['Extracurricular activities', activityLines],
+      ]),
+      { entries },
+    );
   }
 
   if (isSectionVisible('work', visible)) {
-    const entries = Array.isArray(snapshot.workExperience)
-      ? snapshot.workExperience.map((entry) => normalizeWorkEntry(entry as Record<string, unknown>))
-      : [];
-    appendVisibleSection(sections, 'work', [], { entries });
+    const rawWork = Array.isArray(snapshot.workExperience) ? snapshot.workExperience : [];
+    const entries = rawWork.map((entry) => normalizeWorkEntry(entry as Record<string, unknown>));
+    const volunteerLines = rawWork
+      .filter((entry) => /volunteer/i.test(String((entry as Record<string, unknown>).employmentType || '')))
+      .map((entry) => {
+        const row = entry as Record<string, unknown>;
+        return [row.jobTitle || row.title, row.company || row.companyName].filter(Boolean).join(' — ');
+      });
+    appendVisibleSection(
+      sections,
+      'work',
+      fieldsFromPairs([
+        [
+          'Current Company Website',
+          [
+            pi.currentCompanyWebsite,
+            ...rawWork.map((entry) => (entry as Record<string, unknown>).companyWebsite),
+          ],
+        ],
+        ['Volunteers', [pi.volunteers, ...volunteerLines]],
+        ['Work history (narrative)', pi.workHistoryText],
+      ]),
+      { entries },
+    );
   }
 
   if (isSectionVisible('certifications', visible)) {
@@ -316,7 +377,12 @@ export function buildPhase1ClientReviewSections(
     const entries = Array.isArray(snapshot.projects)
       ? snapshot.projects.map((project) => ({ ...project }))
       : [];
-    appendVisibleSection(sections, 'projects', [], { entries });
+    appendVisibleSection(
+      sections,
+      'projects',
+      fieldsFromPairs([['Hackathons', pi.hackathons]]),
+      { entries },
+    );
   }
 
   if (isSectionVisible('skills', visible)) {
@@ -355,7 +421,20 @@ export function buildPhase1ClientReviewSections(
     const entries = Array.isArray(snapshot.portfolioLinks)
       ? snapshot.portfolioLinks.map((link) => ({ ...link }))
       : [];
-    appendVisibleSection(sections, 'portfolio', [], { entries });
+    appendVisibleSection(
+      sections,
+      'portfolio',
+      fieldsFromPairs([
+        ['LinkedIn', pi.linkedinUrl],
+        ['Twitter', pi.twitter],
+        ['Xing', pi.xing],
+        ['Skype ID', pi.skypeId],
+        ['Facebook', pi.facebook],
+        ['Stack Overflow', pi.stackOverflow],
+        ['Website', pi.website],
+      ]),
+      { entries },
+    );
   }
 
   if (isSectionVisible('accomplishments', visible)) {

@@ -51,6 +51,7 @@ router.post('/setup', hqSetupRateLimit, requireHqSetupAccess, hqController.setup
 
 router.post('/provision-tenant', authMiddleware, hqController.provisionTenant);
 router.get('/tenants', authMiddleware, hqController.listTenants);
+router.get('/tenants/access-logs', authMiddleware, hqController.listTenantAccessLogs);
 router.post('/tenants/impersonate', authMiddleware, hqController.createTenantImpersonationAccess);
 router.put('/tenants/plan', authMiddleware, hqController.assignPlan);
 router.put('/tenants/coins', authMiddleware, hqController.setTenantCoins);

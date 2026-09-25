@@ -88,6 +88,51 @@ function formatPrefValue(value) {
   return formatReviewText(value);
 }
 
+function formatNamedRows(rows, nameKey, detailKey) {
+  if (!Array.isArray(rows)) return '';
+  return rows
+    .map((row) => {
+      if (!row || typeof row !== 'object') return formatReviewText(row);
+      const name = String(row[nameKey] || row.name || '').trim();
+      const detail = String(row[detailKey] || '').trim();
+      return [name, detail].filter(Boolean).join(' — ');
+    })
+    .filter(Boolean)
+    .join(', ');
+}
+
+function dedupePortfolioText(text) {
+  const parts = String(text || '')
+    .split(/\n|,\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const seenUrls = new Set();
+  const kept = [];
+  for (const part of parts) {
+    const match = part.match(/https?:\/\/\S+/i);
+    const url = match ? match[0].replace(/[),.;]+$/, '') : '';
+    if (url && seenUrls.has(url) && part === url) continue;
+    if (url) seenUrls.add(url);
+    kept.push(part);
+  }
+  return kept.join(', ');
+}
+
+function formatPortfolioLinkText(value) {
+  if (!Array.isArray(value)) return dedupePortfolioText(formatReviewText(value));
+  return dedupePortfolioText(
+    value
+      .map((link) => {
+        if (!link || typeof link !== 'object') return formatReviewText(link);
+        const label = String(link.type || link.label || link.title || 'Link').trim();
+        const url = String(link.url || '').trim();
+        return [label, url].filter(Boolean).join(' — ');
+      })
+      .filter(Boolean)
+      .join('\n'),
+  );
+}
+
 /** Later records win per key when they actually contain a value. */
 function mergeCareerPreferenceRecords(...sources) {
   const merged = {};
@@ -686,20 +731,26 @@ function buildEditFormFromCandidate(hydrated) {
     phase1,
     salary,
   } = extraProfileBag(hydrated);
-  const languages = pickPreferred(
-    hydrated.languages,
-    Array.isArray(phase1?.languages)
-      ? phase1.languages.map((row) => row?.name || row).filter(Boolean)
-      : [],
-  );
-  const skills = pickPreferred(
-    hydrated.skills,
-    Array.isArray(phase1?.skills) ? phase1.skills.map((row) => row?.name || row).filter(Boolean) : [],
-  );
-  const languageProficiency = pickPreferred(
-    formatListValue(summaryPipe.languageProficiency || extra.languageProficiency),
-    Array.isArray(languages) ? languages.join(', ') : languages,
-  );
+  const phase1LanguageText = formatNamedRows(phase1?.languages, 'name', 'proficiency');
+  const phase1SkillText = formatNamedRows(phase1?.skills, 'name', 'proficiency');
+  const languages = phase1LanguageText || formatListValue(hydrated.languages);
+  const skills = phase1SkillText || formatListValue(hydrated.skills);
+  const languageProficiency =
+    phase1LanguageText ||
+    pickPreferred(
+      formatListValue(summaryPipe.languageProficiency || extra.languageProficiency),
+      languages,
+    );
+  const educationRows = Array.isArray(phase1?.education) ? phase1.education : [];
+  const educationCourseText = educationRows
+    .map((row) => formatReviewText(row?.additionalCourses))
+    .filter(Boolean)
+    .join(', ');
+  const summaryText = pickPreferred(hydrated.cvSummary, phase1?.summaryText || summaryPipe.educationSummary);
+  const notesText = pickPreferred(hydrated.notes, hydrated.recruiterNotes || personal.notes);
+  const remarksText = pickPreferred(hydrated.remarks, professionalPipe.remarks || extra.remarks || personal.remarks);
+  const preferredLocationText =
+    formatPrefValue(prefs.preferredLocations) || formatPrefValue(hydrated.preferredLocation);
   return {
     firstName: pickPreferred(hydrated.firstName, personal.firstName || personalPipe.firstName),
     middleName: pickPreferred(hydrated.middleName, personal.middleName || personalPipe.middleName),
@@ -740,10 +791,7 @@ function buildEditFormFromCandidate(hydrated) {
       hydrated.passportNumber,
       personalPipe.passportNumber || extra.passportNumber || personal.passportNumber,
     ),
-    preferredLocation: pickPreferred(
-      hydrated.preferredLocation,
-      formatPrefValue(prefs.preferredLocations),
-    ),
+    preferredLocation: preferredLocationText,
     currentCompanyWebsite: pickPreferred(
       hydrated.currentCompanyWebsite,
       personalPipe.currentCompanyWebsite,
@@ -756,9 +804,11 @@ function buildEditFormFromCandidate(hydrated) {
       educationPipe.summaryText,
       hydrated.education || summaryPipe.educationSummary,
     ),
-    educationCourses: formatListValue(educationPipe.courses || extra.courses),
-    cvSummary: pickPreferred(hydrated.cvSummary, phase1?.summaryText || summaryPipe.educationSummary),
-    skills: formatListValue(skills),
+    educationCourses:
+      educationCourseText ||
+      (educationRows.length ? '' : formatListValue(educationPipe.courses || extra.courses)),
+    cvSummary: summaryText,
+    skills,
     languages: formatListValue(languages),
     languageProficiency,
     cvEducationEntries: pickPreferred(hydrated.cvEducationEntries, educationPipe.entries),
@@ -766,7 +816,9 @@ function buildEditFormFromCandidate(hydrated) {
       hydrated.cvWorkExperienceEntries,
       workPipe.entries || workPipe.workExperienceEntries || extra.workExperienceEntries,
     ),
-    cvPortfolioLinks: pickPreferred(hydrated.cvPortfolioLinks, phase1?.portfolioLinks),
+    cvPortfolioLinks: formatPortfolioLinkText(
+      pickPreferred(phase1?.portfolioLinks, hydrated.cvPortfolioLinks),
+    ),
     linkedIn: pickPreferred(
       hydrated.linkedIn,
       socialPipe.linkedIn || extra.linkedIn || personal.linkedinUrl,
@@ -778,7 +830,6 @@ function buildEditFormFromCandidate(hydrated) {
     stackOverflow: pickPreferred(socialPipe.stackOverflow, extra.stackOverflow),
     website: pickPreferred(hydrated.website, socialPipe.website || extra.website),
     portfolio: pickPreferred(hydrated.portfolio, extra.portfolio || socialPipe.website),
-    remarks: pickPreferred(hydrated.remarks, professionalPipe.remarks || extra.remarks),
     currentSalary: pickPreferred(
       hydrated.currentSalary,
       prefs.currentSalary || extra.currentSalary || salary.current || salary.min,
@@ -834,14 +885,26 @@ function buildEditFormFromCandidate(hydrated) {
         prefs.preferredWorkMode ||
         prefs.passportNumbersByLocation?.__workModes,
     ),
-    p1PreferredLocations: formatPrefValue(prefs.preferredLocations),
+    p1PreferredLocations: preferredLocationText,
+    p1CurrentLocation: formatPrefValue(prefs.currentLocation),
+    p1CurrentSalaryType: formatPrefValue(prefs.currentSalaryType),
+    p1PreferredSalaryType: formatPrefValue(prefs.preferredSalaryType || prefs.salaryFrequency),
     p1Relocation: formatPrefValue(prefs.relocationPreference),
     p1AvailabilityToStart: formatPrefValue(prefs.availabilityToStart || hydrated.availability),
     certifications: formatListValue(hydrated.certifications),
     honours: formatListValue(summaryPipe.honoursAndAwards || extra.honoursAndAwards || extra.honours),
     projects: formatListValue(extra.projects),
     hackathons: formatListValue(extra.hackathons),
-    notes: pickPreferred(hydrated.notes, hydrated.recruiterNotes),
+    notes:
+      String(notesText || '').trim() &&
+      String(notesText).trim() === String(summaryText || '').trim()
+        ? ''
+        : notesText,
+    remarks:
+      String(remarksText || '').trim() &&
+      String(remarksText).trim() === String(summaryText || '').trim()
+        ? ''
+        : remarksText,
     avatar: hydrated.avatar,
     candidateScore: pickPreferred(
       hydrated.candidateScore ?? hydrated.score,

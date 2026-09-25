@@ -11,6 +11,7 @@ import {
 import { sendInviteEmail, sendPasswordResetEmail } from '../services/emailService.js';
 import { isDeliverableEmail } from '../utils/emailDeliverability.js';
 import { isSuperAdminUser } from '../utils/superAdminScope.js';
+import { resolveClientIp } from '../utils/deviceFingerprint.js';
 import { headquartersAuthService } from '../modules/auth/headquarters-auth.service.js';
 import activityService from '../services/activityService.js';
 import {
@@ -1526,6 +1527,16 @@ export async function resetMemberPassword(req, res) {
         failedAttempts: 0,
         isLocked: false,
       },
+    });
+
+    const { recordPasswordChangeAudit } = await import('../utils/userSessionAudit.js');
+    await recordPasswordChangeAudit({
+      userId: id,
+      loginId: member.credential.loginId,
+      email: member.email,
+      ipAddress: resolveClientIp(req, req.body) || '',
+      device: req.get('user-agent') || '',
+      source: 'team_reset',
     });
 
     // Send password reset email

@@ -241,6 +241,35 @@ function getPipeline(candidate: CandidateProfileDrawerData) {
   return (extra.pipeline || {}) as Record<string, unknown>;
 }
 
+function candidateHasAssignedJob(candidate: CandidateProfileDrawerData): boolean {
+  if (String(candidate.assignedJobId || '').trim()) return true;
+  if (String(candidate.assignedJob || '').trim() && candidate.assignedJob !== '—') return true;
+  return (
+    Array.isArray(candidate.assignedJobs) &&
+    candidate.assignedJobs.some((job) => String(job?.id || job?.title || '').trim())
+  );
+}
+
+/** Applied with no job is a leftover default, not a pipeline stage. */
+export function stageForCandidateEdit(candidate: CandidateProfileDrawerData): string {
+  const raw = String(candidate.stage || '').trim();
+  const blank = !raw || raw === '—' || raw === 'â€”' || raw.toLowerCase() === 'new';
+  if (!candidateHasAssignedJob(candidate)) {
+    if (blank || raw.toLowerCase() === 'applied') return '';
+    return raw;
+  }
+  return blank ? 'Applied' : raw;
+}
+
+function stagePayloadWithoutJob(stage: string, assignedJobId: string): string | null | undefined {
+  const value = String(stage || '').trim();
+  const hasJob = Boolean(String(assignedJobId || '').trim());
+  if (!hasJob && (!value || value.toLowerCase() === 'applied' || value.toLowerCase() === 'new')) {
+    return null;
+  }
+  return value || undefined;
+}
+
 export function buildCandidateEditForm(candidate: CandidateProfileDrawerData): CandidateEditFormState {
   const nameParts = splitCandidateName(candidate);
   const pipeline = getPipeline(candidate);
@@ -280,6 +309,8 @@ export function buildCandidateEditForm(candidate: CandidateProfileDrawerData): C
     lastName: nameParts.lastName,
     email: candidate.email || '',
     phone: candidate.phone && candidate.phone !== 'â€”' ? candidate.phone : '',
+    phoneCode: str(resolvedPersonal.phoneCode),
+    employment: str(resolvedPersonal.employment),
     linkedIn: candidate.linkedIn || str(social.linkedIn) || '',
     currentTitle:
       candidate.currentTitle && candidate.currentTitle !== 'â€”' ? candidate.currentTitle : '',
@@ -288,7 +319,7 @@ export function buildCandidateEditForm(candidate: CandidateProfileDrawerData): C
     experience:
       candidate.totalNoOfExperience != null ? String(candidate.totalNoOfExperience) : '',
     location: candidate.location && candidate.location !== 'â€”' ? candidate.location : '',
-    stage: candidate.stage && candidate.stage !== 'â€”' ? candidate.stage : 'Applied',
+    stage: stageForCandidateEdit(candidate),
     status: candidate.status && candidate.status !== 'â€”' ? candidate.status : 'NEW',
     source: candidate.source && candidate.source !== 'â€”' ? candidate.source : '',
     recruiterId: candidate.recruiterId || '',
@@ -305,7 +336,7 @@ export function buildCandidateEditForm(candidate: CandidateProfileDrawerData): C
     city: candidate.cvCity || resolvedPersonal.city || '',
     state: str(personal.state),
     country: candidate.cvCountry || resolvedPersonal.country || '',
-    preferredLocation: candidate.cvPreferredLocation || candidate.location || '',
+    preferredLocation: candidate.cvPreferredLocation || '',
     resumeUrl: candidate.resumeUrl || '',
     education: educationSummary,
     portfolio: candidate.cvPortfolio || str(social.website) || '',
@@ -316,7 +347,10 @@ export function buildCandidateEditForm(candidate: CandidateProfileDrawerData): C
       ? candidate.cvCertifications.join('\n')
       : '',
     cvSummary: candidate.cvSummary || candidate.summary || '',
-    notes: candidate.cvNotes || candidate.summary || '',
+    notes:
+      candidate.cvNotes && candidate.cvNotes !== (candidate.cvSummary || candidate.summary)
+        ? candidate.cvNotes
+        : '',
     cvEducationEntries: formatEducationEntriesForEditor(
       (eduEntries as CandidateProfileDrawerData['cvEducationEntries']) || []
     ),
@@ -537,6 +571,7 @@ export function buildExtraDataFromEditForm(
 
   return {
     ...prev,
+    employmentStatus: str(editForm.employment) || prev.employmentStatus || null,
     careerPreferences: normalizedCareer,
     phase1ProfileSnapshot: {
       ...prevSnap,
@@ -546,6 +581,8 @@ export function buildExtraDataFromEditForm(
     pipeline: {
       personal: {
         age: parseOptionalNumber(editForm.age),
+        phoneCode: str(editForm.phoneCode) || null,
+        employment: str(editForm.employment) || null,
         candidateScore: parseOptionalNumber(editForm.candidateScore),
         state: str(editForm.state) || null,
         currentAddress: str(editForm.address) || null,
@@ -670,7 +707,7 @@ export function buildUpdatePayloadFromEditForm(
     experienceYears: parseOptionalNumber(editForm.experience),
     location:
       str(normalizedCareer?.currentLocation) || str(editForm.location) || undefined,
-    stage: str(editForm.stage) || undefined,
+    stage: stagePayloadWithoutJob(editForm.stage, editForm.assignedJobId),
     status: str(editForm.status) || undefined,
     source: str(editForm.source) || undefined,
     resume: str(editForm.resumeUrl) || undefined,
@@ -915,7 +952,9 @@ export function CandidateEditAtsSections({
   const isClientSubmit = variant === 'clientSubmit';
   const sectionVisible = (id: ClientPresentationSectionId) => clientSectionVisibility?.[id] !== false;
   const showField = (id: SubmitToClientFieldId | 'location' | 'portfolio') => {
-    if (!isClientSubmit || id === 'location' || id === 'portfolio') return true;
+    if (!isClientSubmit) return true;
+    if (id === 'location') return false;
+    if (id === 'portfolio') return isSubmitToClientFieldVisible(clientFieldVisibility, 'cvPortfolioLinks');
     return isSubmitToClientFieldVisible(clientFieldVisibility, id);
   };
   return (
@@ -961,8 +1000,18 @@ export function CandidateEditAtsSections({
         {showField('email') ? (
           <EditField label="E-mail" value={form.email} onChange={(v) => onChange('email', v)} type="email" />
         ) : null}
+        {showField('phoneCode') ? (
+          <EditField label="Phone code" value={form.phoneCode || ''} onChange={(v) => onChange('phoneCode', v)} />
+        ) : null}
         {showField('phone') ? (
           <EditField label="Mobile No" value={form.phone} onChange={(v) => onChange('phone', v)} />
+        ) : null}
+        {showField('employment') ? (
+          <EditField
+            label="Employment status"
+            value={form.employment || ''}
+            onChange={(v) => onChange('employment', v)}
+          />
         ) : null}
         {showField('age') ? (
           <EditField label="Age" value={form.age} onChange={(v) => onChange('age', v)} type="number" />
@@ -992,13 +1041,6 @@ export function CandidateEditAtsSections({
         {showField('nationality') ? (
           <EditField label="Nationality" value={form.nationality} onChange={(v) => onChange('nationality', v)} />
         ) : null}
-        {showField('currentCompanyWebsite') ? (
-          <EditField
-            label="Current Company Website"
-            value={form.currentCompanyWebsite}
-            onChange={(v) => onChange('currentCompanyWebsite', v)}
-          />
-        ) : null}
         {showField('maritalStatus') ? (
           <EditField label="Marital Status" value={form.maritalStatus} onChange={(v) => onChange('maritalStatus', v)} />
         ) : null}
@@ -1022,13 +1064,6 @@ export function CandidateEditAtsSections({
         ) : null}
         {showField('passportNumber') ? (
           <EditField label="Passport Number" value={form.passportNumber} onChange={(v) => onChange('passportNumber', v)} />
-        ) : null}
-        {showField('preferredLocation') ? (
-          <EditField
-            label="Preferred Location"
-            value={form.preferredLocation}
-            onChange={(v) => onChange('preferredLocation', v)}
-          />
         ) : null}
       </EditSection>
 
@@ -1076,6 +1111,17 @@ export function CandidateEditAtsSections({
             />
           </div>
         ) : null}
+        {showField('extracurricular') ? (
+          <div className="md:col-span-2">
+            <EditTextarea
+              label="Extracurricular activities"
+              value={form.extracurricular}
+              onChange={(v) => onChange('extracurricular', v)}
+              rows={3}
+              helper="Semicolon-separated"
+            />
+          </div>
+        ) : null}
       </EditSection>
 
       <EditSection
@@ -1093,10 +1139,12 @@ export function CandidateEditAtsSections({
             onChange={(careerPreferences) => onChange('careerPreferences', careerPreferences)}
           />
         </div>
-        {showField('remarks') ? (
-          <div className="md:col-span-2">
-            <EditTextarea label="Remarks" value={form.remarks} onChange={(v) => onChange('remarks', v)} rows={3} />
-          </div>
+        {showField('preferredLocation') ? (
+          <EditField
+            label="Preferred Location"
+            value={form.preferredLocation}
+            onChange={(v) => onChange('preferredLocation', v)}
+          />
         ) : null}
         {showField('currentCompany') ? (
           <EditField
@@ -1104,38 +1152,6 @@ export function CandidateEditAtsSections({
             value={form.currentCompany}
             onChange={(v) => onChange('currentCompany', v)}
           />
-        ) : null}
-        {showField('workHistoryText') ? (
-          <div className="md:col-span-2">
-            <EditTextarea
-              label="Work history (narrative)"
-              value={form.workHistoryText}
-              onChange={(v) => onChange('workHistoryText', v)}
-              rows={4}
-            />
-          </div>
-        ) : null}
-        {showField('extracurricular') ? (
-          <div className="md:col-span-2">
-            <EditTextarea
-              label="Extracurricular activities"
-              value={form.extracurricular}
-              onChange={(v) => onChange('extracurricular', v)}
-              rows={3}
-              helper="Semicolon-separated"
-            />
-          </div>
-        ) : null}
-        {showField('volunteers') ? (
-          <div className="md:col-span-2">
-            <EditTextarea
-              label="Volunteers"
-              value={form.volunteers}
-              onChange={(v) => onChange('volunteers', v)}
-              rows={2}
-              helper="Semicolon-separated"
-            />
-          </div>
         ) : null}
       </EditSection>
 
@@ -1156,6 +1172,34 @@ export function CandidateEditAtsSections({
               onChange={(v) => onChange('cvWorkExperienceEntries', v)}
               rows={8}
               helper="Blank line between roles. Line 1: Title | Company | Location | Start | End. Line 2+: responsibilities (; separated)"
+            />
+          </div>
+        ) : null}
+        {showField('currentCompanyWebsite') ? (
+          <EditField
+            label="Current Company Website"
+            value={form.currentCompanyWebsite}
+            onChange={(v) => onChange('currentCompanyWebsite', v)}
+          />
+        ) : null}
+        {showField('volunteers') ? (
+          <div className="md:col-span-2">
+            <EditTextarea
+              label="Volunteers"
+              value={form.volunteers}
+              onChange={(v) => onChange('volunteers', v)}
+              rows={2}
+              helper="Semicolon-separated"
+            />
+          </div>
+        ) : null}
+        {showField('workHistoryText') ? (
+          <div className="md:col-span-2">
+            <EditTextarea
+              label="Work history (narrative)"
+              value={form.workHistoryText}
+              onChange={(v) => onChange('workHistoryText', v)}
+              rows={4}
             />
           </div>
         ) : null}
@@ -1217,6 +1261,11 @@ export function CandidateEditAtsSections({
         {showField('cvSummary') ? (
           <div className="md:col-span-2">
             <EditTextarea label="Summary" value={form.cvSummary} onChange={(v) => onChange('cvSummary', v)} rows={4} />
+          </div>
+        ) : null}
+        {showField('remarks') ? (
+          <div className="md:col-span-2">
+            <EditTextarea label="Remarks" value={form.remarks} onChange={(v) => onChange('remarks', v)} rows={3} />
           </div>
         ) : null}
         {showField('skills') ? (

@@ -795,13 +795,12 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
     })(),
     cvPortfolio: c.portfolio || null,
     cvWebsite: c.website || null,
-    cvNotes: c.cvSummary || c.notes || null,
+    cvNotes: c.notes && c.notes !== c.cvSummary ? c.notes : null,
     cvPreferredLocation:
-      c.preferredLocation ||
-      (Array.isArray(mergedCareerPrefs?.preferredLocations) && mergedCareerPrefs?.preferredLocations.length
-        ? mergedCareerPrefs.preferredLocations[0]
+      (Array.isArray(mergedCareerPrefs?.preferredLocations) && mergedCareerPrefs.preferredLocations.length
+        ? mergedCareerPrefs.preferredLocations.join(', ')
         : null) ||
-      mergedCareerPrefs?.currentLocation ||
+      c.preferredLocation ||
       null,
     cvSkills: skillLabels,
     cvSummary: c.cvSummary || null,

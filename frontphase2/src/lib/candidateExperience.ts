@@ -22,6 +22,7 @@ export type CvWorkEntryLike = {
   currentlyWorkHere?: boolean | null;
   workMode?: string | null;
   companyProfile?: string | null;
+  companyWebsite?: string | null;
   companyTurnover?: string | null;
   keyResponsibilities?: string | null;
   achievements?: string | null;
@@ -163,6 +164,7 @@ function workRecordToCvEntry(row: Record<string, unknown>): CvWorkEntryLike {
     currentlyWorkHere: normalized.currentlyWorkHere || null,
     workMode: normalized.workMode || null,
     companyProfile: normalized.companyProfile || null,
+    companyWebsite: normalized.companyWebsite || null,
     companyTurnover: normalized.companyTurnover || null,
     keyResponsibilities: normalized.keyResponsibilities || null,
     achievements: normalized.achievements || null,
@@ -224,6 +226,7 @@ function mergeWorkEntry(base: CvWorkEntryLike, overlay: CvWorkEntryLike): CvWork
     currentlyWorkHere: base.currentlyWorkHere === true || overlay.currentlyWorkHere === true,
     workMode: preferWorkField(base.workMode, overlay.workMode) ?? null,
     companyProfile: preferWorkField(base.companyProfile, overlay.companyProfile) ?? null,
+    companyWebsite: preferWorkField(base.companyWebsite, overlay.companyWebsite) ?? null,
     companyTurnover: preferWorkField(base.companyTurnover, overlay.companyTurnover) ?? null,
     keyResponsibilities: preferWorkField(base.keyResponsibilities, overlay.keyResponsibilities) ?? null,
     achievements: preferWorkField(base.achievements, overlay.achievements) ?? null,

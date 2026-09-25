@@ -24,7 +24,7 @@ export const authController = {
         ...buildDeviceMeta(req, req.body),
         forceSessionTakeover: Boolean(forceSessionTakeover),
       };
-      const ipAddress = resolveClientIp(req, req.body) || deviceMeta.ipAddress || req.ip || 'Unknown';
+      const ipAddress = resolveClientIp(req, req.body) || '';
       const userAgent = req.get('user-agent') || deviceMeta.userAgent || 'Unknown';
       const result = await authService.login(loginIdentifier, password, ipAddress, userAgent, deviceMeta);
       if (result?.duplicateSession) {
@@ -144,7 +144,11 @@ export const authController = {
     try {
       const identifier = req.body.loginId || req.body.email;
       const { otp, newPassword } = req.body;
-      const result = await authService.resetPassword(identifier, otp, newPassword);
+      const result = await authService.resetPassword(identifier, otp, newPassword, {
+        ipAddress: resolveClientIp(req, req.body) || req.ip || '',
+        device: req.get('user-agent') || '',
+        source: 'forgot_password',
+      });
       sendResponse(res, 200, result.message);
     } catch (error) {
       sendError(res, 400, error.message, error);
@@ -170,7 +174,11 @@ export const authController = {
         return sendError(res, 403, 'You can only change your own password');
       }
 
-      const result = await authService.changePassword(userId, newPassword);
+      const result = await authService.changePassword(userId, newPassword, {
+        ipAddress: resolveClientIp(req, req.body) || req.ip || '',
+        device: req.get('user-agent') || '',
+        source: 'change_password',
+      });
       sendResponse(res, 200, result.message);
     } catch (error) {
       sendError(res, 400, error.message, error);

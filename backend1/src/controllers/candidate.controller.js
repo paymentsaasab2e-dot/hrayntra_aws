@@ -919,4 +919,5 @@ module.exports = {
   getCandidatesDeletePreview,
   deleteCandidate,
   bulkDeleteCandidates,
+  purgeCandidateById,
 };

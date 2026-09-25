@@ -351,7 +351,7 @@ export const hqAccountSupportService = {
     return top;
   },
 
-  async regeneratePassword({ email, customerId, tenantDbName } = {}) {
+  async regeneratePassword({ email, customerId, tenantDbName, audit } = {}) {
     const workspace = await resolveWorkspace({ email, customerId, tenantDbName });
     if (!workspace) {
       throw Object.assign(new Error('Entrepreneur account not found for that email or customer ID'), {
@@ -376,6 +376,7 @@ export const hqAccountSupportService = {
     await authService.updateHeadquartersAdminCredentials(
       { ...workspace, email: resolvedEmail, loginId, tenantDbName: resolvedTenantDb },
       password,
+      audit,
     );
 
     let credentialEmailSent = false;

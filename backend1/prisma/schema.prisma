@@ -94,6 +94,7 @@ enum EmploymentType {
   CONTRACT
   INTERNSHIP
   FREELANCE
+  VOLUNTEER
 }
 
 enum InterviewRequestStatus {
@@ -353,6 +354,8 @@ model CandidateProfile {
   employmentStatus    EmploymentStatus?
   profileCompleteness Int             @default(0)
   skillsAdditionalNotes String?      // Additional notes for skills section
+  /// Location extras that have no dedicated columns (state, zip).
+  portalExtras          Json?
   createdAt           DateTime        @default(now())
   updatedAt           DateTime        @updatedAt
 
@@ -427,7 +430,8 @@ model Education {
   grade          String?
   modeOfStudy    String?   // Full-time, Part-time, Online, etc.
   courseDuration String?   // e.g., "3 years"
-  description    String?
+  additionalCourses String? // Extra courses beyond the degree program
+  description    String?   // Extracurricular activities
   documents      String[]  @default([]) // URLs to uploaded certificate/document files
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
@@ -509,6 +513,7 @@ model WorkExperience {
   employmentType   EmploymentType?
   numberOfReportees String?
   companyProfile   String?
+  companyWebsite   String?
   companyTurnover  String?
   achievements     String?
   workSkills       String[]  @default([])

@@ -16,7 +16,7 @@ import {
 } from '../../lib/cvEditorMapping';
 import { isResumeHttpUrl, normalizeResumeHref } from '../../lib/resumePreview';
 import { useSaasaCvAnnotations } from '../../hooks/useSaasaCvAnnotations';
-import { resolveSaasaCvPreviewUrl } from '../../lib/saasaCvAnnotations';
+import { guardHryantraDocxResumeVersions, resolveSaasaCvPreviewUrl } from '../../lib/saasaCvAnnotations';
 import { buildFileHref } from '../../utils/cloudinaryUrls';
 import type { Interview } from '../../types/interview.types';
 import {
@@ -903,9 +903,12 @@ export function SubmitToClientDrawer({
       candidate?.extraData && typeof candidate.extraData === 'object' && !Array.isArray(candidate.extraData)
         ? (candidate.extraData as Record<string, unknown>)
         : {};
-    const primaryUrl = String(
+    const rawPrimaryUrl = String(
       candidate?.resume || candidate?.resumeUrl || extra.originalResumeUrl || '',
     ).trim();
+    const guarded = guardHryantraDocxResumeVersions(extra, rawPrimaryUrl);
+    const excluded = new Set(guarded.excludeKeys);
+    const primaryUrl = guarded.versionPrimaryUrl;
     const normalizeKey = (url: string) => {
       const raw = String(url || '').trim();
       if (!raw) return '';
@@ -939,7 +942,7 @@ export function SubmitToClientDrawer({
         /\.(pdf|docx?)($|[?#])/i.test(raw);
       if (!urlOk || !raw) continue;
       const key = normalizeKey(raw);
-      if (!key) continue;
+      if (!key || excluded.has(key)) continue;
       fileByUrl.set(key, {
         id: file.id,
         fileName: file.fileName || 'Resume',
@@ -962,7 +965,7 @@ export function SubmitToClientDrawer({
         };
         const raw = String(item.fileUrl || '').trim();
         const key = normalizeKey(raw);
-        if (!raw || !key) return null;
+        if (!raw || !key || excluded.has(key)) return null;
         const matched = fileByUrl.get(key);
         return {
           id: String(item.id || '').trim() || matched?.id || `stored-${index}-${key}`,
@@ -1062,21 +1065,27 @@ export function SubmitToClientDrawer({
     },
   });
 
-  const saasaCvPreviewUrl = useMemo(
-    () =>
-      resolveSaasaCvPreviewUrl(
-        candidate?.extraData && typeof candidate.extraData === 'object' && !Array.isArray(candidate.extraData)
-          ? (candidate.extraData as Record<string, unknown>)
-          : null,
-        candidateFiles.map((file) => ({
-          id: file.id,
-          fileUrl: file.fileUrl,
-          fileType: file.fileType,
-          fileName: file.fileName,
-        })),
-      ),
-    [candidate?.extraData, candidateFiles],
-  );
+  const saasaCvPreviewUrl = useMemo(() => {
+    const extra =
+      candidate?.extraData && typeof candidate.extraData === 'object' && !Array.isArray(candidate.extraData)
+        ? (candidate.extraData as Record<string, unknown>)
+        : null;
+    const resolved = resolveSaasaCvPreviewUrl(
+      extra,
+      candidateFiles.map((file) => ({
+        id: file.id,
+        fileUrl: file.fileUrl,
+        fileType: file.fileType,
+        fileName: file.fileName,
+      })),
+    );
+    if (resolved) return resolved;
+    const guarded = guardHryantraDocxResumeVersions(
+      extra,
+      String(candidate?.resume || candidate?.resumeUrl || '').trim(),
+    );
+    return guarded.hryantraUrl || null;
+  }, [candidate?.extraData, candidate?.resume, candidate?.resumeUrl, candidateFiles]);
 
   const hasSaasaCvExport = Boolean(saasaCvPreviewUrl);
   const canOpenSaasaCv = Boolean(resumeHref || candidate?.resume?.trim());

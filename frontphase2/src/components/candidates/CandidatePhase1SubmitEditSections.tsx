@@ -134,6 +134,33 @@ function EditField({
   );
 }
 
+const SKILL_PROFICIENCY_OPTIONS = ['Beginner', 'Intermediate', 'Advanced'];
+const SKILL_CATEGORY_OPTIONS = ['Hard Skills', 'Soft Skills', 'Tools / Technologies'];
+const LANGUAGE_PROFICIENCY_OPTIONS = [
+  'Beginner',
+  'Elementary',
+  'Intermediate',
+  'Advanced',
+  'Fluent / Native',
+];
+const PORTFOLIO_LINK_TYPES = [
+  'Portfolio Website',
+  'GitHub',
+  'LinkedIn',
+  'Twitter',
+  'Xing',
+  'Skype',
+  'Facebook',
+  'Stack Overflow',
+  'Behance',
+  'Dribbble',
+  'Medium',
+  'Personal Blog',
+  'YouTube',
+  'Other',
+];
+const EMPLOYMENT_OPTIONS = ['Employed', 'Unemployed', 'Self-Employed', 'Student'];
+
 const GENDER_OPTIONS = [
   { label: 'Male', value: 'Male' },
   { label: 'Female', value: 'Female' },
@@ -192,6 +219,7 @@ function Phase1EditSection({
   showClientVisibilityToggle = false,
   clientVisible = true,
   onToggleClientVisibility,
+  omit = false,
 }: {
   id: SectionId;
   title: string;
@@ -203,7 +231,9 @@ function Phase1EditSection({
   showClientVisibilityToggle?: boolean;
   clientVisible?: boolean;
   onToggleClientVisibility?: (sectionId: Phase1ClientSectionId) => void;
+  omit?: boolean;
 }) {
+  if (omit) return null;
   const childList = React.Children.toArray(children).filter(Boolean);
   // Settings hid every field in this block — don't keep an empty shell in Submit to Client.
   if (showClientVisibilityToggle && childList.length === 0) return null;
@@ -290,6 +320,8 @@ type Props = {
   clientSectionVisibility?: Partial<Phase1ClientSectionVisibility>;
   clientFieldVisibility?: Partial<SubmitToClientFieldVisibility> | null;
   onToggleClientSectionVisibility?: (sectionId: Phase1ClientSectionId) => void;
+  /** When set, only these sections render. Used to add Phase 1 fields onto the tenant form. */
+  includeSectionIds?: SectionId[];
 };
 
 export function CandidatePhase1SubmitEditSections({
@@ -300,7 +332,9 @@ export function CandidatePhase1SubmitEditSections({
   clientSectionVisibility,
   clientFieldVisibility,
   onToggleClientSectionVisibility,
+  includeSectionIds,
 }: Props) {
+  const allow = (id: SectionId) => !includeSectionIds || includeSectionIds.includes(id);
   const [open, setOpen] = useState<Record<SectionId, boolean>>(
     showClientSectionVisibility ? DEFAULT_CLOSED_SECTIONS : DEFAULT_DRAWER_EDIT_OPEN,
   );
@@ -581,6 +615,7 @@ export function CandidatePhase1SubmitEditSections({
 
       <Phase1EditSection
         id="personal"
+        omit={!allow('personal')}
         title="Basic information"
         icon={User}
         open={open.personal}
@@ -637,7 +672,12 @@ export function CandidatePhase1SubmitEditSections({
             <EditField label="Current address" value={str(pi.address)} onChange={(v) => patchPersonal({ address: v })} />
           ) : null}
           {showField('employment') ? (
-            <EditField label="Employment status" value={str(pi.employment)} onChange={(v) => patchPersonal({ employment: v })} />
+            <EditSelect
+              label="Employment status"
+              value={str(pi.employment)}
+              options={EMPLOYMENT_OPTIONS.map((value) => ({ label: value, value }))}
+              onChange={(v) => patchPersonal({ employment: v })}
+            />
           ) : null}
           {showField('passportNumber') ? (
             <EditField label="Passport number" value={str(pi.passportNumber)} onChange={(v) => patchPersonal({ passportNumber: v })} />
@@ -645,11 +685,37 @@ export function CandidatePhase1SubmitEditSections({
           {showField('linkedIn') ? (
             <EditField label="LinkedIn" value={str(pi.linkedinUrl)} onChange={(v) => patchPersonal({ linkedinUrl: v })} />
           ) : null}
+          {showField('state') ? (
+            <EditField label="State" value={str(pi.state)} onChange={(v) => patchPersonal({ state: v })} />
+          ) : null}
+          {showField('zip') ? (
+            <EditField label="Zip" value={str(pi.zip)} onChange={(v) => patchPersonal({ zip: v })} />
+          ) : null}
+          {showField('maritalStatus') ? (
+            <EditSelect
+              label="Marital status"
+              value={str(pi.maritalStatus)}
+              options={[
+                { label: 'Single', value: 'Single' },
+                { label: 'Married', value: 'Married' },
+                { label: 'Divorced', value: 'Divorced' },
+                { label: 'Widowed', value: 'Widowed' },
+              ]}
+              onChange={(v) => patchPersonal({ maritalStatus: v })}
+            />
+          ) : null}
+          {showField('candidateScore') ? (
+            <EditField label="Candidate score" value={str(pi.candidateScore)} onChange={(v) => patchPersonal({ candidateScore: v })} />
+          ) : null}
+          {showField('notes') ? (
+            <EditField label="Internal notes" value={str(pi.notes)} onChange={(v) => patchPersonal({ notes: v })} multiline />
+          ) : null}
         </div>
       </Phase1EditSection>
 
       <Phase1EditSection
         id="summary"
+        omit={!allow('summary')}
         title="Professional summary"
         icon={Sparkles}
         open={open.summary}
@@ -669,6 +735,7 @@ export function CandidatePhase1SubmitEditSections({
 
       <Phase1EditSection
         id="internships"
+        omit={!allow('internships')}
         title="Internships"
         icon={Briefcase}
         open={open.internships}
@@ -702,6 +769,7 @@ export function CandidatePhase1SubmitEditSections({
 
       <Phase1EditSection
         id="education"
+        omit={!allow('education')}
         title="Education"
         icon={GraduationCap}
         open={open.education}
@@ -735,6 +803,7 @@ export function CandidatePhase1SubmitEditSections({
 
       <Phase1EditSection
         id="work"
+        omit={!allow('work')}
         title="Work experience"
         icon={Briefcase}
         open={open.work}
@@ -768,6 +837,7 @@ export function CandidatePhase1SubmitEditSections({
 
       <Phase1EditSection
         id="certifications"
+        omit={!allow('certifications')}
         title="Certifications"
         icon={Award}
         open={open.certifications}
@@ -804,6 +874,7 @@ export function CandidatePhase1SubmitEditSections({
 
       <Phase1EditSection
         id="gap"
+        omit={!allow('gap')}
         title="Gap explanation"
         icon={Timer}
         open={open.gap}
@@ -839,6 +910,7 @@ export function CandidatePhase1SubmitEditSections({
 
       <Phase1EditSection
         id="academic"
+        omit={!allow('academic')}
         title="Academic achievements"
         icon={Medal}
         open={open.academic}
@@ -875,6 +947,7 @@ export function CandidatePhase1SubmitEditSections({
 
       <Phase1EditSection
         id="exams"
+        omit={!allow('exams')}
         title="Competitive exams"
         icon={Layers}
         open={open.exams}
@@ -909,54 +982,123 @@ export function CandidatePhase1SubmitEditSections({
         </button>
       </Phase1EditSection>
 
-      <Phase1EditSection id="skills" title="Skills" icon={Wrench} open={open.skills} onToggle={toggle} count={snapshot.skills?.length || 0} {...sectionToggleProps} clientVisible={sectionVisible('skills')}>
+      <Phase1EditSection id="skills" omit={!allow('skills')} title="Skills" icon={Wrench} open={open.skills} onToggle={toggle} count={snapshot.skills?.length || 0} {...sectionToggleProps} clientVisible={sectionVisible('skills')}>
+        {(snapshot.skills || []).map((skill, index) => (
+          <div key={`skill-${index}`} className={phase1EditGridClass}>
+            <EditField
+              label="Skill name"
+              value={str(skill.name)}
+              onChange={(v) => {
+                const skills = [...(snapshot.skills || [])];
+                skills[index] = { ...skills[index], name: v };
+                onChange({ ...snapshot, skills });
+              }}
+            />
+            <EditSelect
+              label="Proficiency"
+              value={str(skill.proficiency)}
+              options={SKILL_PROFICIENCY_OPTIONS.map((value) => ({ label: value, value }))}
+              onChange={(v) => {
+                const skills = [...(snapshot.skills || [])];
+                skills[index] = { ...skills[index], proficiency: v };
+                onChange({ ...snapshot, skills });
+              }}
+            />
+            <EditSelect
+              label="Category"
+              value={str(skill.category)}
+              options={SKILL_CATEGORY_OPTIONS.map((value) => ({ label: value, value }))}
+              onChange={(v) => {
+                const skills = [...(snapshot.skills || [])];
+                skills[index] = { ...skills[index], category: v };
+                onChange({ ...snapshot, skills });
+              }}
+            />
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={() =>
+            onChange({
+              ...snapshot,
+              skills: [...(snapshot.skills || []), { name: '', proficiency: 'Intermediate', category: 'Hard Skills' }],
+            })
+          }
+          className="w-full rounded-xl border border-dashed border-violet-300 bg-violet-50/60 px-4 py-3 text-sm font-semibold text-violet-700 hover:bg-violet-50"
+        >
+          Add skill
+        </button>
         <EditField
-          label="Skills (one per line: name | proficiency | category)"
-          value={(snapshot.skills || [])
-            .map((s) => [s.name, s.proficiency, s.category].filter(Boolean).join(' | '))
-            .join('\n')}
-          onChange={(v) => {
-            const skills = v
-              .split('\n')
-              .map((line) => line.trim())
-              .filter(Boolean)
-              .map((line) => {
-                const [name, proficiency, category] = line.split('|').map((p) => p.trim());
-                return {
-                  name: name || line,
-                  proficiency: proficiency || '',
-                  category: category || 'Hard Skills',
-                };
-              });
-            onChange({ ...snapshot, skills });
-          }}
+          label="Additional notes"
+          value={str(snapshot.skillsAdditionalNotes)}
+          onChange={(v) => onChange({ ...snapshot, skillsAdditionalNotes: v })}
           multiline
         />
       </Phase1EditSection>
 
-      <Phase1EditSection id="languages" title="Languages" icon={Languages} open={open.languages} onToggle={toggle} count={snapshot.languages?.length || 0} {...sectionToggleProps} clientVisible={sectionVisible('languages')}>
-        <EditField
-          label="Languages (one per line: name | proficiency)"
-          value={(snapshot.languages || [])
-            .map((l) => [l.name, l.proficiency].filter(Boolean).join(' | '))
-            .join('\n')}
-          onChange={(v) => {
-            const languages = v
-              .split('\n')
-              .map((line) => line.trim())
-              .filter(Boolean)
-              .map((line) => {
-                const [name, proficiency] = line.split('|').map((p) => p.trim());
-                return { name: name || line, proficiency: proficiency || '' };
-              });
-            onChange({ ...snapshot, languages });
-          }}
-          multiline
-        />
+      <Phase1EditSection id="languages" omit={!allow('languages')} title="Languages" icon={Languages} open={open.languages} onToggle={toggle} count={snapshot.languages?.length || 0} {...sectionToggleProps} clientVisible={sectionVisible('languages')}>
+        {(snapshot.languages || []).map((language, index) => (
+          <div key={`lang-${index}`} className="space-y-3 rounded-xl border border-slate-200 bg-white p-3">
+            <div className={phase1EditGridClass}>
+              <EditField
+                label="Language"
+                value={str(language.name)}
+                onChange={(v) => {
+                  const languages = [...(snapshot.languages || [])];
+                  languages[index] = { ...languages[index], name: v };
+                  onChange({ ...snapshot, languages });
+                }}
+              />
+              <EditSelect
+                label="Proficiency"
+                value={str(language.proficiency)}
+                options={LANGUAGE_PROFICIENCY_OPTIONS.map((value) => ({ label: value, value }))}
+                onChange={(v) => {
+                  const languages = [...(snapshot.languages || [])];
+                  languages[index] = { ...languages[index], proficiency: v };
+                  onChange({ ...snapshot, languages });
+                }}
+              />
+            </div>
+            <div className="flex flex-wrap gap-4 text-sm text-slate-700">
+              {([
+                ['speak', 'Speak'],
+                ['read', 'Read'],
+                ['write', 'Write'],
+              ] as const).map(([key, label]) => (
+                <label key={key} className="inline-flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={language[key] === true}
+                    onChange={(e) => {
+                      const languages = [...(snapshot.languages || [])];
+                      languages[index] = { ...languages[index], [key]: e.target.checked };
+                      onChange({ ...snapshot, languages });
+                    }}
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={() =>
+            onChange({
+              ...snapshot,
+              languages: [...(snapshot.languages || []), { name: '', proficiency: 'Intermediate', speak: false, read: false, write: false }],
+            })
+          }
+          className="w-full rounded-xl border border-dashed border-violet-300 bg-violet-50/60 px-4 py-3 text-sm font-semibold text-violet-700 hover:bg-violet-50"
+        >
+          Add language
+        </button>
       </Phase1EditSection>
 
       <Phase1EditSection
         id="projects"
+        omit={!allow('projects')}
         title="Projects"
         icon={Globe2}
         open={open.projects}
@@ -988,29 +1130,65 @@ export function CandidatePhase1SubmitEditSections({
         </button>
       </Phase1EditSection>
 
-      <Phase1EditSection id="portfolio" title="Portfolio links" icon={Link2} open={open.portfolio} onToggle={toggle} count={snapshot.portfolioLinks?.length || 0} {...sectionToggleProps} clientVisible={sectionVisible('portfolio')}>
-        <EditField
-          label="Links (one per line: label | url)"
-          value={(snapshot.portfolioLinks || [])
-            .map((l) => [l.type || 'Portfolio', l.url].filter(Boolean).join(' | '))
-            .join('\n')}
-          onChange={(v) => {
-            const portfolioLinks = v
-              .split('\n')
-              .map((line) => line.trim())
-              .filter(Boolean)
-              .map((line) => {
-                const [type, url] = line.split('|').map((p) => p.trim());
-                return { type: type || 'Portfolio', url: url || type || line };
-              });
-            onChange({ ...snapshot, portfolioLinks });
-          }}
-          multiline
-        />
+      <Phase1EditSection id="portfolio" omit={!allow('portfolio')} title="Portfolio links" icon={Link2} open={open.portfolio} onToggle={toggle} count={snapshot.portfolioLinks?.length || 0} {...sectionToggleProps} clientVisible={sectionVisible('portfolio')}>
+        {(snapshot.portfolioLinks || []).map((link, index) => (
+          <div key={`link-${index}`} className={phase1EditGridClass}>
+            <EditSelect
+              label="Link type"
+              value={str(link.linkType || link.type)}
+              options={PORTFOLIO_LINK_TYPES.map((value) => ({ label: value, value }))}
+              onChange={(v) => {
+                const portfolioLinks = [...(snapshot.portfolioLinks || [])];
+                portfolioLinks[index] = { ...portfolioLinks[index], linkType: v, type: v };
+                onChange({ ...snapshot, portfolioLinks });
+              }}
+            />
+            <EditField
+              label="URL"
+              value={str(link.url)}
+              onChange={(v) => {
+                const portfolioLinks = [...(snapshot.portfolioLinks || [])];
+                portfolioLinks[index] = { ...portfolioLinks[index], url: v };
+                onChange({ ...snapshot, portfolioLinks });
+              }}
+            />
+            <EditField
+              label="Title"
+              value={str(link.title)}
+              onChange={(v) => {
+                const portfolioLinks = [...(snapshot.portfolioLinks || [])];
+                portfolioLinks[index] = { ...portfolioLinks[index], title: v };
+                onChange({ ...snapshot, portfolioLinks });
+              }}
+            />
+            <EditField
+              label="Description"
+              value={str(link.description)}
+              onChange={(v) => {
+                const portfolioLinks = [...(snapshot.portfolioLinks || [])];
+                portfolioLinks[index] = { ...portfolioLinks[index], description: v };
+                onChange({ ...snapshot, portfolioLinks });
+              }}
+            />
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={() =>
+            onChange({
+              ...snapshot,
+              portfolioLinks: [...(snapshot.portfolioLinks || []), { linkType: 'Portfolio Website', type: 'Portfolio Website', url: '' }],
+            })
+          }
+          className="w-full rounded-xl border border-dashed border-violet-300 bg-violet-50/60 px-4 py-3 text-sm font-semibold text-violet-700 hover:bg-violet-50"
+        >
+          Add portfolio link
+        </button>
       </Phase1EditSection>
 
       <Phase1EditSection
         id="accomplishments"
+        omit={!allow('accomplishments')}
         title="Accomplishments"
         icon={Star}
         open={open.accomplishments}
@@ -1064,7 +1242,7 @@ export function CandidatePhase1SubmitEditSections({
         </button>
       </Phase1EditSection>
 
-      <Phase1EditSection id="careerPreferences" title="Career preferences" icon={Target} open={open.careerPreferences} onToggle={toggle} {...sectionToggleProps} clientVisible={sectionVisible('careerPreferences')}>
+      <Phase1EditSection id="careerPreferences" omit={!allow('careerPreferences')} title="Career preferences" icon={Target} open={open.careerPreferences} onToggle={toggle} {...sectionToggleProps} clientVisible={sectionVisible('careerPreferences')}>
         <CandidatePhase1CareerPreferencesEdit
           careerPreferences={snapshot.careerPreferences || null}
           onChange={(careerPreferences) => onChange({ ...snapshot, careerPreferences })}
@@ -1073,6 +1251,7 @@ export function CandidatePhase1SubmitEditSections({
 
       <Phase1EditSection
         id="visa"
+        omit={!allow('visa')}
         title="Visa & work authorization"
         icon={Shield}
         open={open.visa}
@@ -1081,6 +1260,28 @@ export function CandidatePhase1SubmitEditSections({
         {...sectionToggleProps}
         clientVisible={sectionVisible('visa')}
       >
+        <label className="flex items-center gap-2 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            checked={
+              snapshot.visaWorkAuthorization != null &&
+              typeof snapshot.visaWorkAuthorization === 'object' &&
+              (snapshot.visaWorkAuthorization as { openForAll?: boolean }).openForAll === true
+            }
+            onChange={(e) =>
+              onChange({
+                ...snapshot,
+                visaWorkAuthorization: {
+                  ...(snapshot.visaWorkAuthorization && typeof snapshot.visaWorkAuthorization === 'object'
+                    ? snapshot.visaWorkAuthorization
+                    : {}),
+                  openForAll: e.target.checked,
+                },
+              })
+            }
+          />
+          Open to work authorization in all countries
+        </label>
         {shownVisaEntries.map((row, index) => (
           <CandidateVisaWorkAuthorizationEntryEdit
             key={`visa-${row.id || index}`}
@@ -1105,7 +1306,7 @@ export function CandidatePhase1SubmitEditSections({
         </button>
       </Phase1EditSection>
 
-      <Phase1EditSection id="vaccination" title="Vaccination" icon={Syringe} open={open.vaccination} onToggle={toggle} {...sectionToggleProps} clientVisible={sectionVisible('vaccination')}>
+      <Phase1EditSection id="vaccination" omit={!allow('vaccination')} title="Vaccination" icon={Syringe} open={open.vaccination} onToggle={toggle} {...sectionToggleProps} clientVisible={sectionVisible('vaccination')}>
         <CandidateVaccinationEntryEdit
           candidateId={candidate.id}
           entry={vaccinationRecord}

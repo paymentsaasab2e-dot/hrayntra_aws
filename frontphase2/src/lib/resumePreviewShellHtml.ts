@@ -74,12 +74,34 @@ export function buildDocxPreviewShellHtml(options: {
         pointer-events: none;
       }
       .docx-preview-resume-wrapper {
+        width: 100% !important;
+        max-width: 100% !important;
+        box-sizing: border-box !important;
         margin: 0 auto !important;
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+        align-items: stretch !important;
         background: #ffffff;
         box-shadow: 0 1px 3px rgb(15 23 42 / 0.12);
       }
       .docx-preview-resume-wrapper > section.docx-preview-resume {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+        box-sizing: border-box !important;
         margin-bottom: 8px !important;
+        align-items: stretch !important;
+        overflow: hidden !important;
+      }
+      .docx-preview-resume-wrapper > section.docx-preview-resume > article {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 100% !important;
+        align-self: stretch !important;
+        box-sizing: border-box !important;
+        position: relative;
+        z-index: 1;
+        background: transparent;
       }
       .preview-loading {
         position: fixed;

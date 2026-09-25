@@ -1,5 +1,6 @@
 import { hqService } from './hq.service.js';
 import { sendResponse, sendError } from '../../utils/response.js';
+import { resolveClientIp } from '../../utils/deviceFingerprint.js';
 
 export const hqController = {
   async setupSuperAdmin(req, res) {
@@ -24,6 +25,15 @@ export const hqController = {
   async listTenants(req, res) {
     try {
       const result = await hqService.listTenants(req.user);
+      sendResponse(res, 200, 'OK', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async listTenantAccessLogs(req, res) {
+    try {
+      const result = await hqService.listTenantAccessLogs(req.query || {}, req.user);
       sendResponse(res, 200, 'OK', result);
     } catch (error) {
       sendError(res, 400, error.message, error);
@@ -1053,7 +1063,11 @@ export const hqController = {
 
   async regenerateAccountSupportPassword(req, res) {
     try {
-      const result = await hqService.regenerateAccountSupportPassword(req.body || {}, req.user);
+      const result = await hqService.regenerateAccountSupportPassword(req.body || {}, req.user, {
+        ipAddress: resolveClientIp(req, req.body) || '',
+        device: req.get('user-agent') || '',
+        source: 'hq_password_reset',
+      });
       sendResponse(
         res,
         200,

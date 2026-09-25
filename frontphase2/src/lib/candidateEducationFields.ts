@@ -54,6 +54,8 @@ export type CandidateEducationRecord = {
   grade?: string;
   modeOfStudy?: string;
   courseDuration?: string;
+  additionalCourses?: string;
+  description?: string;
   documents?: CandidateWorkExperienceDocument[];
 };
 
@@ -294,6 +296,8 @@ export function normalizeEducationRecord(
         currentlyStudying ? '' : str(row.endMonth),
         currentlyStudying,
       ),
+    additionalCourses: str(row.additionalCourses),
+    description: str(row.description),
     documents: parseEducationDocuments(row.documents ?? row.educationDocuments ?? row.certificates),
   };
 }

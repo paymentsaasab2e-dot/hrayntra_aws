@@ -165,6 +165,10 @@ export function buildCareerPreferencesViewModel(
   const availabilityRaw = parseAvailabilityFields(
     careerPrefs.availabilityToStart || candidate.cvAvailability || candidate.availability,
   );
+  const earliestStartDate =
+    display(careerPrefs.earliestStartDate) || availabilityRaw.earliestStartDate;
+  const describeAvailability =
+    display(careerPrefs.describeAvailability) || availabilityRaw.describeAvailability;
 
   const workModes = normalizeLabelList(careerPrefs.workModes)
     .map((mode) => normalizeCareerWorkModeLabel(mode))
@@ -231,8 +235,8 @@ export function buildCareerPreferencesViewModel(
     },
     availability: {
       relocation,
-      earliestStartDate: availabilityRaw.earliestStartDate,
-      describeAvailability: availabilityRaw.describeAvailability,
+      earliestStartDate,
+      describeAvailability,
       noticePeriod: display(careerPrefs.noticePeriod) || candidate.noticePeriod || '',
     },
     resume: candidate.resumeUrl || '',

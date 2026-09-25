@@ -167,6 +167,27 @@ async function resolveRequirePasswordReset(credential, userEmail) {
   return credential.tempPasswordFlag || false;
 }
 
+async function recordLoginHistoryForUser(userId, ipAddress, device, outcome) {
+  if (!userId) return;
+  try {
+    const credential = await prisma.userCredential.findUnique({
+      where: { userId: String(userId) },
+      select: { id: true },
+    });
+    if (!credential?.id) return;
+    await prisma.loginHistory.create({
+      data: {
+        credentialId: credential.id,
+        ipAddress: String(ipAddress || '').trim() || null,
+        device: String(device || '').trim() || null,
+        outcome,
+      },
+    });
+  } catch (error) {
+    console.warn('[auth] login history', error?.message || error);
+  }
+}
+
 /** If login hit the default DB, re-run inside the tenant DB once we know the user. */
 async function rerunLoginInResolvedTenant(loginIdOrEmail, user, credential, rerun) {
   if (resolveActiveTenantDbName()) return null;
@@ -541,7 +562,7 @@ export const authService = {
     }
   },
 
-  async updateHeadquartersAdminCredentials(headquartersUser, plainPassword) {
+  async updateHeadquartersAdminCredentials(headquartersUser, plainPassword, audit = null) {
     if (!headquartersUser?.tenantDbName) {
       throw new Error('tenantDbName is required');
     }
@@ -583,6 +604,17 @@ export const authService = {
           failedAttempts: 0,
         },
       });
+      if (audit) {
+        const { recordPasswordChangeAudit } = await import('../../utils/userSessionAudit.js');
+        await recordPasswordChangeAudit({
+          userId: user.id,
+          loginId,
+          email,
+          ipAddress: audit.ipAddress,
+          device: audit.device,
+          source: audit.source || 'hq_password_reset',
+        });
+      }
       return user;
     });
   },
@@ -705,6 +737,7 @@ export const authService = {
         });
 
         if (tokenResult.duplicateSession) {
+          await recordLoginHistoryForUser(tenantLocalUser.id, ipAddress, userAgent, 'SUCCESS');
           return { duplicateSession: true, activeSession: tokenResult.activeSession };
         }
 
@@ -715,6 +748,8 @@ export const authService = {
             role: 'SUPER_ADMIN',
           },
         });
+
+        await recordLoginHistoryForUser(tenantLocalUser.id, ipAddress, userAgent, 'SUCCESS');
 
         return {
           localUser: tenantLocalUser,
@@ -809,6 +844,7 @@ export const authService = {
         });
 
         if (tokenResult.duplicateSession) {
+          await recordLoginHistoryForUser(localUser.id, ipAddress, userAgent, 'SUCCESS');
           return { duplicateSession: true, activeSession: tokenResult.activeSession };
         }
 
@@ -821,6 +857,8 @@ export const authService = {
             roleId: role.id,
           },
         });
+
+        await recordLoginHistoryForUser(localUser.id, ipAddress, userAgent, 'SUCCESS');
 
         return {
           localUser,
@@ -919,6 +957,7 @@ export const authService = {
       });
 
       if (tokenResult.duplicateSession) {
+        await recordLoginHistoryForUser(directSuperAdmin.id, ipAddress, userAgent, 'SUCCESS');
         return {
           duplicateSession: true,
           activeSession: tokenResult.activeSession,
@@ -1609,7 +1648,7 @@ export const authService = {
     });
   },
 
-  async resetPassword(identifier, otp, newPassword) {
+  async resetPassword(identifier, otp, newPassword, audit = null) {
     const trimmedPassword = String(newPassword || '').trim();
     if (trimmedPassword.length < 8) {
       throw new Error('Password must be at least 8 characters');
@@ -1628,7 +1667,10 @@ export const authService = {
       (identifier.includes('@') ? null : String(identifier).trim());
 
     await this._withPasswordResetContext(resolved.tenantDbName, async () => {
-      await this._persistPasswordResetForEmail(email, trimmedPassword, loginIdHint);
+      await this._persistPasswordResetForEmail(email, trimmedPassword, loginIdHint, {
+        audit,
+        source: 'forgot_password',
+      });
     });
 
     // Clear stale copies in the default (platform) DB when the account lives in a tenant DB.
@@ -1636,6 +1678,7 @@ export const authService = {
       await runWithTenantContext('', async () => {
         await this._persistPasswordResetForEmail(email, trimmedPassword, loginIdHint, {
           skipSessionRevoke: true,
+          skipAudit: true,
         });
       });
     }
@@ -1706,6 +1749,18 @@ export const authService = {
 
     if (!options.skipSessionRevoke) {
       await revokeAllSessionsForUser(user.id, 'PASSWORD_RESET');
+    }
+
+    if (!options.skipAudit && options.audit) {
+      const { recordPasswordChangeAudit } = await import('../../utils/userSessionAudit.js');
+      await recordPasswordChangeAudit({
+        userId: user.id,
+        loginId,
+        email: normalizedEmail,
+        ipAddress: options.audit.ipAddress,
+        device: options.audit.device,
+        source: options.audit.source || options.source || 'password_change',
+      });
     }
 
     return true;
@@ -1878,7 +1933,7 @@ export const authService = {
     };
   },
 
-  async changePassword(userId, newPassword) {
+  async changePassword(userId, newPassword, audit = null) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
       include: { credential: true },
@@ -1890,7 +1945,8 @@ export const authService = {
     await this._persistPasswordResetForEmail(
       user.email,
       newPassword,
-      user.credential?.loginId || null
+      user.credential?.loginId || null,
+      { audit: audit ? { ...audit, source: audit.source || 'change_password' } : null }
     );
 
     return { message: 'Password changed successfully' };

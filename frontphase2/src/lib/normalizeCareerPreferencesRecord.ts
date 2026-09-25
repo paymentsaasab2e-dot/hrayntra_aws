@@ -109,6 +109,7 @@ export function normalizeCareerPreferencesRecord(
       : raw.openToRelocation === false
         ? 'Not Open to Relocate'
         : '');
+  const availability = resolveAvailabilityForSave(raw);
 
   return {
     currentRole:
@@ -139,7 +140,9 @@ export function normalizeCareerPreferencesRecord(
     currentSalaryType: normalizeCareerSalaryTypeLabel(raw.currentSalaryType),
     currentLocation: raw.currentLocation || null,
     currentBenefits: normalizeStringArray(raw.currentBenefits),
-    availabilityToStart: raw.availabilityToStart || null,
+    earliestStartDate: availability.earliestStartDate || null,
+    describeAvailability: availability.describeAvailability || null,
+    availabilityToStart: availability.availabilityToStart,
     noticePeriod: noticePeriod || null,
     noticePeriodDays:
       raw.noticePeriodDays != null && Number.isFinite(Number(raw.noticePeriodDays))
@@ -162,6 +165,43 @@ export function mergeAvailabilityForSave(date: string, text: string): string {
   if (t) return t;
   if (d) return d;
   return '';
+}
+
+export function parseAvailabilityForSave(saved: unknown): {
+  earliestStartDate: string;
+  describeAvailability: string;
+} {
+  const s = String(saved ?? '').trim();
+  if (!s) return { earliestStartDate: '', describeAvailability: '' };
+  const combined = /^(\d{4}-\d{2}-\d{2})\s*—\s*(.+)$/.exec(s);
+  if (combined) {
+    return { earliestStartDate: combined[1], describeAvailability: combined[2].trim() };
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    return { earliestStartDate: s, describeAvailability: '' };
+  }
+  return { earliestStartDate: '', describeAvailability: s };
+}
+
+/** A typed date or description replaces the matching part of a previous combined value. */
+export function resolveAvailabilityForSave(raw: Record<string, unknown>): {
+  earliestStartDate: string;
+  describeAvailability: string;
+  availabilityToStart: string | null;
+} {
+  const parsed = parseAvailabilityForSave(raw.availabilityToStart);
+  const earliestStartDate =
+    typeof raw.earliestStartDate === 'string' ? raw.earliestStartDate.trim() : parsed.earliestStartDate;
+  const describeAvailability =
+    typeof raw.describeAvailability === 'string'
+      ? raw.describeAvailability.trim()
+      : parsed.describeAvailability;
+  const merged = mergeAvailabilityForSave(earliestStartDate, describeAvailability);
+  return {
+    earliestStartDate,
+    describeAvailability,
+    availabilityToStart: merged || null,
+  };
 }
 
 export function buildPassportRecordWithWorkModes(
@@ -223,13 +263,7 @@ export function prepareCareerPreferencesForSave(
       preferredBenefits: parseSemicolonList(raw.preferredBenefits),
       workModes,
       passportNumbersByLocation: buildPassportRecordWithWorkModes(passportNumbers, workModes),
-      availabilityToStart:
-        raw.availabilityToStart ||
-        mergeAvailabilityForSave(
-          String(raw.earliestStartDate ?? ''),
-          String(raw.describeAvailability ?? ''),
-        ) ||
-        null,
+      ...resolveAvailabilityForSave(raw),
       openToRelocation:
         raw.openToRelocation ??
         (String(raw.relocationPreference ?? '').trim() === 'Open to Relocate'

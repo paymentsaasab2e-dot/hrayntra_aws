@@ -152,6 +152,15 @@ export function resolveCandidateListStage(c: BackendCandidate): string {
   // Trust API/DB workflow stages (Applied, Screening, …). Never force "New" just
   // because assignedJobs/applications were omitted from a lean list payload —
   // that broke My Candidates stage filters (Applied filter showed New tags).
+  // Applied is a job-pipeline stage. With no job, leave the column empty
+  // (covers older rows that were stored as Applied on manual create).
+  if (!hasTenantJob) {
+    if (!explicit || explicitLower === 'new' || explicitLower === 'applied') {
+      return '';
+    }
+    return explicit;
+  }
+
   if (explicit && explicitLower !== 'new') {
     return explicit;
   }

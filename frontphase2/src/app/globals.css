@@ -729,11 +729,55 @@ html {
   min-height: min(720px, calc(100vh - 14rem));
 }
 
-.resume-docx-viewer .docx-preview-resume-wrapper {
+.resume-docx-viewer .docx-preview-resume-wrapper,
+.resume-docx-body .docx-preview-resume-wrapper {
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
   margin-left: auto;
   margin-right: auto;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  align-items: stretch !important;
   background: #ffffff;
   box-shadow: 0 1px 3px rgb(15 23 42 / 0.12);
+}
+
+/* Multi-column Word pages collapse to a thin strip inside docx-preview's flex page. */
+.resume-docx-body section.docx-preview-resume,
+.resume-docx-viewer section.docx-preview-resume {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+  align-items: stretch !important;
+  overflow: hidden !important;
+  position: relative;
+}
+
+.resume-docx-body section.docx-preview-resume > article,
+.resume-docx-viewer section.docx-preview-resume > article {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 100% !important;
+  align-self: stretch !important;
+  box-sizing: border-box;
+  position: relative;
+  z-index: 1;
+  background: transparent;
+}
+
+.saasa-docx-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.resume-docx-body .saasa-docx-column,
+.resume-docx-viewer .saasa-docx-column {
+  min-width: 0;
 }
 
 /* HRYantra CV — inline text editing on PDF / Word */
@@ -809,6 +853,8 @@ html {
 
 .saasa-pdf-inplace-layer.saasa-pdf-inplace-layer--active {
   pointer-events: auto;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .saasa-pdf-inplace-line {
@@ -833,8 +879,9 @@ html {
   line-height: 1 !important;
   white-space: pre !important;
   z-index: 3;
-  display: flex !important;
-  align-items: center;
+  display: block !important;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .saasa-pdf-inplace-line.saasa-pdf-inplace-line--cleared {
@@ -844,8 +891,6 @@ html {
 
 .saasa-pdf-line-mask {
   position: absolute;
-  left: 0;
-  width: 100%;
   background: #ffffff;
   z-index: 1;
   pointer-events: none;

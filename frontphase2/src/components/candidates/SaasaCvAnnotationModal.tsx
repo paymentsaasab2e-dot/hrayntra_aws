@@ -22,15 +22,17 @@ import {
   X,
 } from 'lucide-react';
 import {
+  buildResumeDocxBytesUrl,
   buildResumeInlineAssetUrl,
   buildResumeViewerUrl,
+  buildResumeWordPdfUrl,
   canPreviewResumeAsHtml,
-  getResumeExtension,
   isImageResume,
   isPdfResume,
   isTextResume,
   normalizeResumeHref,
 } from '../../lib/resumePreview';
+import { ResumeDocxEditor, type ResumeDocxEditorHandle } from './ResumeDocxEditor';
 import { ResumeWordFileViewer } from './ResumeWordFileViewer';
 import { SaasaCvRasterResumePreview } from './SaasaCvRasterResumePreview';
 import {
@@ -51,6 +53,7 @@ import {
 } from '../../lib/saasaCvAnnotations';
 import {
   clearSaasaCvPdfBytesCache,
+  fetchSaasaCvPdfBytes,
   measureSaasaPdfPageHeightsPx,
   renderSaasaPdfPages,
   type SaasaCvPdfDocumentMeta,
@@ -61,8 +64,10 @@ import {
   collectInPlacePdfTextHtml,
   collectInPlacePdfTextHtmlRaw,
   enforcePdfPageLayout,
+  findPdfLineAtClientPoint,
   resyncInPlacePdfTextLayers,
   setInPlacePdfTextEditing,
+  type WordPdfLineHit,
 } from '../../lib/saasaCvPdfTextLayer';
 import {
   clientToPaintSurfacePercent,
@@ -109,6 +114,9 @@ interface SaasaCvAnnotationModalProps {
     documentEdits?: {
       documentHtml?: string | null;
       pdfTextLayerHtml?: string[] | null;
+      wordTextReplacements?: { from: string; to: string }[] | null;
+      wordDocxBase64?: string | null;
+      wordDocument?: boolean;
     }
   ) => Promise<boolean>;
   onExportError?: (message: string) => void;
@@ -116,6 +124,85 @@ interface SaasaCvAnnotationModalProps {
 
 function newId(): string {
   return `saasa-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function collapseWordLine(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+function resolveWordLineOverride(text: string, overrides: { from: string; to: string }[]): string {
+  const key = collapseWordLine(text);
+  for (let i = overrides.length - 1; i >= 0; i -= 1) {
+    const item = overrides[i];
+    if (collapseWordLine(item.from) === key || collapseWordLine(item.to) === key) return item.to;
+  }
+  return text;
+}
+
+function paintWordLineOnCanvas(
+  canvas: HTMLCanvasElement,
+  hit: WordPdfLineHit,
+  text: string,
+  ink: string,
+  paper: string
+) {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width < 1 || rect.height < 1) return;
+  const sx = canvas.width / rect.width;
+  const sy = canvas.height / rect.height;
+  const x = hit.left * sx;
+  const y = hit.top * sy;
+  const fontSize = Math.max(8, hit.fontSize * sy);
+  ctx.save();
+  ctx.font = `${hit.fontStyle} ${hit.fontWeight} ${fontSize}px ${hit.fontFamily || 'Calibri, sans-serif'}`;
+  const textWidth = ctx.measureText(text).width;
+  const width = Math.min(canvas.width - x, Math.max(hit.width * sx, textWidth) + 8 * sx);
+  const height = Math.max(hit.height * sy, fontSize * 1.25);
+  ctx.fillStyle = paper;
+  ctx.fillRect(x - 2, y - sy, Math.max(4, width), height + 2 * sy);
+  ctx.fillStyle = ink;
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, x, y + height / 2);
+  ctx.restore();
+}
+
+function uint8ToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+function wordLineColors(
+  canvas: HTMLCanvasElement,
+  clientX: number,
+  clientY: number
+): { ink: string; paper: string } {
+  const fallback = { ink: '#111827', paper: '#ffffff' };
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return fallback;
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width < 1 || rect.height < 1) return fallback;
+  const x = Math.min(canvas.width - 1, Math.max(0, Math.floor(((clientX - rect.left) / rect.width) * canvas.width)));
+  const y = Math.min(
+    canvas.height - 1,
+    Math.max(0, Math.floor(((clientY - rect.top) / rect.height) * canvas.height) - 8)
+  );
+  let pixel: Uint8ClampedArray;
+  try {
+    pixel = ctx.getImageData(x, y, 1, 1).data;
+  } catch {
+    return fallback;
+  }
+  const lum = (pixel[0] * 299 + pixel[1] * 587 + pixel[2] * 114) / 1000;
+  return {
+    ink: lum > 160 ? '#111827' : '#ffffff',
+    paper: `rgb(${pixel[0]}, ${pixel[1]}, ${pixel[2]})`,
+  };
 }
 
 const TOOL_CONFIG: {
@@ -181,8 +268,8 @@ const UNDO_MAX = 40;
 /** Minimum height of the CV viewer area inside the modal */
 const CV_VIEWER_MIN_HEIGHT = 'min(78dvh, 900px)';
 
-/** Max width of the CV document in the scroll panel (view only) */
-const CV_VIEWER_MAX_WIDTH = 'min(92%, 52rem)';
+/** The CV uses the full preview column so the page is not cut off sideways. */
+const CV_VIEWER_MAX_WIDTH = '100%';
 
 function UndoRedoButtons({
   onUndo,
@@ -239,11 +326,19 @@ export function SaasaCvAnnotationModal({
 }: SaasaCvAnnotationModalProps) {
   const [portalReady, setPortalReady] = useState(false);
   const href = resumeUrl ? normalizeResumeHref(resumeUrl) : '';
-  const canPdf = Boolean(href && isPdfResume(href));
+  const isDocxFile = /\.docx($|[?#/])/i.test(href);
+  const isWordFile = Boolean(href && canPreviewResumeAsHtml(href));
+  const [surfaceChoice, setSurfaceChoice] = useState<'pdf' | 'docx' | null>(null);
+  const resumeSurface = surfaceChoice ?? (isDocxFile ? 'docx' : 'pdf');
+  const showDocxEditor = isDocxFile && resumeSurface === 'docx';
+  const docxEditorRef = useRef<ResumeDocxEditorHandle>(null);
+  const [wordPdfFailed, setWordPdfFailed] = useState(false);
+  const useWordPdf = isWordFile && !wordPdfFailed;
+  const canPdf = Boolean(href && (isPdfResume(href) || useWordPdf));
   const canImage = Boolean(href && isImageResume(href));
-  const canWord = Boolean(href && canPreviewResumeAsHtml(href));
+  const canWord = isWordFile && !useWordPdf;
   const canText = Boolean(href && isTextResume(href));
-  const extension = getResumeExtension(href);
+  const pdfSourceUrl = useWordPdf ? buildResumeWordPdfUrl(href) : buildResumeViewerUrl(href);
 
   const [wordPreviewError, setWordPreviewError] = useState<string | null>(null);
   const [wordPreviewReady, setWordPreviewReady] = useState(false);
@@ -280,6 +375,25 @@ export function SaasaCvAnnotationModal({
   const [pdfTextLayerHtml, setPdfTextLayerHtml] = useState<string[] | null>(initialPdfTextLayerHtml);
   const [pdfTextEditReady, setPdfTextEditReady] = useState(false);
   const [forcePdfEditorCapture, setForcePdfEditorCapture] = useState(false);
+  const [wordEditBusy, setWordEditBusy] = useState(false);
+  const [wordLineEdit, setWordLineEdit] = useState<
+    (WordPdfLineHit & {
+      from: string;
+      color: string;
+      paper: string;
+      hostLeft: number;
+      hostTop: number;
+    }) | null
+  >(null);
+  const wordDocxBytesRef = useRef<Uint8Array | null>(null);
+  const wordPdfBytesRef = useRef<ArrayBuffer | null>(null);
+  const wordEditBusyRef = useRef(false);
+  const skipWordCommitRef = useRef(false);
+  const wordCommitStartedRef = useRef(false);
+  const wordLineCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const wordLineOverridesRef = useRef<{ from: string; to: string }[]>([]);
+  const wordPdfRefreshGenRef = useRef(0);
+  const wordPdfRefreshTimerRef = useRef<number | null>(null);
 
   const initialPdfTextLayerHtmlRef = useRef(initialPdfTextLayerHtml);
   initialPdfTextLayerHtmlRef.current = initialPdfTextLayerHtml;
@@ -365,7 +479,7 @@ export function SaasaCvAnnotationModal({
           host.querySelectorAll('.saasa-pdf-inplace-layer').forEach((el) => el.remove());
           setPdfTextEditReady(false);
           if (activeTool === 'editText' || forcePdfEditorCapture) {
-            void attachInPlacePdfTextToHost(host, buildResumeViewerUrl(href), {
+            void attachInPlacePdfTextToHost(host, pdfSourceUrl, {
               editing: true,
               savedLayerHtml: null,
             }).then(() => setPdfTextEditReady(true));
@@ -452,6 +566,19 @@ export function SaasaCvAnnotationModal({
     setPdfDocMeta(null);
     setPdfLoading(false);
     setPdfError(null);
+    setWordPdfFailed(false);
+    setWordEditBusy(false);
+    setWordLineEdit(null);
+    wordDocxBytesRef.current = null;
+    wordPdfBytesRef.current = null;
+    wordEditBusyRef.current = false;
+    wordLineCanvasRef.current = null;
+    wordLineOverridesRef.current = [];
+    wordPdfRefreshGenRef.current += 1;
+    if (wordPdfRefreshTimerRef.current) {
+      window.clearTimeout(wordPdfRefreshTimerRef.current);
+      wordPdfRefreshTimerRef.current = null;
+    }
     setWordPreviewReady(false);
     setWordPreviewError(null);
     setImagePreviewReady(false);
@@ -485,11 +612,16 @@ export function SaasaCvAnnotationModal({
   }, [isOpen, activeTool]);
 
   useEffect(() => {
+    if (!isOpen) setSurfaceChoice(null);
+  }, [isOpen]);
+
+  useEffect(() => {
     if (!isOpen || !canPdf || !href) return;
+    if (isDocxFile && resumeSurface !== 'pdf') return;
 
     const gen = ++pdfLoadGenRef.current;
     let cancelled = false;
-    const viewerUrl = buildResumeViewerUrl(href);
+    const viewerUrl = pdfSourceUrl;
 
     setPdfLoading(true);
     setPdfError(null);
@@ -522,6 +654,12 @@ export function SaasaCvAnnotationModal({
         .catch((e: unknown) => {
           if (cancelled || gen !== pdfLoadGenRef.current) return;
           if (e instanceof DOMException && e.name === 'AbortError') return;
+          if (useWordPdf) {
+            setPdfError(null);
+            setPdfDocMeta(null);
+            setWordPdfFailed(true);
+            return;
+          }
           setPdfError(e instanceof Error ? e.message : 'Failed to load CV');
           setPdfDocMeta(null);
         })
@@ -545,13 +683,34 @@ export function SaasaCvAnnotationModal({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, canPdf, href]);
+  }, [isOpen, canPdf, href, pdfSourceUrl, useWordPdf, isDocxFile, resumeSurface]);
+
+  useEffect(() => {
+    if (!isOpen || !useWordPdf || !href) return;
+    let cancelled = false;
+    void fetch(buildResumeDocxBytesUrl(href))
+      .then((res) => (res.ok ? res.arrayBuffer() : null))
+      .then((buf) => {
+        if (cancelled || !buf || buf.byteLength < 1000 || wordDocxBytesRef.current) return;
+        wordDocxBytesRef.current = new Uint8Array(buf);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, useWordPdf, href]);
 
   useEffect(() => {
     if (!isOpen || !canPdf || !href || !pdfDocMeta?.totalHeight) return;
 
     const host = pdfHostRef.current;
     if (!host?.querySelector('canvas')) return;
+
+    if (useWordPdf) {
+      host.querySelectorAll('.saasa-pdf-inplace-layer').forEach((el) => el.remove());
+      setPdfTextEditReady(false);
+      return;
+    }
 
     const wantEdit = activeTool === 'editText' || forcePdfEditorCapture;
     const existingLayers = host.querySelector(`.saasa-pdf-inplace-layer`);
@@ -593,7 +752,7 @@ export function SaasaCvAnnotationModal({
     }
 
     let cancelled = false;
-    const viewerUrl = buildResumeViewerUrl(href);
+    const viewerUrl = pdfSourceUrl;
 
     void attachInPlacePdfTextToHost(host, viewerUrl, {
       editing: wantEdit || hasSavedEdits,
@@ -616,16 +775,16 @@ export function SaasaCvAnnotationModal({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, canPdf, href, pdfDocMeta?.totalHeight, activeTool, forcePdfEditorCapture, pdfTextLayerHtml]);
+  }, [isOpen, canPdf, href, pdfSourceUrl, pdfDocMeta?.totalHeight, activeTool, forcePdfEditorCapture, pdfTextLayerHtml, useWordPdf]);
 
   // Keep pointer-events / z-index in sync when only the tool changes after layers exist.
   useEffect(() => {
-    if (!canPdf || !pdfHostRef.current || !pdfTextEditReady) return;
+    if (useWordPdf || !canPdf || !pdfHostRef.current || !pdfTextEditReady) return;
     const host = pdfHostRef.current;
     if (!host.querySelector(`.saasa-pdf-inplace-layer`)) return;
     const wantEdit = activeTool === 'editText' || forcePdfEditorCapture;
     setInPlacePdfTextEditing(host, wantEdit);
-  }, [activeTool, forcePdfEditorCapture, canPdf, pdfTextEditReady]);
+  }, [activeTool, forcePdfEditorCapture, canPdf, pdfTextEditReady, useWordPdf]);
 
   useEffect(() => {
     if (!isOpen || !canImage) {
@@ -1191,9 +1350,171 @@ export function SaasaCvAnnotationModal({
     }
   };
 
+  const commitWordLineEdit = async (from: string, to: string) => {
+    if (wordCommitStartedRef.current || wordEditBusyRef.current) return;
+    wordCommitStartedRef.current = true;
+    const original = collapseWordLine(from);
+    const next = collapseWordLine(to);
+    const hit = wordLineEdit;
+    const canvas = wordLineCanvasRef.current;
+    setWordLineEdit(null);
+    if (!href || !original || original === next) {
+      wordCommitStartedRef.current = false;
+      return;
+    }
+
+    if (canvas && hit) paintWordLineOnCanvas(canvas, hit, next, hit.color, hit.paper);
+    const overrides = wordLineOverridesRef.current;
+    const key = collapseWordLine(original);
+    const existing = overrides.find(
+      (item) => collapseWordLine(item.from) === key || collapseWordLine(item.to) === key
+    );
+    const previousTo = existing ? existing.to : null;
+    if (existing) existing.to = next;
+    else overrides.push({ from: original, to: next });
+
+    const restorePaint = () => {
+      if (previousTo === null) {
+        const idx = overrides.findIndex(
+          (item) => collapseWordLine(item.from) === key && collapseWordLine(item.to) === collapseWordLine(next)
+        );
+        if (idx >= 0) overrides.splice(idx, 1);
+      } else if (existing) {
+        existing.to = previousTo;
+      }
+      if (canvas && hit) paintWordLineOnCanvas(canvas, hit, previousTo ?? original, hit.color, hit.paper);
+    };
+
+    wordEditBusyRef.current = true;
+    setWordEditBusy(true);
+    try {
+      let editRes: Response;
+      const currentDocx = wordDocxBytesRef.current;
+      if (currentDocx) {
+        const params = new URLSearchParams({
+          replacements: JSON.stringify([{ from: original, to: next }]),
+        });
+        editRes = await fetch(`/api/resume-word-edit?${params.toString()}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          },
+          body: currentDocx.slice(),
+        });
+      } else {
+        editRes = await fetch('/api/resume-word-edit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: href, replacements: [{ from: original, to: next }] }),
+        });
+      }
+      if (!editRes.ok) {
+        const detail = (await editRes.text()).slice(0, 240).trim();
+        let message = 'Could not update the Word document';
+        try {
+          const parsed = JSON.parse(detail) as { error?: string };
+          if (parsed.error) message = parsed.error;
+        } catch {
+          if (detail) message = detail;
+        }
+        restorePaint();
+        throw new Error(message);
+      }
+
+      const docxBytes = new Uint8Array(await editRes.arrayBuffer());
+      wordDocxBytesRef.current = docxBytes;
+      const openGen = pdfLoadGenRef.current;
+      const refreshGen = ++wordPdfRefreshGenRef.current;
+      if (wordPdfRefreshTimerRef.current) window.clearTimeout(wordPdfRefreshTimerRef.current);
+      wordPdfRefreshTimerRef.current = window.setTimeout(() => {
+        void (async () => {
+          try {
+            const pdfRes = await fetch('/api/resume-word-pdf', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+              },
+              body: docxBytes,
+            });
+            if (!pdfRes.ok || refreshGen !== wordPdfRefreshGenRef.current || openGen !== pdfLoadGenRef.current) {
+              return;
+            }
+            const pdfBytes = await pdfRes.arrayBuffer();
+            const host = pdfHostRef.current;
+            if (!host || refreshGen !== wordPdfRefreshGenRef.current || openGen !== pdfLoadGenRef.current) return;
+            wordPdfBytesRef.current = pdfBytes.slice(0);
+            wordLineOverridesRef.current = [];
+            const meta = await renderSaasaPdfPages(host, pdfSourceUrl, {
+              isCurrent: () =>
+                refreshGen === wordPdfRefreshGenRef.current && openGen === pdfLoadGenRef.current,
+              pdfBytes,
+              preserveUntilReady: true,
+            });
+            if (refreshGen !== wordPdfRefreshGenRef.current || openGen !== pdfLoadGenRef.current) return;
+            host.querySelectorAll('.saasa-pdf-inplace-layer').forEach((el) => el.remove());
+            enforcePdfPageLayout(host);
+            const measured = measureSaasaPdfPageHeightsPx(host);
+            const pageHeightsPx = measured.length ? measured : meta.pageHeightsPx;
+            const totalHeight = pageHeightsPx.reduce((sum, h) => sum + h, 0) || meta.totalHeight;
+            setPdfDocMeta({
+              ...meta,
+              pageHeightsPx,
+              totalHeight,
+              pageCount: Math.max(meta.pageCount, pageHeightsPx.length),
+            });
+            host.style.minHeight = `${totalHeight}px`;
+            setPdfTextLayerHtml(null);
+            requestAnimationFrame(() => paintRedrawRef.current());
+          } catch {
+            /* The typed words are already on the page. Save still stores the Word file. */
+          }
+        })();
+      }, 200);
+    } catch (error: unknown) {
+      onExportError?.(error instanceof Error ? error.message : 'Could not update the Word document');
+    } finally {
+      wordEditBusyRef.current = false;
+      wordCommitStartedRef.current = false;
+      setWordEditBusy(false);
+    }
+  };
+
+  const handleWordPageClick = async (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!useWordPdf || activeTool !== 'editText' || wordEditBusyRef.current || !canEdit) return;
+    const canvas = (event.target as HTMLElement | null)?.closest?.('canvas');
+    if (!(canvas instanceof HTMLCanvasElement)) return;
+    const surface = surfaceRef.current;
+    if (!surface) return;
+
+    let pdfBytes = wordPdfBytesRef.current;
+    if (!pdfBytes) {
+      pdfBytes = await fetchSaasaCvPdfBytes(pdfSourceUrl);
+      wordPdfBytesRef.current = pdfBytes.slice(0);
+    }
+    const hit = await findPdfLineAtClientPoint(canvas, pdfBytes, event.clientX, event.clientY);
+    if (!hit || wordEditBusyRef.current) return;
+
+    wordLineCanvasRef.current = canvas;
+    const surfaceRect = surface.getBoundingClientRect();
+    const canvasRect = canvas.getBoundingClientRect();
+    const colors = wordLineColors(canvas, event.clientX, event.clientY);
+    const from = resolveWordLineOverride(hit.text, wordLineOverridesRef.current);
+    setWordLineEdit({
+      ...hit,
+      text: from,
+      from,
+      color: colors.ink,
+      paper: colors.paper,
+      hostLeft: canvasRect.left - surfaceRect.left + hit.left,
+      hostTop: canvasRect.top - surfaceRect.top + hit.top,
+    });
+  };
+
   const collectDocumentEdits = useCallback(() => {
     let nextDocumentHtml = documentHtml;
     let nextPdfTextLayerHtml: string[] | null = pdfTextLayerHtml;
+    let wordTextReplacements: { from: string; to: string }[] | null = null;
+    let wordDocxBase64: string | null = null;
 
     if (canWord && surfaceRef.current) {
       const body = surfaceRef.current.querySelector('.resume-docx-body');
@@ -1202,7 +1523,13 @@ export function SaasaCvAnnotationModal({
       }
     }
 
-    if (canPdf && pdfHostRef.current) {
+    if (useWordPdf) {
+      nextDocumentHtml = null;
+      nextPdfTextLayerHtml = null;
+      if (wordLineOverridesRef.current.length && wordDocxBytesRef.current) {
+        wordDocxBase64 = uint8ToBase64(wordDocxBytesRef.current);
+      }
+    } else if (canPdf && pdfHostRef.current) {
       // Prefer live collect (includes freshly typed edits). Fall back to state.
       const layers = collectInPlacePdfTextHtml(pdfHostRef.current);
       if (layers.some((h) => h.trim())) {
@@ -1227,11 +1554,42 @@ export function SaasaCvAnnotationModal({
     return {
       documentHtml: nextDocumentHtml,
       pdfTextLayerHtml: nextPdfTextLayerHtml,
+      wordTextReplacements,
+      wordDocxBase64,
+      wordDocument: useWordPdf,
     };
-  }, [canWord, canText, canPdf, documentHtml, pdfTextLayerHtml]);
+  }, [canWord, canText, canPdf, useWordPdf, documentHtml, pdfTextLayerHtml]);
 
   const handleSave = async () => {
     if (!onSave || saving || exporting) return;
+
+    if (showDocxEditor) {
+      setExporting(true);
+      try {
+        const blob = await docxEditorRef.current?.exportDocx();
+        if (!blob) {
+          throw new Error('Unable to save the resume. Your changes have not been lost. Please try again.');
+        }
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        wordDocxBytesRef.current = bytes;
+        await onSave(annotationsRef.current, null, companyLogo?.url?.trim() ? companyLogo : null, false, {
+          documentHtml: null,
+          pdfTextLayerHtml: null,
+          wordTextReplacements: null,
+          wordDocxBase64: uint8ToBase64(bytes),
+          wordDocument: true,
+        });
+      } catch (error: unknown) {
+        onExportError?.(
+          error instanceof Error
+            ? error.message
+            : 'Unable to save the resume. Your changes have not been lost. Please try again.',
+        );
+      } finally {
+        setExporting(false);
+      }
+      return;
+    }
 
     const items = editingId
       ? annotations.map((a) => (a.id === editingId ? { ...a, text: draftText.trim() } : a))
@@ -1252,90 +1610,99 @@ export function SaasaCvAnnotationModal({
       documentEdits.documentHtml?.trim() ||
         documentEdits.pdfTextLayerHtml?.some((h) => h.trim())
     );
+    const hasPaintOrPins = items.some(
+      (item) =>
+        item.type === 'draw' ||
+        item.type === 'highlight' ||
+        item.type === 'comment' ||
+        item.type === 'important'
+    );
+    const logoPayload = companyLogo?.url?.trim() ? companyLogo : null;
+    // Word text is already in the .docx. Re-rendering that file as a PDF is what makes Save wait.
+    const wordFileAlreadyEdited = useWordPdf && Boolean(documentEdits.wordDocxBase64);
+    const skipPdfExport = wordFileAlreadyEdited && !hasPaintOrPins && !logoPayload;
 
     setExporting(true);
     try {
       const surfaceReady =
         Boolean(pdfDocMeta?.totalHeight) || wordPreviewReady || imagePreviewReady || textPreviewReady;
-      const logoPayload = companyLogo?.url?.trim() ? companyLogo : null;
       let exportPayload: Blob | HTMLCanvasElement | null = null;
       let fullSnapshot = false;
 
-      const {
-        exportSaasaCvDocumentPdf,
-        buildSaasaCvPdfSnapshotBlob,
-        captureSaasaCvSurfacePdf,
-        withExportTimeout,
-      } = await import('../../lib/saasaCvExport');
+      if (!skipPdfExport) {
+        const {
+          buildSaasaCvSnapshotFromPdfHost,
+          buildSaasaCvPdfSnapshotBlob,
+          captureSaasaCvSurfacePdf,
+          withExportTimeout,
+        } = await import('../../lib/saasaCvExport');
 
-      // Most reliable: re-render original PDF with PDF.js + composite marks (no DOM host).
-      if (canPdf && href) {
-        try {
-          const blob = await withExportTimeout(
-            buildSaasaCvPdfSnapshotBlob({
-              pdfUrl: buildResumeViewerUrl(href),
-              width: pdfDocMeta?.width || 800,
-              annotations: items,
-              companyLogo: logoPayload,
-              pdfTextLayerHtml: documentEdits.pdfTextLayerHtml,
-            }),
-            45000,
-            'CV export'
-          );
-          if (blob && blob.size > 5000) {
-            exportPayload = blob;
-            fullSnapshot = true;
+        // Pages are already on screen. Copy those pixels instead of downloading and drawing the PDF again.
+        if (canPdf && pdfHostRef.current && pdfDocMeta?.totalHeight) {
+          try {
+            const blob = await withExportTimeout(
+              buildSaasaCvSnapshotFromPdfHost(
+                pdfHostRef.current,
+                items,
+                logoPayload,
+                pdfDocMeta.pageCount
+              ),
+              12000,
+              'CV export'
+            );
+            if (blob && blob.size > 5000) {
+              exportPayload = blob;
+              fullSnapshot = true;
+            }
+          } catch {
+            /* fall through */
           }
-        } catch {
-          /* fall through */
         }
-      }
 
-      if (!exportPayload && canPdf && pdfDocMeta?.totalHeight && href && pdfHostRef.current) {
-        try {
-          const blob = await withExportTimeout(
-            exportSaasaCvDocumentPdf({
-              sourcePdfUrl: buildResumeViewerUrl(href),
-              width: pdfDocMeta.width,
-              annotations: items,
-              companyLogo: logoPayload,
-              pdfHost: pdfHostRef.current,
-              expectedPageCount: pdfDocMeta.pageCount,
-              displayPageHeightsPx: pdfDocMeta.pageHeightsPx,
-              pdfTextLayerHtml: documentEdits.pdfTextLayerHtml,
-            }),
-            45000,
-            'CV export'
-          );
-          if (blob && blob.size > 5000) {
-            exportPayload = blob;
-            fullSnapshot = true;
+        // Real PDFs only. Word must not call /api/resume-word-pdf again during Save.
+        if (!exportPayload && canPdf && href && !useWordPdf) {
+          try {
+            const blob = await withExportTimeout(
+              buildSaasaCvPdfSnapshotBlob({
+                pdfUrl: pdfSourceUrl,
+                width: pdfDocMeta?.width || 800,
+                annotations: items,
+                companyLogo: logoPayload,
+                pdfTextLayerHtml: documentEdits.pdfTextLayerHtml,
+              }),
+              20000,
+              'CV export'
+            );
+            if (blob && blob.size > 5000) {
+              exportPayload = blob;
+              fullSnapshot = true;
+            }
+          } catch {
+            /* fall through */
           }
-        } catch {
-          /* fall through */
         }
-      }
 
-      if (!exportPayload && surfaceRef.current && surfaceReady) {
-        try {
-          if (canPdf && pdfHostRef.current && hasTextEdits) {
-            setInPlacePdfTextEditing(pdfHostRef.current, true);
-            await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        if (!exportPayload && surfaceRef.current && surfaceReady && !useWordPdf) {
+          try {
+            if (canPdf && pdfHostRef.current && hasTextEdits) {
+              setInPlacePdfTextEditing(pdfHostRef.current, true);
+              await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+            }
+            const blob = await withExportTimeout(
+              captureSaasaCvSurfacePdf(
+                surfaceRef.current,
+                canPdf ? pdfDocMeta?.pageHeightsPx : undefined,
+              ),
+              15000,
+              'CV export'
+            );
+            if (blob && blob.size > 5000) {
+              exportPayload = blob;
+              fullSnapshot = true;
+            }
+          } catch {
+            /* fall through */
           }
-          const blob = await withExportTimeout(
-            captureSaasaCvSurfacePdf(
-              surfaceRef.current,
-              canPdf ? pdfDocMeta?.pageHeightsPx : undefined,
-            ),
-            45000,
-            'CV export'
-          );
-          if (blob && blob.size > 5000) {
-            exportPayload = blob;
-            fullSnapshot = true;
-          }
-        } catch {
-          /* fall through */
         }
       }
 
@@ -1349,6 +1716,10 @@ export function SaasaCvAnnotationModal({
   };
 
   const isSaving = saving || exporting;
+  const requestClose = () => {
+    if (isSaving) return;
+    onClose();
+  };
 
   const pinAnnotations = annotations.filter((a) => a.type === 'comment' || a.type === 'important');
 
@@ -1490,7 +1861,7 @@ export function SaasaCvAnnotationModal({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-[220] bg-slate-950/60"
-            onClick={onClose}
+            onClick={requestClose}
           />
           <motion.div
             initial={{ opacity: 0, y: 16 }}
@@ -1514,11 +1885,35 @@ export function SaasaCvAnnotationModal({
               <div>
                 <h3 className="text-lg font-semibold text-slate-900">HRYantra CV</h3>
                 <p className="text-xs text-slate-500">
-                  {candidateName} · Paint, edit PDF/Word text, and annotate
+                  {showDocxEditor
+                    ? `${candidateName} · Edit the Word document`
+                    : `${candidateName} · Paint, edit PDF/Word text, and annotate`}
                 </p>
+                {isDocxFile ? (
+                  <div className="mt-2 inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setSurfaceChoice('pdf')}
+                      className={`rounded-md px-3 py-1 text-xs font-semibold ${
+                        resumeSurface === 'pdf' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
+                      }`}
+                    >
+                      PDF
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSurfaceChoice('docx')}
+                      className={`rounded-md px-3 py-1 text-xs font-semibold ${
+                        resumeSurface === 'docx' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
+                      }`}
+                    >
+                      DOCX
+                    </button>
+                  </div>
+                ) : null}
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
-                {canEdit ? (
+                {canEdit && !showDocxEditor ? (
                   <UndoRedoButtons
                     onUndo={handleUndo}
                     onRedo={handleRedo}
@@ -1527,7 +1922,7 @@ export function SaasaCvAnnotationModal({
                     className="hidden sm:flex"
                   />
                 ) : null}
-                {canEdit ? (
+                {canEdit && !showDocxEditor ? (
                   <>
                     <button
                       type="button"
@@ -1566,16 +1961,21 @@ export function SaasaCvAnnotationModal({
                     className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
                   >
                     <Save size={15} />
-                    {isSaving ? 'Saving…' : 'Save'}
+                    {isSaving ? (showDocxEditor ? 'Saving resume...' : 'Saving…') : showDocxEditor ? 'Save Resume' : 'Save'}
                   </button>
                 ) : null}
-                <button type="button" onClick={onClose} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100">
+                <button
+                  type="button"
+                  onClick={requestClose}
+                  disabled={isSaving}
+                  className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 disabled:opacity-40"
+                >
                   <X size={18} />
                 </button>
               </div>
             </div>
 
-            {canEdit && companyLogo?.url ? (
+            {canEdit && companyLogo?.url && !showDocxEditor ? (
               <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-slate-200 bg-slate-50 px-4 py-2 sm:px-5">
                 <span className="text-xs font-medium text-slate-600">Logo position</span>
                 <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5">
@@ -1665,6 +2065,16 @@ export function SaasaCvAnnotationModal({
               </div>
             ) : null}
 
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            {isDocxFile ? (
+              <div
+                className={showDocxEditor ? 'flex min-h-0 w-full flex-1 flex-col' : 'hidden'}
+                style={showDocxEditor ? { display: 'flex', minHeight: 0, flex: '1 1 auto' } : { display: 'none' }}
+              >
+                <ResumeDocxEditor ref={docxEditorRef} resumeUrl={href} canEdit={canEdit} />
+              </div>
+            ) : null}
+            {showDocxEditor ? null : (
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
               <div className="flex min-h-0 min-w-0 flex-1 flex-col">
                 <div
@@ -1712,19 +2122,101 @@ export function SaasaCvAnnotationModal({
                           className="flex items-center justify-center text-sm text-slate-600"
                           style={{ minHeight: CV_VIEWER_MIN_HEIGHT }}
                         >
-                          Loading CV for paint…
+                          {useWordPdf ? 'Opening the Word document…' : 'Loading CV for paint…'}
                         </div>
                       ) : null}
 
                       {canPdf ? (
                         <div
                           ref={pdfHostRef}
-                          className="relative z-0 w-full"
+                          className={`relative w-full ${activeTool === 'editText' ? 'z-30' : 'z-0'}`}
                           aria-hidden={!paintSurfaceReady}
+                          style={
+                            activeTool === 'editText'
+                              ? { cursor: useWordPdf && wordEditBusy ? 'wait' : 'text' }
+                              : undefined
+                          }
+                          onClick={(event) => {
+                            if (useWordPdf) {
+                              void handleWordPageClick(event);
+                              return;
+                            }
+                            if (activeTool !== 'editText' || !canEdit) return;
+                            const target = event.target;
+                            if (target instanceof HTMLElement && target.closest('.saasa-pdf-inplace-line')) return;
+                            const host = pdfHostRef.current;
+                            if (!host) return;
+                            let best: HTMLElement | null = null;
+                            let bestDist = 36;
+                            for (const node of host.querySelectorAll('.saasa-pdf-inplace-line')) {
+                              if (!(node instanceof HTMLElement)) continue;
+                              const rect = node.getBoundingClientRect();
+                              if (rect.width < 1 || rect.height < 1) continue;
+                              const near =
+                                event.clientX >= rect.left - 10 &&
+                                event.clientX <= rect.right + 10 &&
+                                event.clientY >= rect.top - 8 &&
+                                event.clientY <= rect.bottom + 8;
+                              if (!near) continue;
+                              const dist = Math.abs(event.clientY - (rect.top + rect.height / 2));
+                              if (dist < bestDist) {
+                                bestDist = dist;
+                                best = node;
+                              }
+                            }
+                            best?.focus();
+                          }}
                         />
                       ) : (
                         renderNonPdfPreview()
                       )}
+
+                      {useWordPdf && wordLineEdit ? (
+                        <input
+                          key={`${wordLineEdit.hostLeft}-${wordLineEdit.hostTop}-${wordLineEdit.from}`}
+                          autoFocus
+                          defaultValue={wordLineEdit.from}
+                          aria-label="Edit Word text"
+                          className="absolute z-30 border-0 bg-transparent p-0 outline outline-1 outline-blue-500"
+                          style={{
+                            left: wordLineEdit.hostLeft,
+                            top: wordLineEdit.hostTop,
+                            width: Math.max(wordLineEdit.width, 48),
+                            height: wordLineEdit.height,
+                            fontSize: wordLineEdit.fontSize,
+                            fontFamily: wordLineEdit.fontFamily,
+                            fontWeight: wordLineEdit.fontWeight,
+                            fontStyle: wordLineEdit.fontStyle,
+                            color: wordLineEdit.color,
+                            background: wordLineEdit.paper,
+                            lineHeight: 1,
+                            caretColor: wordLineEdit.color,
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Escape') {
+                              event.preventDefault();
+                              skipWordCommitRef.current = true;
+                              setWordLineEdit(null);
+                              return;
+                            }
+                            if (event.key === 'Enter') {
+                              event.preventDefault();
+                              const value = event.currentTarget.value;
+                              const from = wordLineEdit.from;
+                              void commitWordLineEdit(from, value);
+                            }
+                          }}
+                          onBlur={(event) => {
+                            if (skipWordCommitRef.current || wordCommitStartedRef.current) {
+                              skipWordCommitRef.current = false;
+                              return;
+                            }
+                            const value = event.currentTarget.value;
+                            const from = wordLineEdit.from;
+                            void commitWordLineEdit(from, value);
+                          }}
+                        />
+                      ) : null}
 
                       {companyLogo?.url
                         ? logoPreviewPositions.map((pos) => (
@@ -1769,7 +2261,7 @@ export function SaasaCvAnnotationModal({
                         <>
                           <canvas
                             ref={canvasRef}
-                            className="pointer-events-none absolute left-0 top-0 z-10 h-full w-full"
+                            className="pointer-events-none absolute left-0 top-0 z-40 h-full w-full"
                             aria-hidden
                           />
                           <div
@@ -1826,7 +2318,11 @@ export function SaasaCvAnnotationModal({
                       ? 'Release Space to return to the selected tool'
                       : activeTool === 'scroll' || activeTool === 'editText' || documentPreviewReady
                         ? activeTool === 'editText'
-                          ? canPdf
+                          ? useWordPdf
+                            ? wordEditBusy
+                              ? 'Saving this line into the Word file…'
+                              : 'Click a line to edit that text in the Word file.'
+                            : canPdf
                             ? 'Click any line on the CV to edit text in the same position as the PDF'
                             : 'Click and edit text in the document'
                           : 'Scroll this panel — paint stays fixed on the document (MS Paint style)'
@@ -2049,6 +2545,8 @@ export function SaasaCvAnnotationModal({
                 })()}
                 </div>
               </aside>
+            </div>
+            )}
             </div>
           </motion.div>
         </>

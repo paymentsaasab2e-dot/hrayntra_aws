@@ -6,6 +6,7 @@ import { ResumeWordFileViewer } from './ResumeWordFileViewer';
 import {
   buildResumeInlineAssetUrl,
   buildResumeViewerUrl,
+  buildResumeWordPdfUrl,
   canPreviewResumeAsHtml,
   isImageResume,
   isPdfResume,
@@ -20,7 +21,7 @@ import { attachInPlacePdfTextToHost, enforcePdfPageLayout } from '../../lib/saas
 import { redrawPaintCanvas, syncCanvasToDocumentSize } from '../../lib/saasaCvPaintCanvas';
 
 const CV_VIEWER_MIN_HEIGHT = 'min(78dvh, 900px)';
-const CV_VIEWER_MAX_WIDTH = 'min(92%, 52rem)';
+const CV_VIEWER_MAX_WIDTH = '100%';
 
 interface SaasaCvCompositePreviewProps {
   baseResumeUrl: string;
@@ -276,6 +277,15 @@ export function SaasaCvCompositePreview({
               : { minHeight: CV_VIEWER_MIN_HEIGHT, maxWidth: CV_VIEWER_MAX_WIDTH }
           }
         >
+          {showPdfPreview && !paintSurfaceReady ? (
+            <iframe
+              title={`${candidateName} resume`}
+              src={buildResumeViewerUrl(href)}
+              className="absolute inset-0 z-0 h-full w-full border-0 bg-white"
+              style={{ minHeight: CV_VIEWER_MIN_HEIGHT }}
+            />
+          ) : null}
+
           {showPdfPreview && pdfLoading && !paintSurfaceReady ? (
             <div
               className="flex items-center justify-center text-sm text-slate-600"
@@ -293,16 +303,25 @@ export function SaasaCvCompositePreview({
               aria-hidden={!paintSurfaceReady}
             />
           ) : canWord ? (
-            <ResumeWordFileViewer
-              resumeUrl={href}
-              candidateName={candidateName}
-              enabled={enabled}
-              preferBuiltIn={Boolean(documentHtml?.trim())}
-              initialDocumentHtml={documentHtml}
-              minHeight={CV_VIEWER_MIN_HEIGHT}
-              className="relative z-0"
-              onReady={() => setWordPreviewReady(true)}
-            />
+            documentHtml?.trim() ? (
+              <ResumeWordFileViewer
+                resumeUrl={href}
+                candidateName={candidateName}
+                enabled={enabled}
+                preferBuiltIn
+                initialDocumentHtml={documentHtml}
+                minHeight={CV_VIEWER_MIN_HEIGHT}
+                className="relative z-0"
+                onReady={() => setWordPreviewReady(true)}
+              />
+            ) : (
+              <iframe
+                title={`${candidateName} Word resume`}
+                src={buildResumeWordPdfUrl(href)}
+                className="w-full border-0 bg-white"
+                style={{ minHeight: CV_VIEWER_MIN_HEIGHT, height: 'min(78dvh, 900px)' }}
+              />
+            )
           ) : showImagePreview ? (
             <SaasaCvRasterResumePreview
               resumeUrl={href}

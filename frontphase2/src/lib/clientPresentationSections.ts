@@ -146,13 +146,11 @@ export function buildClientReviewSections(
       ['Zip', form.zip],
       ['Candidate Image', form.avatar ? 'On file' : ''],
       ['Nationality', form.nationality],
-      ['Current Company Website', form.currentCompanyWebsite],
       ['Gender', form.gender],
       ['Employment status', form.employment],
       ['Marital Status', form.maritalStatus],
       ['Birth Date', form.birthDate],
       ['Passport Number', form.passportNumber],
-      ['Preferred Location', form.preferredLocation || form.p1PreferredLocations],
     ]);
   }
 
@@ -165,11 +163,13 @@ export function buildClientReviewSections(
         ? [
             ['Education summary', form.educationSummary || form.education],
             ['Courses', form.educationCourses],
+            ['Extracurricular activities', form.extracurricular],
           ]
         : [
             ['Education entries', form.cvEducationEntries],
             ['Education summary', form.educationSummary || form.education],
             ['Courses', form.educationCourses],
+            ['Extracurricular activities', form.extracurricular],
           ],
       eduEntries.length
         ? {
@@ -187,7 +187,6 @@ export function buildClientReviewSections(
 
   if (isSectionVisible('professional', visible)) {
     pushVisibleSection(sections, 'professional', [
-      ['Remarks', form.remarks],
       ['Experience (years)', form.experience],
       ['Current Designation', form.currentTitle || form.p1CurrentRole],
       ['Current Employer', form.currentCompany],
@@ -198,9 +197,7 @@ export function buildClientReviewSections(
       ['Expected Salary Currency', form.expectedSalaryCurrency],
       ['Expected Benefits', form.expectedBenefits],
       ['Notice Period', form.noticePeriod],
-      ['Work history (narrative)', form.workHistoryText],
-      ['Extracurricular activities', form.extracurricular],
-      ['Volunteers', form.volunteers],
+      ['Preferred Location', form.p1PreferredLocations || form.preferredLocation],
       ['Preferred job titles', form.p1PreferredJobTitles],
       ['Preferred industries', form.p1PreferredIndustries],
       ['Functional areas', form.p1FunctionalAreas],
@@ -216,7 +213,12 @@ export function buildClientReviewSections(
     pushVisibleSection(
       sections,
       'work',
-      workEntries.length ? [] : [['Work experience entries', form.cvWorkExperienceEntries]],
+      [
+        ['Current Company Website', form.currentCompanyWebsite],
+        ['Volunteers', form.volunteers],
+        ['Work history (narrative)', form.workHistoryText],
+        ...(workEntries.length ? [] : [['Work experience entries', form.cvWorkExperienceEntries] as [string, unknown]]),
+      ],
       workEntries.length ? { entries: workEntries } : undefined,
     );
   }
@@ -237,6 +239,7 @@ export function buildClientReviewSections(
   if (isSectionVisible('summary', visible)) {
     pushVisibleSection(sections, 'summary', [
       ['Summary', form.cvSummary],
+      ['Remarks', form.remarks],
       ['Skills', form.skills],
       ['Language & proficiency', form.languageProficiency || form.languages],
       ['Honours & awards', form.honours],

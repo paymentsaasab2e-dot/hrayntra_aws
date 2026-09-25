@@ -264,6 +264,20 @@ export function isOurS3PdfUrl(urlString) {
   }
 }
 
+/** S3 files the client review may stream, including Word resumes saved as the HRYantra CV. */
+export function isOurS3ShareableDocumentUrl(urlString) {
+  try {
+    const u = new URL(urlString);
+    if (u.protocol !== 'https:') return false;
+    const parsed = parseOurS3Url(urlString);
+    if (!parsed) return false;
+    if (/\.(pdf|png|jpe?g|gif|webp|txt|docx|doc)($|[?#])/i.test(u.pathname)) return true;
+    return isExtensionlessResumeStorageKey(parsed.key);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Short-lived presigned GET URL for private objects.
  * Requires optional dependency `@aws-sdk/s3-request-presigner`.

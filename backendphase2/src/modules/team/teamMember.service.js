@@ -741,7 +741,7 @@ export const teamMemberService = {
     };
   },
 
-  async resetPassword(userId, actorUser) {
+  async resetPassword(userId, actorUser, audit = null) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
       include: {
@@ -776,6 +776,18 @@ export const teamMemberService = {
         isLocked: false,
       },
     });
+
+    if (audit) {
+      const { recordPasswordChangeAudit } = await import('../../utils/userSessionAudit.js');
+      await recordPasswordChangeAudit({
+        userId,
+        loginId: user.credential?.loginId,
+        email: user.email,
+        ipAddress: audit.ipAddress,
+        device: audit.device,
+        source: audit.source || 'team_reset',
+      });
+    }
 
     await recordTenantUserDirectoryEntry({
       email: user.email,
@@ -817,7 +829,7 @@ export const teamMemberService = {
    * Super Admin only: set a member's login password to an explicit value.
    * Existing passwords cannot be read back (one-way hash).
    */
-  async setPassword(userId, newPassword, actorUser) {
+  async setPassword(userId, newPassword, actorUser, audit = null) {
     if (!isSuperAdminUser({ user: actorUser })) {
       throw new Error('Only Super Admins can set a member password directly.');
     }
@@ -862,6 +874,18 @@ export const teamMemberService = {
         metadata: { performedBy: actorUser?.id || null },
       },
     });
+
+    if (audit) {
+      const { recordPasswordChangeAudit } = await import('../../utils/userSessionAudit.js');
+      await recordPasswordChangeAudit({
+        userId,
+        loginId: user.credential.loginId,
+        email: user.email,
+        ipAddress: audit.ipAddress,
+        device: audit.device,
+        source: audit.source || 'team_set_password',
+      });
+    }
 
     return {
       message: 'Password updated successfully.',
