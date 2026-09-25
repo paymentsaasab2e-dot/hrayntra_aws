@@ -5795,6 +5795,7 @@ export function CandidateProfileDrawer({
                       onPreferredResumeViewModeChange={setResumeTabViewPreference}
                       saasaSavedFileUrl={saasaCv.stored?.fileUrl ?? null}
                       onOpenSaasaCv={() => saasaCv.openModal()}
+                      onDeleteSaasaCv={() => saasaCv.deleteSavedCv()}
                       onToast={(message) => setToastMessage(message)}
                       onCandidateUpdated={
                         onRefreshCandidate

@@ -3438,7 +3438,11 @@ export const interviewService = {
         const { stampPdfBufferWithExportWatermark } = await import(
           '../utils/stampPdfExportWatermark.js'
         );
-        const watermark = await getPublicClientReviewExportWatermark();
+        const access = await resolveClientReviewAccess(token);
+        const linkTenant = await resolveReviewTenant(access?.decoded);
+        const watermark = linkTenant
+          ? await runWithTenantContext(linkTenant, () => getPublicClientReviewExportWatermark())
+          : null;
         const stamped = await stampPdfBufferWithExportWatermark(loaded.buffer, watermark);
         const didStamp =
           stamped !== loaded.buffer &&

@@ -107,16 +107,6 @@ export default function ClientReviewPage() {
         const data: ClientReviewData = payload.data || payload;
         const masked = maskClientReviewStorageUrls(data, token);
         setReviewData(masked);
-        try {
-          const { normalizeExportWatermark, writeCachedOrgWatermark } = await import(
-            '../../../lib/exportWatermark'
-          );
-          if (masked.exportWatermark) {
-            writeCachedOrgWatermark(normalizeExportWatermark(masked.exportWatermark));
-          }
-        } catch {
-          /* watermark cache optional */
-        }
         const initialStages: Record<string, string> = {};
         const seedStage = (matchId: string, stage?: string | null) => {
           const id = String(matchId || '').trim();
