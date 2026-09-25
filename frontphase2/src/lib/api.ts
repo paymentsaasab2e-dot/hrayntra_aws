@@ -1766,6 +1766,30 @@ export async function apiHqListTenants() {
   }>('/hq/tenants', { auth: true });
 }
 
+export type HqTenantAccessLogRow = {
+  id: string;
+  at: string;
+  ipAddress: string;
+  device: string;
+  userAgent?: string;
+  loginId: string;
+  email: string;
+  name?: string;
+  outcome?: string;
+  source?: string;
+};
+
+export async function apiHqTenantAccessLogs(query: { email?: string; tenantDbName?: string }) {
+  const params = new URLSearchParams();
+  if (query.email) params.set('email', query.email);
+  if (query.tenantDbName) params.set('tenantDbName', query.tenantDbName);
+  return apiFetch<{
+    tenantDbName: string;
+    logins: HqTenantAccessLogRow[];
+    passwordChanges: HqTenantAccessLogRow[];
+  }>(`/hq/tenants/access-logs?${params.toString()}`, { auth: true });
+}
+
 export type HqAccountSupportLookup = {
   exists: boolean;
   accountKind?: 'employer' | 'employee' | string;
@@ -5254,6 +5278,7 @@ export async function apiHqLogin(
     macAddress?: string;
     macId?: string;
     userAgent?: string;
+    clientPublicIp?: string;
     forceSessionTakeover?: boolean;
   }
 ) {
@@ -5274,6 +5299,7 @@ export async function apiLogin(
     macAddress?: string;
     macId?: string;
     userAgent?: string;
+    clientPublicIp?: string;
     forceSessionTakeover?: boolean;
   }
 ) {
@@ -5302,6 +5328,7 @@ export async function apiLogin(
         macAddress: devicePayload?.macAddress || devicePayload?.deviceId,
         macId: devicePayload?.macAddress || devicePayload?.deviceId,
         userAgent: devicePayload?.userAgent,
+        clientPublicIp: devicePayload?.clientPublicIp,
         tenantDbName: tenantDbNameHint || undefined,
         forceSessionTakeover: devicePayload?.forceSessionTakeover === true ? true : undefined,
       },
@@ -5427,11 +5454,13 @@ export async function apiResetPasswordWithOtp(identifier: string, otp: string, n
   const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed);
   const tenantDbNameHint = getTenantDbName();
   const tenantPayload = tenantDbNameHint ? { tenantDbName: tenantDbNameHint } : {};
+  const { fetchClientPublicIp } = await import('../utils/clientPublicIp');
+  const clientPublicIp = await fetchClientPublicIp();
   return apiFetch('/auth/reset-password', {
     method: 'POST',
     body: isEmail
-      ? { email: trimmed.toLowerCase(), otp: otp.trim(), newPassword, ...tenantPayload }
-      : { loginId: trimmed, otp: otp.trim(), newPassword, ...tenantPayload },
+      ? { email: trimmed.toLowerCase(), otp: otp.trim(), newPassword, clientPublicIp, ...tenantPayload }
+      : { loginId: trimmed, otp: otp.trim(), newPassword, clientPublicIp, ...tenantPayload },
     includeTenantHeader: !!tenantDbNameHint,
   });
 }
@@ -6762,7 +6791,7 @@ export interface UpdateCandidatePayload {
   gender?: string;
   middleName?: string;
   dateOfBirth?: string | null;
-  stage?: string;
+  stage?: string | null;
   assignedJobs?: string[];
   avatar?: string | null;
   extraData?: Record<string, unknown> | null;

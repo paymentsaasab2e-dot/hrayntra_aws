@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { fixRenderedDocxLayout, prepareDocxBlobForPreview } from '../../lib/docxPreviewLayout';
 import {
   buildOfficeOnlineEmbedUrl,
   buildResumeDocxBytesUrl,
@@ -95,6 +96,7 @@ function ResumeDocxBuiltInViewer({
         if (savedHtml) {
           bodyEl.innerHTML = savedHtml;
           if (cancelled || loadSeqRef.current !== seq) return;
+          await fixRenderedDocxLayout(bodyEl, null);
           applyDocxInlineEditMode(bodyEl, editable);
           onReady?.();
           return;
@@ -110,17 +112,20 @@ function ResumeDocxBuiltInViewer({
           throw new Error('Document file is empty');
         }
 
+        const prepared = await prepareDocxBlobForPreview(blob);
+        if (cancelled || loadSeqRef.current !== seq) return;
+
         const { renderAsync } = await import('docx-preview');
         if (cancelled || loadSeqRef.current !== seq) return;
 
-        await renderAsync(blob, bodyEl, styleRef.current ?? undefined, {
+        await renderAsync(prepared.blob, bodyEl, styleRef.current ?? undefined, {
           className: 'docx-preview-resume',
           inWrapper: true,
           ignoreWidth: false,
           ignoreHeight: false,
           ignoreFonts: false,
           breakPages: true,
-          ignoreLastRenderedPageBreak: true,
+          ignoreLastRenderedPageBreak: false,
           experimental: true,
           useBase64URL: true,
           renderHeaders: true,
@@ -132,6 +137,7 @@ function ResumeDocxBuiltInViewer({
 
         if (cancelled || loadSeqRef.current !== seq) return;
         if (bodyEl.childElementCount > 0) {
+          await fixRenderedDocxLayout(bodyEl, prepared.layout);
           applyDocxInlineEditMode(bodyEl, editable);
           onReady?.();
         } else {
@@ -169,10 +175,10 @@ function ResumeDocxBuiltInViewer({
   return (
     <div className="relative h-full w-full" style={{ minHeight }}>
       <div ref={styleRef} className="sr-only" aria-hidden />
-      <div className="h-full w-full overflow-y-auto overscroll-y-contain p-4 sm:p-6">
+      <div className="h-full w-full overflow-x-hidden overflow-y-auto overscroll-y-contain px-2 py-4 sm:px-3">
         <div
           ref={bodyRef}
-          className="resume-docx-body mx-auto w-full max-w-[52rem]"
+          className="resume-docx-body mx-auto w-full max-w-none"
           onInput={editable ? handleInput : undefined}
           suppressContentEditableWarning
         />

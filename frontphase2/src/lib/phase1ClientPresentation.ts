@@ -213,7 +213,7 @@ export function initPhase1EditSnapshotFromProfile(
   }
 
   const nameParts = String(profile.name || '').trim().split(/\s+/).filter(Boolean);
-  return {
+  const drafted: Phase1ProfileSnapshot = {
     personalInfo: {
       firstName: profile.firstName || nameParts[0] || undefined,
       lastName: profile.lastName || nameParts.slice(1).join(' ') || undefined,
@@ -301,6 +301,133 @@ export function initPhase1EditSnapshotFromProfile(
       };
     })(),
   };
+  return {
+    ...drafted,
+    personalInfo: resolvePhase1PersonalInfo(drafted, profile),
+  };
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function textOrPrevious(next: unknown, previous: unknown): unknown {
+  if (next === undefined || next === null) return previous ?? null;
+  const text = String(next).trim();
+  return text || null;
+}
+
+function listOrPrevious(next: unknown, previous: unknown): unknown {
+  if (next === undefined || next === null) return previous;
+  const text = String(next).trim();
+  if (!text) return [];
+  return text
+    .split(';')
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+/** Copy tenant-form fields stored on the Phase 1 profile into extraData.pipeline. */
+export function mergeTenantOnlyFieldsIntoExtra(
+  extra: Record<string, unknown>,
+  personal?: Phase1ProfileSnapshot['personalInfo'] | null,
+): Record<string, unknown> {
+  const pi = personal || {};
+  const pipeline = asRecord(extra.pipeline);
+  const personalPipe = asRecord(pipeline.personal);
+  const social = asRecord(pipeline.social);
+  const professional = asRecord(pipeline.professional);
+  const summary = asRecord(pipeline.summary);
+  const education = asRecord(pipeline.education);
+  const courses = listOrPrevious(pi.educationCourses, education.courses ?? professional.courses);
+
+  return {
+    ...extra,
+    remarks: textOrPrevious(pi.remarks, extra.remarks),
+    notes: textOrPrevious(pi.notes, extra.notes),
+    hackathons: listOrPrevious(pi.hackathons, extra.hackathons),
+    employmentStatus: textOrPrevious(pi.employment, extra.employmentStatus),
+    pipeline: {
+      ...pipeline,
+      personal: {
+        ...personalPipe,
+        age: textOrPrevious(pi.age, personalPipe.age),
+        candidateScore: textOrPrevious(pi.candidateScore, personalPipe.candidateScore),
+        state: textOrPrevious(pi.state, personalPipe.state),
+        zip: textOrPrevious(pi.zip, personalPipe.zip),
+        maritalStatus: textOrPrevious(pi.maritalStatus, personalPipe.maritalStatus),
+        currentCompanyWebsite: textOrPrevious(
+          pi.currentCompanyWebsite,
+          personalPipe.currentCompanyWebsite,
+        ),
+        phoneCode: textOrPrevious(pi.phoneCode, personalPipe.phoneCode),
+        locationDisplay: textOrPrevious(pi.location, personalPipe.locationDisplay),
+        preferredLocation: textOrPrevious(pi.preferredLocation, personalPipe.preferredLocation),
+      },
+      social: {
+        ...social,
+        twitter: textOrPrevious(pi.twitter, social.twitter),
+        xing: textOrPrevious(pi.xing, social.xing),
+        skypeId: textOrPrevious(pi.skypeId, social.skypeId),
+        facebook: textOrPrevious(pi.facebook, social.facebook),
+        stackOverflow: textOrPrevious(pi.stackOverflow, social.stackOverflow),
+        website: textOrPrevious(pi.website, social.website),
+      },
+      professional: {
+        ...professional,
+        remarks: textOrPrevious(pi.remarks, professional.remarks),
+        extracurricularActivities: listOrPrevious(
+          pi.extracurricular,
+          professional.extracurricularActivities,
+        ),
+        volunteers: listOrPrevious(pi.volunteers, professional.volunteers),
+        courses,
+      },
+      summary: {
+        ...summary,
+        workHistory: textOrPrevious(pi.workHistoryText, summary.workHistory),
+      },
+      education: {
+        ...education,
+        courses,
+      },
+    },
+  };
+}
+
+/** Keep Phase 1-only sections when a tenant-added candidate is saved from the ATS form. */
+export function mergePhase1SectionsIntoExtra(
+  extra: Record<string, unknown>,
+  snapshot: Phase1ProfileSnapshot | null | undefined,
+): Record<string, unknown> {
+  if (!snapshot) return extra;
+  const prevSnap = asRecord(extra.phase1ProfileSnapshot);
+  const nextSnap: Phase1ProfileSnapshot = {
+    ...(prevSnap as Phase1ProfileSnapshot),
+    workExperience: snapshot.workExperience || (prevSnap.workExperience as Phase1ProfileSnapshot['workExperience']),
+    education: snapshot.education || (prevSnap.education as Phase1ProfileSnapshot['education']),
+    internships: snapshot.internships || [],
+    gapExplanations: snapshot.gapExplanations || [],
+    academicAchievements: snapshot.academicAchievements || [],
+    competitiveExams: snapshot.competitiveExams || [],
+    skills: snapshot.skills || (prevSnap.skills as Phase1ProfileSnapshot['skills']),
+    projects: snapshot.projects || [],
+    certifications: snapshot.certifications || (prevSnap.certifications as Phase1ProfileSnapshot['certifications']),
+    visaWorkAuthorization: snapshot.visaWorkAuthorization || null,
+    vaccination: snapshot.vaccination || null,
+    _phase1SnapshotSavedAt: new Date().toISOString(),
+  };
+  return {
+    ...extra,
+    phase1ProfileSnapshot: nextSnap,
+    phase1Internships: nextSnap.internships || [],
+    phase1GapExplanations: nextSnap.gapExplanations || [],
+    phase1AcademicAchievements: nextSnap.academicAchievements || [],
+    phase1CompetitiveExams: nextSnap.competitiveExams || [],
+    phase1Projects: nextSnap.projects || [],
+  };
 }
 
 /** Persist Phase 1 overview edits to CRM candidate + phase1ProfileSnapshot. */
@@ -351,7 +478,8 @@ export function buildUpdatePayloadFromPhase1EditSnapshot(
       : null,
   };
 
-  const mergedExtra: Record<string, unknown> = {
+  const mergedExtra: Record<string, unknown> = mergeTenantOnlyFieldsIntoExtra(
+    {
     ...prev,
     phase1ProfileSnapshot: {
       ...cloneSnapshot(snapshotForSave),
@@ -360,7 +488,9 @@ export function buildUpdatePayloadFromPhase1EditSnapshot(
     phase1GapExplanations: snapshot.gapExplanations || [],
     phase1Internships: snapshot.internships || [],
     phase1Accomplishments: savedAccomplishments,
-  };
+  },
+    snapshot.personalInfo,
+  );
 
   const preferredLocations = Array.isArray(normalizedCareer?.preferredLocations)
     ? (normalizedCareer.preferredLocations as string[])
@@ -445,7 +575,6 @@ export function buildUpdatePayloadFromPhase1EditSnapshot(
       String(pi.dob || pi.dateOfBirth || '').trim() || payload.dateOfBirth || null,
     currentTitle: (normalizedCareer?.currentRole as string) || payload.currentTitle,
     designation: (normalizedCareer?.currentRole as string) || payload.designation,
-    location: (normalizedCareer?.currentLocation as string) || payload.location,
     noticePeriod: (normalizedCareer?.noticePeriod as string) || payload.noticePeriod,
     availability: (normalizedCareer?.availabilityToStart as string) || payload.availability,
     expectedSalary:
@@ -456,7 +585,16 @@ export function buildUpdatePayloadFromPhase1EditSnapshot(
       normalizedCareer?.currentSalary != null
         ? Number(normalizedCareer.currentSalary)
         : payload.currentSalary,
-    preferredLocation: preferredLocations[0] || payload.preferredLocation,
+    preferredLocation:
+      String(pi.preferredLocation || '').trim() ||
+      preferredLocations[0] ||
+      payload.preferredLocation,
+    location:
+      (normalizedCareer?.currentLocation as string) ||
+      String(pi.location || '').trim() ||
+      payload.location,
+    website: String(pi.website || '').trim() || payload.website,
+    notes: String(pi.notes || pi.remarks || '').trim() || payload.notes,
     salary: {
       currency:
         (normalizedCareer?.preferredCurrency as string) ||

@@ -766,13 +766,9 @@ export const addCandidateController = {
 
       const recruiterId = isBulkCvPoolCreate ? null : req.body.recruiterId || req.user.id;
       const creatorId = req.user.id;
-      const stageLabel = isBulkCvPoolCreate
+      const stageLabel = isBulkCvPoolCreate || !req.body.jobId
         ? null
-        : req.body.jobId
-          ? getStageLabel(req.body.stage || 'Applied')
-          : req.body.stage
-            ? getStageLabel(req.body.stage)
-            : null;
+        : getStageLabel(req.body.stage || 'Applied');
       const expectedSalary = parsePositiveNumber(req.body.expectedSalary);
       const currentSalary = parsePositiveNumber(req.body.currentSalary);
       const duplicateActionRaw = String(req.body.duplicateAction || 'create');

@@ -2,6 +2,7 @@ import { filesApiUpload, type BackendCandidate } from './api';
 import { CLIENT_PRESENTATION_KEY, readClientPresentation } from './clientPresentationDraft';
 import {
   buildSaasaCvAnnotationsExtra,
+  guardHryantraDocxResumeVersions,
   hasSaasaCvSaved,
   readSaasaCvAnnotations,
   type SaasaCvAnnotationsStored,
@@ -255,7 +256,9 @@ export function readPortalStudioTemplateId(candidate: BackendCandidate | null): 
 export function hasSaasaCvResumeTabMode(candidate: BackendCandidate | null): boolean {
   const extra = candidate?.extraData;
   if (!extra || typeof extra !== 'object' || Array.isArray(extra)) return false;
-  return hasSaasaCvSaved(readSaasaCvAnnotations(extra as Record<string, unknown>));
+  const bag = extra as Record<string, unknown>;
+  if (hasSaasaCvSaved(readSaasaCvAnnotations(bag))) return true;
+  return Boolean(guardHryantraDocxResumeVersions(bag, '').hryantraUrl);
 }
 
 /** Recruiter CV editor keys that must survive HRYantra CV saves and partial drawer refreshes. */

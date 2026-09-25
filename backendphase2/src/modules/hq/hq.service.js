@@ -560,6 +560,76 @@ export const hqService = {
     };
   },
 
+  async listTenantAccessLogs(query, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    const email = normalizeTenantEmail(query?.email);
+    let tenantDbName = String(query?.tenantDbName || '').trim();
+    if (!tenantDbName && email) {
+      const tenant = await headquartersAuthService.findWorkspaceUserByEmail(email);
+      tenantDbName = String(tenant?.tenantDbName || '').trim();
+    }
+    if (!tenantDbName) {
+      throw new Error('Tenant database is not provisioned yet');
+    }
+
+    const { formatAccessDevice } = await import('../../utils/userSessionAudit.js');
+
+    return runWithTenantContext(tenantDbName, async () => {
+      let logins = [];
+      let passwordChanges = [];
+      try {
+        const rows = await prisma.loginHistory.findMany({
+          orderBy: { timestamp: 'desc' },
+          take: 300,
+          include: {
+            credential: {
+              select: {
+                loginId: true,
+                user: { select: { email: true, name: true } },
+              },
+            },
+          },
+        });
+        logins = rows.map((row) => ({
+          id: row.id,
+          at: row.timestamp,
+          outcome: row.outcome,
+          ipAddress: row.ipAddress || '',
+          device: formatAccessDevice(row.device) || row.device || '',
+          userAgent: row.device || '',
+          loginId: row.credential?.loginId || '',
+          email: row.credential?.user?.email || '',
+          name: row.credential?.user?.name || '',
+        }));
+      } catch (error) {
+        console.warn('[hq] access logins', error?.message || error);
+      }
+      try {
+        const rows = await prisma.sessionAuditLog.findMany({
+          where: { action: 'PASSWORD_CHANGED' },
+          orderBy: { createdAt: 'desc' },
+          take: 100,
+        });
+        passwordChanges = rows.map((row) => {
+          const meta = row.metadata && typeof row.metadata === 'object' ? row.metadata : {};
+          return {
+            id: row.id,
+            at: row.createdAt,
+            ipAddress: row.ipAddress || '',
+            device: row.deviceInfo || '',
+            userAgent: String(meta.userAgent || ''),
+            loginId: String(meta.loginId || ''),
+            email: String(meta.email || ''),
+            source: String(meta.source || ''),
+          };
+        });
+      } catch (error) {
+        console.warn('[hq] password logs', error?.message || error);
+      }
+      return { tenantDbName, logins, passwordChanges };
+    });
+  },
+
   async createTenantImpersonationAccess(data, reqUser) {
     assertPlatformProvisioner(reqUser);
     const email = normalizeTenantEmail(data?.email);
@@ -1507,10 +1577,10 @@ export const hqService = {
     return hqAccountSupportService.lookup(query);
   },
 
-  async regenerateAccountSupportPassword(body, reqUser) {
+  async regenerateAccountSupportPassword(body, reqUser, audit = null) {
     assertPlatformProvisioner(reqUser);
     const { hqAccountSupportService } = await import('./hq-account-support.service.js');
-    return hqAccountSupportService.regeneratePassword(body);
+    return hqAccountSupportService.regeneratePassword({ ...body, audit });
   },
 
   async impersonateAccountSupportEmployer(body, reqUser) {

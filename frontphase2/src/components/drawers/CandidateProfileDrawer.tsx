@@ -140,7 +140,9 @@ import { applyHiringFieldsFromEditForm, CandidateHiringEditSection } from '../ca
 import {
   buildUpdatePayloadFromPhase1EditSnapshot,
   initPhase1EditSnapshotFromProfile,
+  mergePhase1SectionsIntoExtra,
 } from '../../lib/phase1ClientPresentation';
+import { TENANT_FORM_MISSING_PHASE1_SECTIONS } from '../../lib/phase1ClientPresentationSections';
 import { isPhase1PortalCandidate, type Phase1ProfileSnapshot } from '../../lib/phase1ProfileSnapshot';
 import {
   collectCandidateWorkEntries,
@@ -5003,11 +5005,7 @@ export function CandidateProfileDrawer({
     setActiveTab('Overview');
     setEditError('');
     setEditForm(buildCandidateEditForm(candidate));
-    if (isPhase1PortalCandidate(candidate)) {
-      setPhase1EditSnapshot(initPhase1EditSnapshotFromProfile(candidate));
-    } else {
-      setPhase1EditSnapshot(null);
-    }
+    setPhase1EditSnapshot(initPhase1EditSnapshotFromProfile(candidate));
     setShowEditModal(true);
   }, [candidate, onUpdateCandidate]);
 
@@ -5021,9 +5019,7 @@ export function CandidateProfileDrawer({
     setEditAvatarPreview('');
     if (candidate) {
       setEditForm(buildCandidateEditForm(candidate));
-      if (isPhase1PortalCandidate(candidate)) {
-        setPhase1EditSnapshot(initPhase1EditSnapshotFromProfile(candidate));
-      }
+      setPhase1EditSnapshot(initPhase1EditSnapshotFromProfile(candidate));
     }
     if (openEditDirectly) {
       onClose();
@@ -5190,11 +5186,7 @@ export function CandidateProfileDrawer({
     // Never clobber in-progress Overview edits when parent refreshes the candidate.
     if (showEditModal || isSavingEdit) return;
     setEditForm(buildCandidateEditForm(candidate));
-    if (isPhase1PortalCandidate(candidate)) {
-      setPhase1EditSnapshot(initPhase1EditSnapshotFromProfile(candidate));
-    } else {
-      setPhase1EditSnapshot(null);
-    }
+    setPhase1EditSnapshot(initPhase1EditSnapshotFromProfile(candidate));
     setEditError('');
   }, [candidate, showEditModal, isSavingEdit]);
 
@@ -5260,6 +5252,14 @@ export function CandidateProfileDrawer({
       if (isPhase1Edit && editForm) {
         payload = applyHiringFieldsFromEditForm(payload, editForm, candidate.assignedJobId);
       } else if (editForm) {
+        const extra =
+          payload.extraData && typeof payload.extraData === 'object' && !Array.isArray(payload.extraData)
+            ? (payload.extraData as Record<string, unknown>)
+            : {};
+        payload = {
+          ...payload,
+          extraData: mergePhase1SectionsIntoExtra(extra, phase1EditSnapshot),
+        };
         const nextJobId = String(editForm.assignedJobId || '').trim();
         const prevJobId = String(candidate.assignedJobId || '').trim();
         if (nextJobId && nextJobId !== prevJobId) {
@@ -5336,6 +5336,7 @@ export function CandidateProfileDrawer({
         ) : null}
       </>
     ) : editForm ? (
+      <>
       <CandidateEditAtsSections
         form={editForm}
         onChange={updateEditField}
@@ -5345,6 +5346,15 @@ export function CandidateProfileDrawer({
         onAvatarFile={handleEditAvatarFile}
         onAvatarRemove={clearEditAvatarFile}
       />
+      {candidate && phase1EditSnapshot ? (
+        <CandidatePhase1SubmitEditSections
+          candidate={candidate}
+          snapshot={phase1EditSnapshot}
+          onChange={setPhase1EditSnapshot}
+          includeSectionIds={TENANT_FORM_MISSING_PHASE1_SECTIONS}
+        />
+      ) : null}
+      </>
     ) : null;
 
   const candidateEditFormActions = (

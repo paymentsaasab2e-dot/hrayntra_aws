@@ -69,6 +69,139 @@ async function createImpersonationSession(req, candidateId, token) {
   }
 }
 
+function findCandidateSelect() {
+  return {
+    id: true,
+    email: true,
+    firstName: true,
+    lastName: true,
+    whatsappNumber: true,
+    passwordHash: true,
+    isVerified: true,
+    status: true,
+    updatedAt: true,
+    createdAt: true,
+  };
+}
+
+function displayNameFromEmail(email) {
+  const local = String(email || '')
+    .split('@')[0]
+    .replace(/[._+-]+/g, ' ')
+    .trim();
+  if (!local) return null;
+  return local
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(' ');
+}
+
+function splitDisplayName(fullName) {
+  const parts = String(fullName || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!parts.length) return { firstName: null, lastName: null };
+  if (parts.length === 1) return { firstName: parts[0], lastName: null };
+  return { firstName: parts[0], lastName: parts.slice(1).join(' ') };
+}
+
+async function assessPortalCandidateHealth(candidate) {
+  const resume = await retryQuery(async () =>
+    prisma.resume.findUnique({
+      where: { candidateId: candidate.id },
+      select: {
+        fileUrl: true,
+        fileName: true,
+        aiAnalyzed: true,
+        resumeJson: true,
+      },
+    }),
+  ).catch(() => null);
+
+  const json =
+    resume?.resumeJson && typeof resume.resumeJson === 'object' ? resume.resumeJson : {};
+  const parseStatus = json.parseStatus || (resume?.aiAnalyzed ? 'completed' : null);
+  const hasName = Boolean(
+    String(candidate.firstName || '').trim() || String(candidate.lastName || '').trim(),
+  );
+  const hasResumeFile = Boolean(String(resume?.fileUrl || '').trim());
+  const parseComplete = parseStatus === 'completed' || resume?.aiAnalyzed === true;
+  const incompleteShell = !hasName && !hasResumeFile;
+  const stuckParse =
+    hasResumeFile &&
+    !parseComplete &&
+    (parseStatus == null ||
+      parseStatus === 'queued' ||
+      parseStatus === 'processing' ||
+      parseStatus === 'failed');
+
+  let onboardingState = 'ok';
+  if (incompleteShell) onboardingState = 'needs_cv_upload';
+  else if (stuckParse) onboardingState = 'needs_parse_repair';
+  else if (!hasName && hasResumeFile) onboardingState = 'needs_profile_hydrate';
+  else if (!candidate.passwordHash) onboardingState = 'needs_password';
+  else if (!candidate.isVerified) onboardingState = 'needs_verification';
+
+  return {
+    hasName,
+    hasResumeFile,
+    parseStatus: parseStatus || null,
+    parseError: json.parseError || null,
+    parseAttempts: Number(json.parseAttempts) || 0,
+    resumeFileName: resume?.fileName || null,
+    resumeFileUrl: resume?.fileUrl || null,
+    aiAnalyzed: Boolean(resume?.aiAnalyzed),
+    incompleteShell,
+    stuckParse,
+    onboardingState,
+  };
+}
+
+/** Same email resolution as /auth/login — do not filter isDeleted (Phase 1 Candidate has no such field). */
+async function findPortalCandidateByEmailOrId({ email, candidateId }) {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  const id = String(candidateId || '').trim();
+
+  if (id) {
+    const byId = await retryQuery(async () =>
+      prisma.candidate.findFirst({
+        where: { id },
+        select: findCandidateSelect(),
+      }),
+    );
+    if (byId) return byId;
+  }
+
+  if (!normalizedEmail) return null;
+
+  let candidate = await retryQuery(async () =>
+    prisma.candidate.findFirst({
+      where: { email: normalizedEmail },
+      select: findCandidateSelect(),
+    }),
+  );
+  if (candidate) return candidate;
+
+  // Profile email fallback (some accounts store login email only on profile)
+  try {
+    const byProfile = await retryQuery(async () =>
+      prisma.candidate.findFirst({
+        where: {
+          profile: { email: normalizedEmail },
+        },
+        select: findCandidateSelect(),
+      }),
+    );
+    if (byProfile) return byProfile;
+  } catch {
+    // profile relation / email field may be unavailable on older clients
+  }
+
+  return null;
+}
+
 /**
  * POST /api/hq/impersonate-candidate
  * Body: { email? , candidateId? }
@@ -85,48 +218,7 @@ async function impersonateCandidate(req, res) {
       });
     }
 
-    const where = candidateId
-      ? { id: candidateId, isDeleted: { not: true } }
-      : { email, isDeleted: { not: true } };
-
-    let candidate = await retryQuery(async () =>
-      prisma.candidate.findFirst({
-        where,
-        select: {
-          id: true,
-          email: true,
-          firstName: true,
-          lastName: true,
-          whatsappNumber: true,
-          passwordHash: true,
-          isVerified: true,
-          status: true,
-          updatedAt: true,
-        },
-      }),
-    );
-
-    // Fallback: case-insensitive email scan when exact match misses.
-    if (!candidate && email && !candidateId) {
-      const rows = await retryQuery(async () =>
-        prisma.candidate.findMany({
-          where: { isDeleted: { not: true } },
-          take: 5000,
-          select: {
-            id: true,
-            email: true,
-            firstName: true,
-            lastName: true,
-            whatsappNumber: true,
-            passwordHash: true,
-            isVerified: true,
-            status: true,
-            updatedAt: true,
-          },
-        }),
-      );
-      candidate = rows.find((row) => String(row.email || '').trim().toLowerCase() === email) || null;
-    }
+    const candidate = await findPortalCandidateByEmailOrId({ email, candidateId });
 
     if (!candidate) {
       return res.status(404).json({
@@ -188,48 +280,7 @@ async function lookupCandidate(req, res) {
       });
     }
 
-    const where = candidateId
-      ? { id: candidateId, isDeleted: { not: true } }
-      : { email, isDeleted: { not: true } };
-
-    let candidate = await retryQuery(async () =>
-      prisma.candidate.findFirst({
-        where,
-        select: {
-          id: true,
-          email: true,
-          firstName: true,
-          lastName: true,
-          passwordHash: true,
-          isVerified: true,
-          status: true,
-          updatedAt: true,
-          createdAt: true,
-        },
-      }),
-    );
-
-    if (!candidate && email && !candidateId) {
-      const rows = await retryQuery(async () =>
-        prisma.candidate.findMany({
-          where: { isDeleted: { not: true } },
-          take: 2000,
-          select: {
-            id: true,
-            email: true,
-            firstName: true,
-            lastName: true,
-            passwordHash: true,
-            isVerified: true,
-            status: true,
-            updatedAt: true,
-            createdAt: true,
-          },
-        }),
-      );
-      candidate =
-        rows.find((row) => String(row.email || '').trim().toLowerCase() === email) || null;
-    }
+    const candidate = await findPortalCandidateByEmailOrId({ email, candidateId });
 
     if (!candidate) {
       return res.status(404).json({
@@ -255,6 +306,8 @@ async function lookupCandidate(req, res) {
       candidate.email ||
       'Candidate';
 
+    const health = await assessPortalCandidateHealth(candidate);
+
     return res.json({
       success: true,
       data: {
@@ -270,6 +323,7 @@ async function lookupCandidate(req, res) {
         createdAt: candidate.createdAt
           ? new Date(candidate.createdAt).toISOString()
           : null,
+        ...health,
       },
     });
   } catch (error) {
@@ -277,6 +331,455 @@ async function lookupCandidate(req, res) {
     return res.status(500).json({
       success: false,
       message: 'Failed to look up candidate',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+}
+
+/**
+ * POST /api/hq/repair-incomplete-candidate
+ * Fallback for connectivity drop mid-CV-upload shells:
+ * - hydrate display name from email when empty
+ * - requeue durable CV parse when file exists but parse stuck/failed
+ * - report needs_cv_upload when no file was ever stored
+ */
+async function repairIncompleteCandidate(req, res) {
+  try {
+    const email = String(req.body?.email || req.query?.email || '')
+      .trim()
+      .toLowerCase();
+    const candidateId = String(
+      req.body?.candidateId || req.body?.id || req.query?.candidateId || '',
+    ).trim();
+    if (!email && !candidateId) {
+      return res.status(400).json({
+        success: false,
+        message: 'email or candidateId is required',
+      });
+    }
+
+    const candidate = await findPortalCandidateByEmailOrId({ email, candidateId });
+    if (!candidate) {
+      return res.status(404).json({
+        success: false,
+        message: 'Job portal candidate not found',
+      });
+    }
+
+    const actions = [];
+    let health = await assessPortalCandidateHealth(candidate);
+    let updated = candidate;
+
+    // 1) Temporary display name so HQ / CRM stop showing "—" while CV is pending
+    if (!health.hasName && candidate.email) {
+      const guessed = displayNameFromEmail(candidate.email);
+      const { firstName, lastName } = splitDisplayName(guessed);
+      if (firstName) {
+        updated = await retryQuery(async () =>
+          prisma.candidate.update({
+            where: { id: candidate.id },
+            data: {
+              firstName,
+              ...(lastName ? { lastName } : {}),
+            },
+            select: findCandidateSelect(),
+          }),
+        );
+        actions.push('hydrated_name_from_email');
+      }
+    }
+
+    // 2) Requeue durable parse when resume file exists but profile never finished
+    if (health.hasResumeFile && health.stuckParse) {
+      const {
+        STATUSES,
+        patchPersistedJob,
+        setJob,
+      } = require('../services/cv-parse-job.service');
+      await patchPersistedJob(candidate.id, {
+        parseStatus: STATUSES.QUEUED,
+        parseStage: 'hq_repair_requeue',
+        parseError: null,
+        parseAttempts: 0,
+        parseLockedBy: null,
+        parseLockedAt: null,
+        parseQueuedAt: new Date().toISOString(),
+      });
+      setJob(candidate.id, {
+        status: STATUSES.QUEUED,
+        stage: 'hq_repair_requeue',
+        error: null,
+        attempts: 0,
+      });
+      const { resumeCvParseJobs } = require('./cv.controller');
+      setImmediate(() => {
+        void resumeCvParseJobs({
+          candidateId: candidate.id,
+          fileUrl: health.resumeFileUrl,
+          fileName: health.resumeFileName,
+          mimeType: null,
+          parseJobId: candidate.id,
+        });
+      });
+      actions.push('requeued_cv_parse');
+    } else if (health.hasResumeFile && !health.hasName) {
+      // Parse already completed (or stuck in terminal completed) but name empty — hydrate from resumeJson
+      try {
+        const resume = await retryQuery(async () =>
+          prisma.resume.findUnique({
+            where: { candidateId: candidate.id },
+            select: { resumeJson: true },
+          }),
+        );
+        const pi =
+          resume?.resumeJson && typeof resume.resumeJson === 'object'
+            ? resume.resumeJson.personalInformation || resume.resumeJson.personalInfo || null
+            : null;
+        const full =
+          String(pi?.fullName || '').trim() ||
+          [pi?.firstName, pi?.lastName].filter(Boolean).join(' ').trim();
+        const { firstName, lastName } = splitDisplayName(full);
+        if (firstName) {
+          updated = await retryQuery(async () =>
+            prisma.candidate.update({
+              where: { id: candidate.id },
+              data: {
+                firstName,
+                ...(lastName ? { lastName } : {}),
+                ...(pi?.email && !candidate.email ? { email: String(pi.email).trim().toLowerCase() } : {}),
+              },
+              select: findCandidateSelect(),
+            }),
+          );
+          actions.push('hydrated_name_from_resume_json');
+        }
+      } catch (hydrateErr) {
+        console.warn('[hq-repair] resume hydrate failed:', hydrateErr?.message || hydrateErr);
+      }
+    }
+
+    // 3) Ask user to re-upload when account exists but file never landed
+    if (!health.hasResumeFile) {
+      actions.push('needs_cv_reupload');
+    }
+
+    // Refresh health after mutations
+    health = await assessPortalCandidateHealth(updated);
+    const name =
+      [updated.firstName, updated.lastName].filter(Boolean).join(' ').trim() ||
+      updated.email ||
+      'Candidate';
+
+    try {
+      const { scheduleCandidateCommonSync } = require('../services/candidateCommonSync.service');
+      scheduleCandidateCommonSync(candidate.id, { forceVerified: true });
+    } catch {
+      /* ignore */
+    }
+
+    return res.json({
+      success: true,
+      message:
+        actions.length > 0
+          ? `Repair applied: ${actions.join(', ')}`
+          : 'No repair needed — profile looks complete',
+      data: {
+        candidateId: updated.id,
+        email: updated.email || email || null,
+        name,
+        actions,
+        ...health,
+        uploadHintUrl: `${phase1FrontendBase()}/uploadcv`,
+      },
+    });
+  } catch (error) {
+    console.error('hq repairIncompleteCandidate:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to repair incomplete candidate',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+}
+
+function isReusableIncompleteShell(health, candidate) {
+  if (!health) return false;
+  if (health.incompleteShell) return true;
+  if (health.stuckParse) return true;
+  if (health.onboardingState === 'needs_cv_upload') return true;
+  if (health.onboardingState === 'needs_parse_repair') return true;
+  if (health.onboardingState === 'needs_profile_hydrate') return true;
+  // Half-parsed: email exists but almost no profile signal
+  const bare =
+    !health.hasName &&
+    !health.hasResumeFile &&
+    !candidate?.passwordHash;
+  return bare;
+}
+
+/**
+ * POST /api/hq/provision-or-reuse-candidate
+ * Complete Account-support path when lookup misses or shell is incomplete:
+ * 1) If complete account exists → return it (no duplicate)
+ * 2) If incomplete / half-parsed shell matches email → reuse same ID (override incomplete)
+ * 3) Else create a fresh candidate ID and (optionally) set temp password
+ * Always returns uploadHintUrl so support can ask the user to re-upload CV when needed.
+ */
+async function provisionOrReuseCandidate(req, res) {
+  try {
+    const email = String(req.body?.email || '')
+      .trim()
+      .toLowerCase();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!email || !emailRegex.test(email)) {
+      return res.status(400).json({
+        success: false,
+        message: 'A valid email is required to create or reuse a portal account',
+      });
+    }
+
+    const forceOverrideIncomplete = req.body?.forceOverrideIncomplete !== false;
+    const sendPasswordEmail = req.body?.sendPasswordEmail !== false;
+    const requestedName = String(req.body?.name || '').trim();
+    const phone = String(req.body?.phone || '').trim() || null;
+
+    let existing = await findPortalCandidateByEmailOrId({ email });
+    const actions = [];
+    let mode = 'created';
+    let tempPassword = null;
+
+    if (existing) {
+      const health = await assessPortalCandidateHealth(existing);
+      const reusable = isReusableIncompleteShell(health, existing);
+
+      if (!reusable) {
+        return res.json({
+          success: true,
+          message: 'Portal account already exists and looks complete — reuse this ID',
+          data: {
+            mode: 'already_exists',
+            candidateId: existing.id,
+            email: existing.email || email,
+            name:
+              [existing.firstName, existing.lastName].filter(Boolean).join(' ').trim() ||
+              existing.email ||
+              email,
+            actions: ['already_exists'],
+            ...health,
+            uploadHintUrl: `${phase1FrontendBase()}/uploadcv`,
+            askUserToReuploadCv: !health.hasResumeFile || health.stuckParse,
+          },
+        });
+      }
+
+      // Override incomplete / half-parsed shell — keep same candidateId
+      mode = 'reused_incomplete';
+      actions.push('reused_incomplete_shell');
+
+      const nameParts = splitDisplayName(requestedName || displayNameFromEmail(email));
+      const updateData = {
+        email,
+        isVerified: true,
+        source: 'hq_account_support_reuse',
+        ...(nameParts.firstName ? { firstName: nameParts.firstName } : {}),
+        ...(nameParts.lastName ? { lastName: nameParts.lastName } : {}),
+        ...(phone ? { phone } : {}),
+        updatedAt: new Date(),
+      };
+
+      if (forceOverrideIncomplete && !health.hasResumeFile) {
+        // Clear stale half-parsed CRM mirror fields so a fresh CV can own the profile
+        updateData.cvWorkExperienceEntries = null;
+        updateData.cvEducationEntries = null;
+        updateData.cvSummary = null;
+        updateData.currentTitle = null;
+        updateData.currentCompany = null;
+        actions.push('cleared_incomplete_profile_fields');
+      }
+
+      if (!existing.passwordHash) {
+        const bcrypt = require('bcryptjs');
+        const { generateTempPassword } = (() => {
+          try {
+            return require('../utils/credentialGenerator');
+          } catch {
+            return {
+              generateTempPassword: () =>
+                `Hy${Math.random().toString(36).slice(2, 8)}!${Date.now().toString(36).slice(-3)}`,
+            };
+          }
+        })();
+        tempPassword = generateTempPassword();
+        updateData.passwordHash = await bcrypt.hash(tempPassword, 10);
+        actions.push('password_generated');
+      }
+
+      existing = await retryQuery(async () =>
+        prisma.candidate.update({
+          where: { id: existing.id },
+          data: updateData,
+          select: findCandidateSelect(),
+        }),
+      );
+
+      if (health.hasResumeFile && health.stuckParse) {
+        // Kick repair parse path without forcing a new ID
+        try {
+          const {
+            STATUSES,
+            patchPersistedJob,
+            setJob,
+          } = require('../services/cv-parse-job.service');
+          await patchPersistedJob(existing.id, {
+            parseStatus: STATUSES.QUEUED,
+            parseStage: 'hq_provision_requeue',
+            parseError: null,
+            parseAttempts: 0,
+            parseLockedBy: null,
+            parseLockedAt: null,
+          });
+          setJob(existing.id, {
+            status: STATUSES.QUEUED,
+            stage: 'hq_provision_requeue',
+            error: null,
+            attempts: 0,
+          });
+          const { resumeCvParseJobs } = require('./cv.controller');
+          setImmediate(() => {
+            void resumeCvParseJobs({
+              candidateId: existing.id,
+              fileUrl: health.resumeFileUrl,
+              fileName: health.resumeFileName,
+              parseJobId: existing.id,
+            });
+          });
+          actions.push('requeued_cv_parse');
+        } catch (requeueErr) {
+          console.warn('[hq-provision] requeue failed:', requeueErr?.message || requeueErr);
+          actions.push('needs_cv_reupload');
+        }
+      } else if (!health.hasResumeFile) {
+        actions.push('needs_cv_reupload');
+      }
+    } else {
+      // Brand-new portal ID
+      mode = 'created';
+      const bcrypt = require('bcryptjs');
+      let generateTempPassword;
+      try {
+        ({ generateTempPassword } = require('../utils/credentialGenerator'));
+      } catch {
+        generateTempPassword = () =>
+          `Hy${Math.random().toString(36).slice(2, 8)}!${Date.now().toString(36).slice(-3)}`;
+      }
+      tempPassword = generateTempPassword();
+      const nameParts = splitDisplayName(requestedName || displayNameFromEmail(email));
+      const passwordHash = await bcrypt.hash(tempPassword, 10);
+
+      existing = await retryQuery(async () =>
+        prisma.candidate.create({
+          data: {
+            email,
+            firstName: nameParts.firstName || null,
+            lastName: nameParts.lastName || null,
+            phone,
+            isVerified: true,
+            passwordHash,
+            source: 'hq_account_support_create',
+            stage: 'New',
+          },
+          select: findCandidateSelect(),
+        }),
+      );
+      actions.push('created_new_candidate', 'password_generated', 'needs_cv_reupload');
+    }
+
+    // Optional credential email (best-effort)
+    let credentialEmailSent = false;
+    let credentialEmailError = null;
+    if (tempPassword && sendPasswordEmail) {
+      try {
+        const { Resend } = require('resend');
+        const { getEmailFromForTrigger } = require('../config/emailFromAddresses');
+        if (!process.env.RESEND_API_KEY) {
+          credentialEmailError = 'Email service not configured';
+        } else {
+          const resend = new Resend(process.env.RESEND_API_KEY);
+          const loginUrl = `${phase1FrontendBase()}/en/login`;
+          const uploadUrl = `${phase1FrontendBase()}/uploadcv`;
+          const { data, error } = await resend.emails.send({
+            from: getEmailFromForTrigger('auth.otp_verification'),
+            to: email,
+            subject: 'Your HRYantra job-portal account',
+            text: [
+              `Your HRYantra candidate account is ready.`,
+              ``,
+              `Email: ${email}`,
+              `Temporary password: ${tempPassword}`,
+              `Sign in: ${loginUrl}`,
+              `Upload / re-upload CV: ${uploadUrl}`,
+              ``,
+              `If you already started a profile that got stuck, this account reuses that ID so nothing is duplicated.`,
+            ].join('\n'),
+          });
+          if (error) {
+            credentialEmailError = error.message || 'Failed to send email';
+          } else {
+            credentialEmailSent = Boolean(data?.id);
+            actions.push('password_email_sent');
+          }
+        }
+      } catch (mailErr) {
+        credentialEmailError = mailErr?.message || 'Failed to send email';
+      }
+    }
+
+    try {
+      const { scheduleCandidateCommonSync } = require('../services/candidateCommonSync.service');
+      // Allow shell into common only after repair path; still skip pure empty unless forceShell
+      scheduleCandidateCommonSync(existing.id, {
+        forceVerified: true,
+        forceShell: actions.includes('needs_cv_reupload') ? false : true,
+      });
+    } catch {
+      /* ignore */
+    }
+
+    const health = await assessPortalCandidateHealth(existing);
+    const name =
+      [existing.firstName, existing.lastName].filter(Boolean).join(' ').trim() ||
+      existing.email ||
+      email;
+
+    return res.json({
+      success: true,
+      message:
+        mode === 'created'
+          ? 'Created new portal candidate ID — ask user to upload CV'
+          : mode === 'reused_incomplete'
+            ? 'Reused incomplete portal ID (overrode half-parsed shell) — ask user to re-upload CV if needed'
+            : 'Portal account ready',
+      data: {
+        mode,
+        candidateId: existing.id,
+        email: existing.email || email,
+        name,
+        actions,
+        ...health,
+        uploadHintUrl: `${phase1FrontendBase()}/uploadcv`,
+        loginHintUrl: `${phase1FrontendBase()}/en/login`,
+        askUserToReuploadCv: actions.includes('needs_cv_reupload') || health.stuckParse,
+        credentialEmailSent,
+        credentialEmailError,
+        // Only returned to HQ — never log to client portals
+        tempPassword: tempPassword || null,
+      },
+    });
+  } catch (error) {
+    console.error('hq provisionOrReuseCandidate:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to create or reuse portal candidate',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }
@@ -420,4 +923,6 @@ module.exports = {
   listRecentSessions,
   impersonateCandidate,
   lookupCandidate,
+  repairIncompleteCandidate,
+  provisionOrReuseCandidate,
 };

@@ -35,6 +35,7 @@ import {
   resolveCandidateResumeUrlFromSources,
 } from '../../lib/phase1ProfileSnapshot';
 import {
+  guardHryantraDocxResumeVersions,
   hasSaasaCvDocumentTextEdits,
   readSaasaCvAnnotations,
   resolveSaasaCvBaseResumeUrl,
@@ -367,7 +368,7 @@ export function CandidateResumeTabPanel({
       (candidate.extraData && typeof candidate.extraData === 'object' && !Array.isArray(candidate.extraData)
         ? (candidate.extraData as Record<string, unknown>)
         : null);
-    const primaryUrl = String(
+    const rawPrimaryUrl = String(
       primaryOverride?.url ||
         backendCandidate?.resume ||
         backendCandidate?.resumeUrl ||
@@ -375,6 +376,9 @@ export function CandidateResumeTabPanel({
         extra?.originalResumeUrl ||
         '',
     ).trim();
+    const guarded = guardHryantraDocxResumeVersions(extra, rawPrimaryUrl);
+    const excluded = new Set(guarded.excludeKeys);
+    const primaryUrl = guarded.versionPrimaryUrl;
     const primaryFileName = String(
       primaryOverride?.fileName || extra?.originalResumeFileName || '',
     ).trim();
@@ -390,17 +394,21 @@ export function CandidateResumeTabPanel({
       : null;
 
     const versions = buildResumeVersionRows(
-      files.map((f) => ({
-        id: f.id,
-        fileUrl: f.fileUrl,
-        fileType: f.fileType,
-        fileName: f.fileName,
-        uploadDate: f.uploadDate,
-        createdAt: (f as { createdAt?: string }).createdAt,
-      })),
+      files
+        .filter((f) => !excluded.has(normalizeResumeCompareUrl(String(f.fileUrl || ''))))
+        .map((f) => ({
+          id: f.id,
+          fileUrl: f.fileUrl,
+          fileType: f.fileType,
+          fileName: f.fileName,
+          uploadDate: f.uploadDate,
+          createdAt: (f as { createdAt?: string }).createdAt,
+        })),
       primaryUrl,
       primaryFileName,
-      storedVersions,
+      storedVersions?.filter(
+        (row) => !excluded.has(normalizeResumeCompareUrl(String(row.fileUrl || ''))),
+      ) ?? null,
       firstOriginalUrl,
     );
     setResumeVersionRows(versions);
@@ -793,16 +801,23 @@ export function CandidateResumeTabPanel({
   };
 
   const saasaPreviewRaw = useMemo(() => {
-    const fromExtra = resolveSaasaCvPreviewUrl(
-      backendCandidate?.extraData ?? candidate.extraData ?? null,
-      candidateFiles
-    );
+    const extra =
+      (backendCandidate?.extraData as Record<string, unknown> | null | undefined) ??
+      (candidate.extraData as Record<string, unknown> | null | undefined) ??
+      null;
+    const fromExtra = resolveSaasaCvPreviewUrl(extra, candidateFiles);
     const fromStored = saasaStored?.fileUrl ?? null;
     const fromProp = saasaSavedFileUrl ?? null;
-    return fromExtra || fromStored || fromProp || null;
+    const fromEditedDocx = guardHryantraDocxResumeVersions(
+      extra,
+      String(backendCandidate?.resume || candidate.resumeUrl || '').trim(),
+    ).hryantraUrl;
+    return fromExtra || fromStored || fromProp || fromEditedDocx || null;
   }, [
     backendCandidate?.extraData,
+    backendCandidate?.resume,
     candidate.extraData,
+    candidate.resumeUrl,
     candidateFiles,
     saasaStored?.fileUrl,
     saasaSavedFileUrl,
@@ -882,13 +897,16 @@ export function CandidateResumeTabPanel({
             ? (candidate.extraData as Record<string, unknown>)
             : null);
 
-        const primaryUrl = String(
+        const rawPrimaryUrl = String(
           refreshed?.resume ||
             refreshed?.resumeUrl ||
             candidate.resumeUrl ||
             extraSource?.originalResumeUrl ||
             '',
         ).trim();
+        const guarded = guardHryantraDocxResumeVersions(extraSource, rawPrimaryUrl);
+        const excluded = new Set(guarded.excludeKeys);
+        const primaryUrl = guarded.versionPrimaryUrl;
         const primaryFileName = String(extraSource?.originalResumeFileName || '').trim();
         const firstOriginalUrl = String(extraSource?.firstOriginalResumeUrl || '').trim();
         const storedVersions = Array.isArray(extraSource?.resumeVersions)
@@ -901,17 +919,21 @@ export function CandidateResumeTabPanel({
             }>)
           : null;
         const versions = buildResumeVersionRows(
-          files.map((f) => ({
-            id: f.id,
-            fileUrl: f.fileUrl,
-            fileType: f.fileType,
-            fileName: f.fileName,
-            uploadDate: f.uploadDate,
-            createdAt: (f as { createdAt?: string }).createdAt,
-          })),
+          files
+            .filter((f) => !excluded.has(normalizeResumeCompareUrl(String(f.fileUrl || ''))))
+            .map((f) => ({
+              id: f.id,
+              fileUrl: f.fileUrl,
+              fileType: f.fileType,
+              fileName: f.fileName,
+              uploadDate: f.uploadDate,
+              createdAt: (f as { createdAt?: string }).createdAt,
+            })),
           primaryUrl,
           primaryFileName,
-          storedVersions,
+          storedVersions?.filter(
+            (row) => !excluded.has(normalizeResumeCompareUrl(String(row.fileUrl || ''))),
+          ) ?? null,
           firstOriginalUrl,
         );
         setResumeVersionRows(versions);

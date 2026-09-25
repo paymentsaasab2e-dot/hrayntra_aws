@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { listToSemicolon } from '@/lib/normalizeCareerPreferencesRecord';
+import { listToSemicolon, mergeAvailabilityForSave } from '@/lib/normalizeCareerPreferencesRecord';
 import { parseAvailabilityFields } from '@/lib/candidateCareerPreferencesModel';
 import {
   phase1EditGridClass,
@@ -69,8 +69,8 @@ function editableListValue(primary: unknown, fallback?: unknown): string {
 }
 
 function editableScalar(primary: unknown, fallback?: unknown): string {
-  if (typeof primary === 'string') return primary;
-  if (primary != null && primary !== '') return String(primary);
+  if (typeof primary === 'string' && primary.trim()) return primary;
+  if (primary != null && String(primary).trim()) return String(primary);
   if (typeof fallback === 'string') return fallback;
   if (fallback != null && fallback !== '') return String(fallback);
   return '';
@@ -206,12 +206,25 @@ export function CandidatePhase1CareerPreferencesEdit({ careerPreferences, onChan
         label="Earliest start date"
         value={earliestStartDate}
         outputIso
-        onChange={(v) => patch({ earliestStartDate: v, availabilityToStart: v })}
+        onChange={(v) =>
+          patch({
+            earliestStartDate: v,
+            describeAvailability,
+            availabilityToStart: mergeAvailabilityForSave(v, describeAvailability) || null,
+          })
+        }
       />
       <EditField
         label="Describe availability"
+        multiline
         value={describeAvailability}
-        onChange={(v) => patch({ describeAvailability: v })}
+        onChange={(v) =>
+          patch({
+            earliestStartDate,
+            describeAvailability: v,
+            availabilityToStart: mergeAvailabilityForSave(earliestStartDate, v) || null,
+          })
+        }
       />
     </div>
   );

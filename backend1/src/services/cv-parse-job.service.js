@@ -4,12 +4,16 @@
  * Redis/BullMQ not required — migration path documented in PHASE1_PERFORMANCE_REPORT.
  */
 
+const fs = require('fs');
+const path = require('path');
 const { prisma, retryQuery } = require('../lib/prisma');
 const {
   STATUSES,
   isValidTransition,
   assertTransition,
 } = require('./cv-parse-state-machine');
+
+const ACTIVE_PARSE_FILE = path.join(__dirname, '../../data/.cv-parse-active.json');
 
 const MAX_ATTEMPTS = Math.max(1, Number(process.env.CV_PARSE_MAX_ATTEMPTS) || 3);
 const STALE_PROCESSING_MS = Math.max(
@@ -20,6 +24,66 @@ const RETRY_DELAY_MS = Math.max(1000, Number(process.env.CV_PARSE_RETRY_DELAY_MS
 
 /** Per-process cache for fast status (authoritative source is Mongo). */
 const jobs = new Map();
+
+function readActiveParses() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(ACTIVE_PARSE_FILE, 'utf8'));
+    return parsed && typeof parsed.jobs === 'object' && parsed.jobs ? parsed.jobs : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeActiveParses(jobsByPid) {
+  fs.mkdirSync(path.dirname(ACTIVE_PARSE_FILE), { recursive: true });
+  const next = {};
+  for (const [pid, count] of Object.entries(jobsByPid || {})) {
+    const n = Number(count) || 0;
+    if (n > 0) next[String(pid)] = n;
+  }
+  fs.writeFileSync(ACTIVE_PARSE_FILE, JSON.stringify({ jobs: next }), 'utf8');
+}
+
+/** Tell the dev watcher a CV parse is in this process so it does not restart yet. */
+function markCvParseActive() {
+  try {
+    const jobsByPid = readActiveParses();
+    const pid = String(process.pid);
+    jobsByPid[pid] = (Number(jobsByPid[pid]) || 0) + 1;
+    writeActiveParses(jobsByPid);
+  } catch (err) {
+    console.warn('[cv-parse-job] could not mark active parse:', err?.message || err);
+  }
+}
+
+function clearCvParseActive() {
+  try {
+    const jobsByPid = readActiveParses();
+    const pid = String(process.pid);
+    const next = (Number(jobsByPid[pid]) || 0) - 1;
+    if (next > 0) jobsByPid[pid] = next;
+    else delete jobsByPid[pid];
+    writeActiveParses(jobsByPid);
+  } catch (err) {
+    console.warn('[cv-parse-job] could not clear active parse:', err?.message || err);
+  }
+}
+
+function lockHolderPid(lockedBy) {
+  const match = String(lockedBy || '').match(/^pid:(\d+):/);
+  return match ? Number(match[1]) : null;
+}
+
+function isPidAlive(pid) {
+  if (!pid) return false;
+  if (pid === process.pid) return true;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 function setJob(candidateId, patch) {
   const id = String(candidateId || '').trim();
@@ -143,10 +207,12 @@ async function claimQueuedJob(candidateId, workerId) {
   if (status === STATUSES.COMPLETED) return null;
 
   const lockedAt = persisted.lockedAt ? Date.parse(persisted.lockedAt) : 0;
+  const holderPid = lockHolderPid(persisted.lockedBy);
+  const holderDead =
+    status === STATUSES.PROCESSING && Boolean(holderPid) && !isPidAlive(holderPid);
   const isStale =
     status === STATUSES.PROCESSING &&
-    lockedAt > 0 &&
-    Date.now() - lockedAt > STALE_PROCESSING_MS;
+    ((lockedAt > 0 && Date.now() - lockedAt > STALE_PROCESSING_MS) || holderDead);
 
   const canClaim =
     status === STATUSES.QUEUED ||
@@ -210,7 +276,9 @@ async function claimQueuedJob(candidateId, workerId) {
           'resumeJson.parseLockedAt': nowIso,
           'resumeJson.parseStartedAt': nowIso,
           'resumeJson.parseUpdatedAt': nowIso,
-          updatedAt: new Date(),
+          // Raw commands must use Extended JSON. A JS Date is stored as a quoted
+          // string, and the next Prisma read then fails with P2023.
+          updatedAt: { $date: nowIso },
         },
       },
       new: true,
@@ -221,7 +289,7 @@ async function claimQueuedJob(candidateId, workerId) {
     console.warn('[cv-parse-job] findAndModify claim failed, falling back:', err?.message || err);
   }
 
-  if (usedRaw && !claimedOk) {
+  if (usedRaw && !claimedOk && !holderDead) {
     return null;
   }
 
@@ -234,7 +302,9 @@ async function claimQueuedJob(candidateId, workerId) {
       again.lockedBy !== workerId
     ) {
       const againLocked = again.lockedAt ? Date.parse(again.lockedAt) : 0;
-      if (againLocked && Date.now() - againLocked <= STALE_PROCESSING_MS) {
+      const againHolder = lockHolderPid(again.lockedBy);
+      const againDead = Boolean(againHolder) && !isPidAlive(againHolder);
+      if (!againDead && againLocked && Date.now() - againLocked <= STALE_PROCESSING_MS) {
         return null;
       }
     }
@@ -319,9 +389,11 @@ async function recoverOrphanedJobs({ limit = 20 } = {}) {
     if (status === STATUSES.COMPLETED || resume.aiAnalyzed) continue;
 
     const lockedAt = json.parseLockedAt ? Date.parse(json.parseLockedAt) : 0;
+    const holderPid = lockHolderPid(json.parseLockedBy);
+    const holderDead = Boolean(holderPid) && !isPidAlive(holderPid);
     const stale =
       status === STATUSES.PROCESSING &&
-      (!lockedAt || Date.now() - lockedAt > STALE_PROCESSING_MS);
+      (holderDead || !lockedAt || Date.now() - lockedAt > STALE_PROCESSING_MS);
     const queued = status === STATUSES.QUEUED;
     const retryableFailed =
       status === STATUSES.FAILED && (Number(json.parseAttempts) || 0) < MAX_ATTEMPTS;
@@ -356,6 +428,8 @@ module.exports = {
   STALE_PROCESSING_MS,
   isValidTransition,
   setJob,
+  markCvParseActive,
+  clearCvParseActive,
   getJob,
   clearJob,
   readPersistedJob,

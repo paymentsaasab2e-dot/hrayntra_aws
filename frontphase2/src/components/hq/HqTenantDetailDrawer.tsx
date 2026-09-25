@@ -21,6 +21,7 @@ import {
   Eye,
   EyeOff,
   RefreshCw,
+  ScrollText,
 } from 'lucide-react';
 import { DrawerLinkActions } from '../drawers/DrawerLinkActions';
 import {
@@ -29,7 +30,9 @@ import {
   apiHqUpdateTenantOrganizationName,
   apiHqIssueTenantJobsApiKey,
   apiHqRevokeTenantJobsApiKey,
+  apiHqTenantAccessLogs,
   type HqSubscriptionPackage,
+  type HqTenantAccessLogRow,
   type HqTenantRow,
 } from '@/lib/api';
 import {
@@ -54,7 +57,7 @@ import { HqPrimaryButton, HqSecondaryButton, HQ_SELECT_CLASS } from './hqUi';
 import { requestConfirm, requestSuccess } from '@/lib/appDialog';
 import { HqTenantBehaviorAnalyticsPanel } from './HqTenantBehaviorDrawer';
 
-type DetailTab = 'overview' | 'pricing' | 'analytics' | 'tabs' | 'status';
+type DetailTab = 'overview' | 'pricing' | 'analytics' | 'tabs' | 'status' | 'logs';
 
 const DETAIL_TABS: Array<{
   id: DetailTab;
@@ -66,6 +69,7 @@ const DETAIL_TABS: Array<{
   { id: 'analytics', label: 'Analytics', icon: Activity },
   { id: 'tabs', label: 'Tabs', icon: LayoutGrid },
   { id: 'status', label: 'Status', icon: Settings2 },
+  { id: 'logs', label: 'Logs', icon: ScrollText },
 ];
 
 type Props = {
@@ -109,6 +113,77 @@ function formatUsd(amount: string) {
   return trimmed.startsWith('$') ? trimmed : `$${trimmed}`;
 }
 
+function formatLogIp(ipAddress?: string) {
+  const value = String(ipAddress || '').trim();
+  if (!value || value === '127.0.0.1' || value === '::1' || value === '0.0.0.0') {
+    return 'Not captured';
+  }
+  return value;
+}
+
+function formatLogTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleString();
+}
+
+function AccessLogTable({
+  rows,
+  empty,
+  showOutcome,
+}: {
+  rows: HqTenantAccessLogRow[];
+  empty: string;
+  showOutcome?: boolean;
+}) {
+  if (!rows.length) {
+    return (
+      <p className="rounded-xl border border-dashed border-slate-200 px-4 py-6 text-sm text-slate-500">
+        {empty}
+      </p>
+    );
+  }
+  return (
+    <div className="overflow-x-auto rounded-xl border border-slate-200">
+      <table className="w-full min-w-[640px] text-left text-xs">
+        <thead className="bg-slate-50 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+          <tr>
+            <th className="px-3 py-2">When</th>
+            <th className="px-3 py-2">Account</th>
+            <th className="px-3 py-2">IP address</th>
+            <th className="px-3 py-2">Device</th>
+            {showOutcome ? <th className="px-3 py-2">Result</th> : null}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.id} className="border-t border-slate-100 align-top">
+              <td className="whitespace-nowrap px-3 py-2 text-slate-600">{formatLogTime(row.at)}</td>
+              <td className="px-3 py-2">
+                <div className="font-semibold text-slate-800">{row.loginId || '—'}</div>
+                <div className="text-slate-500">{row.email || row.name || ''}</div>
+              </td>
+              <td className="whitespace-nowrap px-3 py-2 font-mono text-slate-700">
+                {formatLogIp(row.ipAddress)}
+              </td>
+              <td className="px-3 py-2 text-slate-600" title={row.userAgent || row.device || ''}>
+                {row.device || '—'}
+              </td>
+              {showOutcome ? (
+                <td className="px-3 py-2 font-semibold">
+                  <span className={row.outcome === 'SUCCESS' ? 'text-emerald-700' : 'text-rose-700'}>
+                    {row.outcome === 'SUCCESS' ? 'Signed in' : row.outcome === 'FAILED' ? 'Failed' : row.outcome || '—'}
+                  </span>
+                </td>
+              ) : null}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function planOptionLabelWithPrice(
   pkg: HqSubscriptionPackage,
   billingCycle: BillingCycle,
@@ -139,6 +214,12 @@ export function HqTenantDetailDrawer({
   const [coins, setCoins] = useState('');
   const [savingCoins, setSavingCoins] = useState(false);
   const [coinsError, setCoinsError] = useState('');
+  const [accessLogs, setAccessLogs] = useState<{
+    logins: HqTenantAccessLogRow[];
+    passwordChanges: HqTenantAccessLogRow[];
+  }>({ logins: [], passwordChanges: [] });
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [logsError, setLogsError] = useState('');
   const [pricingBillingPreview, setPricingBillingPreview] = useState<BillingCycle>('monthly');
   const [editingCompanyName, setEditingCompanyName] = useState(false);
   const [companyNameDraft, setCompanyNameDraft] = useState('');
@@ -182,6 +263,35 @@ export function HqTenantDetailDrawer({
     setSavingCompanyName(false);
     setCompanyNameError('');
   }, [open, tenant]);
+
+  useEffect(() => {
+    if (!open || activeTab !== 'logs' || !tenant?.tenantDbName) return;
+    let cancelled = false;
+    setLogsLoading(true);
+    setLogsError('');
+    apiHqTenantAccessLogs({
+      email: tenant.email,
+      tenantDbName: tenant.tenantDbName,
+    })
+      .then((res) => {
+        if (cancelled) return;
+        setAccessLogs({
+          logins: res.data?.logins || [],
+          passwordChanges: res.data?.passwordChanges || [],
+        });
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setAccessLogs({ logins: [], passwordChanges: [] });
+        setLogsError(error instanceof Error ? error.message : 'Could not load logs');
+      })
+      .finally(() => {
+        if (!cancelled) setLogsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, activeTab, tenant?.email, tenant?.tenantDbName]);
 
   useEffect(() => {
     setJobsApiKeyVisible(false);
@@ -1035,6 +1145,50 @@ export function HqTenantDetailDrawer({
                       To permanently remove this tenant and drop its database, use the Delete icon on the
                       tenants table.
                     </p>
+                  </div>
+                ) : null}
+
+                {activeTab === 'logs' ? (
+                  <div className="space-y-6">
+                    {!tenant.tenantDbName ? (
+                      <p className="rounded-xl border border-dashed border-amber-200 bg-amber-50/60 px-4 py-6 text-sm text-amber-800">
+                        Logs are available after this workspace has a database.
+                      </p>
+                    ) : logsLoading ? (
+                      <div className="flex items-center gap-2 text-sm text-slate-500">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Loading logs
+                      </div>
+                    ) : (
+                      <>
+                        {logsError ? (
+                          <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                            {logsError}
+                          </p>
+                        ) : null}
+                        <section className="space-y-2">
+                          <h3 className="text-sm font-semibold text-slate-900">Sign-ins</h3>
+                          <p className="text-xs text-slate-500">
+                            Public IP, account, and device for each sign-in. Older rows saved as 127.0.0.1 show as not captured.
+                          </p>
+                          <AccessLogTable
+                            rows={accessLogs.logins}
+                            showOutcome
+                            empty="No sign-ins recorded for this workspace yet."
+                          />
+                        </section>
+                        <section className="space-y-2">
+                          <h3 className="text-sm font-semibold text-slate-900">Password changes</h3>
+                          <p className="text-xs text-slate-500">
+                            IP address and device for each password change. Earlier changes made before this log was added are not listed.
+                          </p>
+                          <AccessLogTable
+                            rows={accessLogs.passwordChanges}
+                            empty="No password changes recorded for this workspace yet."
+                          />
+                        </section>
+                      </>
+                    )}
                   </div>
                 ) : null}
               </div>

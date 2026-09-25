@@ -23,12 +23,40 @@ export type Phase1ProfileSnapshot = {
     passportNumber?: string;
     employment?: string;
     linkedinUrl?: string;
+    state?: string;
+    zip?: string;
+    location?: string;
+    age?: string;
+    candidateScore?: string;
+    maritalStatus?: string;
+    currentCompanyWebsite?: string;
+    preferredLocation?: string;
+    twitter?: string;
+    xing?: string;
+    skypeId?: string;
+    facebook?: string;
+    stackOverflow?: string;
+    website?: string;
+    educationCourses?: string;
+    extracurricular?: string;
+    volunteers?: string;
+    workHistoryText?: string;
+    hackathons?: string;
+    remarks?: string;
+    notes?: string;
   } | null;
   summaryText?: string;
   workExperience?: Array<Record<string, unknown>>;
   education?: Array<Record<string, unknown>>;
   skills?: Array<{ name?: string; proficiency?: string; category?: string }>;
-  languages?: Array<{ name?: string; proficiency?: string }>;
+  skillsAdditionalNotes?: string;
+  languages?: Array<{
+    name?: string;
+    proficiency?: string;
+    speak?: boolean;
+    read?: boolean;
+    write?: boolean;
+  }>;
   certifications?: Array<{
     id?: string;
     certificationName?: string;
@@ -42,7 +70,13 @@ export type Phase1ProfileSnapshot = {
     documents?: Array<Record<string, unknown>>;
     description?: string;
   }>;
-  portfolioLinks?: Array<{ linkType?: string; type?: string; url?: string; title?: string }>;
+  portfolioLinks?: Array<{
+    linkType?: string;
+    type?: string;
+    url?: string;
+    title?: string;
+    description?: string;
+  }>;
   careerPreferences?: Record<string, unknown> | null;
   resume?: {
     fileName?: string;
@@ -306,6 +340,72 @@ export function resolvePhase1PersonalInfo(
   if (!String(pi.gender || '').trim() && candidate.gender) {
     pi.gender = String(candidate.gender).trim();
   }
+
+  const pipeline =
+    extra.pipeline && typeof extra.pipeline === 'object' && !Array.isArray(extra.pipeline)
+      ? (extra.pipeline as Record<string, unknown>)
+      : {};
+  const personalPipe =
+    pipeline.personal && typeof pipeline.personal === 'object' && !Array.isArray(pipeline.personal)
+      ? (pipeline.personal as Record<string, unknown>)
+      : {};
+  const socialPipe =
+    pipeline.social && typeof pipeline.social === 'object' && !Array.isArray(pipeline.social)
+      ? (pipeline.social as Record<string, unknown>)
+      : {};
+  const professionalPipe =
+    pipeline.professional &&
+    typeof pipeline.professional === 'object' &&
+    !Array.isArray(pipeline.professional)
+      ? (pipeline.professional as Record<string, unknown>)
+      : {};
+  const summaryPipe =
+    pipeline.summary && typeof pipeline.summary === 'object' && !Array.isArray(pipeline.summary)
+      ? (pipeline.summary as Record<string, unknown>)
+      : {};
+  const educationPipe =
+    pipeline.education && typeof pipeline.education === 'object' && !Array.isArray(pipeline.education)
+      ? (pipeline.education as Record<string, unknown>)
+      : {};
+  const joinList = (value: unknown) => {
+    if (Array.isArray(value)) {
+      return value.map((item) => String(item || '').trim()).filter(Boolean).join('; ');
+    }
+    return String(value || '').trim();
+  };
+  const fillPi = (key: keyof NonNullable<Phase1ProfileSnapshot['personalInfo']>, ...sources: unknown[]) => {
+    if (String(pi[key] || '').trim()) return;
+    for (const source of sources) {
+      const text = String(source || '').trim();
+      if (text) {
+        pi[key] = text;
+        return;
+      }
+    }
+  };
+  fillPi('phoneCode', personalPipe.phoneCode);
+  fillPi('employment', personalPipe.employment);
+  fillPi('state', personalPipe.state);
+  fillPi('zip', personalPipe.zip);
+  fillPi('location', personalPipe.locationDisplay);
+  fillPi('age', personalPipe.age);
+  fillPi('candidateScore', personalPipe.candidateScore);
+  fillPi('maritalStatus', personalPipe.maritalStatus);
+  fillPi('currentCompanyWebsite', personalPipe.currentCompanyWebsite);
+  fillPi('preferredLocation', personalPipe.preferredLocation);
+  fillPi('twitter', socialPipe.twitter);
+  fillPi('xing', socialPipe.xing);
+  fillPi('skypeId', socialPipe.skypeId);
+  fillPi('facebook', socialPipe.facebook);
+  fillPi('stackOverflow', socialPipe.stackOverflow);
+  fillPi('website', socialPipe.website);
+  fillPi('educationCourses', joinList(educationPipe.courses), joinList(professionalPipe.courses));
+  fillPi('extracurricular', joinList(professionalPipe.extracurricularActivities));
+  fillPi('volunteers', joinList(professionalPipe.volunteers));
+  fillPi('workHistoryText', summaryPipe.workHistory);
+  fillPi('hackathons', joinList(extra.hackathons));
+  fillPi('remarks', professionalPipe.remarks, extra.remarks);
+  fillPi('notes', extra.notes);
 
   const nationalityFromCountry = resolveNationalityFromCountry(
     pi.nationality,

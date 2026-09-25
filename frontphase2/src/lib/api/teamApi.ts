@@ -1,4 +1,5 @@
 import { apiFetch, refreshLocalUserPermissions, type BackendUser } from '../api';
+import { fetchClientPublicIp } from '../../utils/clientPublicIp';
 import { orgSideFromPathname } from '../org/orgSide';
 import type {
   Permission,
@@ -817,10 +818,12 @@ export async function resetPassword(id: string) {
   if (token) {
     headers.Authorization = `Bearer ${token}`;
   }
-  
+  const clientPublicIp = await fetchClientPublicIp();
+
   const res = await fetch(`${API_BASE_NEW}${path}`, {
     method: 'POST',
     headers,
+    body: JSON.stringify({ clientPublicIp }),
   });
   
   const json = await res.json();
@@ -845,10 +848,11 @@ export async function setTeamMemberPassword(id: string, newPassword: string) {
     headers.Authorization = `Bearer ${token}`;
   }
 
+  const clientPublicIp = await fetchClientPublicIp();
   const res = await fetch(`${API_BASE_NEW}${path}`, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ newPassword }),
+    body: JSON.stringify({ newPassword, clientPublicIp }),
   });
 
   const json = await res.json();

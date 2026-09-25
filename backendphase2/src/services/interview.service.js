@@ -84,7 +84,7 @@ import {
   CLIENT_PREVIEW_STAGE_CATALOG,
 } from '../utils/clientTrackerOptions.js';
 import { detectResumeContentType, fetchS3ResumeDocumentBuffer } from '../utils/s3PdfFetch.js';
-import { isOurS3PdfUrl, publicUrlForS3Key } from '../utils/s3.js';
+import { isOurS3ShareableDocumentUrl, publicUrlForS3Key } from '../utils/s3.js';
 
 const SUBMIT_TO_CLIENT_VISIBILITY_DEFAULTS_KEY = 'submitToClientFieldVisibility';
 
@@ -293,7 +293,7 @@ const buildInterviewDateTime = (dateValue, timeValue) => {
 const normalizeMode = (value) => {
   if (!value) return null;
   const upper = String(value).toUpperCase();
-  // Frontend often sends video / in-person / phone ù map to stored enum values.
+  // Frontend often sends video / in-person / phone ? map to stored enum values.
   if (upper === 'VIDEO' || upper === 'VIRTUAL' || upper === 'REMOTE') return 'ONLINE';
   if (upper === 'IN-PERSON' || upper === 'IN_PERSON' || upper === 'ONSITE' || upper === 'ON-SITE') {
     return 'OFFLINE';
@@ -450,7 +450,7 @@ export const normalizeSubmissionType = (value) => {
 };
 
 // Token works for either an interview submission or a match submission. We
-// keep the JWT `type` constant so the existing public route handles both ù
+// keep the JWT `type` constant so the existing public route handles both ?
 // the resolver branches on whichever ID is present in the payload.
 const normalizeCvShareMode = (value) => {
   const mode = String(value || '').trim().toLowerCase();
@@ -501,7 +501,7 @@ function saasaAnnotationHasOverlays(bag) {
 }
 
 /**
- * HRYantra CV the recruiter saved ù annotations.fileUrl, that file id, or the
+ * HRYantra CV the recruiter saved ? annotations.fileUrl, that file id, or the
  * latest SAASA_CV upload. Never the candidate's original resume.
  */
 export async function resolveSaasaCvShareUrl(candidate, candidateFiles = [], snapshotUrl = '') {
@@ -1147,7 +1147,7 @@ function isAllowedCloudinaryDocumentUrl(urlString) {
 async function loadReviewAssetBuffer(sourceUrl) {
   const raw = String(sourceUrl || '').trim();
   if (!raw) throw new Error('No file is available for this preview');
-  if (isOurS3PdfUrl(raw)) {
+  if (isOurS3ShareableDocumentUrl(raw)) {
     const result = await fetchS3ResumeDocumentBuffer(raw);
     return {
       buffer: result.buffer,
@@ -1351,7 +1351,7 @@ export async function resolveClientReviewAccess(rawToken) {
 // Walk the list of known tenant DBs and return the first one that owns the
 // given record. Used as a fallback when the JWT didn't capture a tenant
 // (older tokens, or service-to-service calls that minted tokens outside a
-// tenant context). The lookup is keyed off whichever id is present ù
+// tenant context). The lookup is keyed off whichever id is present ?
 // interviewId for the interview path, matchId for the match path.
 const findTenantForRecord = async ({ interviewId = null, matchId = null }) => {
   if (!interviewId && !matchId) return '';
@@ -1387,7 +1387,7 @@ const findTenantForRecord = async ({ interviewId = null, matchId = null }) => {
   return '';
 };
 
-/** CandidateFile.uploadedById is required ù resolve a valid user for public client uploads. */
+/** CandidateFile.uploadedById is required ? resolve a valid user for public client uploads. */
 async function resolveCandidateFileUploaderId({ uploaderId, candidateId, jobId }) {
   if (uploaderId) return uploaderId;
   try {
@@ -1813,7 +1813,7 @@ async function serializeInterviewForClientReview(
       resume: saasaCvUrl || '',
     };
   } else if (cvShareMode === 'original') {
-    // Original CV link mode ù still show tenant profile fields in table/comparative.
+    // Original CV link mode ? still show tenant profile fields in table/comparative.
     candidateForClient = {
       ...baseCandidate,
       resume: originalResumeUrl || baseCandidate.resume,
@@ -2330,7 +2330,7 @@ export const interviewService = {
     queueAiEntryRecommendation({
       entityType: 'INTERVIEW',
       entityId: result.id,
-      entityLabel: `${interviewCandidateName} ù ${result.job?.title || job.title}`,
+      entityLabel: `${interviewCandidateName} ? ${result.job?.title || job.title}`,
       snapshot: buildEntitySnapshot('INTERVIEW', result),
       recipientUserId: result.interviewerId || user?.id,
       actorUserId: user?.id,
@@ -2349,7 +2349,7 @@ export const interviewService = {
     const nextCandidateId = payload.candidateId || current.candidate.id;
     const nextJobId = payload.jobId || current.job.id;
 
-    // Same portal?tenant fallback as create() ù needed when the recruiter swaps the candidate
+    // Same portal?tenant fallback as create() ? needed when the recruiter swaps the candidate
     // on an existing interview to one that came from the job portal merged list.
     const [candidate, job, explicitClient, panelUsers] = await Promise.all([
       payload.candidateId
@@ -2477,7 +2477,7 @@ export const interviewService = {
     queueAiEntryRecommendation({
       entityType: 'INTERVIEW',
       entityId: refreshed.id,
-      entityLabel: `${interviewCandidateName} ù ${refreshed.job?.title || 'Interview'}`,
+      entityLabel: `${interviewCandidateName} ? ${refreshed.job?.title || 'Interview'}`,
       snapshot: buildEntitySnapshot('INTERVIEW', refreshed),
       recipientUserId: refreshed.interviewerId || user?.id,
       actorUserId: user?.id,
@@ -2627,7 +2627,7 @@ export const interviewService = {
     queueAiEntryRecommendation({
       entityType: 'INTERVIEW',
       entityId: updated.id,
-      entityLabel: `${interviewCandidateName} ù ${updated.job?.title || 'Interview'}`,
+      entityLabel: `${interviewCandidateName} ? ${updated.job?.title || 'Interview'}`,
       snapshot: buildEntitySnapshot('INTERVIEW', updated),
       recipientUserId: updated.interviewerId || user?.id,
       actorUserId: user?.id,
@@ -3122,11 +3122,11 @@ export const interviewService = {
 
     const purposeLabel =
       submissionType === 'OFFER_CONFIRMATION'
-        ? 'Final clarification ù please attach the signed offer letter.'
+        ? 'Final clarification ? please attach the signed offer letter.'
         : submissionType === 'INTERIM_REVIEW'
-          ? 'Mid-cycle review ù please confirm next steps.'
+          ? 'Mid-cycle review ? please confirm next steps.'
           : submissionType === 'INITIAL_REVIEW'
-            ? 'Initial review ù please confirm the candidate is a fit before scheduling.'
+            ? 'Initial review ? please confirm the candidate is a fit before scheduling.'
             : 'Please review this candidate.';
 
     const emailResult = await sendMatchSubmissionEmail({
@@ -3609,7 +3609,7 @@ export const interviewService = {
         });
         if (!candidateFileUploaderId) {
           console.warn(
-            '[interview.submitPublicClientTag] no uploader id ù offer file saved on disk but not linked to candidate_files'
+            '[interview.submitPublicClientTag] no uploader id ? offer file saved on disk but not linked to candidate_files'
           );
         } else {
           try {
@@ -3631,7 +3631,7 @@ export const interviewService = {
         }
         offerLetterUrl = fileUrl;
 
-        // Only OFFER_CONFIRMATION uploads should attach to a placement ù
+        // Only OFFER_CONFIRMATION uploads should attach to a placement ?
         // earlier-stage submissions are review attachments, not the signed
         // offer. We still keep the candidate-file row so recruiters can see
         // the document on the candidate Documents tab regardless.

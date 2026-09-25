@@ -564,6 +564,15 @@ function resolveCandidateStageForList(candidate, tenantJobIdSet = null) {
     return 'Applied';
   }
 
+  // No job link: do not surface a stored Applied/New tag. Manual create used to
+  // persist Applied before any job was assigned.
+  if (!hasTenantJob) {
+    if (!explicitStage || explicitLower === 'new' || explicitLower === 'applied') {
+      return '';
+    }
+    return explicitStage;
+  }
+
   if (explicitStage && explicitLower !== 'new') {
     return explicitStage;
   }
@@ -3586,6 +3595,8 @@ async function upsertPortalCareerPreferences(candidateId, prefs) {
     preferredCurrency: prefs.preferredCurrency || prefs.salaryCurrency || 'USD',
     preferredBenefits,
     availabilityToStart: prefs.availabilityToStart || null,
+    earliestStartDate: prefs.earliestStartDate || null,
+    describeAvailability: prefs.describeAvailability || null,
     noticePeriod: prefs.noticePeriod || null,
     noticePeriodDays: parseNoticePeriodDaysFromPrefs(prefs),
     openToRelocation:
@@ -5984,6 +5995,15 @@ export const candidateService = {
           updateData.stage = resolveStageForNewlyAssignedJob(existingRow.stage, incomingStage);
           if (!Object.prototype.hasOwnProperty.call(updateData, 'status')) {
             updateData.status = 'ACTIVE';
+          }
+        } else if (nextIds.length === 0) {
+          const stageNow = String(
+            Object.prototype.hasOwnProperty.call(updateData, 'stage') ? updateData.stage : existingRow.stage || '',
+          )
+            .trim()
+            .toLowerCase();
+          if (!stageNow || stageNow === 'applied' || stageNow === 'new') {
+            updateData.stage = null;
           }
         }
       }

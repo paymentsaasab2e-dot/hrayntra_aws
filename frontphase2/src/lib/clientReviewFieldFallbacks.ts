@@ -113,28 +113,120 @@ function isBlankResolvedValue(value: unknown): boolean {
   return !text || text === '—' || text === '-' || text === '[]' || text === '{}';
 }
 
+function scalarText(value: unknown): string {
+  if (value == null || value === false) return '';
+  if (typeof value === 'boolean') return value ? 'Yes' : '';
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => scalarText(item))
+      .filter(Boolean)
+      .join(', ');
+  }
+  if (typeof value === 'object') return '';
+  const text = String(value).trim();
+  if (!text || text === '—' || text === '-' || text === 'Not provided') return '';
+  return text;
+}
+
+function firstScalar(entry: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const text = scalarText(entry[key]);
+    if (text) return text;
+  }
+  return '';
+}
+
+function joinParts(parts: string[]): string {
+  const seen = new Set<string>();
+  const next: string[] = [];
+  for (const part of parts) {
+    const text = part.trim();
+    const key = text.toLowerCase();
+    if (!text || seen.has(key)) continue;
+    seen.add(key);
+    next.push(text);
+  }
+  return next.join(' · ');
+}
+
 function formatEntryRows(entries: Array<Record<string, unknown>> | undefined): string {
   if (!Array.isArray(entries) || !entries.length) return '';
   return entries
     .map((entry) => {
-      const title =
-        String(entry.degreeProgram || entry.degree || entry.jobTitle || entry.title || entry.company || entry.institutionName || entry.institution || '').trim();
-      const meta = [
-        String(entry.institutionName || entry.institution || entry.companyName || entry.company || '').trim(),
-        [
-          String(entry.startYear || entry.startDate || '').trim(),
-          String(entry.endYear || entry.endDate || '').trim(),
-        ]
-          .filter(Boolean)
-          .join('–'),
+      const title = firstScalar(entry, [
+        'degreeProgram',
+        'degree',
+        'qualification',
+        'jobTitle',
+        'internshipTitle',
+        'projectTitle',
+        'certificationName',
+        'achievementTitle',
+        'examName',
+        'title',
+        'vaccineType',
+        'gapCategory',
+      ]);
+      const org = firstScalar(entry, [
+        'institutionName',
+        'institution',
+        'companyName',
+        'company',
+        'organizationClient',
+        'issuingOrganization',
+        'awardedBy',
+        'organization',
+        'countryName',
+        'country',
+      ]);
+      const dates = [
+        firstScalar(entry, ['startYear', 'startDate', 'issueDate', 'yearReceived', 'yearTaken', 'lastVaccinationDate', 'achievementDate']),
+        firstScalar(entry, ['endYear', 'endDate']),
       ]
         .filter(Boolean)
-        .filter((part) => part !== title);
-      if (!title && !meta.length) return '';
-      return meta.length ? `${title}${title ? ' · ' : ''}${meta.join(' · ')}` : title;
+        .join('–');
+      const extra = firstScalar(entry, [
+        'grade',
+        'employmentType',
+        'workMode',
+        'workLocation',
+        'location',
+        'reasonForGap',
+        'gapDuration',
+        'resultStatus',
+        'scoreMarks',
+        'visaType',
+        'validity',
+        'validityMode',
+      ]);
+      return joinParts([title, org, dates, extra]);
     })
     .filter(Boolean)
     .join('\n');
+}
+
+const ENTRY_SECTION_BY_FIELD: Partial<Record<SubmitToClientFieldId, string>> = {
+  cvEducationEntries: 'education',
+  cvWorkExperienceEntries: 'work',
+  certifications: 'certifications',
+  projects: 'projects',
+  p1Internships: 'internships',
+  p1Gap: 'gap',
+  p1Academic: 'academic',
+  p1Exams: 'exams',
+  p1Accomplishments: 'accomplishments',
+  p1Visa: 'visa',
+  p1Vaccination: 'vaccination',
+};
+
+function sectionEntriesText(
+  detail: ClientReviewData | null | undefined,
+  sectionId: string,
+): string {
+  const section = sectionsOf(detail).find((item) => String(item.id || '').toLowerCase() === sectionId);
+  if (!section?.entries?.length) return '';
+  if (sectionId === 'visa') return formatVisaEntries(section.entries as Array<Record<string, unknown>>);
+  return formatEntryRows(section.entries as Array<Record<string, unknown>>);
 }
 
 function formatVisaEntries(entries: Array<Record<string, unknown>> | undefined): string {
@@ -366,8 +458,22 @@ export function resolveClientReviewFieldValue(
     return '';
   }
 
+  const entrySectionId = ENTRY_SECTION_BY_FIELD[fieldId];
+  if (entrySectionId) {
+    const fromEntries = sectionEntriesText(detail, entrySectionId);
+    if (fromEntries) return fromEntries;
+  }
+
   const fromPresentation = presentationValueForField(detail, fieldId);
-  if (fieldId !== 'fullName' && fromPresentation) return fromPresentation;
+  if (fieldId !== 'fullName' && fromPresentation) {
+    if (fieldId === 'remarks' || fieldId === 'notes') {
+      const summary =
+        presentationValueForField(detail, 'cvSummary') ||
+        String(candidate.cvSummary || '').trim();
+      if (summary && fromPresentation.trim() === summary.trim()) return '';
+    }
+    return fromPresentation;
+  }
 
   if (fieldId === 'fullName') {
     return resolveClientReviewFullName(row);
@@ -375,7 +481,15 @@ export function resolveClientReviewFieldValue(
 
   const fallbacks = clientReviewFieldFallbacks(mergedDetail);
   const fromFallback = fallbacks[fieldId];
-  if (fromFallback) return fromFallback;
+  if (fromFallback) {
+    if (fieldId === 'remarks' || fieldId === 'notes') {
+      const summary =
+        presentationValueForField(detail, 'cvSummary') ||
+        String(candidate.cvSummary || '').trim();
+      if (summary && fromFallback.trim() === summary.trim()) return '';
+    }
+    return fromFallback;
+  }
 
   switch (fieldId) {
     case 'currentTitle':

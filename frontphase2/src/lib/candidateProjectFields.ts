@@ -7,6 +7,7 @@ export const PROJECT_TYPE_OPTIONS = [
   'Open Source',
   'Company Project',
   'Research Project',
+  'Hackathon',
   'Other',
 ] as const;
 

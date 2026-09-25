@@ -62,6 +62,7 @@ type PortfolioLinkLike = {
   linkType?: string | null;
   type?: string | null;
   title?: string | null;
+  description?: string | null;
 };
 
 export function filterPortfolioLinks<T extends PortfolioLinkLike | string>(links: T[] | null | undefined): T[] {
@@ -79,16 +80,19 @@ export type PortfolioLinkRow = {
   type?: string;
   label?: string;
   url?: string;
+  description?: string;
 };
 
 export function normalizePortfolioLinkRow(link: PortfolioLinkLike): PortfolioLinkRow {
   const url = String(link?.url || link?.link || '').trim();
   const type = String(link?.linkType || link?.type || '').trim();
   const title = String(link?.title || '').trim();
+  const description = String(link?.description || '').trim();
   return {
     type: type || undefined,
     label: title || type || undefined,
     url: url || undefined,
+    description: description || undefined,
   };
 }
 

@@ -9,6 +9,7 @@ import {
   syncTenantDbName,
 } from './api';
 import { clearAllEmployerPageCaches } from './employerPageCache';
+import { fetchClientPublicIp } from '../utils/clientPublicIp';
 
 export type ActiveSessionView = {
   sessionId?: string;
@@ -291,14 +292,17 @@ export type LoginDevicePayload = {
   macAddress: string;
   deviceId: string;
   userAgent: string;
+  clientPublicIp?: string;
 };
 
 export async function buildLoginDevicePayload(): Promise<LoginDevicePayload> {
   const macAddress = getMacAddress();
+  const clientPublicIp = await fetchClientPublicIp();
   return {
     macAddress,
     deviceId: macAddress,
     userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'Unknown',
+    clientPublicIp,
   };
 }
 

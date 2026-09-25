@@ -20,12 +20,16 @@ export type Phase1SkillRow = {
 export type Phase1LanguageRow = {
   name: string;
   proficiency?: string;
+  speak?: boolean;
+  read?: boolean;
+  write?: boolean;
 };
 
 export type Phase1PortfolioLinkRow = {
   type?: string;
   label?: string;
   url?: string;
+  description?: string;
 };
 
 export type Phase1ResumeInfo = {
@@ -114,6 +118,9 @@ export function resolvePhase1Languages(
       .map((l) => ({
         name: String(l?.name || '').trim(),
         proficiency: l?.proficiency ? String(l.proficiency).trim() : undefined,
+        speak: l?.speak === true,
+        read: l?.read === true,
+        write: l?.write === true,
       }))
       .filter((l) => l.name);
   }

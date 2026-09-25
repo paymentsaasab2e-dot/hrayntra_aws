@@ -31,6 +31,7 @@ import {
 import { compositeCompanyLogoOnCanvas } from '../lib/saasaCvPaintCanvas';
 import { exportPaintLayerPdf } from '../lib/saasaCvExport';
 import { SaasaCvAnnotationModal } from '../components/candidates/SaasaCvAnnotationModal';
+import { isWordResume } from '../lib/resumePreview';
 
 function normalizeUrl(url: string): string {
   return String(url || '')
@@ -77,9 +78,6 @@ export function useSaasaCvAnnotations({
   const [preferredResumeViewMode, setPreferredResumeViewMode] =
     useState<ResumeCvViewMode | null>(null);
 
-  const effectiveResumeUrl =
-    resolvedResumeUrl?.trim() || resumeUrl?.trim() || null;
-
   const stored = useMemo(() => {
     const fromBackend = readSaasaCvAnnotations(backendCandidate?.extraData ?? null);
     const fromDrawer = readSaasaCvAnnotations(extraData ?? null);
@@ -90,6 +88,15 @@ export function useSaasaCvAnnotations({
     }
     return fromBackend ?? fromDrawer;
   }, [extraData, backendCandidate?.extraData]);
+
+  const savedHryantraDocx = useMemo(() => {
+    const fileUrl = String(stored?.fileUrl || '').trim();
+    if (/\.docx(?:$|\?)/i.test(fileUrl)) return fileUrl;
+    return '';
+  }, [stored?.fileUrl]);
+
+  const effectiveResumeUrl =
+    savedHryantraDocx || resolvedResumeUrl?.trim() || resumeUrl?.trim() || null;
 
   const initialCompanyLogo = useMemo(
     () =>
@@ -109,8 +116,12 @@ export function useSaasaCvAnnotations({
 
   const closeModal = useCallback(() => setOpen(false), []);
 
-  const resolveFreshExtraForSave = useCallback(async (): Promise<Record<string, unknown>> => {
-    if (!candidateId) return {};
+  const resolveFreshExtraForSave = useCallback(async (): Promise<{
+    extra: Record<string, unknown>;
+    resume: string;
+    resumeUrl: string;
+  }> => {
+    if (!candidateId) return { extra: {}, resume: '', resumeUrl: '' };
     try {
       const raw = await apiGetCandidate(candidateId);
       const fetched = enrichBackendCandidateFromPhase1Snapshot(
@@ -118,16 +129,25 @@ export function useSaasaCvAnnotations({
       );
       if (fetched?.id) setBackendCandidate(fetched);
       const extra = fetched?.extraData;
-      return extra && typeof extra === 'object' && !Array.isArray(extra)
-        ? (extra as Record<string, unknown>)
-        : {};
+      return {
+        extra:
+          extra && typeof extra === 'object' && !Array.isArray(extra)
+            ? (extra as Record<string, unknown>)
+            : {},
+        resume: String(fetched?.resume || '').trim(),
+        resumeUrl: String(fetched?.resumeUrl || '').trim(),
+      };
     } catch {
       const fallback =
         (backendCandidate?.extraData as Record<string, unknown> | undefined) ??
         (extraData && typeof extraData === 'object' && !Array.isArray(extraData) ? extraData : {});
-      return fallback;
+      return {
+        extra: fallback,
+        resume: String(backendCandidate?.resume || '').trim(),
+        resumeUrl: String(backendCandidate?.resumeUrl || resumeUrl || '').trim(),
+      };
     }
-  }, [candidateId, backendCandidate?.extraData, extraData]);
+  }, [candidateId, backendCandidate?.extraData, backendCandidate?.resume, backendCandidate?.resumeUrl, extraData, resumeUrl]);
 
   const resolveCompanyLogoForSave = useCallback(
     async (
@@ -162,6 +182,9 @@ export function useSaasaCvAnnotations({
       documentEdits?: {
         documentHtml?: string | null;
         pdfTextLayerHtml?: string[] | null;
+        wordTextReplacements?: { from: string; to: string }[] | null;
+        wordDocxBase64?: string | null;
+        wordDocument?: boolean;
       }
     ) => {
       if (!candidateId || !canEdit) {
@@ -170,12 +193,88 @@ export function useSaasaCvAnnotations({
       }
       setBusy(true);
       try {
-        const existingExtra = await resolveFreshExtraForSave();
+        const freshPromise = resolveFreshExtraForSave();
 
+        const wordReplacements = (documentEdits?.wordTextReplacements || []).filter(
+          (item) => item.from.trim() && item.from !== item.to
+        );
+        const wordDocxBase64 = String(documentEdits?.wordDocxBase64 || '').trim();
+        let editedWordUrl: string | null = null;
+        const fresh = await freshPromise;
+        const existingExtra = fresh.extra;
         const prevStored = readSaasaCvAnnotations(existingExtra);
         let fileId = prevStored?.fileId;
         let fileUrl = prevStored?.fileUrl ?? null;
         let fileName = prevStored?.fileName;
+        const uploadEditedWord = async (editedBlob: Blob) => {
+          const safeWordName =
+            (candidateName || 'Candidate').replace(/[^\w\s-]/g, '').trim() || 'Candidate';
+          const wordFile = new File([editedBlob], `HRYantra CV - ${safeWordName}.docx`, {
+            type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          });
+          const wordUpload = await filesApiUpload(
+            'candidate',
+            candidateId,
+            wordFile,
+            SAASA_CV_FILE_TYPE
+          );
+          const wordUploaded = extractApiData<{
+            id?: string;
+            fileUrl?: string | null;
+            fileName?: string;
+          }>(wordUpload);
+          const nextWordUrl = (wordUploaded?.fileUrl || '').trim();
+          if (!nextWordUrl) throw new Error('Updated Word file did not upload');
+          const previousFileId = fileId;
+          if (wordUploaded?.id) {
+            fileId = wordUploaded.id;
+            fileUrl = nextWordUrl;
+            fileName = wordUploaded.fileName || wordFile.name;
+          } else {
+            fileUrl = nextWordUrl;
+            fileName = wordFile.name;
+          }
+          editedWordUrl = nextWordUrl;
+          setResolvedResumeUrl(nextWordUrl);
+          if (previousFileId && previousFileId !== fileId) {
+            try {
+              await filesApiDelete('candidate', candidateId, previousFileId);
+            } catch {
+              /* replace the previous HRYantra file */
+            }
+          }
+        };
+        if (wordDocxBase64 && isWordResume(effectiveResumeUrl)) {
+          const binary = atob(wordDocxBase64);
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+          await uploadEditedWord(
+            new Blob([bytes], {
+              type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            })
+          );
+        } else if (wordReplacements.length && isWordResume(effectiveResumeUrl)) {
+          const editRes = await fetch('/api/resume-word-edit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              url: effectiveResumeUrl,
+              replacements: wordReplacements,
+            }),
+          });
+          if (!editRes.ok) {
+            const detail = (await editRes.text()).slice(0, 240).trim();
+            let message = 'Could not update the Word document';
+            try {
+              const parsed = JSON.parse(detail) as { error?: string };
+              if (parsed.error) message = parsed.error;
+            } catch {
+              if (detail) message = detail;
+            }
+            throw new Error(message);
+          }
+          await uploadEditedWord(await editRes.blob());
+        }
 
         const paintMarks = hasPaintMarks(items);
         const hasPins = items.some((a) => a.type === 'comment' || a.type === 'important');
@@ -261,22 +360,29 @@ export function useSaasaCvAnnotations({
         }
 
         const pinnedOriginal = String(
-          (existingExtra as Record<string, unknown> | null)?.originalResumeUrl || ''
+          existingExtra.firstOriginalResumeUrl || existingExtra.originalResumeUrl || ''
         ).trim();
-        let safeResumeUrl = String(effectiveResumeUrl || prevStored?.resumeUrl || '').trim();
+        let safeResumeUrl = String(prevStored?.resumeUrl || effectiveResumeUrl || '').trim();
+        if (
+          editedWordUrl &&
+          safeResumeUrl &&
+          normalizeUrl(safeResumeUrl) === normalizeUrl(editedWordUrl)
+        ) {
+          safeResumeUrl = pinnedOriginal;
+        }
         if (fileUrl && safeResumeUrl && normalizeUrl(safeResumeUrl) === normalizeUrl(fileUrl)) {
           safeResumeUrl = pinnedOriginal || String(prevStored?.resumeUrl || '').trim();
         }
         if (fileUrl && safeResumeUrl && normalizeUrl(safeResumeUrl) === normalizeUrl(fileUrl)) {
           safeResumeUrl = '';
         }
-        if (!safeResumeUrl) safeResumeUrl = pinnedOriginal || String(effectiveResumeUrl || '').trim();
+        if (!safeResumeUrl) safeResumeUrl = pinnedOriginal || String(resumeUrl || '').trim();
 
         // Always persist scribbles + text edits — even when PDF upload failed.
         const nextExtra = buildSaasaCvSaveExtra(
           existingExtra,
           {
-            resumeUrl: safeResumeUrl || effectiveResumeUrl,
+            resumeUrl: safeResumeUrl || pinnedOriginal,
             items,
             companyLogo: resolvedLogo,
             fileId,
@@ -284,27 +390,88 @@ export function useSaasaCvAnnotations({
             fileName,
             fullSnapshot: fileUrl ? savedFullSnapshot : false,
             snapshotFormat: fileUrl ? savedSnapshotFormat : undefined,
-            documentHtml: documentEdits?.pdfTextLayerHtml?.some((h) => h.trim())
-              ? null
-              : (documentEdits?.documentHtml ?? prevStored?.documentHtml ?? null),
+            documentHtml:
+              editedWordUrl || documentEdits?.wordDocument
+                ? null
+                : documentEdits?.pdfTextLayerHtml?.some((h) => h.trim())
+                  ? null
+                  : (documentEdits?.documentHtml ?? prevStored?.documentHtml ?? null),
             pdfTextLayerHtml:
-              documentEdits?.pdfTextLayerHtml ?? prevStored?.pdfTextLayerHtml ?? null,
+              editedWordUrl || documentEdits?.wordDocument
+                ? null
+                : (documentEdits?.pdfTextLayerHtml ?? prevStored?.pdfTextLayerHtml ?? null),
           },
-          fileUrl || items.length > 0 || resolvedLogo?.url || hasTextEdits
+          editedWordUrl || fileUrl || items.length > 0 || resolvedLogo?.url || hasTextEdits
             ? { resumeCvViewMode: 'saasa' }
             : undefined
         );
-        const response = await apiUpdateCandidate(candidateId, { extraData: nextExtra });
+        const dropKeys = new Set<string>();
+        const rememberDrop = (url: string) => {
+          const key = normalizeUrl(url);
+          const originalKey = normalizeUrl(pinnedOriginal);
+          if (!key || (originalKey && key === originalKey)) return;
+          dropKeys.add(key);
+        };
+        if (editedWordUrl) rememberDrop(editedWordUrl);
+        const previousSavedResume = String(prevStored?.resumeUrl || '').trim();
+        if (
+          previousSavedResume &&
+          pinnedOriginal &&
+          normalizeUrl(previousSavedResume) !== normalizeUrl(pinnedOriginal)
+        ) {
+          rememberDrop(previousSavedResume);
+        }
+        if (Array.isArray(nextExtra.resumeVersions) && dropKeys.size) {
+          nextExtra.resumeVersions = (
+            nextExtra.resumeVersions as Array<{ fileUrl?: string | null }>
+          ).filter((row) => {
+            const key = normalizeUrl(String(row?.fileUrl || ''));
+            return !key || !dropKeys.has(key);
+          });
+        }
+        const resumePatch: { resume?: string; resumeUrl?: string } = {};
+        if (pinnedOriginal && dropKeys.size) {
+          if (fresh.resume && dropKeys.has(normalizeUrl(fresh.resume))) {
+            resumePatch.resume = pinnedOriginal;
+          }
+          if (fresh.resumeUrl && dropKeys.has(normalizeUrl(fresh.resumeUrl))) {
+            resumePatch.resumeUrl = pinnedOriginal;
+          }
+        }
+        if (dropKeys.size) {
+          try {
+            const filesRaw = await filesApiGet('candidate', candidateId);
+            const files =
+              extractApiData<Array<{ id?: string; fileUrl?: string | null; fileType?: string }>>(
+                filesRaw
+              ) ?? [];
+            for (const file of files) {
+              const key = normalizeUrl(String(file.fileUrl || ''));
+              if (!file.id || !key || !dropKeys.has(key) || file.id === fileId) continue;
+              const type = String(file.fileType || '').trim();
+              if (/^resume$/i.test(type) || /^cv$/i.test(type)) continue;
+              try {
+                await filesApiDelete('candidate', candidateId, file.id);
+              } catch {
+                /* leftover copy is not a resume version */
+              }
+            }
+          } catch {
+            /* version list still keeps the original resume */
+          }
+        }
+        const response = await apiUpdateCandidate(candidateId, {
+          extraData: nextExtra,
+          ...resumePatch,
+        });
         const updated = enrichBackendCandidateFromPhase1Snapshot(
           extractApiData<BackendCandidate>(response) ?? ({} as BackendCandidate)
         );
         if (updated?.id) setBackendCandidate(updated);
-        if (fileUrl || items.length > 0 || resolvedLogo?.url || hasTextEdits) {
+        if (editedWordUrl || fileUrl || items.length > 0 || resolvedLogo?.url || hasTextEdits) {
           setPreferredResumeViewMode('saasa');
           onViewModeChange?.('saasa');
         }
-        await onCandidateUpdated?.();
-        await onFilesRefresh?.();
         if (uploadWarning) {
           onToast?.(uploadWarning);
         } else {
@@ -315,6 +482,8 @@ export function useSaasaCvAnnotations({
           );
         }
         closeModal();
+        void onCandidateUpdated?.();
+        void onFilesRefresh?.();
         return true;
       } catch (error: unknown) {
         onToast?.(
@@ -329,6 +498,7 @@ export function useSaasaCvAnnotations({
       candidateId,
       canEdit,
       effectiveResumeUrl,
+      resumeUrl,
       candidateName,
       resolveFreshExtraForSave,
       resolveCompanyLogoForSave,
@@ -347,7 +517,8 @@ export function useSaasaCvAnnotations({
     }
     setBusy(true);
     try {
-      const existingExtra = await resolveFreshExtraForSave();
+      const fresh = await resolveFreshExtraForSave();
+      const existingExtra = fresh.extra;
       const prevStored = readSaasaCvAnnotations(existingExtra);
 
       if (prevStored?.fileId) {
