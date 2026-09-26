@@ -1923,7 +1923,6 @@ export type HqAccountSupportLookup = {
     relatedTickets?: HqAccountSupportLookup['relatedTickets'];
     ticketCount?: number;
   } | null;
-  relatedTickets?: HqAccountSupportLookup['relatedTickets'];
   lookupError?: string | null;
   suggestedActions?: {
     askReuploadCv?: boolean;
