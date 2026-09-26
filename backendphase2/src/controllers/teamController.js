@@ -1534,6 +1534,8 @@ export async function resetMemberPassword(req, res) {
       userId: id,
       loginId: member.credential.loginId,
       email: member.email,
+      name: member.name,
+      password: newTempPassword,
       ipAddress: resolveClientIp(req, req.body) || '',
       device: req.get('user-agent') || '',
       source: 'team_reset',

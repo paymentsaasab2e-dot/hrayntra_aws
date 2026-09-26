@@ -27,6 +27,98 @@ import { hqBillingService } from './hq-billing.service.js';
 import { hqReportsService } from './hq-reports.service.js';
 import { tenantJobsFeedUrl } from '../public/tenant-jobs.service.js';
 
+function mergeAccessRows(primary, extra) {
+  const seen = new Set();
+  const rows = [];
+  for (const row of [...primary, ...extra]) {
+    const at = new Date(row.at || 0).getTime();
+    const minute = Number.isFinite(at) ? Math.floor(at / 60000) : 0;
+    const key = `${row.loginId}|${row.email}|${row.outcome || ''}|${row.source || ''}|${minute}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    rows.push(row);
+  }
+  rows.sort((a, b) => new Date(b.at || 0).getTime() - new Date(a.at || 0).getTime());
+  return rows.slice(0, 300);
+}
+
+async function listTenantAccountPasswords({ tenantDbName, email, stored }) {
+  const byKey = new Map();
+  const put = (row) => {
+    const loginId = String(row.loginId || '').trim();
+    const mail = String(row.email || '').trim().toLowerCase();
+    const key = (loginId || mail).toLowerCase();
+    if (!key) return;
+    const prev = byKey.get(key);
+    const prevTime = new Date(prev?.updatedAt || 0).getTime();
+    const nextTime = new Date(row.updatedAt || 0).getTime();
+    const useNextPassword = Boolean(row.password) && (!prev?.password || nextTime >= prevTime);
+    byKey.set(key, {
+      id: String(row.id || prev?.id || key),
+      loginId: loginId || prev?.loginId || '',
+      email: mail || prev?.email || '',
+      name: String(row.name || prev?.name || '').trim(),
+      password: useNextPassword ? String(row.password) : String(prev?.password || ''),
+      updatedAt: useNextPassword ? row.updatedAt || null : prev?.updatedAt || row.updatedAt || null,
+    });
+  };
+
+  for (const row of stored || []) {
+    put({
+      id: String(row._id),
+      loginId: row.loginId,
+      email: row.email,
+      name: row.name,
+      password: row.password,
+      updatedAt: row.updatedAt,
+    });
+  }
+
+  try {
+    const users = await prisma.user.findMany({
+      take: 500,
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        credential: { select: { loginId: true, updatedAt: true } },
+      },
+    });
+    for (const user of users) {
+      put({
+        id: user.id,
+        loginId: user.credential?.loginId || '',
+        email: user.email,
+        name: user.name,
+        updatedAt: user.credential?.updatedAt || null,
+      });
+    }
+  } catch (error) {
+    console.warn('[hq] account list', error?.message || error);
+  }
+
+  try {
+    const owner = email
+      ? await headquartersAuthService.findWorkspaceUserByEmail(email)
+      : await headquartersAuthService.findTenantByDbName(tenantDbName);
+    if (owner?.password) {
+      put({
+        id: owner.id || owner.email,
+        loginId: owner.loginId || owner.email,
+        email: owner.email,
+        name: owner.name || owner.organizationName,
+        password: owner.password,
+        updatedAt: owner.updatedAt || null,
+      });
+    }
+  } catch {
+    /* owner password is optional */
+  }
+
+  return [...byKey.values()].sort((a, b) => String(a.loginId).localeCompare(String(b.loginId)));
+}
+
 async function resolvePlanInput(raw, billingCycle, planStartDate, planEndDate) {
   const plan = await hqPackagesService.resolvePlanInput(
     typeof raw === 'object' && raw && planEndDate && !raw.planEndDate
@@ -395,6 +487,15 @@ export const hqService = {
         failedAttempts: 0,
       },
     });
+    const { recordPasswordChangeAudit } = await import('../../utils/userSessionAudit.js');
+    await recordPasswordChangeAudit({
+      userId: user.id,
+      loginId: userId,
+      email: user.email,
+      name: user.name,
+      password,
+      source: 'hq_setup',
+    });
 
     return { 
       success: true, 
@@ -573,10 +674,34 @@ export const hqService = {
     }
 
     const { formatAccessDevice } = await import('../../utils/userSessionAudit.js');
+    const { listHqAccessEvents, listHqUserPasswords } = await import('../../utils/hqAccessStore.js');
+
+    const hqLogins = (await listHqAccessEvents(tenantDbName, 'LOGIN')).map((row) => ({
+      id: String(row._id),
+      at: row.createdAt,
+      outcome: row.outcome || '',
+      ipAddress: row.ipAddress || '',
+      device: formatAccessDevice(row.device) || row.device || '',
+      userAgent: row.device || '',
+      loginId: row.loginId || '',
+      email: row.email || '',
+      name: row.name || '',
+    }));
+    const hqPasswordChanges = (await listHqAccessEvents(tenantDbName, 'PASSWORD_CHANGED')).map((row) => ({
+      id: String(row._id),
+      at: row.createdAt,
+      ipAddress: row.ipAddress || '',
+      device: formatAccessDevice(row.device) || row.device || '',
+      userAgent: row.device || '',
+      loginId: row.loginId || '',
+      email: row.email || '',
+      name: row.name || '',
+      source: row.source || '',
+    }));
 
     return runWithTenantContext(tenantDbName, async () => {
-      let logins = [];
-      let passwordChanges = [];
+      let logins = [...hqLogins];
+      let passwordChanges = [...hqPasswordChanges];
       try {
         const rows = await prisma.loginHistory.findMany({
           orderBy: { timestamp: 'desc' },
@@ -590,7 +715,7 @@ export const hqService = {
             },
           },
         });
-        logins = rows.map((row) => ({
+        logins = mergeAccessRows(logins, rows.map((row) => ({
           id: row.id,
           at: row.timestamp,
           outcome: row.outcome,
@@ -600,7 +725,7 @@ export const hqService = {
           loginId: row.credential?.loginId || '',
           email: row.credential?.user?.email || '',
           name: row.credential?.user?.name || '',
-        }));
+        })));
       } catch (error) {
         console.warn('[hq] access logins', error?.message || error);
       }
@@ -610,7 +735,7 @@ export const hqService = {
           orderBy: { createdAt: 'desc' },
           take: 100,
         });
-        passwordChanges = rows.map((row) => {
+        passwordChanges = mergeAccessRows(passwordChanges, rows.map((row) => {
           const meta = row.metadata && typeof row.metadata === 'object' ? row.metadata : {};
           return {
             id: row.id,
@@ -622,11 +747,17 @@ export const hqService = {
             email: String(meta.email || ''),
             source: String(meta.source || ''),
           };
-        });
+        }));
       } catch (error) {
         console.warn('[hq] password logs', error?.message || error);
       }
-      return { tenantDbName, logins, passwordChanges };
+
+      const accounts = await listTenantAccountPasswords({
+        tenantDbName,
+        email,
+        stored: await listHqUserPasswords(tenantDbName),
+      });
+      return { tenantDbName, logins, passwordChanges, accounts };
     });
   },
 

