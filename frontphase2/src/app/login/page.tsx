@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Eye, EyeOff } from 'lucide-react';
 import { DM_Sans } from 'next/font/google';
-import { apiLogin, apiConsumeImpersonationToken, formatAuthErrorMessage, getAccessToken, syncTenantDbName } from '../../lib/api';
+import { apiLogin, apiConsumeImpersonationToken, beginIsolatedAuthSession, formatAuthErrorMessage, getAccessToken, syncTenantDbName } from '../../lib/api';
 import { buildLoginDevicePayload, clearIntentionalLogout, finalizeAuthAfterTokens } from '../../lib/sessionAuth';
 import { LoginSessionFlow } from '../../components/session/LoginSessionFlow';
 import { TrialExpiredLoginPrompt } from '../../components/trial/TrialExpiredLoginPrompt';
@@ -87,21 +87,26 @@ export default function LoginPage() {
       return;
     }
     const tenant = params.get('tenantDbName');
-    // Clear stale tenant from a previous account unless this is an invite link.
-    // Stale x-tenant-db-name makes login look up the wrong DB → "Invalid email or password".
-    syncTenantDbName(tenant || null);
+    const hash = window.location.hash.replace(/^#/, '');
+    const openingHqAccount = hash.startsWith('hqImpersonation=');
+    // Clear stale tenant from a previous account unless this is an invite link
+    // or HQ is opening another company in this tab. Clearing here is shared
+    // with the HQ tab, so an HQ open must not wipe that login.
+    if (!openingHqAccount) {
+      syncTenantDbName(tenant || null);
+    }
     const sessionMsg = params.get('session');
     if (sessionMsg) {
       setMessage(sessionMsg);
     }
 
     // HQ support access link (one-time token in hash).
-    const hash = window.location.hash.replace(/^#/, '');
-    if (hash.startsWith('hqImpersonation=')) {
+    if (openingHqAccount) {
       const consumeHqAccess = async () => {
         try {
           setLoading(true);
           setLoadingMessage('Opening tenant account...');
+          beginIsolatedAuthSession();
           const token = decodeURIComponent(hash.slice('hqImpersonation='.length));
           const device = await buildLoginDevicePayload();
           const response = await apiConsumeImpersonationToken({ token, ...device });

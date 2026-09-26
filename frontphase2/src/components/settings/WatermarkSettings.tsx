@@ -25,10 +25,11 @@ export function WatermarkSettings() {
   const [localPreviewUrl, setLocalPreviewUrl] = useState<string | null>(null);
   const [previewBroken, setPreviewBroken] = useState(false);
 
-  const remotePreviewSrc = useMemo(
-    () => resolveWatermarkImageSrc(draft.imageUrl) || draft.imageDataUrl || '',
-    [draft.imageUrl, draft.imageDataUrl],
-  );
+  const remotePreviewSrc = useMemo(() => {
+    const embedded = String(draft.imageDataUrl || '').trim();
+    if (embedded.startsWith('data:image/')) return embedded;
+    return resolveWatermarkImageSrc(draft.imageUrl);
+  }, [draft.imageUrl, draft.imageDataUrl]);
   const previewSrc = localPreviewUrl || remotePreviewSrc;
   const hasLogo = Boolean(draft.imageUrl || draft.imageDataUrl || localPreviewUrl);
 
@@ -244,7 +245,7 @@ export function WatermarkSettings() {
                 </span>
                 <span className="mt-0.5 block text-xs text-slate-500">
                   When on, this tenant’s team exports carry one stamp: the logo if you uploaded one,
-                  otherwise the text.
+                  otherwise the text. If another Super Admin uploads a logo, it replaces this one.
                 </span>
               </span>
             </label>

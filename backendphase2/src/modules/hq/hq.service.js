@@ -42,7 +42,7 @@ function mergeAccessRows(primary, extra) {
   return rows.slice(0, 300);
 }
 
-async function listTenantAccountPasswords({ tenantDbName, email, stored }) {
+async function listTenantAccountPasswords({ stored }) {
   const byKey = new Map();
   const put = (row) => {
     const loginId = String(row.loginId || '').trim();
@@ -96,24 +96,6 @@ async function listTenantAccountPasswords({ tenantDbName, email, stored }) {
     }
   } catch (error) {
     console.warn('[hq] account list', error?.message || error);
-  }
-
-  try {
-    const owner = email
-      ? await headquartersAuthService.findWorkspaceUserByEmail(email)
-      : await headquartersAuthService.findTenantByDbName(tenantDbName);
-    if (owner?.password) {
-      put({
-        id: owner.id || owner.email,
-        loginId: owner.loginId || owner.email,
-        email: owner.email,
-        name: owner.name || owner.organizationName,
-        password: owner.password,
-        updatedAt: owner.updatedAt || null,
-      });
-    }
-  } catch {
-    /* owner password is optional */
   }
 
   return [...byKey.values()].sort((a, b) => String(a.loginId).localeCompare(String(b.loginId)));
@@ -706,26 +688,33 @@ export const hqService = {
         const rows = await prisma.loginHistory.findMany({
           orderBy: { timestamp: 'desc' },
           take: 300,
-          include: {
-            credential: {
+        });
+        const credentialIds = [...new Set(rows.map((row) => row.credentialId).filter(Boolean))];
+        const credentials = credentialIds.length
+          ? await prisma.userCredential.findMany({
+              where: { id: { in: credentialIds } },
               select: {
+                id: true,
                 loginId: true,
                 user: { select: { email: true, name: true } },
               },
-            },
-          },
-        });
-        logins = mergeAccessRows(logins, rows.map((row) => ({
-          id: row.id,
-          at: row.timestamp,
-          outcome: row.outcome,
-          ipAddress: row.ipAddress || '',
-          device: formatAccessDevice(row.device) || row.device || '',
-          userAgent: row.device || '',
-          loginId: row.credential?.loginId || '',
-          email: row.credential?.user?.email || '',
-          name: row.credential?.user?.name || '',
-        })));
+            })
+          : [];
+        const credentialById = new Map(credentials.map((row) => [row.id, row]));
+        logins = mergeAccessRows(logins, rows.map((row) => {
+          const credential = credentialById.get(row.credentialId);
+          return {
+            id: row.id,
+            at: row.timestamp,
+            outcome: row.outcome,
+            ipAddress: row.ipAddress || '',
+            device: formatAccessDevice(row.device) || row.device || '',
+            userAgent: row.device || '',
+            loginId: credential?.loginId || '',
+            email: credential?.user?.email || '',
+            name: credential?.user?.name || '',
+          };
+        }));
       } catch (error) {
         console.warn('[hq] access logins', error?.message || error);
       }
@@ -753,8 +742,6 @@ export const hqService = {
       }
 
       const accounts = await listTenantAccountPasswords({
-        tenantDbName,
-        email,
         stored: await listHqUserPasswords(tenantDbName),
       });
       return { tenantDbName, logins, passwordChanges, accounts };

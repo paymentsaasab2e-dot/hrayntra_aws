@@ -64,6 +64,16 @@ function isLoginRequest(req) {
   return path === '/api/v1/auth/login' || path.endsWith('/auth/login');
 }
 
+function requestPath(req) {
+  return String(req.originalUrl || req.path || '').split('?')[0];
+}
+
+/** HQ looks up other companies on purpose. That is not a tenant spoof. */
+function isHqApiRequest(req) {
+  const path = requestPath(req);
+  return path === '/api/v1/hq' || path.startsWith('/api/v1/hq/');
+}
+
 export function tenantContextMiddleware(req, res, next) {
   // Sign-in always looks the account up in the database. The workspace name
   // saved in the browser is for later requests, not for choosing the login database.
@@ -80,6 +90,13 @@ export function tenantContextMiddleware(req, res, next) {
     req.query?.tenantDbName || req.query?.tenant || ''
   ).trim();
   const bodyTenantDbName = String(req.body?.tenantDbName || '').trim();
+
+  if (isHqApiRequest(req)) {
+    if (tokenTenantDbName && !isValidTenantDbName(tokenTenantDbName)) {
+      return res.status(400).json({ success: false, message: 'Invalid tenant' });
+    }
+    return runWithTenantContext(tokenTenantDbName || '', () => next());
+  }
 
   if (tokenTenantDbName) {
     const spoof =

@@ -170,11 +170,41 @@ export function watermarkImageForFormat(
   return cfg.imageUrl || '';
 }
 
+/**
+ * The saved logo URL often points at a host the settings page cannot open
+ * (production API from localhost, or the reverse). Rebuild it on the API this page uses.
+ */
+function rewriteExportWatermarkDisplayUrl(imageUrl: string): string {
+  if (typeof window === 'undefined') return imageUrl;
+  try {
+    const parsed = new URL(imageUrl, window.location.origin);
+    if (!parsed.pathname.includes('/export-watermarks/')) return imageUrl;
+    const filename = decodeURIComponent(parsed.pathname.split('/').filter(Boolean).pop() || '');
+    if (!filename) return imageUrl;
+    const tenant =
+      parsed.searchParams.get('tenantDbName') ||
+      parsed.searchParams.get('tenant') ||
+      readTenantDbName();
+    const qs = tenant ? `?tenantDbName=${encodeURIComponent(tenant)}` : '';
+    const filePath = `public/uploads/export-watermarks/${encodeURIComponent(filename)}${qs}`;
+    const host = window.location.hostname.toLowerCase();
+    if (host === 'localhost' || host === '127.0.0.1' || host.endsWith('.local')) {
+      return `http://127.0.0.1:5001/api/v1/${filePath}`;
+    }
+    return `/api/proxy/${filePath}`;
+  } catch {
+    return imageUrl;
+  }
+}
+
 /** Resolve a stored /uploads or absolute watermark image URL for fetch/display. */
 export function resolveWatermarkImageSrc(imageUrl: string): string {
   const trimmed = String(imageUrl || '').trim();
   if (!trimmed) return '';
   if (trimmed.startsWith('data:')) return trimmed;
+  if (trimmed.includes('/export-watermarks/')) {
+    return rewriteExportWatermarkDisplayUrl(trimmed);
+  }
 
   const tenant = readTenantDbName();
   const withTenant = (url: string): string => {
