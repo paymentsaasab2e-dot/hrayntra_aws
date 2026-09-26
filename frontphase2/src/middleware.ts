@@ -12,6 +12,7 @@ const PUBLIC_ROUTES = [
   '/apply',
   '/lead-form',
   '/session-transfer',
+  '/superdoc',
 ];
 
 export function middleware(request: NextRequest) {

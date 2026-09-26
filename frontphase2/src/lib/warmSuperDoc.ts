@@ -1,6 +1,6 @@
 'use client';
 
-export const SUPERDOC_DOCUMENT_WORKER = '/api/superdoc-worker?kind=document&v=4';
+export const SUPERDOC_DOCUMENT_WORKER = '/superdoc/document-worker.js?v=5';
 
 const WARM_READY_MS = 20000;
 

@@ -7,11 +7,11 @@ import { releaseSuperDocWarmWorker } from '../../lib/warmSuperDoc';
 import { prepareResumeDocxForEditor, restoreResumeDocxAfterEditor } from '../../lib/docxColumnLayout';
 
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-const DOCUMENT_WORKER = '/api/superdoc-worker?kind=document&v=4';
-const REVIEW_WORKER = '/api/superdoc-worker?kind=review&v=4';
+const DOCUMENT_WORKER = '/superdoc/document-worker.js?v=5';
+const REVIEW_WORKER = '/superdoc/review-worker.js?v=5';
 
 function ensureSuperDocStyles(): Promise<void> {
-  const href = '/api/superdoc-style?v=3';
+  const href = '/superdoc/style.css?v=5';
   const existing = document.querySelector('link[data-superdoc-style]');
   if (existing instanceof HTMLLinkElement && existing.getAttribute('href') === href) {
     return Promise.resolve();

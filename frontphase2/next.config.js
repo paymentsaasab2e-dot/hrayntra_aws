@@ -34,6 +34,22 @@ const nextConfig = {
   },
   // Avoid re-bundling heavy CJS libs during compile when possible
   serverExternalPackages: ['mammoth', 'pdf-lib', 'xlsx', 'html2canvas', 'jspdf'],
+  outputFileTracingIncludes: {
+    '/api/superdoc-style': [
+      './public/superdoc/**/*',
+      './node_modules/superdoc/dist/**/*',
+      './node_modules/@superdoc/docx-engine/dist/**/*',
+      './node_modules/.pnpm/**/node_modules/superdoc/dist/**/*',
+      './node_modules/.pnpm/**/node_modules/@superdoc/docx-engine/dist/**/*',
+    ],
+    '/api/superdoc-worker': [
+      './public/superdoc/**/*',
+      './node_modules/superdoc/dist/**/*',
+      './node_modules/@superdoc/docx-engine/dist/**/*',
+      './node_modules/.pnpm/**/node_modules/superdoc/dist/**/*',
+      './node_modules/.pnpm/**/node_modules/@superdoc/docx-engine/dist/**/*',
+    ],
+  },
 };
 
 module.exports = nextConfig;
