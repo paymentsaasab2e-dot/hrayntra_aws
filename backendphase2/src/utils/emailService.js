@@ -1,5 +1,5 @@
 import { Resend } from 'resend';
-import { env } from '../config/env.js';
+import { env, isLoopbackPublicUrl, normalizePublicUrl } from '../config/env.js';
 import { getEmailFromForTrigger } from '../config/emailFromAddresses.js';
 import { isDeliverableEmail } from './emailDeliverability.js';
 
@@ -364,6 +364,27 @@ export async function sendPasswordResetEmail({
   }
 }
 
+/** Candidate portal for emails. Production never uses a localhost link copied from local .env. */
+function candidatePortalBase() {
+  const live =
+    env.NODE_ENV === 'production' ||
+    /employers\.hryantra\.com|api2\.hryantra\.com/i.test(
+      `${process.env.FRONTEND_URL || ''} ${process.env.BACKEND_PUBLIC_URL || ''} ${process.env.PUBLIC_BACKEND_URL || ''}`,
+    );
+  const configured = [
+    process.env.PHASE1_FRONTEND_URL,
+    process.env.JOB_PORTAL_FRONTEND_URL,
+    process.env.NEXT_PUBLIC_PHASE1_FRONTEND_URL,
+    process.env.NEXT_PUBLIC_JOB_PORTAL_URL,
+  ];
+  for (const raw of configured) {
+    const url = normalizePublicUrl(raw || '');
+    if (!url || isLoopbackPublicUrl(url)) continue;
+    return url;
+  }
+  return live ? 'https://hryantra.com' : 'http://localhost:3000';
+}
+
 /**
  * Ask a job-portal candidate to finish registration (HQ, one or many).
  */
@@ -372,13 +393,7 @@ export async function sendCompleteRegistrationEmail({ email, name }) {
   if (!to || !isDeliverableEmail(to)) {
     throw new Error('A valid email is required');
   }
-  const portal =
-    String(
-      process.env.PHASE1_FRONTEND_URL ||
-        process.env.JOB_PORTAL_FRONTEND_URL ||
-        process.env.NEXT_PUBLIC_PHASE1_FRONTEND_URL ||
-        'http://localhost:3000',
-    ).replace(/\/$/, '') + '/en/whatsapp';
+  const portal = `${candidatePortalBase()}/en/whatsapp`;
   const greeting = String(name || '')
     .replace(/[<>&"]/g, '')
     .trim();
