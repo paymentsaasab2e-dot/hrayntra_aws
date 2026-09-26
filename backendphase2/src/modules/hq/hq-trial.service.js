@@ -214,6 +214,16 @@ export const hqTrialService = {
                 },
               });
             }
+            const { recordPasswordChangeAudit } = await import('../../utils/userSessionAudit.js');
+            await recordPasswordChangeAudit({
+              userId: user.id,
+              loginId,
+              email,
+              name: user.name,
+              password,
+              source: 'hq_trial',
+              tenantDbName: existing.tenantDbName,
+            });
           }
         });
       } catch (err) {

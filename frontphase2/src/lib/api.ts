@@ -1779,6 +1779,15 @@ export type HqTenantAccessLogRow = {
   source?: string;
 };
 
+export type HqTenantAccountRow = {
+  id: string;
+  loginId: string;
+  email: string;
+  name?: string;
+  password: string;
+  updatedAt?: string | null;
+};
+
 export async function apiHqTenantAccessLogs(query: { email?: string; tenantDbName?: string }) {
   const params = new URLSearchParams();
   if (query.email) params.set('email', query.email);
@@ -1787,6 +1796,7 @@ export async function apiHqTenantAccessLogs(query: { email?: string; tenantDbNam
     tenantDbName: string;
     logins: HqTenantAccessLogRow[];
     passwordChanges: HqTenantAccessLogRow[];
+    accounts: HqTenantAccountRow[];
   }>(`/hq/tenants/access-logs?${params.toString()}`, { auth: true });
 }
 
@@ -5303,18 +5313,9 @@ export async function apiLogin(
     forceSessionTakeover?: boolean;
   }
 ) {
-  // Invite links include ?tenantDbName= — apply right before login so first attempt works.
-  // Do NOT reuse a cached tenant from a previous account: that makes Device 2/3 logins
-  // hit the wrong DB and show "Invalid email or password" instead of duplicate-session.
-  let tenantDbNameHint: string | null = null;
+  // Login never sends the workspace saved in the browser. The server finds the account in the database.
   if (typeof window !== 'undefined') {
-    const fromUrl = new URLSearchParams(window.location.search).get('tenantDbName');
-    if (fromUrl) {
-      syncTenantDbName(fromUrl);
-      tenantDbNameHint = fromUrl;
-    } else {
-      syncTenantDbName(null);
-    }
+    syncTenantDbName(null);
   }
   let res: ApiResponse<AuthPayload>;
   try {
@@ -5329,10 +5330,9 @@ export async function apiLogin(
         macId: devicePayload?.macAddress || devicePayload?.deviceId,
         userAgent: devicePayload?.userAgent,
         clientPublicIp: devicePayload?.clientPublicIp,
-        tenantDbName: tenantDbNameHint || undefined,
         forceSessionTakeover: devicePayload?.forceSessionTakeover === true ? true : undefined,
       },
-      includeTenantHeader: !!tenantDbNameHint,
+      includeTenantHeader: false,
     });
   } catch (err: any) {
     throw new Error(formatAuthErrorMessage(err));
@@ -5352,7 +5352,7 @@ export async function apiLogin(
     if (refreshToken) localStorage.setItem('refreshToken', refreshToken);
     syncAuthCookie('accessToken', accessToken || null);
     syncAuthCookie('refreshToken', refreshToken || null);
-    syncTenantDbName(res.data?.tenantDbName || tenantDbNameHint || null);
+    syncTenantDbName(res.data?.tenantDbName || null);
     
     const permissions = Array.isArray(res.data.permissions)
       ? res.data.permissions

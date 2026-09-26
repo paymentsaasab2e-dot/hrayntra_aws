@@ -33,6 +33,7 @@ import {
   apiHqTenantAccessLogs,
   type HqSubscriptionPackage,
   type HqTenantAccessLogRow,
+  type HqTenantAccountRow,
   type HqTenantRow,
 } from '@/lib/api';
 import {
@@ -184,6 +185,85 @@ function AccessLogTable({
   );
 }
 
+function AccountPasswordTable({
+  rows,
+  visible,
+  onToggle,
+}: {
+  rows: HqTenantAccountRow[];
+  visible: Record<string, boolean>;
+  onToggle: (id: string) => void;
+}) {
+  if (!rows.length) {
+    return (
+      <p className="rounded-xl border border-dashed border-slate-200 px-4 py-6 text-sm text-slate-500">
+        No users are stored for this workspace yet.
+      </p>
+    );
+  }
+  return (
+    <div className="overflow-x-auto rounded-xl border border-slate-200">
+      <table className="w-full min-w-[720px] text-left text-xs">
+        <thead className="bg-slate-50 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+          <tr>
+            <th className="px-3 py-2">User ID</th>
+            <th className="px-3 py-2">Email</th>
+            <th className="px-3 py-2">Password</th>
+            <th className="px-3 py-2">Updated</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => {
+            const shown = Boolean(visible[row.id]);
+            const password = String(row.password || '').trim();
+            return (
+              <tr key={row.id} className="border-t border-slate-100 align-top">
+                <td className="px-3 py-2">
+                  <div className="font-semibold text-slate-800">{row.loginId || '—'}</div>
+                  <div className="text-slate-500">{row.name || ''}</div>
+                </td>
+                <td className="px-3 py-2 text-slate-600">{row.email || '—'}</td>
+                <td className="px-3 py-2">
+                  {password ? (
+                    <div className="flex items-center gap-1">
+                      <span className="font-mono text-slate-800">
+                        {shown ? password : '••••••••'}
+                      </span>
+                      <button
+                        type="button"
+                        className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                        onClick={() => onToggle(row.id)}
+                        aria-label={shown ? 'Hide password' : 'Show password'}
+                      >
+                        {shown ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                        aria-label="Copy password"
+                        onClick={() => {
+                          void navigator.clipboard?.writeText(password);
+                        }}
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <span className="text-slate-400">Not stored yet</span>
+                  )}
+                </td>
+                <td className="whitespace-nowrap px-3 py-2 text-slate-600">
+                  {row.updatedAt ? formatLogTime(row.updatedAt) : '—'}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function planOptionLabelWithPrice(
   pkg: HqSubscriptionPackage,
   billingCycle: BillingCycle,
@@ -217,7 +297,9 @@ export function HqTenantDetailDrawer({
   const [accessLogs, setAccessLogs] = useState<{
     logins: HqTenantAccessLogRow[];
     passwordChanges: HqTenantAccessLogRow[];
-  }>({ logins: [], passwordChanges: [] });
+    accounts: HqTenantAccountRow[];
+  }>({ logins: [], passwordChanges: [], accounts: [] });
+  const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
   const [logsLoading, setLogsLoading] = useState(false);
   const [logsError, setLogsError] = useState('');
   const [pricingBillingPreview, setPricingBillingPreview] = useState<BillingCycle>('monthly');
@@ -278,11 +360,12 @@ export function HqTenantDetailDrawer({
         setAccessLogs({
           logins: res.data?.logins || [],
           passwordChanges: res.data?.passwordChanges || [],
+          accounts: res.data?.accounts || [],
         });
       })
       .catch((error: unknown) => {
         if (cancelled) return;
-        setAccessLogs({ logins: [], passwordChanges: [] });
+        setAccessLogs({ logins: [], passwordChanges: [], accounts: [] });
         setLogsError(error instanceof Error ? error.message : 'Could not load logs');
       })
       .finally(() => {
@@ -1167,6 +1250,19 @@ export function HqTenantDetailDrawer({
                           </p>
                         ) : null}
                         <section className="space-y-2">
+                          <h3 className="text-sm font-semibold text-slate-900">User IDs and passwords</h3>
+                          <p className="text-xs text-slate-500">
+                            Every user in this workspace. A password already saved in headquarters shows now. Any other password is stored the next time that user signs in or the password is changed.
+                          </p>
+                          <AccountPasswordTable
+                            rows={accessLogs.accounts}
+                            visible={visiblePasswords}
+                            onToggle={(id) =>
+                              setVisiblePasswords((current) => ({ ...current, [id]: !current[id] }))
+                            }
+                          />
+                        </section>
+                        <section className="space-y-2">
                           <h3 className="text-sm font-semibold text-slate-900">Sign-ins</h3>
                           <p className="text-xs text-slate-500">
                             Public IP, account, and device for each sign-in. Older rows saved as 127.0.0.1 show as not captured.
@@ -1180,7 +1276,7 @@ export function HqTenantDetailDrawer({
                         <section className="space-y-2">
                           <h3 className="text-sm font-semibold text-slate-900">Password changes</h3>
                           <p className="text-xs text-slate-500">
-                            IP address and device for each password change. Earlier changes made before this log was added are not listed.
+                            IP address and device for each password change from now on, including resets made in the workspace and in HQ.
                           </p>
                           <AccessLogTable
                             rows={accessLogs.passwordChanges}

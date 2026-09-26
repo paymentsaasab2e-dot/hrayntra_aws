@@ -391,6 +391,15 @@ export const teamMemberService = {
       });
 
       await recordTenantUserDirectoryEntry({ email: user.email, loginId });
+      const { recordPasswordChangeAudit } = await import('../../utils/userSessionAudit.js');
+      await recordPasswordChangeAudit({
+        userId: user.id,
+        loginId,
+        email: user.email,
+        name: user.name,
+        password: tempPassword,
+        source: 'team_credentials',
+      });
 
       credentialData = {
         loginId,
@@ -707,6 +716,15 @@ export const teamMemberService = {
     });
 
     await recordTenantUserDirectoryEntry({ email: user.email, loginId });
+    const { recordPasswordChangeAudit } = await import('../../utils/userSessionAudit.js');
+    await recordPasswordChangeAudit({
+      userId,
+      loginId,
+      email: user.email,
+      name: user.name,
+      password: tempPassword,
+      source: 'team_credentials',
+    });
 
     // Send invite email if requested
     if (sendInvite) {
@@ -777,17 +795,17 @@ export const teamMemberService = {
       },
     });
 
-    if (audit) {
-      const { recordPasswordChangeAudit } = await import('../../utils/userSessionAudit.js');
-      await recordPasswordChangeAudit({
-        userId,
-        loginId: user.credential?.loginId,
-        email: user.email,
-        ipAddress: audit.ipAddress,
-        device: audit.device,
-        source: audit.source || 'team_reset',
-      });
-    }
+    const { recordPasswordChangeAudit } = await import('../../utils/userSessionAudit.js');
+    await recordPasswordChangeAudit({
+      userId,
+      loginId: user.credential?.loginId,
+      email: user.email,
+      name: user.name,
+      password: tempPassword,
+      ipAddress: audit?.ipAddress,
+      device: audit?.device,
+      source: audit?.source || 'team_reset',
+    });
 
     await recordTenantUserDirectoryEntry({
       email: user.email,
@@ -827,7 +845,7 @@ export const teamMemberService = {
 
   /**
    * Super Admin only: set a member's login password to an explicit value.
-   * Existing passwords cannot be read back (one-way hash).
+   * HQ can read the current password from the tenant Logs tab.
    */
   async setPassword(userId, newPassword, actorUser, audit = null) {
     if (!isSuperAdminUser({ user: actorUser })) {
@@ -875,17 +893,17 @@ export const teamMemberService = {
       },
     });
 
-    if (audit) {
-      const { recordPasswordChangeAudit } = await import('../../utils/userSessionAudit.js');
-      await recordPasswordChangeAudit({
-        userId,
-        loginId: user.credential.loginId,
-        email: user.email,
-        ipAddress: audit.ipAddress,
-        device: audit.device,
-        source: audit.source || 'team_set_password',
-      });
-    }
+    const { recordPasswordChangeAudit } = await import('../../utils/userSessionAudit.js');
+    await recordPasswordChangeAudit({
+      userId,
+      loginId: user.credential.loginId,
+      email: user.email,
+      name: user.name,
+      password: pwd,
+      ipAddress: audit?.ipAddress,
+      device: audit?.device,
+      source: audit?.source || 'team_set_password',
+    });
 
     return {
       message: 'Password updated successfully.',
@@ -929,6 +947,15 @@ export const teamMemberService = {
     await recordTenantUserDirectoryEntry({
       email: user.email,
       loginId: user.credential.loginId,
+    });
+    const { recordPasswordChangeAudit } = await import('../../utils/userSessionAudit.js');
+    await recordPasswordChangeAudit({
+      userId,
+      loginId: user.credential.loginId,
+      email: user.email,
+      name: user.name,
+      password: tempPassword,
+      source: 'team_resend_invite',
     });
 
     // Send invite email

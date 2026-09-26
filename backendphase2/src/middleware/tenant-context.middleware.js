@@ -58,7 +58,19 @@ export function authenticatedTenantAfterMulter(req, res, next) {
   return runWithTenantContext(tenantDbName, () => next());
 }
 
+function isLoginRequest(req) {
+  if (req.method !== 'POST') return false;
+  const path = String(req.originalUrl || req.path || '').split('?')[0];
+  return path === '/api/v1/auth/login' || path.endsWith('/auth/login');
+}
+
 export function tenantContextMiddleware(req, res, next) {
+  // Sign-in always looks the account up in the database. The workspace name
+  // saved in the browser is for later requests, not for choosing the login database.
+  if (isLoginRequest(req)) {
+    return runWithTenantContext('', () => next());
+  }
+
   const token = extractBearerToken(req.headers.authorization);
   const payload = resolveTokenPayload(token);
 
