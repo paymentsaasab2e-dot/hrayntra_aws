@@ -447,7 +447,8 @@ async function ensureSuperAdminRoleAndDepartment() {
   return { superAdminRole, department };
 }
 
-async function ensureLocalSuperAdminFromHeadquarters(hqUser) {
+async function ensureLocalSuperAdminFromHeadquarters(hqUser, options = {}) {
+  const syncPassword = options.syncPassword !== false;
   const { superAdminRole, department } = await ensureSuperAdminRoleAndDepartment();
   const existing = await prisma.user.findUnique({
     where: { email: hqUser.email },
@@ -492,7 +493,7 @@ async function ensureLocalSuperAdminFromHeadquarters(hqUser) {
   }
 
   const plainLoginId = String(hqUser.loginId || hqUser.email || '').trim();
-  if (plainLoginId && hqUser.password) {
+  if (syncPassword && plainLoginId && hqUser.password) {
     const hashedPassword = await bcrypt.hash(String(hqUser.password), 10);
     await prisma.userCredential.upsert({
       where: { userId: user.id },
@@ -1942,7 +1943,9 @@ export const authService = {
     };
 
     const loginResult = await runWithTenantContext(tenantDbName, async () => {
-      const tenantLocalUser = await ensureLocalSuperAdminFromHeadquarters(headquartersUser);
+      const tenantLocalUser = await ensureLocalSuperAdminFromHeadquarters(headquartersUser, {
+        syncPassword: false,
+      });
       const tokenResult = await sessionService.issueHqImpersonationTokens({
         userId: tenantLocalUser.id,
         tokenPayload: {
@@ -1965,15 +1968,6 @@ export const authService = {
         },
         deviceMeta: impersonationDeviceMeta,
         hqActorEmail: payload.hqActorEmail,
-      });
-
-      await prisma.user.update({
-        where: { id: tenantLocalUser.id },
-        data: {
-          isActive: true,
-          role: 'SUPER_ADMIN',
-          lastLogin: new Date(),
-        },
       });
 
       return {

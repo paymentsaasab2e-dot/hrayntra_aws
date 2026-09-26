@@ -1252,7 +1252,7 @@ export function HqTenantDetailDrawer({
                         <section className="space-y-2">
                           <h3 className="text-sm font-semibold text-slate-900">User IDs and passwords</h3>
                           <p className="text-xs text-slate-500">
-                            Every user in this workspace. A password already saved in headquarters shows now. Any other password is stored the next time that user signs in or the password is changed.
+                            The password is saved only when that person signs in with their user ID and password, or when the password is changed. Opening the account from headquarters is not a sign-in and does not store a password.
                           </p>
                           <AccountPasswordTable
                             rows={accessLogs.accounts}

@@ -227,9 +227,58 @@ export interface ApiResponse<T> {
   };
 }
 
+export const ISOLATED_AUTH_FLAG = 'hrayntra:isolated-session';
+
+/** This browser tab opened a tenant from HQ. It must not replace the HQ tab's saved login. */
+export function isIsolatedAuthSession() {
+  if (typeof window === 'undefined') return false;
+  try {
+    return sessionStorage.getItem(ISOLATED_AUTH_FLAG) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function beginIsolatedAuthSession() {
+  if (typeof window === 'undefined') return;
+  try {
+    sessionStorage.setItem(ISOLATED_AUTH_FLAG, '1');
+  } catch {
+    /* private mode */
+  }
+}
+
+export function authSessionStorage(): Storage | null {
+  if (typeof window === 'undefined') return null;
+  return isIsolatedAuthSession() ? sessionStorage : localStorage;
+}
+
+export function clearIsolatedAuthSession() {
+  if (typeof window === 'undefined') return;
+  [
+    'accessToken',
+    'refreshToken',
+    'currentUser',
+    'userPermissions',
+    'requirePasswordReset',
+    'lastLoginId',
+    'tenantDbName',
+    ISOLATED_AUTH_FLAG,
+  ].forEach((key) => {
+    try {
+      sessionStorage.removeItem(key);
+    } catch {
+      /* ignore */
+    }
+  });
+}
+
 export function getAccessToken() {
   if (typeof window === 'undefined') return null;
   try {
+    if (isIsolatedAuthSession()) {
+      return sessionStorage.getItem('accessToken');
+    }
     const fromStorage = localStorage.getItem('accessToken');
     if (fromStorage) return fromStorage;
 
@@ -256,7 +305,8 @@ async function refreshAccessTokenSingleFlight(): Promise<string | null> {
 
   refreshInFlight = (async () => {
     try {
-      const refreshToken = localStorage.getItem('refreshToken');
+      const store = authSessionStorage();
+      const refreshToken = store?.getItem('refreshToken') || null;
       if (!refreshToken) return null;
       const refreshResponse = await apiFetch<{ accessToken: string; refreshToken: string }>('/auth/refresh', {
         method: 'POST',
@@ -267,13 +317,15 @@ async function refreshAccessTokenSingleFlight(): Promise<string | null> {
         includeTenantHeader: false,
       });
       const nextAccess = refreshResponse?.data?.accessToken;
-      if (!nextAccess) return null;
-      localStorage.setItem('accessToken', nextAccess);
+      if (!nextAccess || !store) return null;
+      store.setItem('accessToken', nextAccess);
       if (refreshResponse.data.refreshToken) {
-        localStorage.setItem('refreshToken', refreshResponse.data.refreshToken);
+        store.setItem('refreshToken', refreshResponse.data.refreshToken);
       }
-      syncAuthCookie('accessToken', nextAccess);
-      syncAuthCookie('refreshToken', refreshResponse.data.refreshToken || refreshToken);
+      if (!isIsolatedAuthSession()) {
+        syncAuthCookie('accessToken', nextAccess);
+        syncAuthCookie('refreshToken', refreshResponse.data.refreshToken || refreshToken);
+      }
       return nextAccess;
     } catch {
       return null;
@@ -288,6 +340,9 @@ async function refreshAccessTokenSingleFlight(): Promise<string | null> {
 export function getTenantDbName() {
   if (typeof window === 'undefined') return null;
   try {
+    if (isIsolatedAuthSession()) {
+      return sessionStorage.getItem('tenantDbName');
+    }
     return localStorage.getItem('tenantDbName');
   } catch (error) {
     console.error('Error accessing localStorage tenantDbName:', error);
@@ -332,6 +387,13 @@ function attachOrgSideHeader(headers: Record<string, string>) {
 /** Persist workspace DB name so API calls (including login) send `x-tenant-db-name`. */
 export function syncTenantDbName(value: string | null | undefined) {
   if (typeof window === 'undefined') return;
+
+  if (isIsolatedAuthSession()) {
+    const normalized = String(value || '').trim();
+    if (!normalized) sessionStorage.removeItem('tenantDbName');
+    else sessionStorage.setItem('tenantDbName', normalized);
+    return;
+  }
 
   const previous = String(localStorage.getItem('tenantDbName') || '').trim();
   const normalized = String(value || '').trim();
@@ -1797,7 +1859,10 @@ export async function apiHqTenantAccessLogs(query: { email?: string; tenantDbNam
     logins: HqTenantAccessLogRow[];
     passwordChanges: HqTenantAccessLogRow[];
     accounts: HqTenantAccountRow[];
-  }>(`/hq/tenants/access-logs?${params.toString()}`, { auth: true });
+  }>(`/hq/tenants/access-logs?${params.toString()}`, {
+    auth: true,
+    includeTenantHeader: false,
+  });
 }
 
 export type HqAccountSupportLookup = {
@@ -1847,8 +1912,22 @@ export type HqAccountSupportLookup = {
     lastLoginAt?: string | null;
     createdAt?: string | null;
     portalFrontendUrl?: string;
+    onboardingState?: string | null;
+    incompleteShell?: boolean;
+    stuckParse?: boolean;
+    hasResumeFile?: boolean;
+    hasName?: boolean;
+    parseStatus?: string | null;
+    parseError?: string | null;
+    uploadHintUrl?: string | null;
     relatedTickets?: HqAccountSupportLookup['relatedTickets'];
     ticketCount?: number;
+  } | null;
+  lookupError?: string | null;
+  suggestedActions?: {
+    askReuploadCv?: boolean;
+    createOrReusePortalAccount?: boolean;
+    uploadHintUrl?: string | null;
   } | null;
 };
 
@@ -1917,6 +1996,57 @@ export async function apiHqAccountSupportImpersonateEmployee(body: {
   });
 }
 
+export async function apiHqAccountSupportRepairEmployee(body: {
+  email?: string;
+  candidateId?: string;
+}) {
+  return apiFetch<{
+    candidateId?: string;
+    email?: string | null;
+    name?: string | null;
+    message?: string;
+    actions?: string[];
+    onboardingState?: string | null;
+    incompleteShell?: boolean;
+    stuckParse?: boolean;
+    hasResumeFile?: boolean;
+    uploadHintUrl?: string | null;
+    parseStatus?: string | null;
+  }>('/hq/account-support/repair-employee', {
+    method: 'POST',
+    auth: true,
+    body,
+  });
+}
+
+export async function apiHqAccountSupportProvisionEmployee(body: {
+  email: string;
+  name?: string;
+  phone?: string;
+  forceOverrideIncomplete?: boolean;
+  sendPasswordEmail?: boolean;
+}) {
+  return apiFetch<{
+    mode?: 'created' | 'reused_incomplete' | 'already_exists' | string;
+    candidateId?: string;
+    email?: string | null;
+    name?: string | null;
+    message?: string;
+    actions?: string[];
+    askUserToReuploadCv?: boolean;
+    uploadHintUrl?: string | null;
+    loginHintUrl?: string | null;
+    credentialEmailSent?: boolean;
+    credentialEmailError?: string | null;
+    tempPassword?: string | null;
+    onboardingState?: string | null;
+  }>('/hq/account-support/provision-employee', {
+    method: 'POST',
+    auth: true,
+    body,
+  });
+}
+
 export type HqTenantImpersonationAccess = {
   token: string;
   loginUrl: string;
@@ -1931,6 +2061,7 @@ export async function apiHqCreateTenantImpersonation(body: { email: string }) {
   return apiFetch<HqTenantImpersonationAccess>('/hq/tenants/impersonate', {
     method: 'POST',
     auth: true,
+    includeTenantHeader: false,
     body,
   });
 }
@@ -1955,7 +2086,11 @@ export async function apiConsumeImpersonationToken(body: {
     };
     permissions: string[];
     requirePasswordReset?: boolean;
-  }>('/auth/consume-impersonation-token', { method: 'POST', body });
+  }>('/auth/consume-impersonation-token', {
+    method: 'POST',
+    body,
+    includeTenantHeader: false,
+  });
 }
 
 export type HqLeadStorageInfo = {
@@ -3011,6 +3146,21 @@ export async function apiHqListCandidates() {
     >;
     storage: HqPortalStorageInfo;
   }>('/hq/candidates', { auth: true });
+}
+
+export async function apiHqEmailCompleteRegistration(body: {
+  recipients: Array<{ email: string; name?: string }>;
+}) {
+  return apiFetch<{
+    sentCount: number;
+    failedCount: number;
+    sent: string[];
+    failed: Array<{ email: string; error: string }>;
+  }>('/hq/candidates/complete-registration-email', {
+    method: 'POST',
+    auth: true,
+    body,
+  });
 }
 
 export type HqKycInterviewerRow = {
@@ -5502,26 +5652,30 @@ export async function apiRegister(name: string, email: string, password: string,
 }
 
 export async function apiRefreshToken() {
-  const refreshToken = typeof window !== 'undefined' ? localStorage.getItem('refreshToken') : null;
+  const store = typeof window !== 'undefined' ? authSessionStorage() : null;
+  const refreshToken = store?.getItem('refreshToken') || null;
   if (!refreshToken) {
     throw new Error('No refresh token available');
   }
 
   const tenantDbNameHint = getTenantDbName();
+  const isolated = isIsolatedAuthSession();
   const res = await apiFetch<{ accessToken: string; refreshToken: string; tenantDbName?: string }>('/auth/refresh', {
     method: 'POST',
     body: { refreshToken },
     auth: false, // Don't require auth for refresh endpoint
-    includeTenantHeader: !!tenantDbNameHint,
+    includeTenantHeader: !isolated && !!tenantDbNameHint,
   });
 
-  if (typeof window !== 'undefined') {
-    localStorage.setItem('accessToken', res.data.accessToken);
+  if (typeof window !== 'undefined' && store) {
+    store.setItem('accessToken', res.data.accessToken);
     if (res.data.refreshToken) {
-      localStorage.setItem('refreshToken', res.data.refreshToken);
+      store.setItem('refreshToken', res.data.refreshToken);
     }
-    syncAuthCookie('accessToken', res.data.accessToken);
-    syncAuthCookie('refreshToken', res.data.refreshToken || null);
+    if (!isolated) {
+      syncAuthCookie('accessToken', res.data.accessToken);
+      syncAuthCookie('refreshToken', res.data.refreshToken || null);
+    }
     syncTenantDbName(res.data?.tenantDbName || tenantDbNameHint || null);
 
     await syncOrgRecruitmentSummaryFromApi();
@@ -5541,7 +5695,7 @@ export async function apiLogout() {
   }
 
   try {
-    const token = localStorage.getItem('accessToken');
+    const token = getAccessToken();
     if (token) {
       let sessionId: string | undefined;
       try {
@@ -5562,6 +5716,10 @@ export async function apiLogout() {
   } catch (error) {
     console.warn('Logout API failed, clearing local session anyway.', error);
   } finally {
+    if (isIsolatedAuthSession()) {
+      clearIsolatedAuthSession();
+      return;
+    }
     localStorage.removeItem('accessToken');
     localStorage.removeItem('refreshToken');
     localStorage.removeItem('currentUser');

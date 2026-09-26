@@ -35,20 +35,10 @@ function parseWatermarkLogoRef(imageUrl = '') {
   }
 }
 
-/**
- * Org export watermark for public client-review exports (no auth cookie).
- * Embeds logo as data URL when possible so Excel/PDF stamp works offline.
- */
-export async function getPublicClientReviewExportWatermark() {
-  const watermark = normalizeExportWatermark(await getExportWatermark());
-  if (!watermark.enabled) {
-    return { ...watermark, imageDataUrl: '' };
-  }
-
+async function embedWatermarkLogo(watermark) {
   let imageDataUrl = '';
   const ref = parseWatermarkLogoRef(watermark.imageUrl);
   const activeTenant = String(getActiveTenantDbName() || '').trim();
-  // Public review has no login. Only the tenant that owns this request may supply the logo.
   const logoTenant = activeTenant || String(ref?.tenantDbName || '').trim();
   const foreignLogo =
     Boolean(activeTenant) &&
@@ -66,15 +56,26 @@ export async function getPublicClientReviewExportWatermark() {
         imageDataUrl = `data:${mime};base64,${Buffer.from(file.buffer).toString('base64')}`;
       }
     } catch (err) {
-      console.warn(
-        '[exportWatermark] public review logo embed failed:',
-        err?.message || err,
-      );
+      console.warn('[exportWatermark] logo embed failed:', err?.message || err);
     }
   }
+  return { ...watermark, imageDataUrl };
+}
 
-  return {
-    ...watermark,
-    imageDataUrl,
-  };
+/** Settings page: include the uploaded logo even when the stamp is turned off. */
+export async function getExportWatermarkForSettings() {
+  const watermark = normalizeExportWatermark(await getExportWatermark());
+  return embedWatermarkLogo(watermark);
+}
+
+/**
+ * Org export watermark for public client-review exports (no auth cookie).
+ * Embeds logo as data URL when possible so Excel/PDF stamp works offline.
+ */
+export async function getPublicClientReviewExportWatermark() {
+  const watermark = normalizeExportWatermark(await getExportWatermark());
+  if (!watermark.enabled) {
+    return { ...watermark, imageDataUrl: '' };
+  }
+  return embedWatermarkLogo(watermark);
 }

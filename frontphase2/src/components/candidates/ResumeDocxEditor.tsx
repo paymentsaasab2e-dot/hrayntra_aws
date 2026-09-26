@@ -57,6 +57,54 @@ function showFullDocumentPage(root: HTMLElement) {
   }
 }
 
+/**
+ * A designed resume can contain one large curve or arrow. SuperDoc sometimes
+ * paints that drawing bigger than the page, so the editor shows only the
+ * curve. Keep every drawing inside the page.
+ */
+function clampDrawingsToPage(root: HTMLElement) {
+  const page = root.querySelector('.superdoc-page');
+  if (!(page instanceof HTMLElement)) return;
+  const limitW = page.clientWidth || page.getBoundingClientRect().width;
+  const limitH = page.clientHeight || page.getBoundingClientRect().height;
+  if (limitW < 240 || limitH < 240) return;
+  const nodes = root.querySelectorAll<HTMLElement>(
+    '.superdoc-vector-shape, .superdoc-drawing-fragment, .superdoc-shape-group, .superdoc-drawing-inner, .superdoc-image-fragment',
+  );
+  nodes.forEach((node) => {
+    const width = Number.parseFloat(node.style.width);
+    const height = Number.parseFloat(node.style.height);
+    const box = node.getBoundingClientRect();
+    const w = Number.isFinite(width) && width > box.width ? width : box.width;
+    const h = Number.isFinite(height) && height > box.height ? height : box.height;
+    if (w < limitW * 1.25 && h < limitH * 1.25) return;
+    if (w >= 20000 || h >= 20000) {
+      if (w >= 20000) node.style.width = `${Math.max(1, w / EMU_PER_CSS_PX)}px`;
+      if (h >= 20000) node.style.height = `${Math.max(1, h / EMU_PER_CSS_PX)}px`;
+    }
+    const nextBox = node.getBoundingClientRect();
+    const scale = Math.min(limitW / Math.max(nextBox.width, 1), limitH / Math.max(nextBox.height, 1));
+    if (!Number.isFinite(scale) || scale >= 0.98 || scale < 0.02) return;
+    node.style.transformOrigin = 'top left';
+    node.style.transform = `scale(${scale})`;
+    node.style.overflow = 'hidden';
+  });
+}
+
+/** If the page is larger than the editor, show the whole page instead of one corner. */
+function fitPageToEditor(root: HTMLElement) {
+  const page = root.querySelector('.superdoc-page');
+  if (!(page instanceof HTMLElement)) return;
+  const host = root.getBoundingClientRect();
+  const pageRect = page.getBoundingClientRect();
+  if (host.width < 240 || pageRect.width < 240) return;
+  if (pageRect.width <= host.width * 1.08 && pageRect.height <= host.height * 1.25) return;
+  const scale = Math.min((host.width - 32) / pageRect.width, (host.height - 32) / pageRect.height);
+  if (!Number.isFinite(scale) || scale >= 0.98 || scale < 0.05) return;
+  page.style.transformOrigin = 'top center';
+  page.style.transform = `scale(${scale})`;
+}
+
 /** Some Word drawings are laid out in EMUs and paint as a page-sized blob. */
 function shrinkEmuSizedBoxes(root: HTMLElement) {
   root.querySelectorAll<HTMLElement>('[style*="width"], [style*="height"]').forEach((node) => {
@@ -212,6 +260,8 @@ export const ResumeDocxEditor = forwardRef<ResumeDocxEditorHandle, ResumeDocxEdi
                 const fitDrawings = () => {
                   if (cancelled || !hostRef.current) return;
                   shrinkEmuSizedBoxes(hostRef.current);
+                  clampDrawingsToPage(hostRef.current);
+                  fitPageToEditor(hostRef.current);
                   showFullDocumentPage(hostRef.current);
                 };
                 fitDrawings();
@@ -301,17 +351,28 @@ export const ResumeDocxEditor = forwardRef<ResumeDocxEditorHandle, ResumeDocxEdi
           .saasa-docx-editor .superdoc-page {
             box-sizing: border-box;
             max-width: 100%;
+            margin-left: auto;
+            margin-right: auto;
+            overflow: hidden;
+          }
+          .saasa-docx-editor .superdoc-vector-shape,
+          .saasa-docx-editor .superdoc-drawing-fragment,
+          .saasa-docx-editor .superdoc-shape-group,
+          .saasa-docx-editor .superdoc-drawing-inner,
+          .saasa-docx-editor .superdoc-image-fragment {
+            max-width: 100%;
+            max-height: 100%;
+            overflow: hidden;
           }
           .saasa-docx-editor .superdoc-drawing-fragment img,
           .saasa-docx-editor .superdoc-vector-shape img,
+          .saasa-docx-editor .superdoc-vector-shape svg,
           .saasa-docx-editor .superdoc-shape-group__child img,
-          .saasa-docx-editor .superdoc-image-fragment img {
+          .saasa-docx-editor .superdoc-image-fragment img,
+          .saasa-docx-editor [data-sd-headerfooter-kind] img {
             object-fit: contain !important;
             max-width: 100%;
             max-height: 100%;
-          }
-          .saasa-docx-editor [data-sd-headerfooter-kind] img {
-            object-fit: fill !important;
           }
         `}</style>
         <div ref={toolbarRef} className="z-20 shrink-0 border-b border-slate-200 bg-white" />
