@@ -390,7 +390,7 @@ export async function sendCompleteRegistrationEmail({ email, name }) {
       <p><a href="${portal}">Open HRYantra</a></p>
       <p>HRYantra Support</p>
     </div>`;
-  const result = await resend.emails.send({
+  const result = await getResend().emails.send({
     from: getEmailFromForTrigger('auth.otp_verification'),
     to,
     subject: 'Please complete your HRYantra registration',
