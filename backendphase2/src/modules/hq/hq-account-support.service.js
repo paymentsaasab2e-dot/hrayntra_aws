@@ -94,6 +94,7 @@ async function resolvePortalCandidate({ email, candidateId, q }) {
   const headers = { 'Content-Type': 'application/json' };
   if (key) headers['x-internal-admin-key'] = key;
 
+  let lastError = null;
   try {
     const response = await fetch(`${base}/api/hq/candidate-lookup`, {
       method: 'POST',
@@ -104,26 +105,114 @@ async function resolvePortalCandidate({ email, candidateId, q }) {
       }),
     });
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok || !payload?.success || !payload?.data) return null;
-    const data = payload.data;
-    return {
-      exists: true,
-      accountKind: 'employee',
-      candidateId: data.candidateId,
-      email: normalizeEmail(data.email) || emailLookup || null,
-      name: data.name || data.email || 'Candidate',
-      status: data.status || null,
-      isVerified: Boolean(data.isVerified),
-      passwordGenerated: Boolean(data.passwordGenerated),
-      hasLoggedInToPortal: Boolean(data.hasLoggedInToPortal),
-      lastLoginAt: data.lastLoginAt || null,
-      createdAt: data.createdAt || null,
-      portalFrontendUrl: phase1FrontendBase(),
-    };
+    if (response.ok && payload?.success && payload?.data) {
+      const data = payload.data;
+      return {
+        exists: true,
+        accountKind: 'employee',
+        candidateId: data.candidateId,
+        email: normalizeEmail(data.email) || emailLookup || null,
+        name: data.name || data.email || 'Candidate',
+        status: data.status || null,
+        isVerified: Boolean(data.isVerified),
+        passwordGenerated: Boolean(data.passwordGenerated),
+        hasLoggedInToPortal: Boolean(data.hasLoggedInToPortal),
+        lastLoginAt: data.lastLoginAt || null,
+        createdAt: data.createdAt || null,
+        portalFrontendUrl: phase1FrontendBase(),
+        onboardingState: data.onboardingState || null,
+        incompleteShell: Boolean(data.incompleteShell),
+        stuckParse: Boolean(data.stuckParse),
+        hasResumeFile: Boolean(data.hasResumeFile),
+        hasName: data.hasName !== false,
+        parseStatus: data.parseStatus || null,
+        parseError: data.parseError || null,
+        uploadHintUrl: data.uploadHintUrl || `${phase1FrontendBase()}/uploadcv`,
+      };
+    }
+    lastError =
+      payload?.message ||
+      (response.status === 403
+        ? 'Phase 1 admin key rejected (x-internal-admin-key)'
+        : response.status === 404
+          ? null
+          : `Phase 1 lookup HTTP ${response.status}`);
+    if (response.status === 404) lastError = null;
   } catch (err) {
-    console.warn('[hq-account-support] portal candidate lookup failed:', err?.message || err);
-    return null;
+    lastError = err?.message || 'Phase 1 API unreachable';
+    console.warn('[hq-account-support] portal candidate lookup failed:', lastError);
   }
+
+  // Direct portal DB fallback when Phase 1 API is down / misconfigured
+  try {
+    const { getJobPortalPrismaClient } = await import('../../config/prisma.js');
+    const portal = getJobPortalPrismaClient();
+    let row = null;
+    if (idLookup) {
+      row = await portal.candidate.findFirst({
+        where: { id: idLookup },
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          status: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+    }
+    if (!row && emailLookup) {
+      row = await portal.candidate.findFirst({
+        where: { email: emailLookup },
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          status: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+    }
+    if (row) {
+      return {
+        exists: true,
+        accountKind: 'employee',
+        candidateId: row.id,
+        email: normalizeEmail(row.email) || emailLookup || null,
+        name:
+          [row.firstName, row.lastName].filter(Boolean).join(' ').trim() ||
+          row.email ||
+          'Candidate',
+        status: row.status || null,
+        isVerified: null,
+        passwordGenerated: null,
+        hasLoggedInToPortal: null,
+        lastLoginAt: null,
+        createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
+        portalFrontendUrl: phase1FrontendBase(),
+        lookupNote: lastError
+          ? `Found via portal DB fallback (${lastError})`
+          : 'Found via portal DB',
+      };
+    }
+  } catch (err) {
+    console.warn(
+      '[hq-account-support] portal DB fallback failed:',
+      err?.message || err,
+    );
+    if (!lastError) lastError = err?.message || 'Portal DB lookup failed';
+  }
+
+  if (lastError) {
+    return {
+      exists: false,
+      lookupError: lastError,
+    };
+  }
+  return null;
 }
 
 async function loadTenantLoginStatus(workspace) {
@@ -297,7 +386,12 @@ function mapEmployerResult(workspace, loginStatus, relatedTickets) {
 export const hqAccountSupportService = {
   async lookup(query = {}) {
     const workspace = await resolveWorkspace(query);
-    const employee = await resolvePortalCandidate(query);
+    const employeeRaw = await resolvePortalCandidate(query);
+    const employeeLookupError =
+      employeeRaw && employeeRaw.exists === false ? employeeRaw.lookupError || null : null;
+    const employee = employeeRaw && employeeRaw.exists !== false && employeeRaw.candidateId
+      ? employeeRaw
+      : null;
 
     let employer = null;
     if (workspace) {
@@ -318,12 +412,30 @@ export const hqAccountSupportService = {
 
     const exists = Boolean(employer || employeeResult);
     if (!exists) {
+      const emailForTickets =
+        normalizeEmail(query.email) ||
+        (String(query.q || '').includes('@') ? normalizeEmail(query.q) : '');
+      let relatedTickets = [];
+      if (emailForTickets) {
+        relatedTickets = await loadRelatedEmployeeTickets({ email: emailForTickets });
+        if (!relatedTickets.length) {
+          relatedTickets = await loadRelatedEmployerTickets({ email: emailForTickets });
+        }
+      }
       return {
         exists: false,
         employer: null,
         employee: null,
+        lookupError: employeeLookupError || null,
+        relatedTickets,
+        ticketCount: relatedTickets.length,
+        suggestedActions: {
+          askReuploadCv: Boolean(emailForTickets),
+          createOrReusePortalAccount: Boolean(emailForTickets),
+          uploadHintUrl: `${phase1FrontendBase()}/uploadcv`,
+        },
         query: {
-          email: normalizeEmail(query.email) || null,
+          email: emailForTickets || null,
           customerId: String(query.customerId || query.tenantDbName || query.q || '').trim() || null,
         },
       };
@@ -482,6 +594,83 @@ export const hqAccountSupportService = {
       loginUrl,
       token: data.token || null,
       expiresIn: data.expiresIn || '2h',
+    };
+  },
+
+  /**
+   * Repair incomplete Phase 1 portal shells (connectivity drop mid CV upload).
+   */
+  async repairIncompleteEmployee({ email, candidateId, q } = {}) {
+    const employee = await resolvePortalCandidate({ email, candidateId, q });
+    if (!employee?.candidateId && !email && !candidateId) {
+      throw Object.assign(new Error('Job portal candidate not found'), { statusCode: 404 });
+    }
+
+    const base = phase1ApiBase();
+    const key = phase1InternalAdminKey();
+    const headers = { 'Content-Type': 'application/json' };
+    if (key) headers['x-internal-admin-key'] = key;
+
+    const response = await fetch(`${base}/api/hq/repair-incomplete-candidate`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        email: employee?.email || normalizeEmail(email) || undefined,
+        candidateId: employee?.candidateId || candidateId || undefined,
+      }),
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload?.success) {
+      throw Object.assign(
+        new Error(payload?.message || 'Could not repair incomplete candidate'),
+        { statusCode: response.status || 400 },
+      );
+    }
+
+    return {
+      ...(payload.data || {}),
+      message: payload.message || 'Repair applied',
+    };
+  },
+
+  /**
+   * Create new portal candidate OR reuse/override incomplete shell for same email.
+   */
+  async provisionOrReuseEmployee({ email, name, phone, forceOverrideIncomplete, sendPasswordEmail } = {}) {
+    const normalized = normalizeEmail(email);
+    if (!normalized) {
+      throw Object.assign(new Error('Email is required'), { statusCode: 400 });
+    }
+
+    const base = phase1ApiBase();
+    const key = phase1InternalAdminKey();
+    const headers = { 'Content-Type': 'application/json' };
+    if (key) headers['x-internal-admin-key'] = key;
+
+    const response = await fetch(`${base}/api/hq/provision-or-reuse-candidate`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        email: normalized,
+        name: name || undefined,
+        phone: phone || undefined,
+        forceOverrideIncomplete: forceOverrideIncomplete !== false,
+        sendPasswordEmail: sendPasswordEmail !== false,
+      }),
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload?.success) {
+      throw Object.assign(
+        new Error(payload?.message || 'Could not create or reuse portal candidate'),
+        { statusCode: response.status || 400 },
+      );
+    }
+
+    return {
+      ...(payload.data || {}),
+      message: payload.message || 'Portal account ready',
     };
   },
 };
