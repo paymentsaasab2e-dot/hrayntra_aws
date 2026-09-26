@@ -185,9 +185,10 @@ export default function HqCandidatesPage() {
       const res = await apiHqEmailCompleteRegistration({ recipients });
       const sent = res.data?.sentCount ?? 0;
       const failed = res.data?.failedCount ?? 0;
+      const reason = res.data?.failed?.[0]?.error;
       setMailNote(
         failed
-          ? `Sent ${sent}. ${failed} could not be sent.`
+          ? `Sent ${sent}. ${failed} could not be sent.${reason ? ` ${reason}` : ''}`
           : `Sent ${sent} registration email${sent === 1 ? '' : 's'}.`,
       );
       setSelectedIds([]);
