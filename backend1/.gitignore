@@ -6,4 +6,3 @@ dist/
 uploads/
 temp/
 *.log
-data/.cv-parse-active.json

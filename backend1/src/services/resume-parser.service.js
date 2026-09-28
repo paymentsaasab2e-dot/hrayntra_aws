@@ -595,7 +595,12 @@ function normalizeData(validatedData) {
     });
 
     const enriched = enrichPersonalInformationFromResumeText(pi, normalized._resumeTextForNameFallback);
-    normalized.personalInformation = deriveCityCountryFromAddress(enriched);
+    // Keep AI-extracted phone/email/DOB/address — name helper used to return names only
+    // and replace the whole object, wiping every other basic field.
+    normalized.personalInformation = deriveCityCountryFromAddress({
+      ...pi,
+      ...enriched,
+    });
     delete normalized._resumeTextForNameFallback;
   }
   

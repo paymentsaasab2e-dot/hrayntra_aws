@@ -301,6 +301,8 @@ export const env = {
   AWS_SECRET_ACCESS_KEY: process.env.AWS_SECRET_ACCESS_KEY,
   AWS_REGION: process.env.AWS_REGION,
   AWS_BUCKET_NAME: process.env.AWS_BUCKET_NAME,
+  /** Optional MinIO / custom S3 endpoint (UAT). When set, SDK uses path-style. */
+  AWS_S3_ENDPOINT: process.env.AWS_S3_ENDPOINT || '',
   /**
    * First segment after `uploads/` (default `phase2`). Keys: uploads/{phase}/tenants/{tenant}/jobportal/…
    * Tenant comes from JWT / x-tenant-db-name / request context — not from this env var.

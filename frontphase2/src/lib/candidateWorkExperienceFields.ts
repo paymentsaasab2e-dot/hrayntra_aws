@@ -4,7 +4,6 @@ export const WORK_EMPLOYMENT_TYPE_OPTIONS = [
   { value: 'contract', label: 'Contract' },
   { value: 'internship', label: 'Internship' },
   { value: 'freelance', label: 'Freelance' },
-  { value: 'volunteer', label: 'Volunteer' },
 ] as const;
 
 export const WORK_MODE_OPTIONS = [
@@ -122,7 +121,6 @@ export type CandidateWorkExperienceRecord = {
   location?: string;
   workMode?: string;
   companyProfile?: string;
-  companyWebsite?: string;
   companyTurnover?: string;
   companyTurnoverCurrency?: string;
   companyTurnoverAmount?: string;
@@ -249,7 +247,6 @@ export function normalizeWorkExperienceRecord(
     location: workLocation,
     workMode: str(row.workMode),
     companyProfile,
-    companyWebsite: str(row.companyWebsite),
     companyTurnover: formatStoredTurnover(turnoverCurrency, turnoverAmount) || storedTurnover,
     companyTurnoverCurrency: turnoverCurrency,
     companyTurnoverAmount: turnoverAmount,

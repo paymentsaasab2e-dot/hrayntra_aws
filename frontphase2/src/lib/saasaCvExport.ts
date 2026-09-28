@@ -783,13 +783,27 @@ export async function buildSaasaCvPdfPreservingSource(options: {
     }
   }
 
-  pdfDoc.setKeywords(['HryantraWm:clean']);
   const saved = await pdfDoc.save();
   if (saved.byteLength < Math.min(8000, sourceBytes.byteLength * 0.25)) {
     return null;
   }
 
-  return new Blob([new Uint8Array(saved)], { type: 'application/pdf' });
+  let blob: Blob = new Blob([new Uint8Array(saved)], { type: 'application/pdf' });
+  try {
+    const { fetchAndCacheOrgWatermark } = await import('./useOrgExportWatermark');
+    const { stampDownloadBlob, preloadOrgWatermarkLogo, readCachedOrgWatermark } = await import(
+      './exportWatermark'
+    );
+    await fetchAndCacheOrgWatermark();
+    await preloadOrgWatermarkLogo();
+    if (readCachedOrgWatermark().enabled) {
+      blob = await stampDownloadBlob(blob, 'hryantra-cv.pdf');
+    }
+  } catch {
+    /* watermark optional */
+  }
+
+  return blob;
 }
 
 /** True if canvas has real CV pixels (not just white / transparent). */
@@ -943,12 +957,25 @@ export async function canvasToSaasaCvPdfBlob(
     }
 
     if (pdfDoc.getPageCount() > 0) {
-      pdfDoc.setKeywords(['HryantraWm:clean']);
       const saved = await pdfDoc.save();
       const bytes = saved instanceof Uint8Array ? saved : new Uint8Array(saved as ArrayBuffer);
       const copy = new Uint8Array(bytes.byteLength);
       copy.set(bytes);
-      return new Blob([copy.buffer], { type: 'application/pdf' });
+      let blob: Blob = new Blob([copy.buffer], { type: 'application/pdf' });
+      try {
+        const { fetchAndCacheOrgWatermark } = await import('./useOrgExportWatermark');
+        const { stampDownloadBlob, preloadOrgWatermarkLogo, readCachedOrgWatermark } = await import(
+          './exportWatermark'
+        );
+        await fetchAndCacheOrgWatermark();
+        await preloadOrgWatermarkLogo();
+        if (readCachedOrgWatermark().enabled) {
+          blob = await stampDownloadBlob(blob, 'hryantra-cv.pdf');
+        }
+      } catch {
+        /* watermark optional */
+      }
+      return blob;
     }
   } catch {
     /* fall through to jsPDF */
@@ -990,6 +1017,17 @@ export async function canvasToSaasaCvPdfBlob(
 
   if (!pdf) {
     throw new Error('Could not build HRYantra CV PDF');
+  }
+
+  try {
+    const { fetchAndCacheOrgWatermark } = await import('./useOrgExportWatermark');
+    const { applyOrgWatermarkToJsPdf, readCachedOrgWatermark } = await import('./exportWatermark');
+    await fetchAndCacheOrgWatermark();
+    if (readCachedOrgWatermark().enabled) {
+      await applyOrgWatermarkToJsPdf(pdf as any);
+    }
+  } catch {
+    /* watermark optional */
   }
 
   return pdf.output('blob');

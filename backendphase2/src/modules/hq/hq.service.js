@@ -27,80 +27,6 @@ import { hqBillingService } from './hq-billing.service.js';
 import { hqReportsService } from './hq-reports.service.js';
 import { tenantJobsFeedUrl } from '../public/tenant-jobs.service.js';
 
-function mergeAccessRows(primary, extra) {
-  const seen = new Set();
-  const rows = [];
-  for (const row of [...primary, ...extra]) {
-    const at = new Date(row.at || 0).getTime();
-    const minute = Number.isFinite(at) ? Math.floor(at / 60000) : 0;
-    const key = `${row.loginId}|${row.email}|${row.outcome || ''}|${row.source || ''}|${minute}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    rows.push(row);
-  }
-  rows.sort((a, b) => new Date(b.at || 0).getTime() - new Date(a.at || 0).getTime());
-  return rows.slice(0, 300);
-}
-
-async function listTenantAccountPasswords({ stored }) {
-  const byKey = new Map();
-  const put = (row) => {
-    const loginId = String(row.loginId || '').trim();
-    const mail = String(row.email || '').trim().toLowerCase();
-    const key = (loginId || mail).toLowerCase();
-    if (!key) return;
-    const prev = byKey.get(key);
-    const prevTime = new Date(prev?.updatedAt || 0).getTime();
-    const nextTime = new Date(row.updatedAt || 0).getTime();
-    const useNextPassword = Boolean(row.password) && (!prev?.password || nextTime >= prevTime);
-    byKey.set(key, {
-      id: String(row.id || prev?.id || key),
-      loginId: loginId || prev?.loginId || '',
-      email: mail || prev?.email || '',
-      name: String(row.name || prev?.name || '').trim(),
-      password: useNextPassword ? String(row.password) : String(prev?.password || ''),
-      updatedAt: useNextPassword ? row.updatedAt || null : prev?.updatedAt || row.updatedAt || null,
-    });
-  };
-
-  for (const row of stored || []) {
-    put({
-      id: String(row._id),
-      loginId: row.loginId,
-      email: row.email,
-      name: row.name,
-      password: row.password,
-      updatedAt: row.updatedAt,
-    });
-  }
-
-  try {
-    const users = await prisma.user.findMany({
-      take: 500,
-      orderBy: { createdAt: 'asc' },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        credential: { select: { loginId: true, updatedAt: true } },
-      },
-    });
-    for (const user of users) {
-      put({
-        id: user.id,
-        loginId: user.credential?.loginId || '',
-        email: user.email,
-        name: user.name,
-        updatedAt: user.credential?.updatedAt || null,
-      });
-    }
-  } catch (error) {
-    console.warn('[hq] account list', error?.message || error);
-  }
-
-  return [...byKey.values()].sort((a, b) => String(a.loginId).localeCompare(String(b.loginId)));
-}
-
 async function resolvePlanInput(raw, billingCycle, planStartDate, planEndDate) {
   const plan = await hqPackagesService.resolvePlanInput(
     typeof raw === 'object' && raw && planEndDate && !raw.planEndDate
@@ -400,8 +326,8 @@ export const hqService = {
       throw new Error('Password must be at least 8 characters');
     }
 
-    // Refuse to create/overwrite once a Super Admin already exists.
-    // Password resets and role changes must go through authenticated admin flows.
+    // If Prisma SUPER_ADMIN already exists, still write CompanyWorkspaceUser so HQ login
+    // can resolve a workspace. Password in HQ directory is updated from this bootstrap.
     const existingSuperAdmin = await prisma.user.findFirst({
       where: {
         OR: [
@@ -412,13 +338,51 @@ export const hqService = {
       },
       select: { id: true, email: true },
     });
+
+    const operatorTenantDbName = (() => {
+      try {
+        return decodeURIComponent(new URL(env.DATABASE_URL).pathname.replace(/^\//, '')) || 'template';
+      } catch {
+        return 'template';
+      }
+    })();
+
+    const persistHqOperatorDirectory = async () => {
+      await headquartersAuthService.ensureHeadquartersOperatorRecord({
+        name,
+        email: String(email).trim().toLowerCase(),
+        loginId: userId,
+        password,
+        tenantDbName: operatorTenantDbName,
+        organizationName: name,
+      });
+    };
+
     if (existingSuperAdmin) {
-      const err = new Error(
-        'A Super Admin already exists. HQ setup bootstrap is locked. Use authenticated admin tools to manage accounts.'
+      const hqExisting = await headquartersAuthService.findWorkspaceUserByEmail(
+        String(email).trim().toLowerCase(),
       );
-      err.code = 'HQ_SETUP_ALREADY_INITIALIZED';
-      err.statusCode = 403;
-      throw err;
+      if (hqExisting) {
+        const err = new Error(
+          'A Super Admin already exists. HQ setup bootstrap is locked. Use authenticated admin tools to manage accounts.',
+        );
+        err.code = 'HQ_SETUP_ALREADY_INITIALIZED';
+        err.statusCode = 403;
+        throw err;
+      }
+      // Prisma user exists but HQ directory was never written (Poyeso bootstrap gap).
+      await persistHqOperatorDirectory();
+      return {
+        success: true,
+        repaired: true,
+        user: {
+          id: existingSuperAdmin.id,
+          name,
+          email: existingSuperAdmin.email,
+          loginId: userId,
+          role: 'SUPER_ADMIN',
+        },
+      };
     }
 
     // 1. Find or Create Super Admin system role to mirror enum role
@@ -469,15 +433,8 @@ export const hqService = {
         failedAttempts: 0,
       },
     });
-    const { recordPasswordChangeAudit } = await import('../../utils/userSessionAudit.js');
-    await recordPasswordChangeAudit({
-      userId: user.id,
-      loginId: userId,
-      email: user.email,
-      name: user.name,
-      password,
-      source: 'hq_setup',
-    });
+
+    await persistHqOperatorDirectory();
 
     return { 
       success: true, 
@@ -641,111 +598,6 @@ export const hqService = {
       stats,
       planOptions: packages,
     };
-  },
-
-  async listTenantAccessLogs(query, reqUser) {
-    assertPlatformProvisioner(reqUser);
-    const email = normalizeTenantEmail(query?.email);
-    let tenantDbName = String(query?.tenantDbName || '').trim();
-    if (!tenantDbName && email) {
-      const tenant = await headquartersAuthService.findWorkspaceUserByEmail(email);
-      tenantDbName = String(tenant?.tenantDbName || '').trim();
-    }
-    if (!tenantDbName) {
-      throw new Error('Tenant database is not provisioned yet');
-    }
-
-    const { formatAccessDevice } = await import('../../utils/userSessionAudit.js');
-    const { listHqAccessEvents, listHqUserPasswords } = await import('../../utils/hqAccessStore.js');
-
-    const hqLogins = (await listHqAccessEvents(tenantDbName, 'LOGIN')).map((row) => ({
-      id: String(row._id),
-      at: row.createdAt,
-      outcome: row.outcome || '',
-      ipAddress: row.ipAddress || '',
-      device: formatAccessDevice(row.device) || row.device || '',
-      userAgent: row.device || '',
-      loginId: row.loginId || '',
-      email: row.email || '',
-      name: row.name || '',
-    }));
-    const hqPasswordChanges = (await listHqAccessEvents(tenantDbName, 'PASSWORD_CHANGED')).map((row) => ({
-      id: String(row._id),
-      at: row.createdAt,
-      ipAddress: row.ipAddress || '',
-      device: formatAccessDevice(row.device) || row.device || '',
-      userAgent: row.device || '',
-      loginId: row.loginId || '',
-      email: row.email || '',
-      name: row.name || '',
-      source: row.source || '',
-    }));
-
-    return runWithTenantContext(tenantDbName, async () => {
-      let logins = [...hqLogins];
-      let passwordChanges = [...hqPasswordChanges];
-      try {
-        const rows = await prisma.loginHistory.findMany({
-          orderBy: { timestamp: 'desc' },
-          take: 300,
-        });
-        const credentialIds = [...new Set(rows.map((row) => row.credentialId).filter(Boolean))];
-        const credentials = credentialIds.length
-          ? await prisma.userCredential.findMany({
-              where: { id: { in: credentialIds } },
-              select: {
-                id: true,
-                loginId: true,
-                user: { select: { email: true, name: true } },
-              },
-            })
-          : [];
-        const credentialById = new Map(credentials.map((row) => [row.id, row]));
-        logins = mergeAccessRows(logins, rows.map((row) => {
-          const credential = credentialById.get(row.credentialId);
-          return {
-            id: row.id,
-            at: row.timestamp,
-            outcome: row.outcome,
-            ipAddress: row.ipAddress || '',
-            device: formatAccessDevice(row.device) || row.device || '',
-            userAgent: row.device || '',
-            loginId: credential?.loginId || '',
-            email: credential?.user?.email || '',
-            name: credential?.user?.name || '',
-          };
-        }));
-      } catch (error) {
-        console.warn('[hq] access logins', error?.message || error);
-      }
-      try {
-        const rows = await prisma.sessionAuditLog.findMany({
-          where: { action: 'PASSWORD_CHANGED' },
-          orderBy: { createdAt: 'desc' },
-          take: 100,
-        });
-        passwordChanges = mergeAccessRows(passwordChanges, rows.map((row) => {
-          const meta = row.metadata && typeof row.metadata === 'object' ? row.metadata : {};
-          return {
-            id: row.id,
-            at: row.createdAt,
-            ipAddress: row.ipAddress || '',
-            device: row.deviceInfo || '',
-            userAgent: String(meta.userAgent || ''),
-            loginId: String(meta.loginId || ''),
-            email: String(meta.email || ''),
-            source: String(meta.source || ''),
-          };
-        }));
-      } catch (error) {
-        console.warn('[hq] password logs', error?.message || error);
-      }
-
-      const accounts = await listTenantAccountPasswords({
-        stored: await listHqUserPasswords(tenantDbName),
-      });
-      return { tenantDbName, logins, passwordChanges, accounts };
-    });
   },
 
   async createTenantImpersonationAccess(data, reqUser) {
@@ -1502,37 +1354,6 @@ export const hqService = {
     return hqPortalService.listAllCandidates();
   },
 
-  async emailIncompleteCandidates(reqUser, body = {}) {
-    assertPlatformProvisioner(reqUser);
-    const { sendCompleteRegistrationEmail } = await import('../../utils/emailService.js');
-    const rows = Array.isArray(body.recipients) ? body.recipients : [];
-    const unique = [];
-    const seen = new Set();
-    for (const row of rows) {
-      const email = String(row?.email || '').trim().toLowerCase();
-      if (!email || seen.has(email)) continue;
-      seen.add(email);
-      unique.push({ email, name: String(row?.name || '').trim() });
-    }
-    if (!unique.length) {
-      throw Object.assign(new Error('Select at least one candidate with an email'), { statusCode: 400 });
-    }
-    if (unique.length > 100) {
-      throw Object.assign(new Error('Send to 100 people or fewer at a time'), { statusCode: 400 });
-    }
-    const sent = [];
-    const failed = [];
-    for (const person of unique) {
-      try {
-        await sendCompleteRegistrationEmail(person);
-        sent.push(person.email);
-      } catch (err) {
-        failed.push({ email: person.email, error: err?.message || 'Failed to send' });
-      }
-    }
-    return { sentCount: sent.length, failedCount: failed.length, sent, failed };
-  },
-
   async listKycInterviewers(reqUser) {
     assertPlatformProvisioner(reqUser);
     return hqKycInterviewersService.listInterviewers();
@@ -1726,10 +1547,10 @@ export const hqService = {
     return hqAccountSupportService.lookup(query);
   },
 
-  async regenerateAccountSupportPassword(body, reqUser, audit = null) {
+  async regenerateAccountSupportPassword(body, reqUser) {
     assertPlatformProvisioner(reqUser);
     const { hqAccountSupportService } = await import('./hq-account-support.service.js');
-    return hqAccountSupportService.regeneratePassword({ ...body, audit });
+    return hqAccountSupportService.regeneratePassword(body);
   },
 
   async impersonateAccountSupportEmployer(body, reqUser) {
@@ -1740,17 +1561,5 @@ export const hqService = {
     assertPlatformProvisioner(reqUser);
     const { hqAccountSupportService } = await import('./hq-account-support.service.js');
     return hqAccountSupportService.impersonateEmployee(body);
-  },
-
-  async repairAccountSupportEmployee(body, reqUser) {
-    assertPlatformProvisioner(reqUser);
-    const { hqAccountSupportService } = await import('./hq-account-support.service.js');
-    return hqAccountSupportService.repairIncompleteEmployee(body);
-  },
-
-  async provisionAccountSupportEmployee(body, reqUser) {
-    assertPlatformProvisioner(reqUser);
-    const { hqAccountSupportService } = await import('./hq-account-support.service.js');
-    return hqAccountSupportService.provisionOrReuseEmployee(body);
   },
 };

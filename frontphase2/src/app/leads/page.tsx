@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import nextDynamic from 'next/dynamic';
 import { SHOW_TABLE_ROW_EDIT_ICON } from '../../constants/tableUi';
 import {
   Plus,
@@ -52,7 +53,6 @@ import { formatDirectorDisplay } from '../../constants/salutations';
 import { formatContactListDisplay, normalizeContactList } from '../../lib/contact-channels';
 import { AssigneeAvatars } from './AssigneeAvatars';
 import { SourceCell } from './SourceCell';
-import { LeadDetailsDrawer } from '../../components/drawers/LeadDetailsDrawer';
 import { isLeadSource, LEAD_SOURCE_OPTIONS } from '../../components/drawers/LeadSourceFields';
 import { LeadImportDrawer } from '../../components/drawers/LeadImportDrawer';
 import { ShareLeadFormMemberModal } from '../../components/leads/ShareLeadFormMemberModal';
@@ -103,6 +103,11 @@ import {
   useTenantScopedStringArray,
 } from '../../hooks/usePersistedColumnVisibility';
 import { LEAD_TABLE_COLUMNS } from '../../lib/tableColumns/moduleTableColumns';
+
+const LeadDetailsDrawer = nextDynamic(
+  () => import('../../components/drawers/LeadDetailsDrawer').then((mod) => ({ default: mod.LeadDetailsDrawer })),
+  { ssr: false, loading: () => null }
+);
 
 const LEADS_FILTER_SELECT =
   'h-9 shrink-0 rounded-lg border border-indigo-100/90 bg-white/95 px-2.5 py-1.5 text-xs font-medium text-slate-800 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-300 cursor-pointer hover:border-indigo-200/90 hover:bg-indigo-50/40';

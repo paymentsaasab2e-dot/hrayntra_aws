@@ -4,12 +4,7 @@ import React, { useMemo, useState } from 'react';
 import { Download, Loader2 } from 'lucide-react';
 import { ResumeDocxPreview } from './ResumeDocxPreview';
 import { ResumeFilePreview } from './ResumeFilePreview';
-import {
-  buildResumeViewerUrl,
-  getResumeExtension,
-  normalizeResumeHref,
-  resolveResumePreviewKind,
-} from '../../lib/resumePreview';
+import { getResumeExtension, normalizeResumeHref, resolveResumePreviewKind } from '../../lib/resumePreview';
 import { triggerFileDownload } from '../../utils/triggerFileDownload';
 
 interface ResumeInlinePreviewProps {
@@ -56,19 +51,7 @@ export function ResumeInlinePreview({
   const shellClass =
     `flex h-full w-full min-h-0 flex-1 flex-col overflow-hidden bg-slate-100 ${minHeightClass} ${className}`.trim();
 
-  if (previewKind === 'pdf') {
-    return (
-      <div className={shellClass}>
-        <iframe
-          title={`${candidateName} resume`}
-          src={buildResumeViewerUrl(href)}
-          className="min-h-[70vh] w-full flex-1 border-0 bg-white"
-        />
-      </div>
-    );
-  }
-
-  if (previewKind === 'image' || previewKind === 'text') {
+  if (previewKind === 'pdf' || previewKind === 'image' || previewKind === 'text') {
     return (
       <div className={shellClass}>
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain p-4 sm:p-6">

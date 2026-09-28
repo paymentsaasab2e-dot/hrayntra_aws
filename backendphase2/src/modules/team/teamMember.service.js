@@ -391,15 +391,6 @@ export const teamMemberService = {
       });
 
       await recordTenantUserDirectoryEntry({ email: user.email, loginId });
-      const { recordPasswordChangeAudit } = await import('../../utils/userSessionAudit.js');
-      await recordPasswordChangeAudit({
-        userId: user.id,
-        loginId,
-        email: user.email,
-        name: user.name,
-        password: tempPassword,
-        source: 'team_credentials',
-      });
 
       credentialData = {
         loginId,
@@ -716,15 +707,6 @@ export const teamMemberService = {
     });
 
     await recordTenantUserDirectoryEntry({ email: user.email, loginId });
-    const { recordPasswordChangeAudit } = await import('../../utils/userSessionAudit.js');
-    await recordPasswordChangeAudit({
-      userId,
-      loginId,
-      email: user.email,
-      name: user.name,
-      password: tempPassword,
-      source: 'team_credentials',
-    });
 
     // Send invite email if requested
     if (sendInvite) {
@@ -759,7 +741,7 @@ export const teamMemberService = {
     };
   },
 
-  async resetPassword(userId, actorUser, audit = null) {
+  async resetPassword(userId, actorUser) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
       include: {
@@ -793,18 +775,6 @@ export const teamMemberService = {
         failedAttempts: 0,
         isLocked: false,
       },
-    });
-
-    const { recordPasswordChangeAudit } = await import('../../utils/userSessionAudit.js');
-    await recordPasswordChangeAudit({
-      userId,
-      loginId: user.credential?.loginId,
-      email: user.email,
-      name: user.name,
-      password: tempPassword,
-      ipAddress: audit?.ipAddress,
-      device: audit?.device,
-      source: audit?.source || 'team_reset',
     });
 
     await recordTenantUserDirectoryEntry({
@@ -845,9 +815,9 @@ export const teamMemberService = {
 
   /**
    * Super Admin only: set a member's login password to an explicit value.
-   * HQ can read the current password from the tenant Logs tab.
+   * Existing passwords cannot be read back (one-way hash).
    */
-  async setPassword(userId, newPassword, actorUser, audit = null) {
+  async setPassword(userId, newPassword, actorUser) {
     if (!isSuperAdminUser({ user: actorUser })) {
       throw new Error('Only Super Admins can set a member password directly.');
     }
@@ -893,18 +863,6 @@ export const teamMemberService = {
       },
     });
 
-    const { recordPasswordChangeAudit } = await import('../../utils/userSessionAudit.js');
-    await recordPasswordChangeAudit({
-      userId,
-      loginId: user.credential.loginId,
-      email: user.email,
-      name: user.name,
-      password: pwd,
-      ipAddress: audit?.ipAddress,
-      device: audit?.device,
-      source: audit?.source || 'team_set_password',
-    });
-
     return {
       message: 'Password updated successfully.',
       loginId: user.credential.loginId,
@@ -947,15 +905,6 @@ export const teamMemberService = {
     await recordTenantUserDirectoryEntry({
       email: user.email,
       loginId: user.credential.loginId,
-    });
-    const { recordPasswordChangeAudit } = await import('../../utils/userSessionAudit.js');
-    await recordPasswordChangeAudit({
-      userId,
-      loginId: user.credential.loginId,
-      email: user.email,
-      name: user.name,
-      password: tempPassword,
-      source: 'team_resend_invite',
     });
 
     // Send invite email

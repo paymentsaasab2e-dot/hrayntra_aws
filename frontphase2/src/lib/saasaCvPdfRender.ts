@@ -1,13 +1,22 @@
 import { buildResumePdfProxyUrl, detectResumeBufferKind } from './resumePreview';
 
-/** PDF.js served by this app so the CV popup does not wait on an outside network. */
-const PDFJS_SCRIPT = '/pdfjs/pdf.min.js';
-const PDFJS_WORKER = '/pdfjs/pdf.worker.min.js';
+/** PDF.js 3.11 — exposes window.pdfjsLib (required for HRYantra paint surface). */
+const PDFJS_VERSION = '3.11.174';
+const PDFJS_CDN = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VERSION}`;
+
+/** Required for many resumes — without these, PDF.js renders blank white pages. */
+export const PDFJS_CMAP_URL = `${PDFJS_CDN}/cmaps/`;
+export const PDFJS_STANDARD_FONT_URL = `${PDFJS_CDN}/standard_fonts/`;
 
 export function saasaPdfJsDocumentOptions(
   data: ArrayBuffer | Uint8Array
-): { data: ArrayBuffer | Uint8Array } {
-  return { data };
+): { data: ArrayBuffer | Uint8Array; cMapUrl: string; cMapPacked: boolean; standardFontDataUrl: string } {
+  return {
+    data,
+    cMapUrl: PDFJS_CMAP_URL,
+    cMapPacked: true,
+    standardFontDataUrl: PDFJS_STANDARD_FONT_URL,
+  };
 }
 
 export interface SaasaCvPdfDocumentMeta {
@@ -24,9 +33,7 @@ interface PdfJsLib {
     src:
       | string
       | { url: string; withCredentials?: boolean }
-      | {
-          data: ArrayBuffer | Uint8Array;
-        }
+      | { data: ArrayBuffer | Uint8Array }
   ) => {
     promise: Promise<{
       numPages: number;
@@ -53,7 +60,7 @@ let pdfJsLoadPromise: Promise<PdfJsLib> | null = null;
 export function loadSaasaPdfJs(): Promise<PdfJsLib> {
   const existing = getPdfJsLib();
   if (existing?.getDocument) {
-    existing.GlobalWorkerOptions.workerSrc = PDFJS_WORKER;
+    existing.GlobalWorkerOptions.workerSrc = `${PDFJS_CDN}/pdf.worker.min.js`;
     return Promise.resolve(existing);
   }
   if (pdfJsLoadPromise) return pdfJsLoadPromise;
@@ -65,7 +72,7 @@ export function loadSaasaPdfJs(): Promise<PdfJsLib> {
     }, 45000);
 
     const script = document.createElement('script');
-    script.src = PDFJS_SCRIPT;
+    script.src = `${PDFJS_CDN}/pdf.min.js`;
     script.async = true;
     script.onload = () => {
       const lib = getPdfJsLib();
@@ -75,7 +82,7 @@ export function loadSaasaPdfJs(): Promise<PdfJsLib> {
         reject(new Error('PDF.js failed to initialize'));
         return;
       }
-      lib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER;
+      lib.GlobalWorkerOptions.workerSrc = `${PDFJS_CDN}/pdf.worker.min.js`;
       resolve(lib);
     };
     script.onerror = () => {
@@ -186,10 +193,6 @@ export async function renderSaasaPdfPages(
     signal?: AbortSignal;
     /** Return false when a newer load superseded this one (prevents double pages). */
     isCurrent?: () => boolean;
-    /** Already-fetched PDF bytes. Skips the URL fetch (used after a Word file is rewritten). */
-    pdfBytes?: ArrayBuffer | Uint8Array;
-    /** Keep the current page visible until the new pages are ready. */
-    preserveUntilReady?: boolean;
   }
 ): Promise<SaasaCvPdfDocumentMeta> {
   const isCurrent = () => {
@@ -197,21 +200,13 @@ export async function renderSaasaPdfPages(
     if (options?.isCurrent && !options.isCurrent()) return false;
     return true;
   };
-  const preserve = options?.preserveUntilReady === true;
-  const fragment = document.createDocumentFragment();
-  const mount: HTMLElement | DocumentFragment = preserve ? fragment : host;
 
-  if (!preserve) host.innerHTML = '';
+  host.innerHTML = '';
   const pdfjs = await loadSaasaPdfJs();
   if (!isCurrent()) {
     throw new DOMException('PDF render superseded', 'AbortError');
   }
-  const provided = options?.pdfBytes;
-  const data = provided
-    ? provided instanceof Uint8Array
-      ? provided.slice().buffer
-      : provided.slice(0)
-    : await fetchSaasaCvPdfBytes(pdfUrl);
+  const data = await fetchSaasaCvPdfBytes(pdfUrl);
   if (!isCurrent()) {
     throw new DOMException('PDF render superseded', 'AbortError');
   }
@@ -231,7 +226,7 @@ export async function renderSaasaPdfPages(
 
   for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
     if (!isCurrent()) {
-      if (!preserve) host.innerHTML = '';
+      host.innerHTML = '';
       throw new DOMException('PDF render superseded', 'AbortError');
     }
 
@@ -270,22 +265,18 @@ export async function renderSaasaPdfPages(
 
     await page.render({ canvasContext: ctx, viewport }).promise;
     if (!isCurrent()) {
-      if (!preserve) host.innerHTML = '';
+      host.innerHTML = '';
       throw new DOMException('PDF render superseded', 'AbortError');
     }
 
     pageWrap.appendChild(canvas);
-    mount.appendChild(pageWrap);
+    host.appendChild(pageWrap);
 
     pageHeightsPx.push(ph);
     totalHeight += ph;
   }
 
   if (totalHeight < 1) throw new Error('PDF has no renderable pages');
-  if (!isCurrent()) {
-    throw new DOMException('PDF render superseded', 'AbortError');
-  }
-  if (preserve) host.replaceChildren(fragment);
 
   host.style.width = '100%';
   host.style.minHeight = `${totalHeight}px`;

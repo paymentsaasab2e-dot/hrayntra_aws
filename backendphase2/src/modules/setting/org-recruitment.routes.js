@@ -391,8 +391,7 @@ router.get('/watermark', async (req, res) => {
   try {
     // Include imageDataUrl so every tenant member can stamp PDFs/Excel without
     // relying on a browser session that only Super Admin warmed up in Settings.
-    const { getExportWatermarkForSettings } = await import('./publicClientReviewWatermark.util.js');
-    const watermark = await getExportWatermarkForSettings();
+    const watermark = await getPublicClientReviewExportWatermark();
     sendResponse(res, 200, 'OK', { watermark, defaults: DEFAULT_EXPORT_WATERMARK });
   } catch (error) {
     sendError(res, 500, error.message || 'Failed to load watermark', error);
@@ -410,9 +409,7 @@ router.put('/watermark', async (req, res) => {
       return sendError(res, 403, 'Only Super Admin can update the export watermark');
     }
     const payload = req.body?.watermark ?? req.body ?? {};
-    await setExportWatermark(payload);
-    const { getExportWatermarkForSettings } = await import('./publicClientReviewWatermark.util.js');
-    const watermark = await getExportWatermarkForSettings();
+    const watermark = await setExportWatermark(payload);
     sendResponse(res, 200, 'Watermark saved', { watermark });
   } catch (error) {
     sendError(res, 400, error.message || 'Failed to save watermark', error);
@@ -446,13 +443,11 @@ router.post('/watermark/logo', watermarkLogoUpload.single('file'), async (req, r
     });
     // Persist imageUrl into org watermark so the logo is not lost if Save is skipped.
     const current = await getExportWatermark();
-    await setExportWatermark({
+    const watermark = await setExportWatermark({
       ...current,
       enabled: current.enabled || true,
       imageUrl: uploaded.fileUrl,
     });
-    const { getExportWatermarkForSettings } = await import('./publicClientReviewWatermark.util.js');
-    const watermark = await getExportWatermarkForSettings();
     sendResponse(res, 201, 'Watermark logo uploaded', {
       fileUrl: uploaded.fileUrl,
       fileName: uploaded.fileName,

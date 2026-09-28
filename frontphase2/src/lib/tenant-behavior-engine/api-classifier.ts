@@ -33,7 +33,7 @@ const SKIP_API_PREFIXES = [
 const ACTION_HINTS: Array<{ pattern: RegExp; action: TenantActionType }> = [
   { pattern: /\/(export|download)/i, action: 'export' },
   { pattern: /\/(import|bulk-import|bulk-cv)/i, action: 'import' },
-  { pattern: /\/(upload|media|parse-resume|process-jd)/i, action: 'upload' },
+  { pattern: /\/(upload|media|parse-resume|parse-jobs|process-jd)/i, action: 'upload' },
   { pattern: /\/(schedule|calendar)/i, action: 'schedule' },
   { pattern: /\/(assign|handoff)/i, action: 'assign' },
   { pattern: /\/(convert|conversion)/i, action: 'convert' },

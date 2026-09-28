@@ -1,5 +1,4 @@
 import {
-  deleteOtherOrgSettingRows,
   findOrgSettingRow,
   upsertOrgSettingJson,
 } from './orgSettingStore.util.js';
@@ -45,8 +44,7 @@ export async function getExportWatermark() {
 
 export async function setExportWatermark(payload) {
   const normalized = normalizeExportWatermark(payload);
-  const keptId = await upsertOrgSettingJson(KEY_EXPORT_WATERMARK, normalized);
-  await deleteOtherOrgSettingRows(KEY_EXPORT_WATERMARK, keptId).catch(() => {});
+  await upsertOrgSettingJson(KEY_EXPORT_WATERMARK, normalized);
   return getExportWatermark();
 }
 

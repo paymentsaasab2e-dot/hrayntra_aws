@@ -4,12 +4,16 @@ import {
   getJobPortalPrismaClient,
   getCandidateCommonPrismaClient,
 } from '../../config/prisma.js';
+import { dedupeCandidatesByPerson } from '../../lib/dedupeCandidatesByPerson.js';
+import { ID_IN_CHUNK_SIZE, matchAppliedPoolMax, matchPortalPoolMax, matchTenantPoolMax } from '../../lib/queryBounds.js';
+import { linkPersonToTenant } from '../../lib/linkPerson.js';
 import {
   fetchCandidateCommonForMatchPipeline,
   fetchCandidateCommonForTenant,
   fetchCandidateCommonForCandidatesList,
   fetchCandidateCommonListIndex,
   fetchCandidateCommonByCandidateId,
+  fetchCandidateCommonByPersonId,
   mapCandidateCommonRowToCandidate,
   applyProfileSnapshotFields,
 } from '../../services/candidateCommon/candidateCommonPool.service.js';
@@ -562,15 +566,6 @@ function resolveCandidateStageForList(candidate, tenantJobIdSet = null) {
 
   if (candidateHasTenantApplicationLink(candidate, tenantJobIdSet) || hasTenantJob) {
     return 'Applied';
-  }
-
-  // No job link: do not surface a stored Applied/New tag. Manual create used to
-  // persist Applied before any job was assigned.
-  if (!hasTenantJob) {
-    if (!explicitStage || explicitLower === 'new' || explicitLower === 'applied') {
-      return '';
-    }
-    return explicitStage;
   }
 
   if (explicitStage && explicitLower !== 'new') {
@@ -2329,10 +2324,31 @@ async function materializePortalCandidateIntoTenant(portalRow) {
   const stageForCreate =
     portalRow.stage && String(portalRow.stage).trim() ? String(portalRow.stage).trim() : phase1 ? 'New' : 'Applied';
 
+  // One personId = one CRM row. If this portal row maps to an existing tenant
+  // candidate by personId, just attach the job(s) and return the existing row.
+  if (portalRow.personId) {
+    const existing = await prisma.candidate.findFirst({
+      where: { personId: portalRow.personId, isDeleted: { not: true } },
+      select: { id: true, assignedJobs: true },
+    });
+    if (existing) {
+      const current = Array.isArray(existing.assignedJobs) ? existing.assignedJobs : [];
+      const merged = [...new Set([...current, ...assignedJobs.map(String)])];
+      if (merged.length > current.length) {
+        await prisma.candidate.update({
+          where: { id: existing.id },
+          data: { assignedJobs: merged },
+        });
+      }
+      return prisma.candidate.findUnique({ where: { id: existing.id } });
+    }
+  }
+
   return prisma.candidate.upsert({
     where: { id: portalRow.id },
     create: {
       id: portalRow.id,
+      personId: portalRow.personId || null,
       ...profileFields,
       status: 'ACTIVE',
       recruiterStatus: portalRow.recruiterStatus ?? null,
@@ -2436,7 +2452,7 @@ async function materializeCandidateForMatch(poolRow, options = {}) {
 
   const existing = await prisma.candidate.findUnique({
     where: { id: poolRow.id },
-    select: { id: true, isDeleted: true, stage: true, assignedJobs: true, source: true },
+    select: { id: true, personId: true, isDeleted: true, stage: true, assignedJobs: true, source: true },
   });
 
   if (existing && existing.isDeleted !== true) {
@@ -2469,6 +2485,7 @@ async function materializeCandidateForMatch(poolRow, options = {}) {
 
   const createData = {
     id: poolRow.id,
+    personId: poolRow.personId || null,
     ...profileFields,
     status: 'ACTIVE',
     source: sourceForCreate,
@@ -2476,10 +2493,37 @@ async function materializeCandidateForMatch(poolRow, options = {}) {
     stage: discoveryOnly ? 'New' : stageForCreate,
   };
 
+  // Guard against creating a duplicate CRM row for the same human. If another
+  // tenant candidate already owns this personId, attach the job to it.
+  if (poolRow.personId && (!existing || existing.isDeleted === true)) {
+    const existingByPerson = await prisma.candidate.findFirst({
+      where: { personId: poolRow.personId, isDeleted: { not: true } },
+      select: { id: true, assignedJobs: true },
+    });
+    if (existingByPerson) {
+      const updateData = { ...profileFields };
+      const current = Array.isArray(existingByPerson.assignedJobs) ? existingByPerson.assignedJobs : [];
+      if (aiMatchOnly && matchingJobId && Array.isArray(current)) {
+        const trimmed = current
+          .map((id) => String(id || '').trim())
+          .filter((id) => id && id !== matchingJobId);
+        if (trimmed.length !== current.length) updateData.assignedJobs = trimmed;
+      } else if (!aiMatchOnly) {
+        const merged = [...new Set([...current, ...assignedJobs])];
+        if (merged.length > current.length) updateData.assignedJobs = merged;
+      }
+      return prisma.candidate.update({
+        where: { id: existingByPerson.id },
+        data: updateData,
+      });
+    }
+  }
+
   if (existing?.isDeleted === true) {
     const restoreData = {
       ...profileFields,
       status: 'ACTIVE',
+      personId: existing?.personId || poolRow.personId || null,
     };
     if (phase1) {
       restoreData.source = 'phase1';
@@ -2812,10 +2856,13 @@ async function loadMatchPipelineCandidatePool(req, jobId) {
     process.env.MATCH_INCLUDE_PORTAL_CANDIDATES !== 'false' &&
     process.env.MATCH_INCLUDE_PORTAL_CANDIDATES !== '0';
 
+  const tenantLimit = matchTenantPoolMax();
   const tenantCandidates = await prisma.candidate.findMany({
     where: {
       isDeleted: { not: true },
     },
+    orderBy: { updatedAt: 'desc' },
+    take: tenantLimit,
   });
 
   let commonCandidates = [];
@@ -2828,7 +2875,7 @@ async function loadMatchPipelineCandidatePool(req, jobId) {
   const portalIncluded = includePortal && isTenantScopedRequest();
   if (portalIncluded) {
     const portalPrisma = getJobPortalPrismaClient();
-    const portalLimit = Math.min(5000, Math.max(1, Number(process.env.MATCH_PORTAL_POOL_MAX || 500) || 500));
+    const portalLimit = matchPortalPoolMax();
     portalCandidates = await portalPrisma.candidate.findMany({
       take: portalLimit,
       orderBy: { updatedAt: 'desc' },
@@ -2869,6 +2916,11 @@ async function loadMatchPipelineCandidatePool(req, jobId) {
   }
 
   let merged = Array.from(mergedById.values());
+
+  if (req.query?.distinctPersonId !== 'false') {
+    merged = dedupeCandidatesByPerson(merged);
+  }
+
   if (merged.length) {
     const rejected = await prisma.match.findMany({
       where: {
@@ -2990,20 +3042,24 @@ async function loadAppliedMatchCandidatePool(req, jobId) {
       isDeleted: { not: true },
       assignedJobs: { has: jobIdStr },
     },
+    orderBy: { updatedAt: 'desc' },
+    take: matchAppliedPoolMax(),
     include: appliedPoolCandidateInclude,
   });
   assignedCandidates.forEach((row) => linkedIdSet.add(row.id));
 
   const extraIds = [...linkedIdSet].filter((id) => !assignedCandidates.some((row) => row.id === id));
-  let extraCandidates = [];
-  if (extraIds.length) {
-    extraCandidates = await prisma.candidate.findMany({
+  const extraCandidates = [];
+  for (let i = 0; i < extraIds.length; i += ID_IN_CHUNK_SIZE) {
+    const chunk = extraIds.slice(i, i + ID_IN_CHUNK_SIZE);
+    const rows = await prisma.candidate.findMany({
       where: {
         isDeleted: { not: true },
-        id: { in: extraIds },
+        id: { in: chunk },
       },
       include: appliedPoolCandidateInclude,
     });
+    extraCandidates.push(...rows);
   }
 
   const byId = new Map();
@@ -3018,6 +3074,8 @@ async function loadAppliedMatchCandidatePool(req, jobId) {
 
       const portalApplications = await portalPrisma.application.findMany({
         where: { jobId: jobIdStr },
+        orderBy: { updatedAt: 'desc' },
+        take: matchAppliedPoolMax(),
         select: { candidateId: true },
       });
       for (const row of portalApplications) {
@@ -3027,6 +3085,8 @@ async function loadAppliedMatchCandidatePool(req, jobId) {
 
       const portalMatches = await portalPrisma.match.findMany({
         where: { jobId: jobIdStr },
+        orderBy: { updatedAt: 'desc' },
+        take: matchAppliedPoolMax(),
         select: { candidateId: true, evaluation: true },
       });
       for (const row of portalMatches) {
@@ -3037,6 +3097,8 @@ async function loadAppliedMatchCandidatePool(req, jobId) {
 
       const portalAssigned = await portalPrisma.candidate.findMany({
         where: { assignedJobs: { has: jobIdStr } },
+        orderBy: { updatedAt: 'desc' },
+        take: matchAppliedPoolMax(),
         select: { id: true },
       });
       for (const row of portalAssigned) {
@@ -3045,9 +3107,14 @@ async function loadAppliedMatchCandidatePool(req, jobId) {
       }
 
       if (portalLinkedIds.size) {
-        const portalCandidates = await portalPrisma.candidate.findMany({
-          where: { id: { in: [...portalLinkedIds] } },
-        });
+        const portalCandidates = [];
+        const portalIdList = [...portalLinkedIds];
+        for (let i = 0; i < portalIdList.length; i += ID_IN_CHUNK_SIZE) {
+          const rows = await portalPrisma.candidate.findMany({
+            where: { id: { in: portalIdList.slice(i, i + ID_IN_CHUNK_SIZE) } },
+          });
+          portalCandidates.push(...rows);
+        }
         for (const portalRow of portalCandidates) {
           const id = String(portalRow.id || '').trim();
           if (!id) continue;
@@ -3595,8 +3662,6 @@ async function upsertPortalCareerPreferences(candidateId, prefs) {
     preferredCurrency: prefs.preferredCurrency || prefs.salaryCurrency || 'USD',
     preferredBenefits,
     availabilityToStart: prefs.availabilityToStart || null,
-    earliestStartDate: prefs.earliestStartDate || null,
-    describeAvailability: prefs.describeAvailability || null,
     noticePeriod: prefs.noticePeriod || null,
     noticePeriodDays: parseNoticePeriodDaysFromPrefs(prefs),
     openToRelocation:
@@ -4552,7 +4617,7 @@ async function fetchPortalCandidatesForTenant(
  * Global top-K across sorted sources lives in union of each source's top-K.
  * K = skip + limit → Node never holds more than ~3K lean rows for normal pages.
  */
-function mergeBoundedCandidateIndexes(sources, { loadCommonPool, tenantCandidateIds, search, listFilters, tenantJobIdSet, mine, userId, myJobIds }) {
+function mergeBoundedCandidateIndexes(sources, { loadCommonPool, tenantCandidateIds, search, listFilters, tenantJobIdSet, mine, userId, myJobIds, distinctPersonId = true }) {
   const mergedById = new Map();
   for (const row of sources.common || []) mergeLeanCandidateIndex(mergedById, row);
   for (const row of sources.portal || []) {
@@ -4588,6 +4653,10 @@ function mergeBoundedCandidateIndexes(sources, { loadCommonPool, tenantCandidate
   // Only re-check when common-pool rows could be in the merge (All candidates).
   if (mine && userId && loadCommonPool) {
     merged = merged.filter((candidate) => candidateMatchesMineScope(candidate, userId, myJobIds));
+  }
+
+  if (distinctPersonId !== false) {
+    merged = dedupeCandidatesByPerson(merged);
   }
 
   merged.sort((a, b) => {
@@ -4979,6 +5048,25 @@ async function ensurePipelineEntryForJob(candidateId, data, userId) {
 }
 
 export const candidateService = {
+  async linkPerson(body = {}) {
+    return linkPersonToTenant(
+      { personId: body.personId, jobId: body.jobId },
+      {
+        findExisting: async (personId) =>
+          prisma.candidate.findFirst({
+            where: { personId, isDeleted: { not: true } },
+          }),
+        findPurged: async (personId) =>
+          prisma.purgedCandidateRef.findFirst({
+            where: { personId },
+            select: { candidateId: true },
+          }),
+        fetchCommon: fetchCandidateCommonByPersonId,
+        materialize: materializePortalCandidateIntoTenant,
+      },
+    );
+  },
+
   async getAll(req) {
     const pagination = getPaginationParams(req);
     // Prefer batches ≤100 for list UX; allow larger for export via env override.
@@ -5995,15 +6083,6 @@ export const candidateService = {
           updateData.stage = resolveStageForNewlyAssignedJob(existingRow.stage, incomingStage);
           if (!Object.prototype.hasOwnProperty.call(updateData, 'status')) {
             updateData.status = 'ACTIVE';
-          }
-        } else if (nextIds.length === 0) {
-          const stageNow = String(
-            Object.prototype.hasOwnProperty.call(updateData, 'stage') ? updateData.stage : existingRow.stage || '',
-          )
-            .trim()
-            .toLowerCase();
-          if (!stageNow || stageNow === 'applied' || stageNow === 'new') {
-            updateData.stage = null;
           }
         }
       }
@@ -7876,6 +7955,10 @@ export const candidateService = {
         );
       }
       scopedCandidates = Array.from(byId.values());
+    }
+
+    if (req.query?.distinctPersonId !== 'false') {
+      scopedCandidates = dedupeCandidatesByPerson(scopedCandidates);
     }
 
     scopedCandidates = scopedCandidates

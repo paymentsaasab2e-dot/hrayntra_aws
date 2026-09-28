@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import nextDynamic from 'next/dynamic';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import {
@@ -40,7 +41,6 @@ import { dedupeVisibleContacts } from '../../lib/clientContactDedupe';
 import { dedupeByCompanyName } from '../../lib/companyNameKey';
 import { ClientHandoffModal } from '../../components/team/ClientHandoffModal';
 import { SendToRecruitmentModal } from '../../components/clients/SendToRecruitmentModal';
-import { ClientDetailsDrawer } from '../../components/drawers/ClientDetailsDrawer';
 import { ClientImportDrawer } from '../../components/drawers/ClientImportDrawer';
 import ModuleRecycleBinDrawer from '../../components/ModuleRecycleBinDrawer';
 import {
@@ -59,7 +59,6 @@ import {
   mergeClientsSmartSearchResult,
   parseClientsSmartSearchPrompt,
 } from '../../lib/smart-search/parsers';
-import { CreateJobDrawer } from '../../components/drawers/CreateJobDrawer';
 import { SearchableToolbarFilterSelect } from '../../components/forms/SearchableToolbarFilterSelect';
 import PaginationAll from '../../components/PaginationAll';
 import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../constants/tablePagination';
@@ -98,6 +97,16 @@ import {
 } from '../../lib/clientLifecycleStatus';
 
 /** Toolbar selects / filter chip — matches Leads page for one visual system. */
+const ClientDetailsDrawer = nextDynamic(
+  () => import('../../components/drawers/ClientDetailsDrawer').then((mod) => ({ default: mod.ClientDetailsDrawer })),
+  { ssr: false, loading: () => null }
+);
+
+const CreateJobDrawer = nextDynamic(
+  () => import('../../components/drawers/CreateJobDrawer').then((mod) => ({ default: mod.CreateJobDrawer })),
+  { ssr: false, loading: () => null }
+);
+
 const CLIENT_TOOLBAR_SELECT =
   'rounded-lg border border-indigo-100/90 bg-white/95 px-2.5 py-1.5 text-xs font-medium text-slate-800 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-300 cursor-pointer hover:border-indigo-200/90 hover:bg-indigo-50/40';
 const CLIENTS_DYNAMIC_COLUMNS_STORAGE_KEY = 'clients.dynamicColumns';
@@ -1693,7 +1702,6 @@ export default function App() {
             }
             void fetchClients({ page: 1, search: '', matchingClientIds: [] });
           }}
-          onJobCreated={handleRefresh}
         />
         <CreateJobDrawer
           isOpen={showCreateJobDrawer}
@@ -1704,7 +1712,7 @@ export default function App() {
           onJobCreated={() => {
             setShowCreateJobDrawer(false);
             setClientIdForJob(null);
-            handleRefresh();
+            void fetchClients({ silent: true });
           }}
           defaultClientId={clientIdForJob}
         />

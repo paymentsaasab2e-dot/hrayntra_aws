@@ -533,6 +533,7 @@ model Candidate {
   // Enforce unique non-null emails in application code (e.g. candidate create/import).
   email                   String?
   phone                   String?
+  personId                String?
   linkedIn                String?
   resume                  String?
   resumeUrl               String?
@@ -621,6 +622,7 @@ model Candidate {
   @@index([createdById])
   @@index([orgUnitId])
   @@index([isDeleted])
+  @@index([personId])
   @@index([email])
   @@index([phone])
   @@index([stage])
@@ -637,7 +639,9 @@ model Candidate {
 model PurgedCandidateRef {
   candidateId String   @id @map("_id") @db.ObjectId
   purgedAt    DateTime @default(now())
+  personId    String?
 
+  @@index([personId])
   @@map("purged_candidate_refs")
 }
 
@@ -2656,6 +2660,12 @@ model CandidateCommon {
   lastName                String?
   email                   String?
   phone                   String?
+  personId                String?
+  emailNormalized         String?
+  phoneE164               String?
+  resumeSha256            String?
+  fingerprintKeys         String[]  @default([])
+  mergedIntoPersonId      String?
   linkedIn                String?
   resumeUrl               String?
   skills                  String[]  @default([])
@@ -2704,6 +2714,10 @@ model CandidateCommon {
   @@index([assignedJobs])
   @@index([matchJobIds])
   @@index([isVerified])
+  @@index([personId])
+  @@index([emailNormalized])
+  @@index([phoneE164])
+  @@index([resumeSha256])
   @@map("candidate_commons")
 }
 

@@ -631,6 +631,68 @@ export const headquartersAuthService = {
     return normalizeHeadquartersUser(document);
   },
 
+  /**
+   * HQ bootstrap (`/hq/setup`) must also write the headquarters directory.
+   * Prisma SUPER_ADMIN in `template` is not enough — `/auth/login` looks here first.
+   */
+  async ensureHeadquartersOperatorRecord({
+    name,
+    email,
+    loginId,
+    password,
+    tenantDbName,
+    organizationName,
+  }) {
+    const collection = await getCollection();
+    if (!collection) {
+      throw new Error('Headquarters database is not configured');
+    }
+
+    const normalizedEmail = normalizeEmail(email);
+    const normalizedLoginId = normalizeLookupValue(loginId) || normalizedEmail;
+    const normalizedPassword = normalizeLookupValue(password);
+    const normalizedName = normalizeLookupValue(name) || normalizedEmail;
+    const resolvedTenant = normalizeLookupValue(tenantDbName) || 'template';
+    if (!normalizedEmail || !normalizedPassword) {
+      throw new Error('Email and password are required');
+    }
+
+    const now = new Date();
+    const tenantDatabaseUrl = buildTenantDatabaseUrl(resolvedTenant);
+    await collection.updateOne(
+      { email: normalizedEmail },
+      {
+        $set: {
+          name: normalizedName,
+          email: normalizedEmail,
+          loginId: normalizedLoginId,
+          password: normalizedPassword,
+          role: 'SUPER_ADMIN',
+          status: 'ACTIVE',
+          companyId: resolvedTenant,
+          tenantDbName: resolvedTenant,
+          tenantDatabaseUrl,
+          organizationName: normalizeLookupValue(organizationName) || normalizedName,
+          organizationType: 'agency',
+          productLine: 'crm',
+          phase1CommonPoolEnabled: true,
+          updatedAt: now,
+        },
+        $unset: { isDeleted: '', deletedAt: '' },
+        $setOnInsert: { createdAt: now },
+      },
+      { upsert: true }
+    );
+
+    await this.upsertTenantUserDirectoryEntry({
+      email: normalizedEmail,
+      loginId: normalizedLoginId,
+      tenantDbName: resolvedTenant,
+    });
+
+    return this.findActiveSuperAdminByCredentials(normalizedEmail, normalizedPassword);
+  },
+
   async findActiveSuperAdminById(id) {
     const collection = await getCollection();
     if (!collection || !id || !ObjectId.isValid(id)) return null;

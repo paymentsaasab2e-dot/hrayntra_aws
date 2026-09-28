@@ -1,5 +1,5 @@
 import { Resend } from 'resend';
-import { env, isLoopbackPublicUrl, normalizePublicUrl } from '../config/env.js';
+import { env } from '../config/env.js';
 import { getEmailFromForTrigger } from '../config/emailFromAddresses.js';
 import { isDeliverableEmail } from './emailDeliverability.js';
 
@@ -362,56 +362,4 @@ export async function sendPasswordResetEmail({
     console.error('Error sending password reset email:', error);
     throw new Error(`Failed to send email: ${error.message}`);
   }
-}
-
-/** Candidate portal for emails. Production never uses a localhost link copied from local .env. */
-function candidatePortalBase() {
-  const live =
-    env.NODE_ENV === 'production' ||
-    /employers\.hryantra\.com|api2\.hryantra\.com/i.test(
-      `${process.env.FRONTEND_URL || ''} ${process.env.BACKEND_PUBLIC_URL || ''} ${process.env.PUBLIC_BACKEND_URL || ''}`,
-    );
-  const configured = [
-    process.env.PHASE1_FRONTEND_URL,
-    process.env.JOB_PORTAL_FRONTEND_URL,
-    process.env.NEXT_PUBLIC_PHASE1_FRONTEND_URL,
-    process.env.NEXT_PUBLIC_JOB_PORTAL_URL,
-  ];
-  for (const raw of configured) {
-    const url = normalizePublicUrl(raw || '');
-    if (!url || isLoopbackPublicUrl(url)) continue;
-    return url;
-  }
-  return live ? 'https://hryantra.com' : 'http://localhost:3000';
-}
-
-/**
- * Ask a job-portal candidate to finish registration (HQ, one or many).
- */
-export async function sendCompleteRegistrationEmail({ email, name }) {
-  const to = String(email || '').trim().toLowerCase();
-  if (!to || !isDeliverableEmail(to)) {
-    throw new Error('A valid email is required');
-  }
-  const portal = `${candidatePortalBase()}/en/whatsapp`;
-  const greeting = String(name || '')
-    .replace(/[<>&"]/g, '')
-    .trim();
-  const hello = greeting && greeting !== '—' ? `Hello ${greeting},` : 'Hello,';
-  const html = `
-    <div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a;max-width:560px">
-      <p>${hello}</p>
-      <p>Please complete your HRYantra registration.</p>
-      <p><a href="${portal}">Open HRYantra</a></p>
-      <p>HRYantra Support</p>
-    </div>`;
-  const result = await getResend().emails.send({
-    from: getEmailFromForTrigger('auth.otp_verification'),
-    to,
-    subject: 'Please complete your HRYantra registration',
-    html,
-    text: `${hello}\n\nPlease complete your HRYantra registration.\n${portal}\n\nHRYantra Support`,
-  });
-  const messageId = assertResendDelivery(result, to);
-  return { success: true, messageId };
 }

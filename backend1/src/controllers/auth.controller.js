@@ -12,6 +12,8 @@ const {
 } = require('../utils/otp.util');
 const { requireJwtSecret } = require('../config/secrets');
 const { generateCandidateIdFromEmail } = require('../utils/candidate.util');
+const { newPersonId } = require('../lib/personIdentity');
+const { pickPrimaryPortalCandidate, portalLoginEmailWhere } = require('../lib/portalCandidateIdentity');
 const { sendOTPEmail } = require('../services/email.service');
 const {
   resolveWhatsAppLogin,
@@ -175,21 +177,11 @@ async function logout(req, res) {
   }
 }
 
-function hasRealProfileName(candidate) {
-  const full = String(candidate?.profile?.fullName || '').trim();
-  const combined = [candidate?.firstName, candidate?.lastName].filter(Boolean).join(' ').trim();
-  const name = full || combined;
-  if (!name || isPortalPlaceholderFullName(name)) return false;
-  return /[A-Za-z]/.test(name);
-}
-
 async function computeSkipCvUpload(candidate) {
   const onboarding = await retryQuery(async () => {
     return await prisma.candidate.findUnique({
       where: { id: candidate.id },
       select: {
-        firstName: true,
-        lastName: true,
         profile: { select: { fullName: true, profileCompleteness: true } },
         resume: { select: { fileUrl: true, fileName: true } },
       },
@@ -200,7 +192,12 @@ async function computeSkipCvUpload(candidate) {
     String(onboarding?.resume?.fileUrl || '').trim() ||
       String(onboarding?.resume?.fileName || '').trim()
   );
-  return hasUploadedResume && hasRealProfileName(onboarding);
+  if (hasUploadedResume) return true;
+
+  const completeness = Number(onboarding?.profile?.profileCompleteness || 0);
+  if (completeness >= 25) return true;
+
+  return false;
 }
 
 async function syncProfilePhone(candidate) {
@@ -211,10 +208,14 @@ async function syncProfilePhone(candidate) {
     );
     const existingProfile = await prisma.candidateProfile.findUnique({
       where: { candidateId: candidate.id },
-      select: { fullName: true },
+      select: { fullName: true, email: true },
     });
 
     const profileUpdate = { phoneNumber: cleanPhone };
+    const signupEmail = String(candidate.email || '').trim();
+    if (signupEmail) {
+      profileUpdate.email = signupEmail;
+    }
     if (existingProfile && isPortalPlaceholderFullName(existingProfile.fullName)) {
       profileUpdate.fullName = '';
     }
@@ -347,11 +348,27 @@ async function findCandidateByWhatsApp(fullWhatsAppNumber) {
   return legacyMatches.find((row) => whatsappNumbersMatch(row.whatsappNumber, normalized)) || null;
 }
 
+async function findCandidateByLoginEmail(normalizedEmail, extra = {}) {
+  const email = String(normalizedEmail || '').trim().toLowerCase();
+  if (!email) return null;
+
+  const rows = await retryQuery(async () =>
+    prisma.candidate.findMany({
+      where: portalLoginEmailWhere(email),
+      take: 20,
+      ...extra,
+    }),
+  );
+
+  return pickPrimaryPortalCandidate(rows);
+}
+
 async function collectLinkedCandidates({ candidateId, normalizedEmail, fullWhatsAppNumber }) {
   const [byEmail, byId, byWhatsApp] = await Promise.all([
     retryQuery(async () =>
-      prisma.candidate.findFirst({
-        where: { email: normalizedEmail },
+      prisma.candidate.findMany({
+        where: portalLoginEmailWhere(normalizedEmail),
+        take: 20,
       }),
     ),
     retryQuery(async () =>
@@ -363,7 +380,7 @@ async function collectLinkedCandidates({ candidateId, normalizedEmail, fullWhats
   ]);
 
   const linked = new Map();
-  for (const row of [byEmail, byId, byWhatsApp]) {
+  for (const row of [...(byEmail || []), byId, byWhatsApp]) {
     if (row) linked.set(row.id, row);
   }
   return linked;
@@ -536,24 +553,11 @@ async function getOrCreateCandidateForOtp({
   fullWhatsAppNumber,
   countryCode,
 }) {
-  const [byEmail, byId, byWhatsApp] = await Promise.all([
-    retryQuery(async () =>
-      prisma.candidate.findFirst({
-        where: { email: normalizedEmail },
-      }),
-    ),
-    retryQuery(async () =>
-      prisma.candidate.findUnique({
-        where: { id: candidateId },
-      }),
-    ),
-    findCandidateByWhatsApp(fullWhatsAppNumber),
-  ]);
-
-  const linked = new Map();
-  for (const row of [byEmail, byId, byWhatsApp]) {
-    if (row) linked.set(row.id, row);
-  }
+  const linked = await collectLinkedCandidates({
+    candidateId,
+    normalizedEmail,
+    fullWhatsAppNumber,
+  });
 
   if (linked.size === 0) {
     try {
@@ -596,19 +600,17 @@ async function getOrCreateCandidateForOtp({
     }
   }
 
-  // Prefer deterministic email-hash row, then WhatsApp-linked row, then email match.
-  const primary = byId || byWhatsApp || byEmail;
+  const primary = pickPrimaryPortalCandidate([...linked.values()]);
   if (!primary) {
     throw new Error('Failed to resolve candidate for OTP login');
   }
 
   for (const secondary of linked.values()) {
-    if (secondary.id !== primary.id) {
-      await detachLoginIdentifiersFromCandidate(secondary, {
-        normalizedEmail,
-        fullWhatsAppNumber,
-      });
-    }
+    if (secondary.id === primary.id) continue;
+    await detachLoginIdentifiersFromCandidate(secondary, {
+      normalizedEmail,
+      fullWhatsAppNumber,
+    });
   }
 
   return updateCandidateLoginFields(primary, {
@@ -616,12 +618,6 @@ async function getOrCreateCandidateForOtp({
     fullWhatsAppNumber,
     countryCode,
   });
-}
-
-function registrationStage(candidate) {
-  if (!candidate?.isVerified) return 'verify_otp';
-  if (!candidate?.passwordHash) return 'set_password';
-  return 'sign_in';
 }
 
 /**
@@ -652,37 +648,30 @@ async function sendOTP(req, res) {
         });
       }
 
-      existingAccount = await retryQuery(async () => {
-        return await prisma.candidate.findFirst({
-          where: { email: normalizedEmail },
-          select: {
-            id: true,
-            email: true,
-            isVerified: true,
-            passwordHash: true,
-            countryCode: true,
-            whatsappNumber: true,
-          },
-        });
+      existingAccount = await findCandidateByLoginEmail(normalizedEmail, {
+        select: {
+          id: true,
+          email: true,
+          isVerified: true,
+          passwordHash: true,
+          countryCode: true,
+          whatsappNumber: true,
+        },
       });
 
-      if (!existingAccount) {
-        return res.status(404).json({
+      if (existingAccount && !existingAccount.isVerified) {
+        return res.status(403).json({
           success: false,
-          code: 'ACCOUNT_NOT_FOUND',
-          channel: 'email',
-          message: 'No HRYantra account is linked to this email address. Please create an account to continue.',
+          code: 'ACCOUNT_INCOMPLETE',
+          message: 'Please verify your email before signing in.',
         });
       }
 
-      if (!existingAccount.whatsappNumber) {
-        return res.status(409).json({
+      if (!existingAccount || !existingAccount.whatsappNumber) {
+        return res.status(404).json({
           success: false,
-          code: 'ACCOUNT_INCOMPLETE',
-          stage: 'verify_otp',
-          needsPhone: true,
-          channel: 'email',
-          message: 'Please add your mobile number. A verification code will then be sent to your email.',
+          code: 'ACCOUNT_NOT_FOUND',
+          message: 'No account found for this email. Create an account to continue.',
         });
       }
 
@@ -738,12 +727,19 @@ async function sendOTP(req, res) {
         }
       }
 
+      if (existingAccount && !existingAccount.isVerified) {
+        return res.status(403).json({
+          success: false,
+          code: 'ACCOUNT_INCOMPLETE',
+          message: 'Please verify your email before signing in.',
+        });
+      }
+
       if (!existingAccount) {
         return res.status(404).json({
           success: false,
           code: 'ACCOUNT_NOT_FOUND',
-          channel: 'phone',
-          message: 'No HRYantra account is linked to this mobile number. Please create an account to continue.',
+          message: 'No account found for this number. Create an account to continue.',
         });
       }
 
@@ -777,7 +773,10 @@ async function sendOTP(req, res) {
       existingAccount = await retryQuery(async () => {
         return await prisma.candidate.findFirst({
           where: {
-            OR: [{ whatsappNumber: fullWhatsAppNumber }, { email: normalizedEmail }],
+            OR: [
+              { whatsappNumber: fullWhatsAppNumber },
+              ...(portalLoginEmailWhere(normalizedEmail).OR || []),
+            ],
             isVerified: true,
           },
           select: { id: true, passwordHash: true },
@@ -848,7 +847,6 @@ async function sendOTP(req, res) {
         emailSent: emailResult.success,
         emailMessageId: emailResult.messageId,
         expiresAt: expiresAt.toISOString(),
-        stage: registrationStage(candidate),
       },
     });
   } catch (error) {
@@ -969,6 +967,7 @@ async function verifyOTP(req, res) {
         where: { id: candidate.id },
         data: {
           isVerified: true,
+          personId: candidate.personId || newPersonId(),
           email: normalizedEmail,
           whatsappNumber: stablePhone.fullWhatsAppNumber,
           countryCode: stablePhone.countryCode,
@@ -1183,11 +1182,7 @@ async function loginWithPassword(req, res) {
     let candidate = null;
 
     if (hasEmail) {
-      candidate = await retryQuery(async () => {
-        return await prisma.candidate.findFirst({
-          where: { email: normalizedEmail },
-        });
-      });
+      candidate = await findCandidateByLoginEmail(normalizedEmail);
     } else {
       const cleanNumber = rawPhone.replace(/\D/g, '');
       if (cleanNumber.length < 6 && !rawPhone.startsWith('+')) {
@@ -1234,26 +1229,23 @@ async function loginWithPassword(req, res) {
       }
     }
 
-    // Account does not exist → create account
+    // Existing but unverified account must not say "not found".
+    if (candidate && !candidate.isVerified) {
+      return res.status(403).json({
+        success: false,
+        code: 'ACCOUNT_INCOMPLETE',
+        message: 'Please verify your email before signing in.',
+      });
+    }
+
+    // Account does not exist → prompt to create one.
     if (!candidate) {
       return res.status(404).json({
         success: false,
         code: 'ACCOUNT_NOT_FOUND',
         message: hasEmail
-          ? 'No HRYantra account is linked to this email address. Please create an account to continue.'
-          : 'No HRYantra account is linked to this mobile number. Please create an account to continue.',
-        channel: hasEmail ? 'email' : 'phone',
-      });
-    }
-
-    // Shell / half-finished registration (Rajesh-style): exists for signup, fails password login
-    if (!candidate.isVerified) {
-      return res.status(409).json({
-        success: false,
-        code: 'ACCOUNT_INCOMPLETE',
-        stage: 'verify_otp',
-        channel: hasEmail ? 'email' : 'phone',
-        message: 'Email verification is required. Please enter the code sent to your email.',
+          ? 'No account found for this email. Create an account to continue.'
+          : 'No account found for this number. Create an account to continue.',
       });
     }
 
@@ -1261,9 +1253,7 @@ async function loginWithPassword(req, res) {
       return res.status(400).json({
         success: false,
         code: 'PASSWORD_NOT_SET',
-        stage: 'set_password',
-        channel: hasEmail ? 'email' : 'phone',
-        message: 'A password is required. Please enter the code sent to your email, then set your password.',
+        message: 'No password is set for this account yet. Create one via Create account.',
       });
     }
 
@@ -1401,14 +1391,16 @@ async function checkCredential(req, res) {
       const existing = await retryQuery(async () => {
         return await prisma.candidate.findFirst({
           where: {
-            email: normalizedEmail,
-            ...(excludeCandidateId ? { NOT: { id: String(excludeCandidateId) } } : {}),
+            AND: [
+              portalLoginEmailWhere(normalizedEmail),
+              ...(excludeCandidateId ? [{ NOT: { id: String(excludeCandidateId) } }] : []),
+            ],
           },
           select: { id: true, isVerified: true, passwordHash: true },
         });
       });
 
-      if (existing && existing.isVerified && existing.passwordHash) {
+      if (existing && (existing.isVerified || existing.passwordHash || intent === 'signup')) {
         return res.json({
           success: true,
           available: false,
@@ -1418,18 +1410,6 @@ async function checkCredential(req, res) {
             intent === 'profile'
               ? 'This email is already used by another account.'
               : 'An account with this email already exists. Sign in instead.',
-        });
-      }
-
-      // Incomplete shell (signup started, never verified / no password) — allow Create account to resume
-      if (existing) {
-        return res.json({
-          success: true,
-          available: true,
-          takenByOther: false,
-          code: 'INCOMPLETE_REGISTRATION_REUSABLE',
-          message:
-            'Please continue registration to verify your email, set a password, and upload your CV.',
         });
       }
 
@@ -1477,7 +1457,7 @@ async function checkCredential(req, res) {
       existing = await findCandidateByWhatsAppFlexible(normalizedFull, excludeCandidateId);
     }
 
-    if (existing && existing.isVerified && existing.passwordHash) {
+    if (existing && (existing.isVerified || existing.passwordHash || intent === 'signup')) {
       return res.json({
         success: true,
         available: false,
@@ -1487,17 +1467,6 @@ async function checkCredential(req, res) {
           intent === 'profile'
             ? 'This mobile number is already used by another account.'
             : 'An account with this mobile number already exists. Sign in instead.',
-      });
-    }
-
-    if (existing) {
-      return res.json({
-        success: true,
-        available: true,
-        takenByOther: false,
-        code: 'INCOMPLETE_REGISTRATION_REUSABLE',
-        message:
-          'Please continue registration to verify your details, set a password, and upload your CV.',
       });
     }
 
@@ -1689,21 +1658,26 @@ async function forgotPassword(req, res) {
       });
     }
 
-    const candidate = await retryQuery(async () => {
-      return await prisma.candidate.findFirst({
-        where: { email: normalizedEmail },
-        select: {
-          id: true,
-          email: true,
-          isVerified: true,
-          passwordHash: true,
-          whatsappNumber: true,
-          countryCode: true,
-        },
-      });
+    const candidate = await findCandidateByLoginEmail(normalizedEmail, {
+      select: {
+        id: true,
+        email: true,
+        isVerified: true,
+        passwordHash: true,
+        whatsappNumber: true,
+        countryCode: true,
+      },
     });
 
-    if (!candidate || !candidate.isVerified || !candidate.passwordHash) {
+    if (candidate && !candidate.isVerified) {
+      return res.status(403).json({
+        success: false,
+        code: 'ACCOUNT_INCOMPLETE',
+        message: 'Please verify your email before resetting your password.',
+      });
+    }
+
+    if (!candidate || !candidate.passwordHash) {
       return res.status(404).json({
         success: false,
         code: 'ACCOUNT_NOT_FOUND',
@@ -1831,13 +1805,17 @@ async function resetPassword(req, res) {
       });
     }
 
-    const candidate = await retryQuery(async () => {
-      return await prisma.candidate.findFirst({
-        where: { email: normalizedEmail },
-      });
-    });
+    const candidate = await findCandidateByLoginEmail(normalizedEmail);
 
-    if (!candidate || !candidate.isVerified) {
+    if (candidate && !candidate.isVerified) {
+      return res.status(403).json({
+        success: false,
+        code: 'ACCOUNT_INCOMPLETE',
+        message: 'Please verify your email before resetting your password.',
+      });
+    }
+
+    if (!candidate) {
       return res.status(404).json({
         success: false,
         code: 'ACCOUNT_NOT_FOUND',
@@ -1930,10 +1908,6 @@ async function getMe(req, res) {
           whatsappNumber: true,
           email: true,
           isVerified: true,
-          firstName: true,
-          lastName: true,
-          passwordHash: true,
-          resume: { select: { fileUrl: true, fileName: true } },
           profile: {
             select: {
               fullName: true,
@@ -1969,12 +1943,6 @@ async function getMe(req, res) {
         name,
         profilePhotoUrl: profile.profilePhotoUrl || null,
         isVerified: Boolean(candidate.isVerified),
-        hasPassword: Boolean(candidate.passwordHash),
-        hasResume: Boolean(
-          String(candidate.resume?.fileUrl || '').trim() ||
-            String(candidate.resume?.fileName || '').trim(),
-        ),
-        hasProfileName: hasRealProfileName(candidate),
         personalInfo: {
           firstName: split.firstName || '',
           middleName: split.middleName || '',

@@ -13,15 +13,14 @@ function absoluteSaasaLogoUrl(origin) {
   return `${base}${SAASA_LOGO_PATH}`;
 }
 
-function buildSaasaWatermarkOverlayHtml(_logoUrl) {
-  return '';
-}
-
-function stripCornerWatermark(html) {
-  return String(html || '').replace(
-    /<div[^>]*data-saasa-watermark=["'][^"']*["'][^>]*>[\s\S]*?<\/div>/gi,
-    '',
-  );
+function buildSaasaWatermarkOverlayHtml(logoUrl) {
+  const src = String(logoUrl || '').replace(/"/g, '&quot;');
+  return `<div aria-hidden="true" data-saasa-watermark="center" style="position:absolute;inset:0;pointer-events:none;z-index:20;display:flex;align-items:center;justify-content:center;">
+  <img src="${src}" alt="" draggable="false" style="max-height:54%;max-width:70%;object-fit:contain;opacity:0.13;user-select:none;" />
+</div>
+<div aria-hidden="true" data-saasa-watermark="corner" style="position:absolute;bottom:1.25rem;right:1.25rem;pointer-events:none;z-index:21;">
+  <img src="${src}" alt="" draggable="false" style="height:2rem;width:auto;max-width:96px;object-fit:contain;opacity:0.8;user-select:none;" />
+</div>`;
 }
 
 function htmlHasSaasaWatermark(html) {
@@ -116,7 +115,7 @@ function normalizeResumeStudioHtml(html, options = {}) {
   const origin = String(options.origin || getJobPortalPublicOrigin()).replace(/\/$/, '');
   const logoUrl = absoluteSaasaLogoUrl(origin);
 
-  let normalized = stripCornerWatermark(stripResumePreviewLayoutConstraints(raw));
+  let normalized = stripResumePreviewLayoutConstraints(raw);
   normalized = normalized.replace(
     /src=(["'])(?:\/SAASA%20Logo\.png|\/SAASA Logo\.png)\1/gi,
     `src="${logoUrl}"`,

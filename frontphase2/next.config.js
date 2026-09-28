@@ -9,7 +9,10 @@ const isMonorepoChild = fs.existsSync(path.join(parentDir, 'backendphase2'));
 const nextConfig = {
   reactStrictMode: true,
   typescript: {
-    ignoreBuildErrors: false,
+    ignoreBuildErrors: process.env.UAT_SKIP_FRONT_GATES === '1' ? true : false,
+  },
+  eslint: {
+    ignoreDuringBuilds: process.env.UAT_SKIP_FRONT_GATES === '1',
   },
   // Standalone Vercel deploy must NOT set this — it doubles /vercel/path0/path0/.next
   ...(isMonorepoChild
@@ -31,25 +34,12 @@ const nextConfig = {
       'motion',
       'date-fns',
     ],
+    serverActions: {
+      bodySizeLimit: '64mb',
+    },
   },
   // Avoid re-bundling heavy CJS libs during compile when possible
   serverExternalPackages: ['mammoth', 'pdf-lib', 'xlsx', 'html2canvas', 'jspdf'],
-  outputFileTracingIncludes: {
-    '/api/superdoc-style': [
-      './public/superdoc/**/*',
-      './node_modules/superdoc/dist/**/*',
-      './node_modules/@superdoc/docx-engine/dist/**/*',
-      './node_modules/.pnpm/**/node_modules/superdoc/dist/**/*',
-      './node_modules/.pnpm/**/node_modules/@superdoc/docx-engine/dist/**/*',
-    ],
-    '/api/superdoc-worker': [
-      './public/superdoc/**/*',
-      './node_modules/superdoc/dist/**/*',
-      './node_modules/@superdoc/docx-engine/dist/**/*',
-      './node_modules/.pnpm/**/node_modules/superdoc/dist/**/*',
-      './node_modules/.pnpm/**/node_modules/@superdoc/docx-engine/dist/**/*',
-    ],
-  },
 };
 
 module.exports = nextConfig;

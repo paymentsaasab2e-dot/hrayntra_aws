@@ -113,28 +113,27 @@ function appendVisibleSection(sections, id, fields, options = {}) {
 }
 
 function normalizeWorkEntry(entry) {
-  if (!entry || typeof entry !== 'object') return {};
   return {
-    ...entry,
     title: entry.jobTitle ?? entry.title,
-    jobTitle: entry.jobTitle ?? entry.title,
     company: entry.company ?? entry.companyName,
-    companyName: entry.companyName ?? entry.company,
     location: entry.workLocation ?? entry.location,
-    workLocation: entry.workLocation ?? entry.location,
+    startDate: entry.startDate,
+    endDate: entry.endDate,
+    responsibilities: entry.responsibilities,
+    description: entry.description,
   };
 }
 
 function normalizeEducationEntry(entry) {
-  if (!entry || typeof entry !== 'object') return {};
   return {
-    ...entry,
     degreeProgram: entry.degreeProgram ?? entry.degree,
-    degree: entry.degree ?? entry.degreeProgram,
     institutionName: entry.institutionName ?? entry.institution,
-    institution: entry.institution ?? entry.institutionName,
+    educationLevel: entry.educationLevel,
     fieldOfStudy: entry.fieldOfStudy ?? entry.field,
-    field: entry.field ?? entry.fieldOfStudy,
+    startYear: entry.startYear,
+    endYear: entry.endYear,
+    grade: entry.grade,
+    currentlyStudying: entry.currentlyStudying,
   };
 }
 

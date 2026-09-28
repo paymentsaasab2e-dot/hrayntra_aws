@@ -34,14 +34,7 @@ async function getBalance(candidateId) {
   return {
     tokenBalance: candidate.tokenBalance ?? 0,
     freeTokensGrantedAt: candidate.freeTokensGrantedAt,
-    welcomeAmount: await (async () => {
-      try {
-        const { getWelcomeAmountAsync } = require('./hqPhase1TokenConfig.service');
-        return await getWelcomeAmountAsync();
-      } catch {
-        return WELCOME_TOKEN_AMOUNT;
-      }
-    })(),
+    welcomeAmount: WELCOME_TOKEN_AMOUNT,
   };
 }
 

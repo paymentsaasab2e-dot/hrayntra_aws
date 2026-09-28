@@ -593,6 +593,7 @@ function aliasCompareLabelKey(label: string): string {
   if (key === 'experience years' || key === 'years of experience' || key === 'experience') {
     return 'year of experience';
   }
+  if (key === 'education summary' || key === 'education entries') return 'education';
   if (key === 'current employer' || key === 'company' || key === 'employer') return 'current company';
   if (key === 'language proficiency' || key === 'languages') return 'language proficiency';
   if (key === 'name of candidate') return 'name';
@@ -693,7 +694,9 @@ function buildCompareParams(
     }
 
     for (const field of visibleFields) {
-      if (seenFieldIds.has(field.id)) continue;
+      const key = aliasCompareLabelKey(field.label) || field.id;
+      if (seenFieldIds.has(key) || seenFieldIds.has(field.id)) continue;
+      seenFieldIds.add(key);
       seenFieldIds.add(field.id);
 
       const valuesByMatchId: Record<string, string> = {};

@@ -52,16 +52,9 @@ import {
   looksLikeWorkExperienceDisplayText,
   type CvWorkEntryLike,
 } from '@/lib/candidateExperience';
-import { CandidateAcademicAchievementEntryView } from './CandidateAcademicAchievementEntryView';
 import { CandidateCertificationEntryView } from './CandidateCertificationEntryView';
-import { CandidateCompetitiveExamEntryView } from './CandidateCompetitiveExamEntryView';
-import { CandidateEducationEntryView } from './CandidateEducationEntryView';
-import { CandidateGapExplanationEntryView } from './CandidateGapExplanationEntryView';
-import { CandidateInternshipEntryView } from './CandidateInternshipEntryView';
-import { CandidateProjectEntryView } from './CandidateProjectEntryView';
 import { CandidateVisaWorkAuthorizationEntryView } from './CandidateVisaWorkAuthorizationEntryView';
 import { CandidateVaccinationEntryView } from './CandidateVaccinationEntryView';
-import { CandidateWorkExperienceEntryView } from './CandidateWorkExperienceEntryView';
 import { ageFromBirthDate } from '@/lib/clientReviewFieldFallbacks';
 
 function isUrl(value: string): boolean {
@@ -361,27 +354,9 @@ function expandSectionForVisibleFields(
     const entriesAllowed =
       !entryFields || entryFields.some((id) => isFieldIdVisible(id, visibleFields));
 
-    const usedLabels = new Set(nextFields.map((field) => field.label.trim().toLowerCase()));
-    const extraFields = (section.fields || [])
-      .filter((row) => {
-        const key = String(row.label || '').trim().toLowerCase();
-        if (!key || usedLabels.has(key)) return false;
-        if (SUBMIT_TO_CLIENT_REVIEW_LABEL_FIELDS[key]) return false;
-        return Boolean(display(row.value));
-      })
-      .map((row) => ({ label: row.label, value: display(row.value) }));
-
-    const fields = [...nextFields.map(({ label, value }) => ({ label, value })), ...extraFields];
-    const summaryValue = fields.find((row) => row.label.trim().toLowerCase() === 'summary')?.value || '';
     return {
       ...section,
-      fields: fields.map((row) =>
-        row.label.trim().toLowerCase() === 'internal notes' &&
-        summaryValue &&
-        display(row.value) === display(summaryValue)
-          ? { ...row, value: '' }
-          : row,
-      ),
+      fields: nextFields.map(({ label, value }) => ({ label, value })),
       entries: entriesAllowed ? section.entries : undefined,
     };
   }
@@ -822,7 +797,7 @@ function renderEntryCards(section: ClientReviewSection): React.ReactNode {
     return (
       <div className="space-y-2">
         {entries.map((entry, index) => (
-          <CandidateWorkExperienceEntryView key={`work-${index}`} entry={entry} index={index} />
+          <WorkEntryCard key={`work-${index}`} entry={entry} index={index} />
         ))}
       </div>
     );
@@ -832,17 +807,7 @@ function renderEntryCards(section: ClientReviewSection): React.ReactNode {
     return (
       <div className="space-y-2">
         {entries.map((entry, index) => (
-          <CandidateEducationEntryView key={`edu-${index}`} entry={entry} index={index} />
-        ))}
-      </div>
-    );
-  }
-
-  if (section.id === 'internships') {
-    return (
-      <div className="space-y-2">
-        {entries.map((entry, index) => (
-          <CandidateInternshipEntryView key={`internship-${index}`} entry={entry} index={index} />
+          <EducationEntryCard key={`edu-${index}`} entry={entry} index={index} />
         ))}
       </div>
     );
@@ -862,7 +827,16 @@ function renderEntryCards(section: ClientReviewSection): React.ReactNode {
     return (
       <div className="space-y-2">
         {entries.map((gap, index) => (
-          <CandidateGapExplanationEntryView key={`gap-${index}`} entry={gap} index={index} />
+          <RecordCard
+            key={`gap-${index}`}
+            title={display(gap.gapCategory) || `Gap ${index + 1}`}
+            rows={[
+              { label: 'Reason', value: gap.reasonForGap },
+              { label: 'Duration', value: gap.gapDuration },
+              { label: 'Skills during gap', value: gap.selectedSkills },
+              { label: 'Support', value: gap.preferredSupport },
+            ]}
+          />
         ))}
       </div>
     );
@@ -872,7 +846,16 @@ function renderEntryCards(section: ClientReviewSection): React.ReactNode {
     return (
       <div className="space-y-2">
         {entries.map((row, index) => (
-          <CandidateAcademicAchievementEntryView key={`academic-${index}`} entry={row} index={index} />
+          <RecordCard
+            key={`academic-${index}`}
+            title={display(row.achievementTitle) || `Achievement ${index + 1}`}
+            rows={[
+              { label: 'Awarded by', value: row.awardedBy },
+              { label: 'Year', value: row.yearReceived },
+              { label: 'Category', value: row.categoryType },
+              { label: 'Description', value: row.description },
+            ]}
+          />
         ))}
       </div>
     );
@@ -882,24 +865,15 @@ function renderEntryCards(section: ClientReviewSection): React.ReactNode {
     return (
       <div className="space-y-2">
         {entries.map((exam, index) => (
-          <CandidateCompetitiveExamEntryView key={`exam-${index}`} entry={exam} index={index} />
-        ))}
-      </div>
-    );
-  }
-
-  if (section.id === 'accomplishments') {
-    return (
-      <div className="space-y-2">
-        {entries.map((row, index) => (
           <RecordCard
-            key={`accomplishment-${index}`}
-            title={display(row.title || row.accomplishmentTitle) || `Accomplishment ${index + 1}`}
+            key={`exam-${index}`}
+            title={display(exam.examName) || `Exam ${index + 1}`}
             rows={[
-              { label: 'Category', value: row.category },
-              { label: 'Organization', value: row.organization },
-              { label: 'Date', value: row.achievementDate || row.date },
-              { label: 'Description', value: row.description },
+              { label: 'Year', value: exam.yearTaken },
+              { label: 'Result', value: exam.resultStatus },
+              { label: 'Score', value: exam.scoreMarks },
+              { label: 'Valid until', value: exam.validUntil },
+              { label: 'Notes', value: exam.additionalNotes },
             ]}
           />
         ))}
@@ -931,7 +905,20 @@ function renderEntryCards(section: ClientReviewSection): React.ReactNode {
     return (
       <div className="space-y-2">
         {entries.map((project, index) => (
-          <CandidateProjectEntryView key={`project-${index}`} entry={project} index={index} />
+          <RecordCard
+            key={`project-${index}`}
+            title={display(project.projectTitle) || `Project ${index + 1}`}
+            rows={[
+              { label: 'Type', value: project.projectType },
+              { label: 'Organization', value: project.organizationClient },
+              {
+                label: 'Period',
+                value: [project.startDate, project.endDate].filter(Boolean).join(' – '),
+              },
+              { label: 'Description', value: project.projectDescription },
+              { label: 'Link', value: project.projectLink },
+            ]}
+          />
         ))}
       </div>
     );
@@ -1221,18 +1208,7 @@ export function ClientReviewSectionsPanel({
         }
         if (!matched.length) continue;
         for (const section of matched) byId.delete(section.id);
-        const filledPhase1 = matched.filter((section) => sectionHasVisibleContent(section, hideOpts));
-        const emptyPhase1 = matched.filter((section) => !sectionHasVisibleContent(section, hideOpts));
-        for (const section of filledPhase1) {
-          main.push({
-            id: section.id,
-            label: resolveSectionTitle(section.id, section.title),
-            sections: [section],
-          });
-        }
-        if (emptyPhase1.length) {
-          phase1 = { id: def.id, label: def.label, sections: emptyPhase1 };
-        }
+        phase1 = { id: def.id, label: def.label, sections: matched };
         continue;
       }
 
@@ -1412,14 +1388,12 @@ export function ClientReviewSectionsPanel({
                 ) {
                   return null;
                 }
-                const hasEntries = Array.isArray(expanded.entries) && expanded.entries.length > 0;
-                const shown =
-                  expanded.fields.length || hasEntries
-                    ? expanded
-                    : {
-                        ...expanded,
-                        fields: [{ label: resolveSectionTitle(section.id, section.title), value: '' }],
-                      };
+                const shown = expanded.fields.length
+                  ? expanded
+                  : {
+                      ...expanded,
+                      fields: [{ label: resolveSectionTitle(section.id, section.title), value: '' }],
+                    };
                 const meta = SECTION_META[shown.id] || { title: shown.title, icon: FileText };
                 const Icon = meta.icon;
                 return (

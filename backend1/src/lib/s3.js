@@ -17,12 +17,16 @@ let _client = null;
 function getS3Client() {
   ensureS3Configured();
   if (!_client) {
+    const endpoint = String(process.env.AWS_S3_ENDPOINT || '').trim();
     _client = new S3Client({
       region: process.env.AWS_REGION,
       credentials: {
         accessKeyId: process.env.AWS_ACCESS_KEY_ID,
         secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
       },
+      ...(endpoint
+        ? { endpoint, forcePathStyle: true }
+        : {}),
     });
   }
   return _client;

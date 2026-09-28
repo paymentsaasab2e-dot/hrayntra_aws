@@ -32,6 +32,7 @@ import {
   releaseBulkCvZipSession,
 } from '../services/bulkCvZipStore.js';
 import { withBulkCvProcessSlot } from '../services/bulkCvProcessLimiter.service.js';
+import { enqueueBulkCvParseJob, setCvParseJobStatus } from '../services/cvParseJob.service.js';
 import {
   countActiveFailedBulkResumes,
   getFailedBulkResumeFileBuffer,
@@ -738,6 +739,230 @@ async function collectTagSuggestions() {
     .slice(0, 100);
 }
 
+/**
+ * Heavy bulk-CV pipeline (stage4 parse → duplicate dialog → stage5 normalize).
+ * Runs inside the CV parse-job worker via enqueueCvParseJob — never inside the
+ * HTTP request. Returns the data envelope the bulk UI expects.
+ */
+async function runBulkCvFilePipeline({ file, fileIndex, sessionId, userId, candidateIdForUpload, tenantDbName, jobId }) {
+      const stage4 = await runCvPipelineThroughStage4(file, { verboseLogs: false });
+      const fb = stage4.fallbackData || {};
+      const dup = await findExistingCandidateDuplicate({
+        email: fb.email,
+      });
+
+      let identityPatch = null;
+      let duplicateResolution = null;
+      let updateExistingCandidateId = null;
+      let normalizedData;
+
+      if (dup) {
+        const io = getBulkCvIo();
+        if (!io) {
+          console.error('[bulk-cv] Socket.IO not initialized');
+          throw new Error('Bulk duplicate resolution unavailable (real-time). Restart the API server.');
+        }
+
+        const existing = dup.candidate;
+        // The user may take minutes on the duplicate popup — mark the job so the
+        // poller does not time out while we wait for a human decision.
+        if (jobId) setCvParseJobStatus(jobId, { status: 'waiting_user' });
+        const decisionPromise = waitBulkCvDuplicateDecision(userId, sessionId, fileIndex);
+        const finalizePromise = finalizeCvPipelineFromStage5(
+          file,
+          candidateIdForUpload,
+          stage4,
+          null,
+          tenantDbName,
+          { compactPrompt: true, verboseLogs: false },
+        );
+
+        emitBulkCvDuplicateFound(userId, sessionId, {
+          fileIndex,
+          fileName: file.originalname || file.filename || 'resume',
+          newCandidate: {
+            firstName: fb.firstName || '',
+            lastName: fb.lastName || '',
+            email: fb.email || '',
+          },
+          existingCandidate: {
+            id: existing.id,
+            firstName: existing.firstName,
+            lastName: existing.lastName,
+            email: existing.email,
+            designation: existing.designation || existing.currentTitle || null,
+            createdAt: existing.createdAt,
+          },
+          match: dup.match,
+          canUpdate: true,
+          canCreateAnyway: true,
+        });
+
+        let decisionRaw;
+        let preNormalized;
+        try {
+          [decisionRaw, preNormalized] = await Promise.all([decisionPromise, finalizePromise]);
+        } catch (parallelErr) {
+          console.error('[bulk-cv] duplicate branch finalize/decision failed', parallelErr?.message || parallelErr);
+          throw parallelErr;
+        }
+        if (jobId) setCvParseJobStatus(jobId, { status: 'processing' });
+
+        const decision = String(decisionRaw || 'cancel').trim();
+        console.log('[bulk-cv] user decision', { file: file.originalname, fileIndex, decision });
+
+        if (decision === 'cancel') {
+          const { cvParseMeta: skippedTokenUsage } = stripCvParseMeta(preNormalized);
+          return {
+            skipped: true,
+            reason: 'duplicate_cancelled',
+            fileIndex,
+            tokenUsage: skippedTokenUsage,
+          };
+        }
+
+        if (decision === 'replace') {
+          console.log('[bulk-cv] REPLACE: hard-deleting existing candidate', existing.id);
+          await hardDeleteCandidateById(existing.id);
+          duplicateResolution = 'replaced';
+          normalizedData = preNormalized;
+        } else if (decision === 'update_existing') {
+          duplicateResolution = 'updated';
+          updateExistingCandidateId = existing.id;
+          normalizedData = preNormalized;
+        } else if (decision === 'create_anyway') {
+          const fnForCopy = String(preNormalized?.firstName || fb.firstName || '').trim();
+          const lnForCopy = String(preNormalized?.lastName || fb.lastName || '').trim();
+          const dupEmail = normalizeCandidateEmailForDuplicate(
+            preNormalized?.email || fb.email || existing?.email
+          );
+          const newLast = await nextCopyLastNameForBulk({
+            firstName: fnForCopy,
+            lastName: lnForCopy,
+            email: dupEmail,
+            userId,
+            sessionId,
+          });
+          identityPatch = { lastName: newLast };
+          duplicateResolution = 'create_anyway';
+          normalizedData = applyBulkCreateAnywayIdentityPatch(preNormalized, identityPatch);
+        } else {
+          console.warn('[bulk-cv] unknown decision, treating as cancel', decision);
+          const { cvParseMeta: skippedTokenUsage } = stripCvParseMeta(preNormalized);
+          return {
+            skipped: true,
+            reason: 'duplicate_cancelled',
+            fileIndex,
+            tokenUsage: skippedTokenUsage,
+          };
+        }
+      } else {
+        normalizedData = await finalizeCvPipelineFromStage5(
+          file,
+          candidateIdForUpload,
+          stage4,
+          null,
+          tenantDbName,
+          { compactPrompt: true, verboseLogs: false },
+        );
+      }
+
+      const postAiEmail = normalizeCandidateEmailForDuplicate(
+        normalizedData?.email || normalizedData?.contactEmail || fb.email
+      );
+      if (!dup && postAiEmail) {
+        const postDup = await findExistingCandidateDuplicate({ email: postAiEmail });
+        if (postDup?.candidate) {
+          const io = getBulkCvIo();
+          if (!io) {
+            throw new Error('Bulk duplicate resolution unavailable (real-time). Restart the API server.');
+          }
+
+          const existing = postDup.candidate;
+          if (jobId) setCvParseJobStatus(jobId, { status: 'waiting_user' });
+          const decisionPromise = waitBulkCvDuplicateDecision(userId, sessionId, fileIndex);
+          emitBulkCvDuplicateFound(userId, sessionId, {
+            fileIndex,
+            fileName: file.originalname || file.filename || 'resume',
+            newCandidate: {
+              firstName: normalizedData?.firstName || fb.firstName || '',
+              lastName: normalizedData?.lastName || fb.lastName || '',
+              email: postAiEmail,
+            },
+            existingCandidate: {
+              id: existing.id,
+              firstName: existing.firstName,
+              lastName: existing.lastName,
+              email: existing.email,
+              designation: existing.designation || existing.currentTitle || null,
+              createdAt: existing.createdAt,
+            },
+            match: postDup.match,
+            canUpdate: true,
+            canCreateAnyway: true,
+          });
+          const decisionRaw = await decisionPromise;
+          if (jobId) setCvParseJobStatus(jobId, { status: 'processing' });
+          const decision = String(decisionRaw || 'cancel').trim();
+          console.log('[bulk-cv] post-AI duplicate decision', {
+            file: file.originalname,
+            fileIndex,
+            decision,
+          });
+
+          if (decision === 'cancel') {
+            const { cvParseMeta: skippedTokenUsage } = stripCvParseMeta(normalizedData);
+            return {
+              skipped: true,
+              reason: 'duplicate_cancelled',
+              fileIndex,
+              tokenUsage: skippedTokenUsage,
+            };
+          }
+
+          if (decision === 'replace') {
+            await hardDeleteCandidateById(existing.id);
+            duplicateResolution = 'replaced';
+          } else if (decision === 'update_existing') {
+            duplicateResolution = 'updated';
+            updateExistingCandidateId = existing.id;
+          } else if (decision === 'create_anyway') {
+            const fnForCopy = String(normalizedData?.firstName || fb.firstName || '').trim();
+            const lnForCopy = String(normalizedData?.lastName || fb.lastName || '').trim();
+            identityPatch = {
+              lastName: await nextCopyLastNameForBulk({
+                firstName: fnForCopy,
+                lastName: lnForCopy,
+                email: postAiEmail,
+                userId,
+                sessionId,
+              }),
+            };
+            duplicateResolution = 'create_anyway';
+            normalizedData = applyBulkCreateAnywayIdentityPatch(normalizedData, identityPatch);
+          } else {
+            const { cvParseMeta: skippedTokenUsage } = stripCvParseMeta(normalizedData);
+            return {
+              skipped: true,
+              reason: 'duplicate_cancelled',
+              fileIndex,
+              tokenUsage: skippedTokenUsage,
+            };
+          }
+        }
+      }
+
+      const { cleaned: normalizedPayload, cvParseMeta: tokenUsage } = stripCvParseMeta(normalizedData);
+
+      return {
+        normalized: normalizedPayload,
+        duplicateResolution,
+        updateExistingCandidateId: updateExistingCandidateId || undefined,
+        fileIndex,
+        tokenUsage,
+      };
+}
+
 export const addCandidateController = {
   async createCandidate(req, res) {
     try {
@@ -766,9 +991,13 @@ export const addCandidateController = {
 
       const recruiterId = isBulkCvPoolCreate ? null : req.body.recruiterId || req.user.id;
       const creatorId = req.user.id;
-      const stageLabel = isBulkCvPoolCreate || !req.body.jobId
+      const stageLabel = isBulkCvPoolCreate
         ? null
-        : getStageLabel(req.body.stage || 'Applied');
+        : req.body.jobId
+          ? getStageLabel(req.body.stage || 'Applied')
+          : req.body.stage
+            ? getStageLabel(req.body.stage)
+            : null;
       const expectedSalary = parsePositiveNumber(req.body.expectedSalary);
       const currentSalary = parsePositiveNumber(req.body.currentSalary);
       const duplicateActionRaw = String(req.body.duplicateAction || 'create');
@@ -1283,7 +1512,6 @@ export const addCandidateController = {
         return res.status(400).json({ success: false, message: 'fileIndex is required (0-based)' });
       }
 
-      return await withBulkCvProcessSlot(async () => {
       const allowedMimeTypes = [
         'application/pdf',
         'application/msword',
@@ -1309,253 +1537,41 @@ export const addCandidateController = {
         return res.status(400).json({ success: false, message: stage1.message });
       }
 
-      const stage4 = await runCvPipelineThroughStage4(file, { verboseLogs: false });
-      const fb = stage4.fallbackData || {};
-      const dup = await findExistingCandidateDuplicate({
-        email: fb.email,
-      });
-
-      let identityPatch = null;
-      let duplicateResolution = null;
-      let updateExistingCandidateId = null;
       const tenantDbName =
         String(req.user?.tenantDbName || req.headers['x-tenant-db-name'] || '').trim() || undefined;
       const candidateIdForUpload = req.body?.candidateId || userId;
 
-      let normalizedData;
-
-      if (dup) {
-        const io = getBulkCvIo();
-        if (!io) {
-          console.error('[bulk-cv] Socket.IO not initialized');
-          safeUnlink();
-          return res.status(503).json({
-            success: false,
-            message: 'Bulk duplicate resolution unavailable (real-time). Restart the API server.',
-          });
-        }
-
-        const existing = dup.candidate;
-        const decisionPromise = waitBulkCvDuplicateDecision(userId, sessionId, fileIndex);
-        const finalizePromise = finalizeCvPipelineFromStage5(
-          file,
-          candidateIdForUpload,
-          stage4,
-          null,
-          tenantDbName,
-          { compactPrompt: true, verboseLogs: false },
-        );
-
-        emitBulkCvDuplicateFound(userId, sessionId, {
-          fileIndex,
-          fileName: file.originalname || file.filename || 'resume',
-          newCandidate: {
-            firstName: fb.firstName || '',
-            lastName: fb.lastName || '',
-            email: fb.email || '',
-          },
-          existingCandidate: {
-            id: existing.id,
-            firstName: existing.firstName,
-            lastName: existing.lastName,
-            email: existing.email,
-            designation: existing.designation || existing.currentTitle || null,
-            createdAt: existing.createdAt,
-          },
-          match: dup.match,
-          canUpdate: true,
-          canCreateAnyway: true,
-        });
-
-        let decisionRaw;
-        let preNormalized;
-        try {
-          [decisionRaw, preNormalized] = await Promise.all([decisionPromise, finalizePromise]);
-        } catch (parallelErr) {
-          console.error('[bulk-cv] duplicate branch finalize/decision failed', parallelErr?.message || parallelErr);
-          throw parallelErr;
-        }
-
-        const decision = String(decisionRaw || 'cancel').trim();
-        console.log('[bulk-cv] user decision', { file: file.originalname, fileIndex, decision });
-
-        if (decision === 'cancel') {
-          safeUnlink();
-          const { cvParseMeta: skippedTokenUsage } = stripCvParseMeta(preNormalized);
-          return res.status(200).json({
-            success: true,
-            message: 'duplicate_skipped',
-            data: {
-              skipped: true,
-              reason: 'duplicate_cancelled',
+      // Parse runs in the in-process CV parse-job queue — return queued immediately.
+      // The bulk duplicate dialog still works: the worker socket-emits and waits
+      // for the user's decision inside the job, then job.data carries the result.
+      const { jobId, status } = enqueueBulkCvParseJob({
+        file,
+        tenantDbName,
+        sessionId,
+        fileIndex,
+        // ZIP-extracted files stay on disk until release-zip (Retry/failure save);
+        // only multer temp uploads are unlinked by the worker.
+        keepFile: fromZipStore,
+        parseFn: (jobFile, ctx) =>
+          withBulkCvProcessSlot(() =>
+            runBulkCvFilePipeline({
+              file: jobFile,
               fileIndex,
-              tokenUsage: skippedTokenUsage,
-            },
-          });
-        }
-
-        if (decision === 'replace') {
-          console.log('[bulk-cv] REPLACE: hard-deleting existing candidate', existing.id);
-          await hardDeleteCandidateById(existing.id);
-          duplicateResolution = 'replaced';
-          normalizedData = preNormalized;
-        } else if (decision === 'update_existing') {
-          duplicateResolution = 'updated';
-          updateExistingCandidateId = existing.id;
-          normalizedData = preNormalized;
-        } else if (decision === 'create_anyway') {
-          const fnForCopy = String(preNormalized?.firstName || fb.firstName || '').trim();
-          const lnForCopy = String(preNormalized?.lastName || fb.lastName || '').trim();
-          const dupEmail = normalizeCandidateEmailForDuplicate(
-            preNormalized?.email || fb.email || existing?.email
-          );
-          const newLast = await nextCopyLastNameForBulk({
-            firstName: fnForCopy,
-            lastName: lnForCopy,
-            email: dupEmail,
-            userId,
-            sessionId,
-          });
-          identityPatch = { lastName: newLast };
-          duplicateResolution = 'create_anyway';
-          normalizedData = applyBulkCreateAnywayIdentityPatch(preNormalized, identityPatch);
-        } else {
-          console.warn('[bulk-cv] unknown decision, treating as cancel', decision);
-          safeUnlink();
-          const { cvParseMeta: skippedTokenUsage } = stripCvParseMeta(preNormalized);
-          return res.status(200).json({
-            success: true,
-            message: 'duplicate_skipped',
-            data: {
-              skipped: true,
-              reason: 'duplicate_cancelled',
-              fileIndex,
-              tokenUsage: skippedTokenUsage,
-            },
-          });
-        }
-      } else {
-        normalizedData = await finalizeCvPipelineFromStage5(
-          file,
-          candidateIdForUpload,
-          stage4,
-          null,
-          tenantDbName,
-          { compactPrompt: true, verboseLogs: false },
-        );
-      }
-
-      const postAiEmail = normalizeCandidateEmailForDuplicate(
-        normalizedData?.email || normalizedData?.contactEmail || fb.email
-      );
-      if (!dup && postAiEmail) {
-        const postDup = await findExistingCandidateDuplicate({ email: postAiEmail });
-        if (postDup?.candidate) {
-          const io = getBulkCvIo();
-          if (!io) {
-            safeUnlink();
-            return res.status(503).json({
-              success: false,
-              message: 'Bulk duplicate resolution unavailable (real-time). Restart the API server.',
-            });
-          }
-
-          const existing = postDup.candidate;
-          const decisionPromise = waitBulkCvDuplicateDecision(userId, sessionId, fileIndex);
-          emitBulkCvDuplicateFound(userId, sessionId, {
-            fileIndex,
-            fileName: file.originalname || file.filename || 'resume',
-            newCandidate: {
-              firstName: normalizedData?.firstName || fb.firstName || '',
-              lastName: normalizedData?.lastName || fb.lastName || '',
-              email: postAiEmail,
-            },
-            existingCandidate: {
-              id: existing.id,
-              firstName: existing.firstName,
-              lastName: existing.lastName,
-              email: existing.email,
-              designation: existing.designation || existing.currentTitle || null,
-              createdAt: existing.createdAt,
-            },
-            match: postDup.match,
-            canUpdate: true,
-            canCreateAnyway: true,
-          });
-          const decision = String((await decisionPromise) || 'cancel').trim();
-          console.log('[bulk-cv] post-AI duplicate decision', {
-            file: file.originalname,
-            fileIndex,
-            decision,
-          });
-
-          if (decision === 'cancel') {
-            safeUnlink();
-            const { cvParseMeta: skippedTokenUsage } = stripCvParseMeta(normalizedData);
-            return res.status(200).json({
-              success: true,
-              message: 'duplicate_skipped',
-              data: {
-                skipped: true,
-                reason: 'duplicate_cancelled',
-                fileIndex,
-                tokenUsage: skippedTokenUsage,
-              },
-            });
-          }
-
-          if (decision === 'replace') {
-            await hardDeleteCandidateById(existing.id);
-            duplicateResolution = 'replaced';
-          } else if (decision === 'update_existing') {
-            duplicateResolution = 'updated';
-            updateExistingCandidateId = existing.id;
-          } else if (decision === 'create_anyway') {
-            const fnForCopy = String(normalizedData?.firstName || fb.firstName || '').trim();
-            const lnForCopy = String(normalizedData?.lastName || fb.lastName || '').trim();
-            identityPatch = {
-              lastName: await nextCopyLastNameForBulk({
-                firstName: fnForCopy,
-                lastName: lnForCopy,
-                email: postAiEmail,
-                userId,
-                sessionId,
-              }),
-            };
-            duplicateResolution = 'create_anyway';
-            normalizedData = applyBulkCreateAnywayIdentityPatch(normalizedData, identityPatch);
-          } else {
-            safeUnlink();
-            const { cvParseMeta: skippedTokenUsage } = stripCvParseMeta(normalizedData);
-            return res.status(200).json({
-              success: true,
-              message: 'duplicate_skipped',
-              data: {
-                skipped: true,
-                reason: 'duplicate_cancelled',
-                fileIndex,
-                tokenUsage: skippedTokenUsage,
-              },
-            });
-          }
-        }
-      }
-
-      safeUnlink();
-
-      const { cleaned: normalizedPayload, cvParseMeta: tokenUsage } = stripCvParseMeta(normalizedData);
-
-      return res.status(200).json({
-        success: true,
-        message: 'ok',
-        data: {
-          normalized: normalizedPayload,
-          duplicateResolution,
-          updateExistingCandidateId: updateExistingCandidateId || undefined,
-          fileIndex,
-          tokenUsage,
-        },
+              sessionId,
+              userId,
+              candidateIdForUpload,
+              tenantDbName,
+              jobId: ctx?.jobId,
+            }),
+          ),
       });
+
+      return res.status(202).json({
+        success: true,
+        jobId,
+        status,
+        fileIndex,
+        sessionId,
       });
     } catch (error) {
       console.error('[bulk-cv] bulkCvProcessFile failed:', error?.message || error);

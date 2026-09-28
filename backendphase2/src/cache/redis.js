@@ -2,7 +2,7 @@ import Redis from 'ioredis';
 
 let redisClient = null;
 
-function hasRedisConfig() {
+export function hasRedisConfig() {
   return Boolean(process.env.REDIS_URL || process.env.REDIS_HOST);
 }
 

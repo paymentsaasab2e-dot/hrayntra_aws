@@ -154,27 +154,73 @@ function extractNameFromResumeText(text) {
   return null;
 }
 
+function extractEmailFromResumeText(text) {
+  const m = String(text || '').match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  return m ? m[0].toLowerCase() : null;
+}
+
+function extractPhoneFromResumeText(text) {
+  const raw = String(text || '');
+  const labeled = raw.match(
+    /(?:phone|mobile|mob|tel|whatsapp|contact)[:\s]*([+\d][\d\s().-]{7,18}\d)/i,
+  );
+  const candidate = labeled ? labeled[1] : (raw.match(/(?:\+\d{1,3}[\s-]?)?(?:\(?\d{2,5}\)?[\s-]?)?\d{3,5}[\s-]?\d{4,6}/) || [])[0];
+  if (!candidate) return null;
+  const digits = candidate.replace(/\D/g, '');
+  if (digits.length < 8 || digits.length > 15) return null;
+  if (/^(19|20)\d{2}$/.test(digits)) return null;
+  return candidate.replace(/\s+/g, ' ').trim();
+}
+
+function extractDobFromResumeText(text) {
+  const m = String(text || '').match(
+    /(?:date\s*of\s*birth|d\.?o\.?b\.?|born)[:\s]+(\d{1,2}[/\-.]\d{1,2}[/\-.]\d{2,4}|\d{4}-\d{2}-\d{2})/i,
+  );
+  return m ? m[1].trim() : null;
+}
+
+function extractCityCountryFromResumeText(text) {
+  const raw = String(text || '');
+  const labeled = raw.match(/(?:address|location|city)[:\s]+([^\n]{4,80})/i);
+  if (!labeled) return { city: null, country: null };
+  const parts = labeled[1]
+    .split(',')
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (parts.length >= 2) {
+    return { city: parts[parts.length - 2], country: parts[parts.length - 1] };
+  }
+  return { city: parts[0] || null, country: null };
+}
+
 function enrichPersonalInformationFromResumeText(pi, resumeText) {
-  const normalized = normalizePersonalInformation(pi);
+  const input = pi && typeof pi === 'object' ? { ...pi } : {};
+  const normalized = normalizePersonalInformation(input);
   const fullParts = String(normalized.fullName || '')
     .split(/\s+/)
     .filter(Boolean);
 
-  if (!isIncompleteNameParts(normalized) && fullParts.length >= 2) {
-    return normalized;
+  let names = normalized;
+  if (isIncompleteNameParts(normalized) || fullParts.length < 2) {
+    const extracted = extractNameFromResumeText(resumeText);
+    if (extracted) {
+      const extractedParts = extracted.split(/\s+/).filter(Boolean);
+      if (extractedParts.length > fullParts.length) {
+        names = normalizePersonalInformation({ fullName: extracted });
+      }
+    }
   }
 
-  const extracted = extractNameFromResumeText(resumeText);
-  if (!extracted) return normalized;
-
-  const extractedParts = extracted.split(/\s+/).filter(Boolean);
-  const currentParts = fullParts;
-
-  if (extractedParts.length > currentParts.length) {
-    return normalizePersonalInformation({ fullName: extracted });
+  const merged = { ...input, ...names };
+  if (!merged.email) merged.email = extractEmailFromResumeText(resumeText);
+  if (!merged.phoneNumber) merged.phoneNumber = extractPhoneFromResumeText(resumeText);
+  if (!merged.dateOfBirth) merged.dateOfBirth = extractDobFromResumeText(resumeText);
+  if (!merged.city || !merged.country) {
+    const loc = extractCityCountryFromResumeText(resumeText);
+    if (!merged.city && loc.city) merged.city = loc.city;
+    if (!merged.country && loc.country) merged.country = loc.country;
   }
-
-  return normalized;
+  return merged;
 }
 
 function resolvePersonalInfoNames({ candidate, profile, resumeJson }) {
@@ -226,6 +272,10 @@ module.exports = {
   splitPersonName,
   normalizePersonalInformation,
   extractNameFromResumeText,
+  extractEmailFromResumeText,
+  extractPhoneFromResumeText,
+  extractDobFromResumeText,
+  extractCityCountryFromResumeText,
   enrichPersonalInformationFromResumeText,
   resolvePersonalInfoNames,
 };

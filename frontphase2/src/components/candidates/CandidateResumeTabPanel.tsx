@@ -35,7 +35,6 @@ import {
   resolveCandidateResumeUrlFromSources,
 } from '../../lib/phase1ProfileSnapshot';
 import {
-  guardHryantraDocxResumeVersions,
   hasSaasaCvDocumentTextEdits,
   readSaasaCvAnnotations,
   resolveSaasaCvBaseResumeUrl,
@@ -250,7 +249,6 @@ interface CandidateResumeTabPanelProps {
   onCandidateUpdated?: () => void | Promise<void>;
   onToast?: (message: string) => void;
   onOpenSaasaCv?: () => void;
-  onDeleteSaasaCv?: () => Promise<boolean>;
 }
 
 const MODE_LABELS: Record<ResumeCvViewMode, string> = {
@@ -268,7 +266,6 @@ export function CandidateResumeTabPanel({
   onCandidateUpdated,
   onToast,
   onOpenSaasaCv,
-  onDeleteSaasaCv,
   saasaSavedFileUrl = null,
   preferredResumeViewMode: preferredResumeViewModeProp = null,
   onPreferredResumeViewModeChange,
@@ -370,7 +367,7 @@ export function CandidateResumeTabPanel({
       (candidate.extraData && typeof candidate.extraData === 'object' && !Array.isArray(candidate.extraData)
         ? (candidate.extraData as Record<string, unknown>)
         : null);
-    const rawPrimaryUrl = String(
+    const primaryUrl = String(
       primaryOverride?.url ||
         backendCandidate?.resume ||
         backendCandidate?.resumeUrl ||
@@ -378,9 +375,6 @@ export function CandidateResumeTabPanel({
         extra?.originalResumeUrl ||
         '',
     ).trim();
-    const guarded = guardHryantraDocxResumeVersions(extra, rawPrimaryUrl);
-    const excluded = new Set(guarded.excludeKeys);
-    const primaryUrl = guarded.versionPrimaryUrl;
     const primaryFileName = String(
       primaryOverride?.fileName || extra?.originalResumeFileName || '',
     ).trim();
@@ -396,21 +390,17 @@ export function CandidateResumeTabPanel({
       : null;
 
     const versions = buildResumeVersionRows(
-      files
-        .filter((f) => !excluded.has(normalizeResumeCompareUrl(String(f.fileUrl || ''))))
-        .map((f) => ({
-          id: f.id,
-          fileUrl: f.fileUrl,
-          fileType: f.fileType,
-          fileName: f.fileName,
-          uploadDate: f.uploadDate,
-          createdAt: (f as { createdAt?: string }).createdAt,
-        })),
+      files.map((f) => ({
+        id: f.id,
+        fileUrl: f.fileUrl,
+        fileType: f.fileType,
+        fileName: f.fileName,
+        uploadDate: f.uploadDate,
+        createdAt: (f as { createdAt?: string }).createdAt,
+      })),
       primaryUrl,
       primaryFileName,
-      storedVersions?.filter(
-        (row) => !excluded.has(normalizeResumeCompareUrl(String(row.fileUrl || ''))),
-      ) ?? null,
+      storedVersions,
       firstOriginalUrl,
     );
     setResumeVersionRows(versions);
@@ -803,23 +793,16 @@ export function CandidateResumeTabPanel({
   };
 
   const saasaPreviewRaw = useMemo(() => {
-    const extra =
-      (backendCandidate?.extraData as Record<string, unknown> | null | undefined) ??
-      (candidate.extraData as Record<string, unknown> | null | undefined) ??
-      null;
-    const fromExtra = resolveSaasaCvPreviewUrl(extra, candidateFiles);
+    const fromExtra = resolveSaasaCvPreviewUrl(
+      backendCandidate?.extraData ?? candidate.extraData ?? null,
+      candidateFiles
+    );
     const fromStored = saasaStored?.fileUrl ?? null;
     const fromProp = saasaSavedFileUrl ?? null;
-    const fromEditedDocx = guardHryantraDocxResumeVersions(
-      extra,
-      String(backendCandidate?.resume || candidate.resumeUrl || '').trim(),
-    ).hryantraUrl;
-    return fromExtra || fromStored || fromProp || fromEditedDocx || null;
+    return fromExtra || fromStored || fromProp || null;
   }, [
     backendCandidate?.extraData,
-    backendCandidate?.resume,
     candidate.extraData,
-    candidate.resumeUrl,
     candidateFiles,
     saasaStored?.fileUrl,
     saasaSavedFileUrl,
@@ -899,16 +882,13 @@ export function CandidateResumeTabPanel({
             ? (candidate.extraData as Record<string, unknown>)
             : null);
 
-        const rawPrimaryUrl = String(
+        const primaryUrl = String(
           refreshed?.resume ||
             refreshed?.resumeUrl ||
             candidate.resumeUrl ||
             extraSource?.originalResumeUrl ||
             '',
         ).trim();
-        const guarded = guardHryantraDocxResumeVersions(extraSource, rawPrimaryUrl);
-        const excluded = new Set(guarded.excludeKeys);
-        const primaryUrl = guarded.versionPrimaryUrl;
         const primaryFileName = String(extraSource?.originalResumeFileName || '').trim();
         const firstOriginalUrl = String(extraSource?.firstOriginalResumeUrl || '').trim();
         const storedVersions = Array.isArray(extraSource?.resumeVersions)
@@ -921,21 +901,17 @@ export function CandidateResumeTabPanel({
             }>)
           : null;
         const versions = buildResumeVersionRows(
-          files
-            .filter((f) => !excluded.has(normalizeResumeCompareUrl(String(f.fileUrl || ''))))
-            .map((f) => ({
-              id: f.id,
-              fileUrl: f.fileUrl,
-              fileType: f.fileType,
-              fileName: f.fileName,
-              uploadDate: f.uploadDate,
-              createdAt: (f as { createdAt?: string }).createdAt,
-            })),
+          files.map((f) => ({
+            id: f.id,
+            fileUrl: f.fileUrl,
+            fileType: f.fileType,
+            fileName: f.fileName,
+            uploadDate: f.uploadDate,
+            createdAt: (f as { createdAt?: string }).createdAt,
+          })),
           primaryUrl,
           primaryFileName,
-          storedVersions?.filter(
-            (row) => !excluded.has(normalizeResumeCompareUrl(String(row.fileUrl || ''))),
-          ) ?? null,
+          storedVersions,
           firstOriginalUrl,
         );
         setResumeVersionRows(versions);
@@ -1022,32 +998,6 @@ export function CandidateResumeTabPanel({
     lastAppliedPreferredRef.current = mode;
     setViewMode(mode);
     onPreferredResumeViewModeChange?.(mode);
-  };
-
-  const [deletingSaasa, setDeletingSaasa] = useState(false);
-  const canDeleteSaasaCv = canEdit && Boolean(onDeleteSaasaCv) && availableModes.includes('saasa');
-
-  const handleDeleteSaasaCv = async () => {
-    if (!onDeleteSaasaCv || deletingSaasa || !canDeleteSaasaCv) return;
-    const confirmed = await requestConfirm(
-      'Delete this HRYantra CV? The Original CV will stay. You can edit and save a new HRYantra CV anytime.',
-      {
-        title: SYSTEM_ALERT_TITLE,
-        tone: 'warning',
-        confirmLabel: 'Delete',
-        cancelLabel: 'Cancel',
-      }
-    );
-    if (!confirmed) return;
-    setDeletingSaasa(true);
-    try {
-      const removed = await onDeleteSaasaCv();
-      if (!removed) return;
-      await refreshBackend();
-      selectViewMode('original');
-    } finally {
-      setDeletingSaasa(false);
-    }
   };
 
   const buildResumeFilename = (sourceUrl: string, label: string) => {
@@ -1234,9 +1184,7 @@ export function CandidateResumeTabPanel({
                   >
                     {availableModes.map((mode) => {
                       const active = viewMode === mode;
-                      const deletable =
-                        (mode === 'updated' && canDeleteUpdatedCv) ||
-                        (mode === 'saasa' && canDeleteSaasaCv);
+                      const deletable = mode === 'updated' && canDeleteUpdatedCv;
                       return (
                         <div
                           key={mode}
@@ -1263,19 +1211,15 @@ export function CandidateResumeTabPanel({
                               type="button"
                               title={`Delete ${MODE_LABELS[mode]}`}
                               aria-label={`Delete ${MODE_LABELS[mode]}`}
-                              disabled={busy || replacingCv || deletingSaasa}
-                              onClick={() =>
-                                void (mode === 'saasa' ? handleDeleteSaasaCv() : handleDeleteUpdatedCv())
-                              }
+                              disabled={busy || replacingCv}
+                              onClick={() => void handleDeleteUpdatedCv()}
                               className={`inline-flex items-center border-l px-2.5 py-2 transition-colors disabled:opacity-60 ${
                                 active
                                   ? 'border-blue-500 hover:bg-blue-700'
                                   : 'border-slate-200 hover:bg-red-50 hover:text-red-700'
                               }`}
                             >
-                              {busy && active && mode !== 'saasa' ? (
-                                <Loader2 size={14} className="animate-spin" />
-                              ) : deletingSaasa && mode === 'saasa' ? (
+                              {busy && active ? (
                                 <Loader2 size={14} className="animate-spin" />
                               ) : (
                                 <Trash2 size={14} />
@@ -1424,17 +1368,6 @@ export function CandidateResumeTabPanel({
                       >
                         <Pencil size={16} />
                         Edit HRYantra CV
-                      </button>
-                    ) : null}
-                    {canDeleteSaasaCv ? (
-                      <button
-                        type="button"
-                        onClick={() => void handleDeleteSaasaCv()}
-                        disabled={deletingSaasa}
-                        className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-60"
-                      >
-                        {deletingSaasa ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
-                        Delete
                       </button>
                     ) : null}
                     <button
