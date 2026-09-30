@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { fixRenderedDocxLayout, prepareDocxBlobForPreview } from '../../lib/docxPreviewLayout';
 import {
   buildOfficeOnlineEmbedUrl,
   buildResumeDocxBytesUrl,
@@ -17,6 +18,8 @@ export interface ResumeWordFileViewerProps {
   minHeight?: string;
   /** Always use docx-preview (required for HRYantra CV text editing). */
   preferBuiltIn?: boolean;
+  /** Stay on the Office viewer. The built-in preview stretches designed Word pages. */
+  allowBuiltInFallback?: boolean;
   /** Allow inline text edits on the rendered Word HTML. */
   editable?: boolean;
   /** Restored edited HTML from a previous HRYantra CV save. */
@@ -72,6 +75,7 @@ function ResumeDocxBuiltInViewer({
   const styleRef = useRef<HTMLDivElement>(null);
   const loadSeqRef = useRef(0);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     if (!enabled || !resumeUrl) {
@@ -86,6 +90,7 @@ function ResumeDocxBuiltInViewer({
     let cancelled = false;
 
     setLoading(true);
+    setError('');
     bodyEl.innerHTML = '';
     if (styleRef.current) styleRef.current.innerHTML = '';
 
@@ -95,6 +100,7 @@ function ResumeDocxBuiltInViewer({
         if (savedHtml) {
           bodyEl.innerHTML = savedHtml;
           if (cancelled || loadSeqRef.current !== seq) return;
+          await fixRenderedDocxLayout(bodyEl, null);
           applyDocxInlineEditMode(bodyEl, editable);
           onReady?.();
           return;
@@ -110,17 +116,20 @@ function ResumeDocxBuiltInViewer({
           throw new Error('Document file is empty');
         }
 
+        const prepared = await prepareDocxBlobForPreview(blob);
+        if (cancelled || loadSeqRef.current !== seq) return;
+
         const { renderAsync } = await import('docx-preview');
         if (cancelled || loadSeqRef.current !== seq) return;
 
-        await renderAsync(blob, bodyEl, styleRef.current ?? undefined, {
+        await renderAsync(prepared.blob, bodyEl, styleRef.current ?? undefined, {
           className: 'docx-preview-resume',
           inWrapper: true,
           ignoreWidth: false,
           ignoreHeight: false,
           ignoreFonts: false,
           breakPages: true,
-          ignoreLastRenderedPageBreak: true,
+          ignoreLastRenderedPageBreak: false,
           experimental: true,
           useBase64URL: true,
           renderHeaders: true,
@@ -132,14 +141,19 @@ function ResumeDocxBuiltInViewer({
 
         if (cancelled || loadSeqRef.current !== seq) return;
         if (bodyEl.childElementCount > 0) {
+          await fixRenderedDocxLayout(bodyEl, prepared.layout);
           applyDocxInlineEditMode(bodyEl, editable);
           onReady?.();
         } else {
-          onError?.('No preview content was rendered');
+          const message = 'No preview content was rendered';
+          setError(message);
+          onError?.(message);
         }
       } catch (err: unknown) {
         if (!cancelled && loadSeqRef.current === seq) {
-          onError?.(err instanceof Error ? err.message : 'Preview unavailable');
+          const message = err instanceof Error ? err.message : 'Preview unavailable';
+          setError(message);
+          onError?.(message);
         }
       } finally {
         if (!cancelled && loadSeqRef.current === seq) {
@@ -169,10 +183,10 @@ function ResumeDocxBuiltInViewer({
   return (
     <div className="relative h-full w-full" style={{ minHeight }}>
       <div ref={styleRef} className="sr-only" aria-hidden />
-      <div className="h-full w-full overflow-y-auto overscroll-y-contain p-4 sm:p-6">
+      <div className="h-full w-full overflow-x-hidden overflow-y-auto overscroll-y-contain px-2 py-4 sm:px-3">
         <div
           ref={bodyRef}
-          className="resume-docx-body mx-auto w-full max-w-[52rem]"
+          className="resume-docx-body mx-auto w-full max-w-none"
           onInput={editable ? handleInput : undefined}
           suppressContentEditableWarning
         />
@@ -183,6 +197,11 @@ function ResumeDocxBuiltInViewer({
             <div className="mx-auto mb-3 h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-blue-600" />
             <p className="text-sm text-slate-600">Loading document…</p>
           </div>
+        </div>
+      ) : null}
+      {!loading && error ? (
+        <div className="absolute inset-0 z-[1] flex items-center justify-center bg-white p-6 text-center">
+          <p className="max-w-md text-sm text-slate-600">{error}</p>
         </div>
       ) : null}
     </div>
@@ -197,6 +216,7 @@ export function ResumeWordFileViewer({
   className = '',
   minHeight = 'min(720px, calc(100vh - 14rem))',
   preferBuiltIn = false,
+  allowBuiltInFallback = true,
   editable = false,
   initialDocumentHtml = null,
   onDocumentHtmlChange,
@@ -220,14 +240,14 @@ export function ResumeWordFileViewer({
   }, [officeEmbedUrl, resumeUrl]);
 
   useEffect(() => {
-    if (!enabled || !useWordOnline || useBuiltInFallback) return;
+    if (!enabled || !useWordOnline || useBuiltInFallback || !allowBuiltInFallback) return;
     const timer = window.setTimeout(() => {
       if (!officeFrameLoaded) {
         setUseBuiltInFallback(true);
       }
     }, 12000);
     return () => window.clearTimeout(timer);
-  }, [enabled, useWordOnline, useBuiltInFallback, officeFrameLoaded, officeEmbedUrl]);
+  }, [enabled, useWordOnline, useBuiltInFallback, allowBuiltInFallback, officeFrameLoaded, officeEmbedUrl]);
 
   const rootClass = `resume-word-file-viewer relative h-full w-full ${className}`.trim();
 

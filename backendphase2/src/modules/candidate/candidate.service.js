@@ -7,6 +7,7 @@ import {
 import { dedupeCandidatesByPerson } from '../../lib/dedupeCandidatesByPerson.js';
 import { ID_IN_CHUNK_SIZE, matchAppliedPoolMax, matchPortalPoolMax, matchTenantPoolMax } from '../../lib/queryBounds.js';
 import { linkPersonToTenant } from '../../lib/linkPerson.js';
+import { getCandidateDetailsById } from './candidate-details.service.js';
 import {
   fetchCandidateCommonForMatchPipeline,
   fetchCandidateCommonForTenant,
@@ -5717,149 +5718,19 @@ export const candidateService = {
   },
 
   async getById(id, req = null) {
-    const viewerUserId = req?.user?.id || null;
-    const tenantJobIdSet = isTenantScopedRequest() ? await getTenantJobIdSet() : null;
-    const annotateForTenant = (row) =>
-      annotateCandidateListFlags(scopeCandidateForActiveTenant(row, tenantJobIdSet), tenantJobIdSet);
-
-    // Super admins should be able to open ANY candidate in their tenant by default.
-    // buildSuperAdminOwnerScope already returns null unless mineOnly=true is explicitly
-    // passed, so we don't apply any extra "mine" restriction here. Non-super users
-    // without the view_all_candidates permission stay scoped to records they
-    // created or are assigned to.
-    const superAdminScope = buildSuperAdminOwnerScope(req, ['createdById', 'assignedToId']);
-    let accessScope = superAdminScope;
-    const canViewAllCandidates =
-      canViewAllAssignments(req) || hasAnyPermissionScope(req, ['view_all_candidates']);
-
-    if (!isSuperAdminUser(req) && !canViewAllCandidates && req?.user?.id) {
-      const org = await getRequestOrgScope(req);
-      if (!isOrgHeadPurpose(org)) {
-        const assignedScope = { OR: buildAssigneeVisibilityOr(req.user.id) };
-        accessScope = accessScope ? { AND: [accessScope, assignedScope] } : assignedScope;
-      }
-    }
-    const orgScope = await applyOrgCompanyAssigneeWhere(req, {
-      assignedToIdField: 'assignedToId',
-      createdByField: 'createdById',
+    return getCandidateDetailsById(id, req, {
+      isTenantScopedRequest,
+      getTenantJobIdSet,
+      scopeCandidateForActiveTenant,
+      annotateCandidateListFlags,
+      fetchPortalCareerPreferencesRaw,
+      mergeCareerPreferencesIntoCandidate,
+      hydrateAndPersistCandidateCvProfile,
+      buildCandidateResponse,
+      enrichCandidateDetailJobTitles,
+      mergePortalAndTenantCandidateRow,
+      isPhase1CandidateSource,
     });
-    if (orgScope) {
-      accessScope = accessScope ? { AND: [accessScope, orgScope] } : orgScope;
-    }
-
-    const baseTenantWhere = { id, isDeleted: { not: true } };
-    let candidate = await prisma.candidate.findFirst({
-      where: accessScope ? { AND: [baseTenantWhere, accessScope] } : baseTenantWhere,
-      include: candidateDetailInclude,
-    });
-
-    if (!candidate && isTenantScopedRequest()) {
-      let portalPrisma = null;
-      try {
-        portalPrisma = getJobPortalPrismaClient();
-      } catch {
-        portalPrisma = null;
-      }
-
-      const [tombstone, purgedRef, commonCandidate] = await Promise.all([
-        prisma.candidate.findFirst({
-          where: { id, isDeleted: true },
-          select: { id: true },
-        }),
-        prisma.purgedCandidateRef
-          .findUnique({ where: { candidateId: id }, select: { candidateId: true } })
-          .catch(() => null),
-        fetchCandidateCommonByCandidateId(id, { requireVerified: false }),
-      ]);
-
-      // Phase 1 pool row still opens in the drawer even if tenant soft-deleted the same id.
-      if (commonCandidate && (tombstone || purgedRef)) {
-        const careerPrefs = await fetchPortalCareerPreferencesRaw(portalPrisma, id);
-        mergeCareerPreferencesIntoCandidate(commonCandidate, careerPrefs);
-        await hydrateAndPersistCandidateCvProfile(commonCandidate, portalPrisma);
-        return buildCandidateResponse(
-          await enrichCandidateDetailJobTitles(annotateForTenant(commonCandidate), tenantJobIdSet),
-          portalPrisma,
-          viewerUserId,
-        );
-      }
-      if (tombstone || purgedRef) {
-        return null;
-      }
-
-      if (portalPrisma) {
-        candidate = await portalPrisma.candidate.findFirst({
-          where: { id },
-          include: candidateDetailInclude,
-        });
-        if (candidate) {
-          const commonRow = await fetchCandidateCommonByCandidateId(id, { requireVerified: false });
-          if (commonRow) {
-            candidate = mergePortalAndTenantCandidateRow(commonRow, candidate);
-          }
-          const careerPrefs = await fetchPortalCareerPreferencesRaw(portalPrisma, candidate.id);
-          mergeCareerPreferencesIntoCandidate(candidate, careerPrefs);
-          await hydrateAndPersistCandidateCvProfile(candidate, portalPrisma);
-          return buildCandidateResponse(
-            await enrichCandidateDetailJobTitles(annotateForTenant(candidate), tenantJobIdSet),
-            portalPrisma,
-            viewerUserId,
-          );
-        }
-      }
-
-      if (commonCandidate) {
-        const careerPrefs = await fetchPortalCareerPreferencesRaw(portalPrisma, id);
-        mergeCareerPreferencesIntoCandidate(commonCandidate, careerPrefs);
-        await hydrateAndPersistCandidateCvProfile(commonCandidate, portalPrisma);
-        return buildCandidateResponse(
-          await enrichCandidateDetailJobTitles(annotateForTenant(commonCandidate), tenantJobIdSet),
-          portalPrisma,
-          viewerUserId,
-        );
-      }
-    }
-
-    if (!candidate) return null;
-
-    // Always merge Phase 1 common-pool profile (same candidateId) into the drawer payload.
-    const commonCandidate = await fetchCandidateCommonByCandidateId(id, { requireVerified: false });
-    if (commonCandidate) {
-      candidate = mergePortalAndTenantCandidateRow(commonCandidate, candidate);
-      if (!isPhase1CandidateSource(candidate.source)) {
-        candidate = { ...candidate, source: 'phase1' };
-      }
-    }
-
-    // Career preferences live in the job-portal DB (where candidates self-update).
-    // Always look there so recruiter drawer reflects candidate-side updates.
-    let portalClientForPrefs = null;
-    try { portalClientForPrefs = getJobPortalPrismaClient(); } catch { portalClientForPrefs = null; }
-
-    // If common pool missed but portal has the Phase 1 row, merge that too.
-    if (!commonCandidate && portalClientForPrefs) {
-      try {
-        const portalRow = await portalClientForPrefs.candidate.findFirst({
-          where: { id },
-          include: candidateDetailInclude,
-        });
-        if (portalRow) {
-          candidate = mergePortalAndTenantCandidateRow(portalRow, candidate);
-        }
-      } catch (err) {
-        console.warn('[candidate.service] portal merge for getById failed:', err?.message || err);
-      }
-    }
-
-    const careerPrefs = await fetchPortalCareerPreferencesRaw(portalClientForPrefs, candidate.id);
-    mergeCareerPreferencesIntoCandidate(candidate, careerPrefs);
-    await hydrateAndPersistCandidateCvProfile(candidate, portalClientForPrefs);
-
-    return buildCandidateResponse(
-      await enrichCandidateDetailJobTitles(annotateForTenant(candidate), tenantJobIdSet),
-      prisma,
-      viewerUserId,
-    );
   },
 
   async create(data, createdByUserId, req = null) {

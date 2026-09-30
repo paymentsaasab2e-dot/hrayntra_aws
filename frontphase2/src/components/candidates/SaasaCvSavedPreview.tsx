@@ -1,10 +1,12 @@
 'use client';
 
 import React, { useMemo } from 'react';
+import { ResumeDocxPreview } from './ResumeDocxPreview';
 import { ResumeFilePreview } from './ResumeFilePreview';
 import {
   buildResumeViewerUrl,
   getResumeExtension,
+  isWordResume,
   normalizeResumeHref,
   resolveResumePreviewKind,
 } from '../../lib/resumePreview';
@@ -44,6 +46,18 @@ export function SaasaCvSavedPreview({
     `flex h-full w-full min-h-0 flex-1 flex-col overflow-hidden bg-slate-100 ${minHeightClass} ${className}`.trim();
 
   if (!enabled || !href) return null;
+
+  if (isWordResume(href) || previewKind === 'html') {
+    return (
+      <ResumeDocxPreview
+        resumeUrl={href}
+        candidateName={candidateName}
+        enabled={enabled}
+        className={className}
+        minHeightClass={minHeightClass}
+      />
+    );
+  }
 
   const useNativePdfEmbed =
     preferNativePdfEmbed &&

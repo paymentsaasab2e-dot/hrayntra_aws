@@ -12,6 +12,7 @@ import {
   updateCandidateStage,
 } from '../modules/stage/candidateStage.service.js';
 import { generateMeetingLink } from './meetingService.js';
+import { executeSubmitToClient } from './submit-to-client.service.js';
 import jwt from 'jsonwebtoken';
 import { randomBytes } from 'crypto';
 import { env } from '../config/env.js';
@@ -84,7 +85,7 @@ import {
   CLIENT_PREVIEW_STAGE_CATALOG,
 } from '../utils/clientTrackerOptions.js';
 import { detectResumeContentType, fetchS3ResumeDocumentBuffer } from '../utils/s3PdfFetch.js';
-import { isOurS3PdfUrl, publicUrlForS3Key } from '../utils/s3.js';
+import { isOurS3PdfUrl, isOurS3ResumeDocumentUrl, publicUrlForS3Key } from '../utils/s3.js';
 
 const SUBMIT_TO_CLIENT_VISIBILITY_DEFAULTS_KEY = 'submitToClientFieldVisibility';
 
@@ -293,7 +294,7 @@ const buildInterviewDateTime = (dateValue, timeValue) => {
 const normalizeMode = (value) => {
   if (!value) return null;
   const upper = String(value).toUpperCase();
-  // Frontend often sends video / in-person / phone ù map to stored enum values.
+  // Frontend often sends video / in-person / phone - map to stored enum values.
   if (upper === 'VIDEO' || upper === 'VIRTUAL' || upper === 'REMOTE') return 'ONLINE';
   if (upper === 'IN-PERSON' || upper === 'IN_PERSON' || upper === 'ONSITE' || upper === 'ON-SITE') {
     return 'OFFLINE';
@@ -450,7 +451,7 @@ export const normalizeSubmissionType = (value) => {
 };
 
 // Token works for either an interview submission or a match submission. We
-// keep the JWT `type` constant so the existing public route handles both ù
+// keep the JWT `type` constant so the existing public route handles both -
 // the resolver branches on whichever ID is present in the payload.
 const normalizeCvShareMode = (value) => {
   const mode = String(value || '').trim().toLowerCase();
@@ -501,7 +502,7 @@ function saasaAnnotationHasOverlays(bag) {
 }
 
 /**
- * HRYantra CV the recruiter saved ù annotations.fileUrl, that file id, or the
+ * HRYantra CV the recruiter saved - annotations.fileUrl, that file id, or the
  * latest SAASA_CV upload. Never the candidate's original resume.
  */
 export async function resolveSaasaCvShareUrl(candidate, candidateFiles = [], snapshotUrl = '') {
@@ -1027,13 +1028,15 @@ function isClientStorageUrl(value) {
   );
 }
 
-function clientReviewResumeHref(token, matchId, source = '') {
+function clientReviewResumeHref(token, matchId, source = '', ext = '') {
   const base = `/client-review/${token}/resume`;
   const params = new URLSearchParams();
   const id = String(matchId || '').trim();
   const variant = String(source || '').trim();
+  const format = String(ext || '').trim().replace(/^\./, '').toLowerCase();
   if (id) params.set('matchId', id);
   if (variant) params.set('source', variant);
+  if (format && format !== 'pdf') params.set('format', format);
   const query = params.toString();
   return query ? `${base}?${query}` : base;
 }
@@ -1053,7 +1056,15 @@ function rewriteStorageValue(value, resumeHref) {
 function maskReviewDetailStorageUrls(detail, token) {
   if (!detail || typeof detail !== 'object') return detail;
   const matchId = detail.matchId || detail.activeMatchId || '';
-  const resumeHref = clientReviewResumeHref(token, matchId);
+  const originalUrl = String(
+    detail.sharedResumeUrl ||
+    detail.candidate?.resume ||
+    detail.saasaCvFileUrl ||
+    ''
+  );
+  const extMatch = originalUrl.split('?')[0].match(/\.(docx?|pdf|png|jpe?g|txt)($|[?#])/i);
+  const ext = extMatch ? extMatch[1].toLowerCase() : '';
+  const resumeHref = clientReviewResumeHref(token, matchId, '', ext);
   const next = { ...detail };
 
   if (isClientStorageUrl(next.sharedResumeUrl)) next.sharedResumeUrl = resumeHref;
@@ -1147,11 +1158,11 @@ function isAllowedCloudinaryDocumentUrl(urlString) {
 async function loadReviewAssetBuffer(sourceUrl) {
   const raw = String(sourceUrl || '').trim();
   if (!raw) throw new Error('No file is available for this preview');
-  if (isOurS3PdfUrl(raw)) {
+  if (isOurS3ResumeDocumentUrl(raw) || isOurS3PdfUrl(raw)) {
     const result = await fetchS3ResumeDocumentBuffer(raw);
     return {
       buffer: result.buffer,
-      contentType: detectResumeContentType(result.buffer, result.key || ''),
+      contentType: detectResumeContentType(result.buffer, result.key || raw),
     };
   }
   if (isAllowedCloudinaryDocumentUrl(raw)) {
@@ -1351,7 +1362,7 @@ export async function resolveClientReviewAccess(rawToken) {
 // Walk the list of known tenant DBs and return the first one that owns the
 // given record. Used as a fallback when the JWT didn't capture a tenant
 // (older tokens, or service-to-service calls that minted tokens outside a
-// tenant context). The lookup is keyed off whichever id is present ù
+// tenant context). The lookup is keyed off whichever id is present -
 // interviewId for the interview path, matchId for the match path.
 const findTenantForRecord = async ({ interviewId = null, matchId = null }) => {
   if (!interviewId && !matchId) return '';
@@ -1387,7 +1398,7 @@ const findTenantForRecord = async ({ interviewId = null, matchId = null }) => {
   return '';
 };
 
-/** CandidateFile.uploadedById is required ù resolve a valid user for public client uploads. */
+/** CandidateFile.uploadedById is required - resolve a valid user for public client uploads. */
 async function resolveCandidateFileUploaderId({ uploaderId, candidateId, jobId }) {
   if (uploaderId) return uploaderId;
   try {
@@ -1813,7 +1824,7 @@ async function serializeInterviewForClientReview(
       resume: saasaCvUrl || '',
     };
   } else if (cvShareMode === 'original') {
-    // Original CV link mode ù still show tenant profile fields in table/comparative.
+    // Original CV link mode - still show tenant profile fields in table/comparative.
     candidateForClient = {
       ...baseCandidate,
       resume: originalResumeUrl || baseCandidate.resume,
@@ -2330,7 +2341,7 @@ export const interviewService = {
     queueAiEntryRecommendation({
       entityType: 'INTERVIEW',
       entityId: result.id,
-      entityLabel: `${interviewCandidateName} ù ${result.job?.title || job.title}`,
+      entityLabel: `${interviewCandidateName} - ${result.job?.title || job.title}`,
       snapshot: buildEntitySnapshot('INTERVIEW', result),
       recipientUserId: result.interviewerId || user?.id,
       actorUserId: user?.id,
@@ -2349,7 +2360,7 @@ export const interviewService = {
     const nextCandidateId = payload.candidateId || current.candidate.id;
     const nextJobId = payload.jobId || current.job.id;
 
-    // Same portal?tenant fallback as create() ù needed when the recruiter swaps the candidate
+    // Same portal?tenant fallback as create() - needed when the recruiter swaps the candidate
     // on an existing interview to one that came from the job portal merged list.
     const [candidate, job, explicitClient, panelUsers] = await Promise.all([
       payload.candidateId
@@ -2477,7 +2488,7 @@ export const interviewService = {
     queueAiEntryRecommendation({
       entityType: 'INTERVIEW',
       entityId: refreshed.id,
-      entityLabel: `${interviewCandidateName} ù ${refreshed.job?.title || 'Interview'}`,
+      entityLabel: `${interviewCandidateName} - ${refreshed.job?.title || 'Interview'}`,
       snapshot: buildEntitySnapshot('INTERVIEW', refreshed),
       recipientUserId: refreshed.interviewerId || user?.id,
       actorUserId: user?.id,
@@ -2627,7 +2638,7 @@ export const interviewService = {
     queueAiEntryRecommendation({
       entityType: 'INTERVIEW',
       entityId: updated.id,
-      entityLabel: `${interviewCandidateName} ù ${updated.job?.title || 'Interview'}`,
+      entityLabel: `${interviewCandidateName} - ${updated.job?.title || 'Interview'}`,
       snapshot: buildEntitySnapshot('INTERVIEW', updated),
       recipientUserId: updated.interviewerId || user?.id,
       actorUserId: user?.id,
@@ -3058,155 +3069,25 @@ export const interviewService = {
   },
 
   async submitToClient(interviewId, payload, user) {
-    const interview = await getInterviewOrThrow(interviewId);
-    const recipients = payload?.toEmail
-      ? [String(payload.toEmail).trim()].filter((email) => isDeliverableEmail(email))
-      : await getClientRecipients(interview.clientId);
-
-    if (!recipients.length) {
-      const raw = String(payload?.toEmail || '').trim();
-      if (raw && !isDeliverableEmail(raw)) {
-        throw new Error(`Client contact email is invalid: ${raw}`);
-      }
-      throw new Error('No client email found for this interview/client');
-    }
-
-    // Force the recruiter to pick a purpose if we can't reasonably infer one.
-    // Without this we'd silently default to GENERAL and the public review page
-    // would never know to ask for an offer letter.
-    const requested = normalizeSubmissionType(payload?.submissionType);
-    const inferred = requested ? '' : inferSubmissionType(interview);
-    const submissionType = requested || inferred;
-    if (!submissionType) {
-      throw new Error(
-        'Submission purpose is required. Pick one of: INITIAL_REVIEW, INTERIM_REVIEW, OFFER_CONFIRMATION.'
-      );
-    }
-
-    const cvShareMode =
-      normalizeCvShareMode(payload?.cvShareMode) ||
-      readCandidateCvShareMode(interview.candidate) ||
-      'edited';
-    const resumeFileId =
-      String(payload?.resumeFileId || '').trim() ||
-      readCandidateResumeFileId(interview.candidate) ||
-      '';
-    const trackerOptions = normalizeClientTrackerOptions(payload?.trackerOptions, {
-      useNewDefaults: true,
+    return executeSubmitToClient(interviewId, payload, user, {
+      getInterviewOrThrow,
+      getClientRecipients,
+      isDeliverableEmail,
+      normalizeSubmissionType,
+      inferSubmissionType,
+      normalizeCvShareMode,
+      readCandidateCvShareMode,
+      readCandidateResumeFileId,
+      normalizeClientTrackerOptions,
+      persistCvSubmissionForCandidate,
+      createClientReviewToken,
+      toClientReviewUrl,
+      sendMatchSubmissionEmail,
+      mapInterviewCandidateForEmail,
+      logActivity,
+      INTERVIEW_ACTIVITY_ACTIONS,
+      moveCandidateToSubmittedToClient,
     });
-
-    if (cvShareMode) {
-      await persistCvSubmissionForCandidate(
-        interview.candidateId,
-        cvShareMode,
-        interview.job?.title || '',
-        trackerOptions,
-        resumeFileId || null,
-      );
-    }
-
-    const token = createClientReviewToken({
-      interviewId: interview.id,
-      candidateId: interview.candidateId,
-      jobId: interview.jobId,
-      clientId: interview.clientId,
-      submissionType,
-      cvShareMode,
-      resumeFileId: resumeFileId || null,
-      trackerOptions,
-    });
-    const reviewUrl = await toClientReviewUrl(token, {
-      interviewId: interview.id,
-      candidateId: interview.candidateId,
-    });
-
-    const purposeLabel =
-      submissionType === 'OFFER_CONFIRMATION'
-        ? 'Final clarification ù please attach the signed offer letter.'
-        : submissionType === 'INTERIM_REVIEW'
-          ? 'Mid-cycle review ù please confirm next steps.'
-          : submissionType === 'INITIAL_REVIEW'
-            ? 'Initial review ù please confirm the candidate is a fit before scheduling.'
-            : 'Please review this candidate.';
-
-    const emailResult = await sendMatchSubmissionEmail({
-      to: recipients,
-      clientName: interview.client?.companyName || 'Client',
-      jobTitle: interview.job?.title || 'Job',
-      recruiterName: user?.name || user?.email || 'Recruitment Team',
-      message:
-        payload?.message ||
-        `${purposeLabel} Open the secure review link to respond: ${reviewUrl}`,
-      candidates: [mapInterviewCandidateForEmail(interview.candidate)],
-      portalUrl: reviewUrl,
-      subject: `Interview Candidate Submission: ${interview.job?.title || 'Job'}`,
-      forceSend: true,
-    });
-
-    if (!emailResult?.success) {
-      console.warn(
-        '[interview.submitToClient] client email failed:',
-        emailResult?.error || 'Failed to send client submission email',
-      );
-    }
-
-    // Note the submission on the interview so the activity log + notes section
-    // shows what each "Submit to Client" was for.
-    try {
-      await prisma.interview.update({
-        where: { id: interview.id },
-        data: {
-          notes: `${interview.notes || ''}\n[Submitted to client] ${submissionType.replace(
-            /_/g,
-            ' '
-          )} ? ${recipients.join(', ')}`.trim(),
-        },
-      });
-      await logActivity(prisma, {
-        interviewId: interview.id,
-        action: INTERVIEW_ACTIVITY_ACTIONS.NOTE_ADDED || 'NOTE_ADDED',
-        userId: user?.id,
-        metadata: {
-          channel: 'submit-to-client',
-          submissionType,
-          recipients,
-          reviewUrl,
-        },
-      });
-    } catch (logError) {
-      console.warn(
-        '[interview.submitToClient] failed to log submission note:',
-        logError?.message || logError
-      );
-    }
-
-    try {
-      await moveCandidateToSubmittedToClient({
-        candidateId: interview.candidateId,
-        jobId: interview.jobId,
-        performedById: user?.id,
-        metadata: {
-          interviewId: interview.id,
-          submissionType,
-        },
-      });
-    } catch (stageErr) {
-      console.warn(
-        '[interview.submitToClient] candidate stage sync failed:',
-        stageErr?.message || stageErr,
-      );
-    }
-
-    return {
-      success: true,
-      recipients,
-      reviewUrl,
-      submissionType,
-      emailSent: Boolean(emailResult?.success) && !emailResult?.skipped,
-      emailError: emailResult?.success && !emailResult?.skipped
-        ? null
-        : emailResult?.error || (emailResult?.skipped ? 'Client submission email is disabled' : 'Failed to send email'),
-    };
   },
 
   async getPublicClientReview(token, { maskStorage = true } = {}) {
@@ -3428,8 +3309,15 @@ export const interviewService = {
       const loaded = await loadReviewAssetBuffer(sourceUrl);
       const resumeLabel =
         detail?.cvShareMode === 'saasa' && !wantBase ? 'HRYantra_CV' : 'Resume';
+      const isDocx =
+        loaded.contentType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+        /\.docx($|[?#])/i.test(sourceUrl);
+      const isDoc =
+        loaded.contentType === 'application/msword' ||
+        /\.doc($|[?#])/i.test(sourceUrl);
+      const fileExt = isDocx ? 'docx' : isDoc ? 'doc' : 'pdf';
       const baseName = safeDownloadFilename(
-        `${detail?.candidate?.name || 'Candidate'}_${resumeLabel}.pdf`,
+        `${detail?.candidate?.name || 'Candidate'}_${resumeLabel}.${fileExt}`,
       );
       try {
         const { getPublicClientReviewExportWatermark } = await import(
@@ -3609,7 +3497,7 @@ export const interviewService = {
         });
         if (!candidateFileUploaderId) {
           console.warn(
-            '[interview.submitPublicClientTag] no uploader id ù offer file saved on disk but not linked to candidate_files'
+            '[interview.submitPublicClientTag] no uploader id - offer file saved on disk but not linked to candidate_files'
           );
         } else {
           try {
@@ -3631,7 +3519,7 @@ export const interviewService = {
         }
         offerLetterUrl = fileUrl;
 
-        // Only OFFER_CONFIRMATION uploads should attach to a placement ù
+        // Only OFFER_CONFIRMATION uploads should attach to a placement -
         // earlier-stage submissions are review attachments, not the signed
         // offer. We still keep the candidate-file row so recruiters can see
         // the document on the candidate Documents tab regardless.

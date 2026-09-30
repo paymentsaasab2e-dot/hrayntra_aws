@@ -1,7 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { SaasaCvPdfViewer } from './SaasaCvPdfViewer';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   buildResumeDirectUrl,
   buildResumeViewerUrl,
@@ -49,17 +48,6 @@ export function ResumeFilePreview({
   const [textContent, setTextContent] = useState('');
   const [imageUrl, setImageUrl] = useState('');
   const [pdfUrl, setPdfUrl] = useState('');
-
-  const handlePdfError = useCallback(
-    (message: string) => {
-      if (/not a valid pdf/i.test(message) && directUrl) {
-        setImageUrl(directUrl);
-        setMode('image');
-        setError(null);
-      }
-    },
-    [directUrl],
-  );
 
   useEffect(() => {
     let cancelled = false;
@@ -257,11 +245,11 @@ export function ResumeFilePreview({
   }
 
   return (
-    <div className={isModal ? 'w-full' : undefined}>
-      <SaasaCvPdfViewer
-        pdfUrl={pdfUrl || proxyUrl}
-        fallbackOpenUrl={directUrl}
-        onError={handlePdfError}
+    <div className={isModal ? 'h-[min(78vh,900px)] w-full' : 'h-[min(78vh,960px)] w-full'}>
+      <iframe
+        title={`${candidateName} resume`}
+        src={pdfUrl || proxyUrl}
+        className="h-full w-full border-0 bg-white"
       />
     </div>
   );

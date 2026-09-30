@@ -8,6 +8,7 @@ import { DetailsModalShell } from '../drawers/DetailsModalShell';
 import { Loader2, Plus, Save, Send, X } from 'lucide-react';
 import { ClientCvSelectionPanel } from './ClientCvSelectionPanel';
 import { ResumePreviewModal } from '../candidates/ResumePreviewModal';
+import { SpeedMetricBadge, useSpeedMeasure } from '../common/SpeedMetricBadge';
 import {
   buildCvSubmissionExtra,
   readCvSubmission,
@@ -331,6 +332,7 @@ export function SubmitToClientDrawer({
   onSubmitted,
 }: SubmitToClientDrawerProps) {
   usePageDrawerLifecycle(isOpen);
+  const speedMs = useSpeedMeasure(isOpen, String(initialCandidate?.id || interview?.id || ''));
   const { panelRef, requestClose, markClean } = useDrawerUnsavedGuard<HTMLElement>({
     isOpen,
     onClose,

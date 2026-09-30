@@ -190,9 +190,6 @@ import { ShowSummaryCardsButton } from '../../components/layout/ShowSummaryCards
 import { SearchableToolbarFilterSelect } from '../../components/forms/SearchableToolbarFilterSelect';
 import { dedupeByCompanyName } from '../../lib/companyNameKey';
 
-'use client';
-
-
 const JOBS_PIPELINE_STAGE_STORAGE_KEY = 'jobs.pipelineStageColumns';
 /** All nested Pipeline stage ids (Columns → Pipeline ▾). */
 const ALL_JOB_PIPELINE_STAGE_IDS = JOB_PIPELINE_STAGE_COLUMNS.map((col) => col.id);

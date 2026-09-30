@@ -268,6 +268,19 @@ export function isOurS3PdfUrl(urlString) {
   }
 }
 
+export function isOurS3ResumeDocumentUrl(urlString) {
+  try {
+    const u = new URL(urlString);
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return false;
+    const parsed = parseOurS3Url(urlString);
+    if (!parsed) return false;
+    if (/\.(pdf|docx?|png|jpe?g|gif|webp|txt)($|[?#])/i.test(u.pathname)) return true;
+    return isExtensionlessResumeStorageKey(parsed.key);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Short-lived presigned GET URL for private objects.
  * Requires optional dependency `@aws-sdk/s3-request-presigner`.

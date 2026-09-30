@@ -175,9 +175,6 @@ import {
   SUBMIT_TO_CLIENT_STAGE_OPTION_VALUE,
 } from '../../lib/candidateSubmitToClient';
 
-'use client';
-
-
 type CandidateListTab = 'all' | 'mine';
 
 const CANDIDATE_LOCATION_COUNTRY_OPTIONS = getCscCountryOptions().map((row) => row.label);

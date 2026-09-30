@@ -9,6 +9,7 @@ import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 import { useDrawerUnsavedGuard } from '../../hooks/useDrawerUnsavedGuard';
 
 import { AnimatePresence, motion } from 'motion/react';
+import { SpeedMetricBadge } from '../common/SpeedMetricBadge';
 
 import { DetailsModalShell } from './DetailsModalShell';
 
@@ -181,6 +182,22 @@ export function CandidateProfileDrawer({
         editPanel: 'z-[75]',
         toast: 'z-[90]',
       };
+  const [speedMs, setSpeedMs] = useState<number | null>(null);
+  const openTimestampRef = useRef<number>(0);
+
+  useEffect(() => {
+    if (isOpen && candidate) {
+      openTimestampRef.current = performance.now();
+      const raf = requestAnimationFrame(() => {
+        const elapsed = Math.max(1, Math.round(performance.now() - openTimestampRef.current));
+        setSpeedMs(elapsed);
+      });
+      return () => cancelAnimationFrame(raf);
+    } else {
+      setSpeedMs(null);
+    }
+  }, [isOpen, candidate?.id]);
+
   const [activeTab, setActiveTab] = useState<DrawerTab>('Overview');
   const [showAddToPipelineModal, setShowAddToPipelineModal] = useState(false);
   const [showScheduleInterviewModal, setShowScheduleInterviewModal] = useState(false);

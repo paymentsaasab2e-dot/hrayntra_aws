@@ -3,9 +3,10 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { apiLogout } from '../lib/api';
 import { motion, AnimatePresence } from 'motion/react';
+import { SpeedMetricBadge, useSpeedMeasure } from './common/SpeedMetricBadge';
 import { TokenCoinIcon } from './coins/TokenCoinIcon';
 import { PageErrorBoundary } from './PageErrorBoundary';
 import { OrgWorkspaceSwitcher } from './org/OrgWorkspaceSwitcher';
@@ -315,6 +316,8 @@ export function AppShellHeader({
   runSearchSelection,
 }: AppShellHeaderProps) {
   const { coins: tenantCoins, openPurchase } = useTenantCoins();
+  const pathname = usePathname();
+  const pageSpeedMs = useSpeedMeasure(true, pathname);
 
   return (
     <nav
@@ -408,6 +411,7 @@ export function AppShellHeader({
       </div>
 
       <div className="flex shrink-0 items-center gap-1 sm:gap-2 lg:gap-4">
+        <SpeedMetricBadge timeMs={pageSpeedMs} label="Speed" variant="pill" className="hidden sm:inline-flex bg-slate-900/60 border-white/10 text-emerald-300" />
         <div className="hidden lg:block">
           {mounted ? (
             <PageErrorBoundary fallback={null}>

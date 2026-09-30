@@ -178,6 +178,15 @@ export function buildResumeDocxBytesUrl(resumeUrl: string): string {
   return `/api/resume-docx?${params.toString()}`;
 }
 
+/** Word-rendered PDF of a .doc/.docx so the CV popup matches Microsoft Word. */
+export function buildResumeWordPdfUrl(resumeUrl: string): string {
+  const base = normalizeResumeHref(resumeUrl.split('#')[0] || resumeUrl);
+  const params = new URLSearchParams({ url: base });
+  const ext = getResumeExtension(base);
+  if (ext === 'docx' || ext === 'doc') params.set('format', ext);
+  return `/api/resume-word-pdf?${params.toString()}`;
+}
+
 /** App origin for absolute URLs (Office Online must fetch the file from the public web). */
 export function getResumePreviewAppOrigin(): string {
   if (typeof window !== 'undefined' && window.location?.origin) {
