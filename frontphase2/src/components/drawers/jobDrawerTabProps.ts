@@ -125,6 +125,8 @@ export interface JobDrawerModalsProps {
   "confirmScheduleInterviewCandidatePicker": () => void;
   "confirmSubmitCandidatePicker": () => void;
   "displayJobCandidates": Array<JobCandidateItem>;
+  "setDisplayJobCandidates"?: import("react").Dispatch<import("react").SetStateAction<Array<JobCandidateItem>>>;
+  "onJobCandidatesChange"?: (candidates: Array<JobCandidateItem>) => void;
   "ensurePickerCvMeta": (candidateId: string) => void;
   "isOpen": boolean;
   "job": JobForDrawer | null;
@@ -151,7 +153,7 @@ export interface JobDrawerModalsProps {
   "pickerSelectedIds": Array<string>;
   "pipelineJobOptions": Array<import("./CandidateProfileDrawer").CandidatePipelineJobOption>;
   "pipelineRecruiters": Array<import("./CandidateProfileDrawer").CandidatePipelineRecruiterOption>;
-  "refreshAppliedJobCandidates": (opts?: { runPipeline?: boolean; refresh?: boolean; }) => Promise<Array<JobCandidateItem>>;
+  "refreshAppliedJobCandidates": (opts?: { runPipeline?: boolean; refresh?: boolean; silent?: boolean; seedOverride?: JobCandidateItem[]; }) => Promise<Array<JobCandidateItem>>;
   "refreshJobInterviews": () => void;
   "scheduleCandidatePickerOpen": boolean;
   "schedulePickerCandidates": Array<JobCandidateItem>;
@@ -202,7 +204,7 @@ export interface UseJobTabDataParams {
   "displayJobCandidates": Array<JobCandidateItem>;
   "isOpen": boolean;
   "job": JobForDrawer | null;
-  "refreshAppliedJobCandidates": (opts?: { runPipeline?: boolean; refresh?: boolean; }) => Promise<Array<JobCandidateItem>>;
+  "refreshAppliedJobCandidates": (opts?: { runPipeline?: boolean; refresh?: boolean; silent?: boolean; seedOverride?: JobCandidateItem[]; }) => Promise<Array<JobCandidateItem>>;
 }
 
 export interface UseJobAssignmentTabParams {

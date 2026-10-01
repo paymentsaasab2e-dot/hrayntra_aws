@@ -7,11 +7,21 @@ import { requestConfirm, requestSuccess } from '../../lib/appDialog';
 import { orEmpty, startAsyncLoad } from '../../lib/asyncLoadGuard';
 import { ArrowRightCircle, Briefcase, ChevronDown, LayoutGrid, Plus, Search, StickyNote, X } from 'lucide-react';
 import { getCandidateStageBadgeClasses, getCandidateStageLabel } from '../../utils/candidateStage';
-import { apiGetJob, apiGetJobs } from '../../lib/api';
+import { apiGetJob, apiGetJobs, apiGetPipelineStages } from '../../lib/api';
 import { parseJobsListFromResponse } from '../../lib/parseApiList';
 import { isSubmitToClientStageOption, SUBMIT_TO_CLIENT_STAGE_OPTION_LABEL, SUBMIT_TO_CLIENT_STAGE_OPTION_VALUE, isInterviewPipelineStage, isOfferPipelineStage } from '../../lib/candidateSubmitToClient';
 import type { CandidateProfileDrawerData } from './candidateProfileDrawerData';
 import { AddToPipelineModalProps, CandidatePipelineJobOption, PIPELINE_REJECTED_STAGE, getAvatarInitials, isRejectedPipelineStage, mapJobsToPipelineOptions } from './candidateProfileShared';
+
+const jobStagesCache = new Map<string, Array<{ id: string; name: string }>>();
+const DEFAULT_FALLBACK_STAGES: Array<{ id: string; name: string }> = [
+  { id: 'stg-sourced', name: 'Sourced' },
+  { id: 'stg-screening', name: 'Screening' },
+  { id: 'stg-interview', name: 'Interviewing' },
+  { id: 'stg-offer', name: 'Offer' },
+  { id: 'stg-hired', name: 'Hired' },
+  { id: 'stg-rejected', name: 'Rejected' },
+];
 
 export function AddToPipelineModal({
   isOpen,
@@ -221,28 +231,68 @@ export function AddToPipelineModal({
       return;
     }
 
+    if (jobStagesCache.has(selectedJobId)) {
+      setJobStageOptions(jobStagesCache.get(selectedJobId)!);
+      setLoadingJobStages(false);
+      return;
+    }
+
+    setJobStageOptions(DEFAULT_FALLBACK_STAGES);
     const load = startAsyncLoad(setLoadingJobStages);
+
     void (async () => {
       try {
-        const response = await apiGetJob(selectedJobId);
-        if (!load.isActive()) return;
-        const backendJob = (response as any).data?.data || (response as any).data || response;
-        const stages: Array<{ id: string; name: string }> = Array.isArray(backendJob?.pipelineStages)
-          ? backendJob.pipelineStages
-              .map((stage: any) => ({
-                id: String(stage?.id || '').trim(),
-                name: String(stage?.name || '').trim(),
+        let rawStages: Array<{ id: string; name: string }> = [];
+        try {
+          const res = await apiGetPipelineStages(selectedJobId);
+          const stageList = (res as any)?.data || res;
+          if (Array.isArray(stageList) && stageList.length > 0) {
+            rawStages = stageList
+              .map((s: any) => ({
+                id: String(s?.id || '').trim(),
+                name: String(s?.name || '').trim(),
               }))
-              .filter((stage: { id: string; name: string }) => stage.name)
-          : [];
+              .filter((s: { id: string; name: string }) => s.name);
+          }
+        } catch {
+          /* fallback to apiGetJob */
+        }
 
-        const withRejected = stages.some((stage) => isRejectedPipelineStage(stage.name))
-          ? stages
-          : [...stages, { id: '', name: PIPELINE_REJECTED_STAGE }];
+        if (rawStages.length === 0) {
+          const response = await apiGetJob(selectedJobId);
+          const backendJob = (response as any).data?.data || (response as any).data || response;
+          rawStages = Array.isArray(backendJob?.pipelineStages)
+            ? backendJob.pipelineStages
+                .map((stage: any) => ({
+                  id: String(stage?.id || '').trim(),
+                  name: String(stage?.name || '').trim(),
+                }))
+                .filter((stage: { id: string; name: string }) => stage.name)
+            : [];
+        }
+
+        if (!load.isActive()) return;
+
+        const seenNames = new Set<string>();
+        const stages: Array<{ id: string; name: string }> = [];
+        for (const st of rawStages) {
+          const key = st.name.toLowerCase().trim().replace(/\s+/g, ' ');
+          if (!key || seenNames.has(key)) continue;
+          seenNames.add(key);
+          stages.push(st);
+        }
+
+        const withRejected = stages.length > 0
+          ? (stages.some((stage) => isRejectedPipelineStage(stage.name))
+              ? stages
+              : [...stages, { id: '', name: PIPELINE_REJECTED_STAGE }])
+          : DEFAULT_FALLBACK_STAGES;
+
+        jobStagesCache.set(selectedJobId, withRejected);
         setJobStageOptions(withRejected);
       } catch (error) {
         console.error('Failed to load pipeline stages for selected job:', error);
-        if (load.isActive()) setJobStageOptions([]);
+        if (load.isActive()) setJobStageOptions(DEFAULT_FALLBACK_STAGES);
       } finally {
         load.finish();
       }
@@ -306,9 +356,11 @@ export function AddToPipelineModal({
   const targetStage = stagePath[stagePath.length - 1] || selectedStage;
   const stageChanged =
     isMoveMode &&
-    currentStageOnEntry &&
-    targetStage &&
-    targetStage !== currentStageOnEntry;
+    Boolean(
+      currentStageOnEntry &&
+      targetStage &&
+      targetStage.trim().toLowerCase() !== currentStageOnEntry.trim().toLowerCase()
+    );
 
   const syncStageFromPath = (path: string[]) => {
     setStagePath(path);
@@ -382,21 +434,6 @@ export function AddToPipelineModal({
     if (!stageName) return;
     const normalized = stageName.trim();
     if (!normalized) return;
-    if (isSubmitToClientStageOption(normalized)) {
-      openSubmitToClientFlowForSelectedJob();
-      return;
-    }
-    if (isRejectedPipelineStage(normalized)) {
-      openRejectFlowForSelectedJob();
-      return;
-    }
-    if (isInterviewPipelineStage(normalized)) {
-      if (openInterviewFlowForSelectedJob(normalized)) return;
-    }
-    if (isOfferPipelineStage(normalized)) {
-      if (openOfferFlowForSelectedJob(normalized)) return;
-    }
-    // Move mode: one target stage. Add mode: keep a simple selected stage.
     syncStageFromPath([normalized]);
     setErrors((prev) => ({ ...prev, stage: undefined }));
   };
@@ -471,22 +508,9 @@ export function AddToPipelineModal({
     if (!candidate) return;
     if (!validate()) return;
 
-    if (isSubmitToClientStageOption(targetStage)) {
+    if (isSubmitToClientStageOption(targetStage) && onRequestSubmitToClient) {
       openSubmitToClientFlowForSelectedJob();
       return;
-    }
-
-    if (isRejectedPipelineStage(targetStage)) {
-      openRejectFlowForSelectedJob();
-      return;
-    }
-
-    if (isInterviewPipelineStage(targetStage)) {
-      if (openInterviewFlowForSelectedJob(targetStage)) return;
-    }
-
-    if (isOfferPipelineStage(targetStage)) {
-      if (openOfferFlowForSelectedJob(targetStage)) return;
     }
 
     try {
@@ -513,9 +537,8 @@ export function AddToPipelineModal({
         setRecentlyUpdatedJobId(selectedJobId);
         setEditingJobId(selectedJobId);
         setAddNewJobMode(false);
-      } else {
-        onClose();
       }
+      onClose();
     } finally {
       setSubmitting(false);
     }
@@ -787,40 +810,66 @@ export function AddToPipelineModal({
                             const stageName = stage.name;
                             const isCurrent =
                               isMoveMode &&
-                              currentStageOnEntry.toLowerCase() === stageName.toLowerCase();
+                              Boolean(
+                                currentStageOnEntry &&
+                                currentStageOnEntry.trim().toLowerCase() === stageName.trim().toLowerCase()
+                              );
                             const isSelected =
-                              targetStage?.toLowerCase() === stageName.toLowerCase();
-                            const isTarget = isSelected && (!isCurrent || stageChanged);
+                              Boolean(
+                                targetStage &&
+                                targetStage.trim().toLowerCase() === stageName.trim().toLowerCase()
+                              );
                             return (
                               <button
                                 key={stage.id || stageName}
                                 type="button"
                                 onClick={() => handleSelectStageFromDropdown(stageName)}
                                 className={`rounded-full px-3.5 py-2 text-xs font-semibold transition-all ${
-                                  isTarget
+                                  isSelected
                                     ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/30 ring-2 ring-indigo-200'
                                     : isCurrent
-                                      ? 'bg-white text-slate-600 ring-1 ring-slate-200'
+                                      ? 'bg-slate-100 text-slate-700 ring-1 ring-slate-300 font-medium hover:bg-slate-200'
                                       : 'bg-white text-slate-700 ring-1 ring-slate-200/90 hover:ring-indigo-200 hover:text-indigo-700'
                                 }`}
                               >
                                 {stageName}
-                                {isCurrent && !stageChanged ? (
-                                  <span className="ml-1 text-[10px] font-medium opacity-70">now</span>
+                                {isCurrent ? (
+                                  <span
+                                    className={`ml-1 text-[10px] font-medium ${
+                                      isSelected ? 'text-indigo-100' : 'opacity-70 text-slate-500'
+                                    }`}
+                                  >
+                                    now
+                                  </span>
                                 ) : null}
                               </button>
                             );
                           })}
-                          {onRequestSubmitToClient ? (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleSelectStageFromDropdown(SUBMIT_TO_CLIENT_STAGE_OPTION_VALUE)
-                              }
-                              className="rounded-full bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 ring-1 ring-slate-200/90 transition-all hover:ring-indigo-200 hover:text-indigo-700"
-                            >
-                              {SUBMIT_TO_CLIENT_STAGE_OPTION_LABEL}
-                            </button>
+                          {onRequestSubmitToClient &&
+                          !jobStageOptions.some((s) => isSubmitToClientStageOption(s.name)) ? (
+                            (() => {
+                              const isSelected =
+                                Boolean(
+                                  targetStage &&
+                                  isSubmitToClientStageOption(targetStage)
+                                );
+                              return (
+                                <button
+                                  key="submit-to-client-stage-pill"
+                                  type="button"
+                                  onClick={() =>
+                                    handleSelectStageFromDropdown(SUBMIT_TO_CLIENT_STAGE_OPTION_VALUE)
+                                  }
+                                  className={`rounded-full px-3.5 py-2 text-xs font-semibold transition-all ${
+                                    isSelected
+                                      ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/30 ring-2 ring-indigo-200'
+                                      : 'bg-white text-slate-700 ring-1 ring-slate-200/90 hover:ring-indigo-200 hover:text-indigo-700'
+                                  }`}
+                                >
+                                  {SUBMIT_TO_CLIENT_STAGE_OPTION_LABEL}
+                                </button>
+                              );
+                            })()
                           ) : null}
                         </div>
                       </div>

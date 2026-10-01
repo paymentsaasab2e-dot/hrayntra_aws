@@ -33,6 +33,7 @@ import type { AiWorkspaceBriefAlert } from '@/lib/apiAiWorkspaceBrief';
 import { WorkspaceAlertTableCell, WorkspaceAlertTableHeader } from '../../../components/ai/WorkspaceAlertTableCell';
 import { useDrawerPortalDropdownPosition } from '../../../components/drawers/drawerFormUi';
 import {
+  isSubmitToClientStageOption,
   SUBMIT_TO_CLIENT_STAGE_OPTION_LABEL,
   SUBMIT_TO_CLIENT_STAGE_OPTION_VALUE,
 } from '../../../lib/candidateSubmitToClient';
@@ -117,6 +118,10 @@ function CandidateStageMoveDropdown({
                         disabled={moving}
                         onClick={() => {
                           setOpen(false);
+                          if (isSubmitToClientStageOption(option.name) && onSubmitToClient) {
+                            onSubmitToClient();
+                            return;
+                          }
                           if (option.id === selectedId) return;
                           void onChangeStage(option.id);
                         }}
@@ -145,7 +150,9 @@ function CandidateStageMoveDropdown({
                       </button>
                     );
                   })}
-                  {showSubmitToClient && onSubmitToClient ? (
+                  {showSubmitToClient &&
+                  onSubmitToClient &&
+                  !options.some((o) => isSubmitToClientStageOption(o.name)) ? (
                     <>
                       <div className="my-0.5 border-t border-slate-100" />
                       <button

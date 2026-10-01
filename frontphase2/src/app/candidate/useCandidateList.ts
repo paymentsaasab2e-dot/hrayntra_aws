@@ -1824,6 +1824,11 @@ export function useCandidateList() {
           )
         );
 
+        invalidateEmployerCandidatesCache();
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('jobportal:candidates-changed'));
+        }
+
         if (selectedCandidateProfile?.id === candidate.id) {
           await loadCandidateProfile(candidate.id);
         }

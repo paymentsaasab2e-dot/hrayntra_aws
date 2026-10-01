@@ -1557,6 +1557,34 @@ export function CandidateListPage() {
           return newTag;
         }}
         onAddToPipeline={canUpdateCandidate ? async ({ candidateId, jobId, stage, recruiterId, priority, notes }) => {
+          // 1. Optimistically update candidate table row immediately (0ms UI update)
+          setCandidates((prev) =>
+            prev.map((c) =>
+              c.id === candidateId
+                ? {
+                    ...c,
+                    stage: stage,
+                  }
+                : c
+            )
+          );
+
+          // 2. Optimistically update candidate drawer if open
+          setSelectedCandidateProfile((prev) => {
+            if (!prev || prev.id !== candidateId) return prev;
+            return {
+              ...prev,
+              stage,
+              assignedJobs: (prev.assignedJobs || []).map((j) =>
+                j.id === jobId ? { ...j, stage } : j
+              ),
+            };
+          });
+
+          // 3. Clear employer client cache
+          invalidateEmployerCandidatesCache();
+
+          // 4. Send API request
           await apiAddCandidateToPipeline(candidateId, {
             jobId,
             stage,
@@ -1564,7 +1592,15 @@ export function CandidateListPage() {
             priority,
             notes,
           });
-          await loadCandidateProfile(candidateId);
+
+          // 5. Notify all listeners across the app
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('jobportal:candidates-changed'));
+          }
+
+          // 6. Refresh data in background
+          void loadCandidateProfile(candidateId);
+          void loadCandidates({ silent: true });
         } : undefined}
         onRemoveFromPipeline={
           canUpdateCandidate

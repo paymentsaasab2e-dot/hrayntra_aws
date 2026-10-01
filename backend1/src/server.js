@@ -9,6 +9,14 @@ try {
   process.exit(1);
 }
 
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[process] Unhandled Promise Rejection:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[process] Uncaught Exception:', err);
+});
+
 const express = require('express');
 const cors = require('cors');
 const http = require('http');

@@ -270,6 +270,8 @@ export function useJobCandidatesTab(options: UseJobCandidatesTabOptions) {
   const seed = useMemo(() => orEmpty(options.jobCandidates), [options.jobCandidates]);
 
   const [displayJobCandidates, setDisplayJobCandidates] = useState<JobCandidateItem[]>(seed);
+  const displayJobCandidatesRef = useRef<JobCandidateItem[]>(seed);
+  displayJobCandidatesRef.current = displayJobCandidates;
   const [selectedCandidateIds, setSelectedCandidateIds] = useState<string[]>([]);
   const [candidateMatchMode, setCandidateMatchMode] = useState<JobCandidateMatchMode>('applied');
   const [candidatesPage, setCandidatesPage] = useState(1);
@@ -471,24 +473,29 @@ export function useJobCandidatesTab(options: UseJobCandidatesTabOptions) {
   }, [candidatesStageFilterId, pipelineStageCountCards]);
 
   const refreshAppliedJobCandidates = useCallback(
-    async (opts?: { runPipeline?: boolean; refresh?: boolean }) => {
+    async (opts?: { runPipeline?: boolean; refresh?: boolean; silent?: boolean; seedOverride?: JobCandidateItem[] }) => {
       if (!jobId) {
         setDisplayJobCandidates([]);
+        displayJobCandidatesRef.current = [];
         return [] as JobCandidateItem[];
       }
       const loadingPipeline = Boolean(opts?.runPipeline);
+      const isSilent = Boolean(opts?.silent) || displayJobCandidatesRef.current.length > 0;
       if (loadingPipeline) {
         setAppliedPipelineRunning(true);
-      } else {
+      } else if (!isSilent) {
         setAppliedCandidatesLoading(true);
       }
       try {
+        const activeSeed = opts?.seedOverride || displayJobCandidatesRef.current || seed;
         const merged = await loadJobAppliedCandidates(jobId, {
           runPipeline: opts?.runPipeline,
           refresh: opts?.refresh,
-          pipelineSeed: seed,
+          silent: isSilent,
+          pipelineSeed: activeSeed,
           fallbackRecruiter: recruiterFallbackForJob,
         });
+        displayJobCandidatesRef.current = merged;
         setDisplayJobCandidates(merged);
         setShowMatchScores(merged.some((row) => parseJobCandidateScore(row.score) > 0));
         options.onJobCandidatesChange?.(merged);
@@ -634,21 +641,36 @@ export function useJobCandidatesTab(options: UseJobCandidatesTabOptions) {
           stageId: resolvedStageId,
         });
 
-        setDisplayJobCandidates((prev) =>
-          prev.map((item) =>
-            item.id === candidate.id
-              ? {
-                  ...item,
-                  currentStage: nextStageName,
-                  isJobAppliedCandidate:
-                    resolveJobCandidateDisplayStage(nextStageName) === 'Applied',
-                }
-              : item,
-          ),
+        const nextStage = nextStageName || candidate.stage;
+        const currentList = displayJobCandidatesRef.current.length
+          ? displayJobCandidatesRef.current
+          : displayJobCandidates;
+        const updated = currentList.map((item) =>
+          item.id === candidate.id
+            ? {
+                ...item,
+                currentStage: nextStage,
+                isJobAppliedCandidate:
+                  resolveJobCandidateDisplayStage(nextStage) === 'Applied',
+              }
+            : item,
         );
 
-        await refreshAppliedJobCandidates({ runPipeline: false, refresh: true });
-        toast.success(`Stage updated to ${nextStageName}`);
+        displayJobCandidatesRef.current = updated;
+        setDisplayJobCandidates(updated);
+        options.onJobCandidatesChange?.(updated);
+
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('jobportal:candidates-changed'));
+        }
+
+        await refreshAppliedJobCandidates({
+          runPipeline: false,
+          refresh: false,
+          silent: true,
+          seedOverride: updated,
+        });
+        toast.success(`Stage updated to ${nextStage}`);
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : 'Failed to update candidate stage';
         console.error('Failed to update candidate stage from job drawer:', error);
@@ -657,7 +679,7 @@ export function useJobCandidatesTab(options: UseJobCandidatesTabOptions) {
         setInlineStageUpdatingCandidateId((prev) => (prev === candidate.id ? null : prev));
       }
     },
-    [inlineStageOptionsMerged, jobId, options.onCreatePlacement, options.onScheduleInterview, refreshAppliedJobCandidates],
+    [inlineStageOptionsMerged, jobId, options.onCreatePlacement, options.onScheduleInterview, options.onJobCandidatesChange, refreshAppliedJobCandidates],
   );
 
   const handleDeleteJobCandidate = useCallback(
@@ -688,7 +710,7 @@ export function useJobCandidatesTab(options: UseJobCandidatesTabOptions) {
           window.dispatchEvent(new CustomEvent(RECYCLE_BIN_SYNC_EVENT));
           window.dispatchEvent(new CustomEvent('jobportal:candidates-changed'));
         }
-        await refreshAppliedJobCandidates({ runPipeline: false, refresh: true });
+        await refreshAppliedJobCandidates({ runPipeline: false, refresh: false, silent: true });
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : 'Failed to delete candidate';
         toast.error(message);
@@ -730,7 +752,7 @@ export function useJobCandidatesTab(options: UseJobCandidatesTabOptions) {
         if (typeof window !== 'undefined') {
           window.dispatchEvent(new CustomEvent('jobportal:candidates-changed'));
         }
-        await refreshAppliedJobCandidates({ runPipeline: false, refresh: true });
+        await refreshAppliedJobCandidates({ runPipeline: false, refresh: false, silent: true });
       } catch (error: unknown) {
         const message =
           error instanceof Error ? error.message : 'Failed to remove candidate from job';
@@ -866,7 +888,7 @@ export function useJobCandidatesTab(options: UseJobCandidatesTabOptions) {
         if (typeof window !== 'undefined') {
           window.dispatchEvent(new CustomEvent('jobportal:candidates-changed'));
         }
-        await refreshAppliedJobCandidates({ runPipeline: false, refresh: true });
+        await refreshAppliedJobCandidates({ runPipeline: false, refresh: false, silent: true });
 
         const successTotal = createdCount + linkedCount;
         if (successTotal > 0 && failedCount === 0) {

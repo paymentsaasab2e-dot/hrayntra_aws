@@ -9,7 +9,7 @@ importers:
   .:
     dependencies:
       '@aws-sdk/client-s3':
-        specifier: ^3.758.0
+        specifier: ^3.1045.0
         version: 3.1045.0
       '@azure/identity':
         specifier: ^4.8.0

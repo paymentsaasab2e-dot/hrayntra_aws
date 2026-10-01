@@ -551,7 +551,7 @@ export function useCandidateProfileDrawer({
 
       let payload = isPhase1Edit
         ? buildUpdatePayloadFromPhase1EditSnapshot(candidate, phase1EditSnapshot!)
-        : buildUpdatePayloadFromEditForm(editForm!, (candidate as { extraData?: unknown }).extraData);
+        : buildUpdatePayloadFromEditForm(editForm!, (candidate as { extraData?: Record<string, unknown> | null }).extraData);
 
       if (editAvatarFile) {
         try {
@@ -571,7 +571,7 @@ export function useCandidateProfileDrawer({
         }
       }
 
-      await Promise.resolve(onUpdateCandidate(candidate.id, payload));
+      await Promise.resolve(onUpdateCandidate?.(candidate.id, payload as unknown as Record<string, unknown>));
       if (onRefreshCandidate) {
         await Promise.resolve(onRefreshCandidate(candidate.id));
       }

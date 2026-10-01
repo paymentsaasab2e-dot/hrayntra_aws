@@ -1449,6 +1449,9 @@ export function JobListPage() {
                   priority,
                   notes,
                 });
+                if (typeof window !== 'undefined') {
+                  window.dispatchEvent(new CustomEvent('jobportal:candidates-changed'));
+                }
                 const activeJobId =
                   jobDetails?.id || (selectedJob ? toJobForDrawer(selectedJob) : null)?.id;
                 if (activeJobId) {
@@ -1658,6 +1661,9 @@ export function JobListPage() {
                   priority,
                   notes,
                 });
+                if (typeof window !== 'undefined') {
+                  window.dispatchEvent(new CustomEvent('jobportal:candidates-changed'));
+                }
                 await loadCandidateProfileInJobContext(candidateId);
                 if (activeJobForCandidateDrawer?.id) {
                   await refreshJobCandidates(activeJobForCandidateDrawer.id);

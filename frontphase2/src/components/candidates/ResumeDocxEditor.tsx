@@ -270,7 +270,7 @@ export const ResumeDocxEditor = forwardRef<ResumeDocxEditorHandle, ResumeDocxEdi
                 setStatus('ready');
                 setMessage('');
               },
-              onContentError: ({ error }) => {
+              onContentError: ({ error }: { error?: unknown }) => {
                 if (cancelled || readyRef.current) return;
                 console.error('[resume-docx] content error', error);
               },

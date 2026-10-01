@@ -332,7 +332,7 @@ export function SubmitToClientDrawer({
   onSubmitted,
 }: SubmitToClientDrawerProps) {
   usePageDrawerLifecycle(isOpen);
-  const speedMs = useSpeedMeasure(isOpen, String(initialCandidate?.id || interview?.id || ''));
+  const speedMs = useSpeedMeasure(isOpen, String(interview?.id || ''));
   const { panelRef, requestClose, markClean } = useDrawerUnsavedGuard<HTMLElement>({
     isOpen,
     onClose,

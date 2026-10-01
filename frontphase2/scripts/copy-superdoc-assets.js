@@ -15,30 +15,35 @@ function resolveSuperdocEntry() {
   return fs.realpathSync(require.resolve('superdoc'));
 }
 
-const entry = resolveSuperdocEntry();
-const distDir = path.dirname(entry);
-const engineDist = path.join(distDir, '..', '..', '@superdoc', 'docx-engine', 'dist');
-const shell = fs.readFileSync(path.join(distDir, 'style.css'), 'utf8');
-const engine = fs.readFileSync(path.join(engineDist, 'style.css'), 'utf8');
-const css = shell.replace(
-  /@import\s+["']@superdoc\/docx-engine\/style\.css["']\s*;/,
-  () => engine,
-);
+try {
+  const entry = resolveSuperdocEntry();
+  const distDir = path.dirname(entry);
+  const engineDist = path.join(distDir, '..', '..', '@superdoc', 'docx-engine', 'dist');
+  const shell = fs.readFileSync(path.join(distDir, 'style.css'), 'utf8');
+  const engine = fs.readFileSync(path.join(engineDist, 'style.css'), 'utf8');
+  const css = shell.replace(
+    /@import\s+["']@superdoc\/docx-engine\/style\.css["']\s*;/,
+    () => engine,
+  );
 
-fs.mkdirSync(outDir, { recursive: true });
-fs.writeFileSync(path.join(outDir, 'style.css'), css);
+  fs.mkdirSync(outDir, { recursive: true });
+  fs.writeFileSync(path.join(outDir, 'style.css'), css);
 
-const assetsDir = path.join(engineDist, 'assets');
-const names = fs.readdirSync(assetsDir);
+  const assetsDir = path.join(engineDist, 'assets');
+  if (fs.existsSync(assetsDir)) {
+    const names = fs.readdirSync(assetsDir);
 
-function copyWorker(prefix, destName) {
-  const name = names.find((file) => file.startsWith(prefix) && file.endsWith('.js'));
-  if (!name) {
-    throw new Error(`SuperDoc ${prefix} worker was not found in ${assetsDir}`);
+    function copyWorker(prefix, destName) {
+      const name = names.find((file) => file.startsWith(prefix) && file.endsWith('.js'));
+      if (name) {
+        fs.copyFileSync(path.join(assetsDir, name), path.join(outDir, destName));
+      }
+    }
+
+    copyWorker('browser-worker-entry-', 'document-worker.js');
+    copyWorker('review-index-worker-entry-', 'review-worker.js');
+    console.log('Copied SuperDoc editor assets to public/superdoc');
   }
-  fs.copyFileSync(path.join(assetsDir, name), path.join(outDir, destName));
+} catch (err) {
+  console.warn('[copy-superdoc-assets] Warning: Could not copy SuperDoc assets:', err?.message || err);
 }
-
-copyWorker('browser-worker-entry-', 'document-worker.js');
-copyWorker('review-index-worker-entry-', 'review-worker.js');
-console.log('Copied SuperDoc editor assets to public/superdoc');

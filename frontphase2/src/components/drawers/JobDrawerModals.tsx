@@ -262,6 +262,8 @@ export function JobDrawerModals(props: JobDrawerModalsProps) {
     confirmScheduleInterviewCandidatePicker,
     confirmSubmitCandidatePicker,
     displayJobCandidates,
+    setDisplayJobCandidates,
+    onJobCandidatesChange,
     ensurePickerCvMeta,
     isOpen,
     job,
@@ -330,8 +332,35 @@ export function JobDrawerModals(props: JobDrawerModalsProps) {
       onSubmit={
         onAddToPipeline
           ? async (payload: any) => {
+              const nextStage = payload.stage;
+              const candidateId = payload.candidateId;
+              const currentList = Array.isArray(displayJobCandidates) ? displayJobCandidates : [];
+              const updatedList = currentList.map((c: any) => {
+                if (c.id === candidateId || c._id === candidateId) {
+                  return {
+                    ...c,
+                    currentStage: nextStage,
+                    stage: nextStage,
+                    isJobAppliedCandidate: resolveJobCandidateDisplayStage(nextStage) === 'Applied',
+                  };
+                }
+                return c;
+              });
+
+              setDisplayJobCandidates?.(updatedList);
+              onJobCandidatesChange?.(updatedList);
+              invalidateEmployerCandidatesCache();
+
               await onAddToPipeline(payload);
-              await refreshAppliedJobCandidates({ runPipeline: false, refresh: true });
+              if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('jobportal:candidates-changed'));
+              }
+              await refreshAppliedJobCandidates({
+                runPipeline: false,
+                refresh: false,
+                silent: true,
+                seedOverride: updatedList,
+              });
               setMoveStageModalOpen(false);
               setMoveStageCandidate(null);
             }
@@ -340,8 +369,26 @@ export function JobDrawerModals(props: JobDrawerModalsProps) {
       onRemoveFromPipeline={
         onRemoveFromPipeline
           ? async (payload: any) => {
+              const candidateId = payload.candidateId;
+              const currentList = Array.isArray(displayJobCandidates) ? displayJobCandidates : [];
+              const updatedList = currentList.filter(
+                (c: any) => c.id !== candidateId && c._id !== candidateId,
+              );
+
+              setDisplayJobCandidates?.(updatedList);
+              onJobCandidatesChange?.(updatedList);
+              invalidateEmployerCandidatesCache();
+
               await onRemoveFromPipeline(payload);
-              await refreshAppliedJobCandidates({ runPipeline: false, refresh: true });
+              if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('jobportal:candidates-changed'));
+              }
+              await refreshAppliedJobCandidates({
+                runPipeline: false,
+                refresh: false,
+                silent: true,
+                seedOverride: updatedList,
+              });
               setMoveStageModalOpen(false);
               setMoveStageCandidate(null);
             }

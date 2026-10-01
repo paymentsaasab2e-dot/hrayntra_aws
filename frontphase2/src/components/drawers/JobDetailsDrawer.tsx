@@ -941,6 +941,8 @@ const pipelineStageCountCards = useMemo(() => {
       moveStageCandidate={moveStageCandidate}
       moveStageModalOpen={moveStageModalOpen}
       onAddToPipeline={onAddToPipeline}
+      setDisplayJobCandidates={setDisplayJobCandidates}
+      onJobCandidatesChange={onJobCandidatesChange}
       onClose={onClose}
       onCreatePlacement={onCreatePlacement}
       onRemoveFromPipeline={onRemoveFromPipeline}

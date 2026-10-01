@@ -212,6 +212,20 @@ async function loadCandidateForCommonSync(candidateId) {
   });
 }
 
+async function updateCandidateCommonInChunks(commonPrisma, where, data) {
+  const entries = Object.entries(data);
+  const CHUNK_SIZE = 25;
+  let result = null;
+  for (let i = 0; i < entries.length; i += CHUNK_SIZE) {
+    const chunkData = Object.fromEntries(entries.slice(i, i + CHUNK_SIZE));
+    result = await commonPrisma.candidateCommon.update({
+      where,
+      data: chunkData,
+    });
+  }
+  return result;
+}
+
 /**
  * Upsert full Phase 1 candidate snapshot into the candidatecommon database.
  */
@@ -235,11 +249,40 @@ async function syncCandidateToCommon(candidateId, options = {}) {
 
     const data = buildCommonPayload(candidate, existingCommon, options);
     const { id: rowId, ...mutableFields } = data;
-    const row = await commonPrisma.candidateCommon.upsert({
-      where: { candidateId: id },
-      create: { ...mutableFields, id: rowId, candidateId: id },
-      update: mutableFields,
-    });
+    let row;
+    if (existingCommon?.id) {
+      try {
+        row = await updateCandidateCommonInChunks(
+          commonPrisma,
+          { id: existingCommon.id },
+          mutableFields
+        );
+      } catch (updateErr) {
+        if (updateErr?.code === 'P2025') {
+          row = await commonPrisma.candidateCommon.create({
+            data: { ...mutableFields, id: rowId, candidateId: id },
+          });
+        } else {
+          throw updateErr;
+        }
+      }
+    } else {
+      try {
+        row = await commonPrisma.candidateCommon.create({
+          data: { ...mutableFields, id: rowId, candidateId: id },
+        });
+      } catch (createErr) {
+        if (createErr?.code === 'P2002') {
+          row = await updateCandidateCommonInChunks(
+            commonPrisma,
+            { candidateId: id },
+            mutableFields
+          );
+        } else {
+          throw createErr;
+        }
+      }
+    }
 
     // If common sync minted a new personId and the portal row is still empty,
     // write it back so the portal candidate owns its own identity.

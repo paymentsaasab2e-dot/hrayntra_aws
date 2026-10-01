@@ -833,22 +833,25 @@ const recruiterFallbackForJob = useMemo(
 );
 
 const refreshAppliedJobCandidates = useCallback(
-  async (opts?: { runPipeline?: boolean; refresh?: boolean }) => {
+  async (opts?: { runPipeline?: boolean; refresh?: boolean; silent?: boolean; seedOverride?: JobCandidateItem[] }) => {
     if (!job?.id) {
       setDisplayJobCandidates([]);
       return [] as JobCandidateItem[];
     }
     const loadingPipeline = Boolean(opts?.runPipeline);
+    const isSilent = Boolean(opts?.silent) || (displayJobCandidates && displayJobCandidates.length > 0);
     if (loadingPipeline) {
       setAppliedPipelineRunning(true);
-    } else {
+    } else if (!isSilent) {
       setAppliedCandidatesLoading(true);
     }
     try {
+      const activeSeed = opts?.seedOverride || displayJobCandidates || jobCandidates;
       const merged = await loadJobAppliedCandidates(job.id, {
         runPipeline: opts?.runPipeline,
         refresh: opts?.refresh,
-        pipelineSeed: jobCandidates,
+        silent: isSilent,
+        pipelineSeed: activeSeed,
         fallbackRecruiter: recruiterFallbackForJob,
       });
       setDisplayJobCandidates(merged);
@@ -868,7 +871,7 @@ const refreshAppliedJobCandidates = useCallback(
       }
     }
   },
-  [job?.id, job?.applications, jobCandidates, onJobCandidatesChange, recruiterFallbackForJob],
+  [job?.id, displayJobCandidates, jobCandidates, onJobCandidatesChange, recruiterFallbackForJob],
 );
 
 const openScheduleInterviewCandidatePicker = useCallback(async () => {
@@ -884,7 +887,7 @@ const openScheduleInterviewCandidatePicker = useCallback(async () => {
 
   let list = Array.isArray(displayJobCandidates) ? displayJobCandidates.filter((row) => row?.id) : [];
   if (!list.length) {
-    const merged = await refreshAppliedJobCandidates({ runPipeline: false, refresh: true });
+    const merged = await refreshAppliedJobCandidates({ runPipeline: false, refresh: false, silent: true });
     list = Array.isArray(merged) ? merged.filter((row) => row?.id) : [];
   }
   if (!list.length) {
@@ -1034,7 +1037,7 @@ const handleJobCvFileSelected = useCallback(
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('jobportal:candidates-changed'));
       }
-      await refreshAppliedJobCandidates({ runPipeline: false, refresh: true });
+      await refreshAppliedJobCandidates({ runPipeline: false, refresh: false, silent: true });
 
       const successTotal = createdCount + linkedCount;
       if (successTotal > 0 && failedCount === 0) {
@@ -1166,21 +1169,32 @@ const handleInlineCandidateStageChange = useCallback(
         stageId: resolvedStageId,
       });
 
-      setDisplayJobCandidates((prev) =>
-        prev.map((item) =>
-          item.id === candidate.id
-            ? {
-                ...item,
-                currentStage: nextStageName,
-                isJobAppliedCandidate:
-                  resolveJobCandidateDisplayStage(nextStageName) === 'Applied',
-              }
-            : item,
-        ),
+      const nextStage = nextStageName || candidate.stage;
+      const updated = (displayJobCandidates || []).map((item) =>
+        item.id === candidate.id
+          ? {
+              ...item,
+              currentStage: nextStage,
+              isJobAppliedCandidate:
+                resolveJobCandidateDisplayStage(nextStage) === 'Applied',
+            }
+          : item,
       );
 
-      await refreshAppliedJobCandidates({ runPipeline: false, refresh: true });
-      toast.success(`Stage updated to ${nextStageName}`);
+      setDisplayJobCandidates(updated);
+      onJobCandidatesChange?.(updated);
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('jobportal:candidates-changed'));
+      }
+
+      await refreshAppliedJobCandidates({
+        runPipeline: false,
+        refresh: false,
+        silent: true,
+        seedOverride: updated,
+      });
+      toast.success(`Stage updated to ${nextStage}`);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Failed to update candidate stage';
       console.error('Failed to update candidate stage from job drawer:', error);
@@ -1192,6 +1206,8 @@ const handleInlineCandidateStageChange = useCallback(
   [
     inlineStageOptionsMerged,
     job?.id,
+    displayJobCandidates,
+    onJobCandidatesChange,
     onCreatePlacement,
     onScheduleInterview,
     refreshAppliedJobCandidates,
@@ -1226,7 +1242,7 @@ const handleDeleteJobCandidate = useCallback(
         window.dispatchEvent(new CustomEvent(RECYCLE_BIN_SYNC_EVENT));
         window.dispatchEvent(new CustomEvent('jobportal:candidates-changed'));
       }
-      await refreshAppliedJobCandidates({ runPipeline: false, refresh: true });
+      await refreshAppliedJobCandidates({ runPipeline: false, refresh: false, silent: true });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Failed to delete candidate';
       toast.error(message);
@@ -1268,7 +1284,7 @@ const handleRemoveJobCandidate = useCallback(
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('jobportal:candidates-changed'));
       }
-      await refreshAppliedJobCandidates({ runPipeline: false, refresh: true });
+      await refreshAppliedJobCandidates({ runPipeline: false, refresh: false, silent: true });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Failed to remove candidate from job';
       toast.error(message);
