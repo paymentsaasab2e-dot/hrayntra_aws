@@ -113,7 +113,7 @@ const LEADS_FILTER_SELECT =
   'h-9 shrink-0 rounded-lg border border-indigo-100/90 bg-white/95 px-2.5 py-1.5 text-xs font-medium text-slate-800 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-300 cursor-pointer hover:border-indigo-200/90 hover:bg-indigo-50/40';
 const LEADS_DYNAMIC_COLUMNS_STORAGE_KEY = 'leads.dynamicColumns';
 
-/** Last / next follow-up column: date + time on separate lines (not raw ISO). */
+/** Last / next follow-up column: rendered in a single row (e.g. 30/09/2026 - 9:00 am). */
 function LeadFollowUpTableCell({
   lastFollowUp,
   nextFollowUp,
@@ -123,24 +123,18 @@ function LeadFollowUpTableCell({
 }) {
   const last = splitDateTimeForDisplay(lastFollowUp);
   const next = splitDateTimeForDisplay(nextFollowUp);
+  const target = last || next;
+
+  if (!target) {
+    return <span className="text-xs text-slate-400">—</span>;
+  }
+
+  const formatted = target.time ? `${target.date} - ${target.time}` : target.date;
+
   return (
-    <div className="flex flex-col gap-2 min-w-[9rem]">
-      {last ? (
-        <div className="rounded-xl bg-indigo-500/[0.06] px-2.5 py-2 ring-1 ring-indigo-500/10">
-          <p className="text-[9px] font-bold text-indigo-600/90 uppercase tracking-[0.12em]">Last</p>
-          <p className="text-xs font-semibold text-slate-800 leading-snug mt-0.5">{last.date}</p>
-          <p className="text-[10px] text-slate-500 mt-1 tabular-nums">{last.time}</p>
-        </div>
-      ) : (
-        <span className="inline-flex rounded-lg bg-slate-100/80 px-2 py-1 text-[11px] font-medium text-slate-400">—</span>
-      )}
-      {next && (
-        <div className="rounded-xl bg-gradient-to-br from-blue-500/10 to-indigo-500/10 px-2.5 py-2 ring-1 ring-blue-400/15">
-          <p className="text-xs font-semibold text-blue-900 leading-snug">{next.date}</p>
-          <p className="text-[10px] text-blue-700/90 mt-1 tabular-nums">{next.time}</p>
-        </div>
-      )}
-    </div>
+    <span className="whitespace-nowrap text-xs font-medium text-slate-700 tabular-nums">
+      {formatted}
+    </span>
   );
 }
 

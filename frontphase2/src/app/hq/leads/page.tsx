@@ -172,24 +172,18 @@ function LeadFollowUpTableCell({
 }) {
   const last = splitDateTimeForDisplay(lastFollowUp);
   const next = splitDateTimeForDisplay(nextFollowUp);
+  const target = last || next;
+
+  if (!target) {
+    return <span className="text-xs text-slate-400">—</span>;
+  }
+
+  const formatted = target.time ? `${target.date} - ${target.time}` : target.date;
+
   return (
-    <div className="flex min-w-[9rem] flex-col gap-2">
-      {last ? (
-        <div className="rounded-xl bg-indigo-500/[0.06] px-2.5 py-2 ring-1 ring-indigo-500/10">
-          <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-indigo-600/90">Last</p>
-          <p className="mt-0.5 text-xs font-semibold leading-snug text-slate-800">{last.date}</p>
-          <p className="mt-1 text-[10px] tabular-nums text-slate-500">{last.time}</p>
-        </div>
-      ) : (
-        <span className="inline-flex rounded-lg bg-slate-100/80 px-2 py-1 text-[11px] font-medium text-slate-400">—</span>
-      )}
-      {next ? (
-        <div className="rounded-xl bg-gradient-to-br from-blue-500/10 to-indigo-500/10 px-2.5 py-2 ring-1 ring-blue-400/15">
-          <p className="text-xs font-semibold leading-snug text-blue-900">{next.date}</p>
-          <p className="mt-1 text-[10px] tabular-nums text-blue-700/90">{next.time}</p>
-        </div>
-      ) : null}
-    </div>
+    <span className="whitespace-nowrap text-xs font-medium text-slate-700 tabular-nums">
+      {formatted}
+    </span>
   );
 }
 
