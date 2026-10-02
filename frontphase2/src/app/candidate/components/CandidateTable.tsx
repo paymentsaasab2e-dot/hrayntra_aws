@@ -369,7 +369,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
           }`}
         >
           <thead className="sticky top-0 z-10">
-            <tr className="border-b border-indigo-100/60 bg-gradient-to-r from-slate-50 via-indigo-50/55 to-violet-50/40 text-[10px] font-bold uppercase tracking-[0.14em] text-indigo-900/50 backdrop-blur-md">
+            <tr className="border-b border-indigo-100/60 bg-gradient-to-r from-slate-50 via-indigo-50/55 to-violet-50/40 text-xs font-bold uppercase tracking-[0.06em] text-indigo-950/70 backdrop-blur-md">
               {show('select') ? (
                 <th className="w-10 px-3 py-3 first:pl-4 sm:px-4 sm:first:pl-5">
                   <input

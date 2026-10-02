@@ -53,6 +53,11 @@ html {
       "Segoe UI Symbol", "Noto Color Emoji";
     --ph2-font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
 
+    /** Crisp modern typography for table headers, rows, and cells */
+    --ph2-table-font: "Inter", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --ph2-table-row-font: "Inter", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --ph2-table-num: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+
     /** Multiply all semantic h1–h6 sizes below (1 = default ramp). */
     --ph2-heading-scale: 1;
     --ph2-h1-size: calc(1.625rem * var(--ph2-heading-scale));
@@ -85,6 +90,49 @@ html {
   body {
     font-family: inherit;
     max-width: 100%;
+  }
+
+  /* Universal high-legibility styling for data tables across CRM, HQ, and module views */
+  table {
+    font-family: var(--ph2-table-font);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  table thead th {
+    font-family: var(--ph2-table-font);
+    font-size: 0.75rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.05em !important;
+    text-transform: uppercase;
+    color: #475569;
+    line-height: 1.35;
+  }
+
+  table tbody tr {
+    font-family: var(--ph2-table-row-font);
+    font-size: 0.875rem;
+    line-height: 1.45;
+    color: #1e293b;
+  }
+
+  table tbody td {
+    font-family: var(--ph2-table-row-font);
+    font-size: 0.875rem;
+    line-height: 1.45;
+    color: #1e293b;
+    vertical-align: middle;
+  }
+
+  table tbody tr td button,
+  table tbody tr td a,
+  table tbody tr td input,
+  table tbody tr td select {
+    font-family: var(--ph2-table-row-font);
+  }
+
+  table tbody tr td .tabular-nums {
+    font-family: var(--ph2-table-num);
+    font-variant-numeric: tabular-nums;
   }
 
   :where(h1) {
@@ -529,6 +577,32 @@ html {
   scrollbar-width: thin;
   scrollbar-color: rgb(129 140 248 / 0.5) transparent;
   overscroll-behavior: contain;
+}
+
+/* Enhanced legibility for subtext and badges inside all table rows */
+table tbody td .text-\[9px\] {
+  font-size: 0.6875rem !important;
+  line-height: 1.25 !important;
+}
+
+table tbody td .text-\[10px\] {
+  font-size: 0.75rem !important;
+  line-height: 1.3 !important;
+}
+
+table tbody td .text-\[11px\] {
+  font-size: 0.775rem !important;
+  line-height: 1.35 !important;
+}
+
+table tbody td .text-xs {
+  font-size: 0.8125rem !important;
+  line-height: 1.4 !important;
+}
+
+table tbody td .text-sm {
+  font-size: 0.875rem !important;
+  line-height: 1.45 !important;
 }
 
 /*

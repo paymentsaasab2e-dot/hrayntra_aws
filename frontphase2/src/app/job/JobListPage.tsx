@@ -576,7 +576,7 @@ const JobsListView = ({
   <div className={PH2_TABLE_BODY_SCROLL_CLASS}>
       <table className="w-max min-w-full text-left border-collapse">
         <thead className="sticky top-0 z-10">
-          <tr className="border-b border-indigo-100 bg-gradient-to-r from-slate-50 via-indigo-50 to-violet-50 text-indigo-950/45 uppercase text-[9px] font-bold tracking-[0.12em]">
+          <tr className="border-b border-indigo-100 bg-gradient-to-r from-slate-50 via-indigo-50 to-violet-50 text-indigo-950/70 uppercase text-xs font-bold tracking-[0.06em]">
             {show('select') ? (
               <th className="px-3 py-2 sm:px-4 w-10 first:pl-4">
                 <input type="checkbox" className="rounded border-slate-300" aria-label="Select all" />
@@ -614,8 +614,8 @@ const JobsListView = ({
           {rows.length === 0 ? (
             <tr>
               <td colSpan={visibleColCount} className="px-4 py-12 text-center">
-                <p className="text-xs font-medium text-slate-500">No jobs match your filters</p>
-                <p className="mt-1 text-[11px] text-slate-400">Try adjusting search or clear filters</p>
+                <p className="text-sm font-medium text-slate-500">No jobs match your filters</p>
+                <p className="mt-1 text-xs text-slate-400">Try adjusting search or clear filters</p>
               </td>
             </tr>
           ) : (
@@ -635,7 +635,7 @@ const JobsListView = ({
                   <button
                     type="button"
                     onClick={() => onJobClick?.(job)}
-                        className="min-w-0 flex-1 text-left text-xs font-semibold leading-snug text-slate-900 line-clamp-3 whitespace-normal break-words [overflow-wrap:anywhere] hover:text-indigo-700 transition-colors"
+                        className="min-w-0 flex-1 text-left text-sm font-semibold leading-snug text-slate-900 line-clamp-3 whitespace-normal break-words [overflow-wrap:anywhere] hover:text-indigo-700 transition-colors"
                     title={job.title}
                   >
                     {job.title}

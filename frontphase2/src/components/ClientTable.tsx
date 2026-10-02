@@ -187,7 +187,7 @@ export function ClientTable({
       <div className={fillScrollParent ? 'contents' : 'no-scrollbar overflow-x-auto'}>
         <table className="w-max min-w-full border-collapse text-left">
           <thead className="sticky top-0 z-10">
-            <tr className="bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 border-b border-indigo-100/50 text-indigo-950/45 uppercase text-[9px] font-bold tracking-[0.12em] backdrop-blur-sm">
+            <tr className="bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 border-b border-indigo-100/50 text-indigo-950/70 uppercase text-xs font-bold tracking-[0.06em] backdrop-blur-sm">
               <th className="w-10 px-3 sm:px-4 py-2 first:pl-4">
                 <CustomCheckbox
                   checked={selectedIds.length === clients.length && clients.length > 0}
@@ -292,7 +292,7 @@ export function ClientTable({
                       <button
                         type="button"
                         onClick={() => onSelectClient?.(client)}
-                        className="block truncate text-left text-xs font-semibold text-slate-900 transition-colors hover:text-indigo-700"
+                        className="block truncate text-left text-sm font-semibold text-slate-900 transition-colors hover:text-indigo-700"
                         title="View client details"
                       >
                         {client.name}

@@ -375,8 +375,8 @@ export function PlacementsTable({
 
   const outerWrap = embedded ? 'contents' : 'overflow-hidden rounded-xl bg-white shadow-sm';
   const theadRow = embedded
-    ? 'border-b border-indigo-100/60 bg-gradient-to-r from-slate-50 via-indigo-50/55 to-violet-50/40 text-[10px] font-bold uppercase tracking-[0.14em] text-indigo-900/50 backdrop-blur-md'
-    : 'bg-gray-50 text-xs font-medium uppercase tracking-wide text-gray-500';
+    ? 'border-b border-indigo-100/60 bg-gradient-to-r from-slate-50 via-indigo-50/55 to-violet-50/40 text-xs font-bold uppercase tracking-[0.06em] text-indigo-950/70 backdrop-blur-md'
+    : 'bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-600';
   const thPad = embedded ? 'px-3 py-3 sm:px-4' : 'px-6 py-4';
   const tdPad = embedded ? 'px-3 py-3 sm:px-4 sm:py-3.5' : 'px-6 py-4';
   const rowClass = embedded

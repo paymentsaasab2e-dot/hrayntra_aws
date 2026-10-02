@@ -40,7 +40,7 @@ export function TableAuditCell({
 
   return (
     <td className={`px-3 py-2 sm:px-4 align-top ${className}`.trim()}>
-      <div className="min-w-[7rem] max-w-[11rem] space-y-0.5 text-[10px] leading-tight text-slate-600">
+      <div className="min-w-[7rem] max-w-[11rem] space-y-0.5 text-xs leading-tight text-slate-600">
         <div>
           <span className="font-semibold uppercase tracking-wide text-slate-400">Created</span>
           <p className="mt-0.5 text-slate-700">

@@ -2261,7 +2261,7 @@ export default function RecruitmentAgencyDashboard() {
                 {!loading && !error && (
                   <table id="leads-main-table" className="w-max min-w-full text-left" aria-label="Leads">
                     <thead className="sticky top-0 z-10">
-                      <tr className="bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 border-b border-indigo-100/50 text-indigo-950/45 uppercase text-[9px] font-bold tracking-[0.12em] backdrop-blur-sm">
+                      <tr className="bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 border-b border-indigo-100/50 text-indigo-950/70 uppercase text-xs font-bold tracking-[0.06em] backdrop-blur-sm">
                         <th className="px-3 sm:px-4 py-2 w-10 first:pl-4">
                           <SelectionCheckbox
                             checked={allVisibleSelected}
@@ -2341,8 +2341,8 @@ export default function RecruitmentAgencyDashboard() {
                             }
                             className="px-4 py-12 text-center"
                           >
-                            <p className="text-xs font-medium text-slate-500">No leads match your filters</p>
-                            <p className="mt-1 text-[11px] text-slate-400">Try adjusting search or clear filters</p>
+                            <p className="text-sm font-medium text-slate-500">No leads match your filters</p>
+                            <p className="mt-1 text-xs text-slate-400">Try adjusting search or clear filters</p>
                           </td>
                         </tr>
                       ) : (
@@ -2378,7 +2378,7 @@ export default function RecruitmentAgencyDashboard() {
                                 <div className="flex min-w-[8rem] flex-col justify-center gap-0.5">
                                 <button
                                   type="button"
-                                  className="text-left text-xs font-semibold leading-snug text-slate-900 hover:text-indigo-700 transition-colors whitespace-normal break-words"
+                                  className="text-left text-sm font-semibold leading-snug text-slate-900 hover:text-indigo-700 transition-colors whitespace-normal break-words"
                                   onClick={() => {
                                     void openLeadDrawerWithFreshData(lead, 'view');
                                   }}
