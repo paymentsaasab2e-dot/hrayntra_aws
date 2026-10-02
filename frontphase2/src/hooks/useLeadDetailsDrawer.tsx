@@ -779,15 +779,38 @@ const DEFAULT_LEAD_OVERVIEW_SECTIONS: Record<string, boolean> = {
 const [overviewOpen, setOverviewOpen] = useState<Record<string, boolean>>(
     DEFAULT_LEAD_OVERVIEW_SECTIONS,
   );
+const [overviewEditMode, setOverviewEditMode] = useState(false);
+const [overviewEditErrors, setOverviewEditErrors] = useState<LeadRequiredFieldErrors>({});
+const [savingOverviewEdit, setSavingOverviewEdit] = useState(false);
+const { panelRef: leadDrawerPanelRef, requestClose: requestLeadDrawerClose, markClean: markLeadDrawerClean } =
+    useDrawerUnsavedGuard<HTMLDivElement>({
+      isOpen: drawerIsOpen,
+      onClose: () => {
+        if (addLeadMode) {
+          resetAddLeadForm();
+        }
+        onClose();
+      },
+      enabled: true,
+    });
+
 useEffect(() => {
-    if (!lead && !addLeadMode) return;
-    setOverviewOpen(DEFAULT_LEAD_OVERVIEW_SECTIONS);
-    setAddLeadSectionsOpen(DEFAULT_ADD_LEAD_SECTIONS);
+    if (!drawerIsOpen) {
+      resetAddLeadForm();
+      markLeadDrawerClean();
+      return;
+    }
     if (addLeadMode) {
+      resetAddLeadForm();
+      markLeadDrawerClean();
+      setOverviewOpen(DEFAULT_LEAD_OVERVIEW_SECTIONS);
+      setAddLeadSectionsOpen(DEFAULT_ADD_LEAD_SECTIONS);
       setAddLeadWizardStep(isHqOverrideMode ? 'workspace' : 'company');
       setHqProductLine(['crm']);
+    } else if (lead) {
+      setOverviewOpen(DEFAULT_LEAD_OVERVIEW_SECTIONS);
     }
-  }, [lead?.id, addLeadMode, isHqOverrideMode]);
+  }, [drawerIsOpen, addLeadMode, lead?.id, isHqOverrideMode, markLeadDrawerClean]);
 useEffect(() => {
     if (!addLeadMode || isPublicIntakeMode) {
       setLeadAiChatOpen(false);
@@ -802,15 +825,6 @@ useEffect(() => {
     setLeadAiChatOpen(false);
     setAddLeadAiFlowStage(null);
   }, [addLeadMode, initialOpenAiChat, isPublicIntakeMode]);
-const [overviewEditMode, setOverviewEditMode] = useState(false);
-const [overviewEditErrors, setOverviewEditErrors] = useState<LeadRequiredFieldErrors>({});
-const [savingOverviewEdit, setSavingOverviewEdit] = useState(false);
-const { panelRef: leadDrawerPanelRef, requestClose: requestLeadDrawerClose, markClean: markLeadDrawerClean } =
-    useDrawerUnsavedGuard<HTMLDivElement>({
-      isOpen: drawerIsOpen,
-      onClose,
-      enabled: true,
-    });
 useEffect(() => {
     if (!drawerIsOpen || !lead?.id || addLeadMode || isHqOverrideMode || isPublicIntakeMode) return;
     let cancelled = false;
