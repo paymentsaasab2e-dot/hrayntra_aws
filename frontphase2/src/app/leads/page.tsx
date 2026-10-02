@@ -2378,7 +2378,7 @@ export default function RecruitmentAgencyDashboard() {
                                 <div className="flex min-w-[8rem] flex-col justify-center gap-0.5">
                                 <button
                                   type="button"
-                                  className="text-left text-sm font-medium leading-snug text-slate-900 hover:text-indigo-700 transition-colors whitespace-normal break-words"
+                                  className="text-left text-[15px] font-medium leading-snug text-slate-900 hover:text-indigo-700 transition-colors whitespace-normal break-words"
                                   onClick={() => {
                                     void openLeadDrawerWithFreshData(lead, 'view');
                                   }}
@@ -2424,10 +2424,10 @@ export default function RecruitmentAgencyDashboard() {
                             {leadColumnVisibility.isVisible('contact') ? (
                               <td className="px-3 sm:px-4 py-2">
                                 <div className="flex flex-col gap-0.5">
-                                  <span className="text-sm font-medium text-slate-900">
+                                  <span className="text-[14px] font-medium text-slate-900 leading-tight">
                                     {formatDirectorDisplay(lead.directorSalutation, lead.directorName || lead.contactPerson)}
                                   </span>
-                                  <span className="text-xs font-normal text-slate-500">
+                                  <span className="text-[12.5px] font-normal text-slate-500 leading-tight">
                                     {formatContactListDisplay(lead.emails, lead.email)}
                                   </span>
                                 </div>
@@ -2437,7 +2437,7 @@ export default function RecruitmentAgencyDashboard() {
                               const value = getLeadDynamicFieldValue(lead, label);
                               return (
                                 <td key={`${lead.id}-${label}`} className="px-3 sm:px-4 py-2">
-                                  <span className="line-clamp-2 text-xs font-normal text-slate-700">
+                                  <span className="line-clamp-2 text-[13.5px] font-normal text-slate-700">
                                     {value || '—'}
                                   </span>
                                 </td>
@@ -2448,7 +2448,7 @@ export default function RecruitmentAgencyDashboard() {
                                 <div className="flex flex-col gap-1.5">
                                   {canUpdateLead ? (
                                     <select
-                                      className="max-w-[10rem] rounded-full border-0 bg-slate-100/90 px-3 py-1.5 text-xs font-medium text-slate-800 ring-1 ring-slate-200/90 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 cursor-pointer hover:bg-slate-100"
+                                      className="max-w-[10rem] rounded-full border-0 bg-slate-100/90 px-2.5 py-1 text-[13px] font-medium text-slate-800 ring-1 ring-slate-200/90 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 cursor-pointer hover:bg-slate-100"
                                       value={lead.status}
                                       onChange={(e) =>
                                         handleInlineStatusChange(lead.id, e.target.value as LeadStatus)
@@ -2513,34 +2513,34 @@ export default function RecruitmentAgencyDashboard() {
                               </td>
                             ) : null}
                             {leadColumnVisibility.isVisible('type') ? (
-                              <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
+                              <td className="px-3 sm:px-4 py-2 text-[13.5px] text-slate-600">
                                 {lead.type || '—'}
                               </td>
                             ) : null}
                             {leadColumnVisibility.isVisible('priority') ? (
                               <td className="px-3 sm:px-4 py-2">
                                 {lead.priority ? <PriorityTag priority={lead.priority} /> : (
-                                  <span className="text-xs text-slate-400">—</span>
+                                  <span className="text-[13.5px] text-slate-400">—</span>
                                 )}
                               </td>
                             ) : null}
                             {leadColumnVisibility.isVisible('phone') ? (
-                              <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
+                              <td className="px-3 sm:px-4 py-2 text-[13.5px] text-slate-600">
                                 {formatContactListDisplay(lead.phones, lead.phone) || '—'}
                               </td>
                             ) : null}
                             {leadColumnVisibility.isVisible('industry') ? (
-                              <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
+                              <td className="px-3 sm:px-4 py-2 text-[13.5px] text-slate-600">
                                 {lead.industry || '—'}
                               </td>
                             ) : null}
                             {leadColumnVisibility.isVisible('companySize') ? (
-                              <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
+                              <td className="px-3 sm:px-4 py-2 text-[13.5px] text-slate-600">
                                 {lead.companySize || '—'}
                               </td>
                             ) : null}
                             {leadColumnVisibility.isVisible('location') ? (
-                              <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
+                              <td className="px-3 sm:px-4 py-2 text-[13.5px] text-slate-600">
                                 {formatLocationCell({
                                   location: lead.location,
                                   country: lead.country,
@@ -2553,25 +2553,25 @@ export default function RecruitmentAgencyDashboard() {
                               <td className="px-3 sm:px-4 py-2">
                                 {lead.website ? (
                                   <span
-                                    className="block max-w-[10rem] truncate text-xs text-slate-600"
+                                    className="block max-w-[10rem] truncate text-[13.5px] text-slate-600"
                                     title={lead.website}
                                   >
                                     {lead.website.replace(/^https?:\/\//i, '')}
                                   </span>
                                 ) : (
-                                  <span className="text-xs text-slate-400">—</span>
+                                  <span className="text-[13.5px] text-slate-400">—</span>
                                 )}
                               </td>
                             ) : null}
                             {leadColumnVisibility.isVisible('designation') ? (
-                              <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
+                              <td className="px-3 sm:px-4 py-2 text-[13.5px] text-slate-600">
                                 {lead.designation || lead.teamMemberDesignation || '—'}
                               </td>
                             ) : null}
                             {leadColumnVisibility.isVisible('needs') ? (
                               <td className="px-3 sm:px-4 py-2">
                                 <span
-                                  className="line-clamp-2 max-w-[12rem] text-xs text-slate-700"
+                                  className="line-clamp-2 max-w-[12rem] text-[13.5px] text-slate-700"
                                   title={lead.interestedNeeds || lead.servicesNeeded || undefined}
                                 >
                                   {lead.interestedNeeds || lead.servicesNeeded || '—'}
@@ -2579,17 +2579,17 @@ export default function RecruitmentAgencyDashboard() {
                               </td>
                             ) : null}
                             {leadColumnVisibility.isVisible('expectedValue') ? (
-                              <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
+                              <td className="px-3 sm:px-4 py-2 text-[13.5px] text-slate-600">
                                 {lead.expectedBusinessValue || '—'}
                               </td>
                             ) : null}
                             {leadColumnVisibility.isVisible('createdDate') ? (
-                              <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
+                              <td className="px-3 sm:px-4 py-2 text-[13.5px] text-slate-600">
                                 {lead.createdDate ? formatDateDMY(lead.createdDate) || lead.createdDate : '—'}
                               </td>
                             ) : null}
                             {leadColumnVisibility.isVisible('convertedClient') ? (
-                              <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
+                              <td className="px-3 sm:px-4 py-2 text-[13.5px] text-slate-600">
                                 {lead.convertedClientName || '—'}
                               </td>
                             ) : null}

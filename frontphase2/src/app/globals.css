@@ -144,12 +144,14 @@ html {
 
   #leads-main-table thead th {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", "Helvetica Neue", Arial, sans-serif !important;
-    font-size: 0.8125rem !important;
+    font-size: 0.75rem !important;
     font-weight: 600 !important;
     letter-spacing: 0.05em !important;
     color: #475569 !important;
-    padding-top: 0.85rem !important;
-    padding-bottom: 0.85rem !important;
+    padding-top: 0.4rem !important;
+    padding-bottom: 0.4rem !important;
+    padding-left: 0.75rem !important;
+    padding-right: 0.75rem !important;
   }
 
   #leads-main-table tbody tr {
@@ -159,14 +161,22 @@ html {
 
   #leads-main-table tbody td {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", "Helvetica Neue", Arial, sans-serif !important;
-    font-size: 0.9375rem !important;
+    font-size: 0.875rem !important;
     font-weight: 400 !important;
-    padding-top: 0.85rem !important;
-    padding-bottom: 0.85rem !important;
+    padding-top: 0.35rem !important;
+    padding-bottom: 0.35rem !important;
+    padding-left: 0.75rem !important;
+    padding-right: 0.75rem !important;
     color: #1e293b !important;
   }
 
-  #leads-main-table tbody td button,
+  #leads-main-table tbody td button {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", "Helvetica Neue", Arial, sans-serif !important;
+    font-size: 0.9375rem !important;
+    font-weight: 500 !important;
+    line-height: 1.25 !important;
+  }
+
   #leads-main-table tbody td select,
   #leads-main-table tbody td input,
   #leads-main-table tbody td a,
