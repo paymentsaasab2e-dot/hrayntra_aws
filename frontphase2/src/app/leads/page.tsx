@@ -2413,7 +2413,6 @@ export default function RecruitmentAgencyDashboard() {
                                   }
                                   return null;
                                 })()}
-                                <span className="text-xs font-normal text-slate-500">{lead.type}</span>
                                 </div>
                               </div>
                             </td>

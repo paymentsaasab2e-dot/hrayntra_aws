@@ -1404,9 +1404,6 @@ export default function HqLeadsPage() {
                                   <span className="text-xs font-semibold text-slate-900 whitespace-normal break-words">
                                     {lead.company || lead.name}
                                   </span>
-                                  <span className="text-[10px] font-medium text-slate-500">
-                                    {mapped.type}
-                                  </span>
                                 </div>
                               </div>
                       </td>
