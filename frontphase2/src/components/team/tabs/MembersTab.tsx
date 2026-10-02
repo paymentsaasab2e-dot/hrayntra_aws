@@ -719,11 +719,11 @@ export const MembersTab: React.FC<MembersTabProps> = ({
                               {getInitials(member.firstName, member.lastName)}
                             </div>
                             <div>
-                              <div className="text-xs font-semibold text-slate-900">
+                              <div className="text-sm font-medium text-slate-900">
                                 {member.firstName} {member.lastName}
                               </div>
                               {member.designation ? (
-                                <div className="text-[10px] text-slate-500">{member.designation}</div>
+                                <div className="text-xs text-slate-500">{member.designation}</div>
                               ) : null}
                               {member.orgUnit ? (
                                 <div className="mt-0.5 inline-flex items-center rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">

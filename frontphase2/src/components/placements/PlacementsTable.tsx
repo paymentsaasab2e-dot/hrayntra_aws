@@ -451,14 +451,14 @@ export function PlacementsTable({
                           <button
                             type="button"
                             onClick={() => onView(placement)}
-                            className="text-left text-sm font-semibold text-slate-900 transition-colors hover:text-indigo-700"
+                            className="text-left text-sm font-medium text-slate-900 transition-colors hover:text-indigo-700"
                           >
                             {formatPlacementPersonName(placement.candidate)}
                           </button>
                           {placement.paymentStatus === 'PAID' || placement.paymentStatus === 'OVERDUE' ? (
                             <div className="mt-1">
                               <span
-                                className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                                className={`rounded-full px-2 py-0.5 text-xs font-medium ${
                                   placement.paymentStatus === 'PAID'
                                     ? 'bg-[#D1FAE5] text-[#065F46]'
                                     : 'bg-red-50 text-red-700'
@@ -474,7 +474,7 @@ export function PlacementsTable({
                     show('clientJob') ? (
                       <td key="clientJob" className={tdPad}>
                         <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold text-slate-900">
+                          <p className="truncate text-sm font-medium text-slate-900">
                             {placement.client.companyName}
                           </p>
                           <p className="truncate text-xs text-slate-500">{placement.job.title}</p>
@@ -499,7 +499,7 @@ export function PlacementsTable({
                     show('type') ? (
                       <td key="type" className={tdPad}>
                         <span
-                          className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-bold shadow-sm ${typeStyle.bg} ${typeStyle.text}`}
+                          className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium shadow-sm ${typeStyle.bg} ${typeStyle.text}`}
                         >
                           {placement.employmentType || '—'}
                         </span>

@@ -635,7 +635,7 @@ const JobsListView = ({
                   <button
                     type="button"
                     onClick={() => onJobClick?.(job)}
-                        className="min-w-0 flex-1 text-left text-sm font-semibold leading-snug text-slate-900 line-clamp-3 whitespace-normal break-words [overflow-wrap:anywhere] hover:text-indigo-700 transition-colors"
+                        className="min-w-0 flex-1 text-left text-sm font-medium leading-snug text-slate-900 line-clamp-3 whitespace-normal break-words [overflow-wrap:anywhere] hover:text-indigo-700 transition-colors"
                     title={job.title}
                   >
                     {job.title}
@@ -710,11 +710,11 @@ const JobsListView = ({
                 {show('details') ? (
                 <td className="px-3 py-2 sm:px-4">
                   <div className="flex flex-col gap-1.5">
-                    <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Recruiter</span>
+                    <span className="text-xs font-normal uppercase tracking-wider text-slate-400">Recruiter</span>
                     <AssigneeAvatars assignees={job.recruiterAssignees || []} />
-                    <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Manager</span>
+                    <span className="text-xs font-normal uppercase tracking-wider text-slate-400">Manager</span>
                     <span className="text-xs text-slate-700">{job.managerName || '—'}</span>
-                    <span className="text-[10px] text-slate-500">{formatDateDMY(job.createdDate)}</span>
+                    <span className="text-xs text-slate-500">{formatDateDMY(job.createdDate)}</span>
               </div>
             </td>
                 ) : null}
@@ -732,7 +732,7 @@ const JobsListView = ({
                 ) : null}
                 {show('openings') ? (
                   <td className="px-3 py-2 sm:px-4">
-                    <span className="text-xs font-semibold tabular-nums text-slate-700">
+                    <span className="text-xs font-medium tabular-nums text-slate-700">
                       {job.openings != null ? job.openings : '—'}
                     </span>
                   </td>
