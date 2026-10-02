@@ -27,6 +27,27 @@ function isSkipDirtyTarget(target: EventTarget | null): boolean {
   if (target.closest('[aria-label="Close"], [aria-label="Close drawer"], [title="Close"]')) {
     return true;
   }
+  // Search inputs, filter fields, read-only search bars
+  if (
+    target.matches('input[type="search"]') ||
+    target.closest('[role="search"]') ||
+    target.closest('[data-search="true"]')
+  ) {
+    return true;
+  }
+  const placeholder = target.getAttribute('placeholder')?.toLowerCase() || '';
+  const ariaLabel = target.getAttribute('aria-label')?.toLowerCase() || '';
+  const name = target.getAttribute('name')?.toLowerCase() || '';
+  if (
+    placeholder.includes('search') ||
+    placeholder.includes('filter') ||
+    ariaLabel.includes('search') ||
+    ariaLabel.includes('filter') ||
+    name.includes('search') ||
+    name.includes('filter')
+  ) {
+    return true;
+  }
   return false;
 }
 

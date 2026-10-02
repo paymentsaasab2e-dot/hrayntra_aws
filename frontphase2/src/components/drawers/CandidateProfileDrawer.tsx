@@ -163,10 +163,17 @@ export function CandidateProfileDrawer({
   const {
     panelRef: candidateDrawerPanelRef,
     requestClose: requestCandidateDrawerClose,
+    markClean: markCandidateDrawerClean,
   } = useDrawerUnsavedGuard<HTMLElement>({
     isOpen,
     onClose,
   });
+
+  useEffect(() => {
+    if (isOpen) {
+      markCandidateDrawerClean();
+    }
+  }, [isOpen, candidate?.id, markCandidateDrawerClean]);
   const layer = stackAboveSiblingDrawers
     ? {
         backdrop: 'z-[117]',
@@ -424,8 +431,9 @@ export function CandidateProfileDrawer({
       if (onRefreshCandidate) {
         await Promise.resolve(onRefreshCandidate(candidate.id));
       }
+      markCandidateDrawerClean();
     },
-    [candidate, onUpdateCandidate, onRefreshCandidate],
+    [candidate, onUpdateCandidate, onRefreshCandidate, markCandidateDrawerClean],
   );
 
   const titleLine = useMemo(() => {
@@ -475,7 +483,8 @@ export function CandidateProfileDrawer({
     } else {
       setShowEditModal(false);
     }
-  }, [candidate, onClose, openEditDirectly]);
+    markCandidateDrawerClean();
+  }, [candidate, onClose, openEditDirectly, markCandidateDrawerClean]);
 
   const handleAction = (
     action: 'move-stage' | 'schedule-interview' | 'more' | 'edit'
@@ -740,6 +749,7 @@ export function CandidateProfileDrawer({
       if (onRefreshCandidate) {
         await Promise.resolve(onRefreshCandidate(candidate.id));
       }
+      markCandidateDrawerClean();
 
       if (editAvatarPreviewRef.current) {
         URL.revokeObjectURL(editAvatarPreviewRef.current);
