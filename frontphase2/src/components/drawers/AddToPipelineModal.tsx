@@ -12,15 +12,16 @@ import { parseJobsListFromResponse } from '../../lib/parseApiList';
 import { isSubmitToClientStageOption, SUBMIT_TO_CLIENT_STAGE_OPTION_LABEL, SUBMIT_TO_CLIENT_STAGE_OPTION_VALUE, isInterviewPipelineStage, isOfferPipelineStage } from '../../lib/candidateSubmitToClient';
 import type { CandidateProfileDrawerData } from './candidateProfileDrawerData';
 import { AddToPipelineModalProps, CandidatePipelineJobOption, PIPELINE_REJECTED_STAGE, getAvatarInitials, isRejectedPipelineStage, mapJobsToPipelineOptions } from './candidateProfileShared';
+import { isValidObjectId } from '../../lib/mapCandidateProfile';
 
 const jobStagesCache = new Map<string, Array<{ id: string; name: string }>>();
 const DEFAULT_FALLBACK_STAGES: Array<{ id: string; name: string }> = [
-  { id: 'stg-sourced', name: 'Sourced' },
-  { id: 'stg-screening', name: 'Screening' },
-  { id: 'stg-interview', name: 'Interviewing' },
-  { id: 'stg-offer', name: 'Offer' },
-  { id: 'stg-hired', name: 'Hired' },
-  { id: 'stg-rejected', name: 'Rejected' },
+  { id: '', name: 'Sourced' },
+  { id: '', name: 'Screening' },
+  { id: '', name: 'Interviewing' },
+  { id: '', name: 'Offer' },
+  { id: '', name: 'Hired' },
+  { id: '', name: 'Rejected' },
 ];
 
 export function AddToPipelineModal({
@@ -392,9 +393,10 @@ export function AddToPipelineModal({
     const match = jobStageOptions.find(
       (stage) => stage.name.trim().toLowerCase() === normalized,
     );
+    const validId = match?.id && isValidObjectId(match.id) ? match.id : undefined;
     return {
       stage: match?.name || stageName.trim(),
-      stageId: match?.id || undefined,
+      stageId: validId,
     };
   };
 
