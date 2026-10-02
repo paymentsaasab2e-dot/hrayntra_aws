@@ -135,6 +135,40 @@ html {
     font-variant-numeric: tabular-nums;
   }
 
+  /* Leads main table high-legibility typography and responsive sizing */
+  #leads-main-table {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", "Helvetica Neue", Arial, sans-serif !important;
+  }
+
+  #leads-main-table thead th {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", "Helvetica Neue", Arial, sans-serif !important;
+    font-size: 0.8125rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.05em !important;
+    color: #334155 !important;
+    padding-top: 0.85rem !important;
+    padding-bottom: 0.85rem !important;
+  }
+
+  #leads-main-table tbody tr {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", "Helvetica Neue", Arial, sans-serif !important;
+  }
+
+  #leads-main-table tbody td {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", "Helvetica Neue", Arial, sans-serif !important;
+    font-size: 0.9375rem !important;
+    padding-top: 0.85rem !important;
+    padding-bottom: 0.85rem !important;
+    color: #1e293b !important;
+  }
+
+  #leads-main-table tbody td button,
+  #leads-main-table tbody td select,
+  #leads-main-table tbody td input,
+  #leads-main-table tbody td a {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", "Helvetica Neue", Arial, sans-serif !important;
+  }
+
   :where(h1) {
     font-size: var(--ph2-h1-size);
     line-height: 1.2;

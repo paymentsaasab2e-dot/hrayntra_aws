@@ -287,10 +287,10 @@ export function SourceCell({ lead }: SourceCellProps) {
               : source
         }
       >
-        <Icon size={13} className="shrink-0" strokeWidth={2.35} />
+        <Icon size={14} className="shrink-0" strokeWidth={2.35} />
         {displayLabel}
         {target.href && target.newTab && (
-          <Link2 size={11} className="shrink-0 opacity-70" strokeWidth={2.35} />
+          <Link2 size={12} className="shrink-0 opacity-70" strokeWidth={2.35} />
         )}
       </span>
       {tooltip && <SourceTooltip state={tooltip} />}
