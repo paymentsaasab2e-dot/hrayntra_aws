@@ -132,7 +132,7 @@ function LeadFollowUpTableCell({
   const formatted = target.time ? `${target.date} - ${target.time}` : target.date;
 
   return (
-    <span className="whitespace-nowrap text-sm font-semibold text-slate-800 tabular-nums">
+    <span className="whitespace-nowrap text-sm font-normal text-slate-700 tabular-nums">
       {formatted}
     </span>
   );
@@ -279,7 +279,7 @@ const StatusTag = ({ status }: { status: LeadStatus }) => {
     'bg-indigo-500/10 text-indigo-800 ring-1 ring-indigo-500/20 shadow-sm';
 
   return (
-    <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold tracking-wide ${badgeClass}`}>
+    <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium tracking-wide ${badgeClass}`}>
       {status}
     </span>
   );
@@ -2378,7 +2378,7 @@ export default function RecruitmentAgencyDashboard() {
                                 <div className="flex min-w-[8rem] flex-col justify-center gap-0.5">
                                 <button
                                   type="button"
-                                  className="text-left text-sm font-bold leading-snug text-slate-900 hover:text-indigo-700 transition-colors whitespace-normal break-words"
+                                  className="text-left text-sm font-medium leading-snug text-slate-900 hover:text-indigo-700 transition-colors whitespace-normal break-words"
                                   onClick={() => {
                                     void openLeadDrawerWithFreshData(lead, 'view');
                                   }}
@@ -2389,14 +2389,14 @@ export default function RecruitmentAgencyDashboard() {
                                   const conversion = getStatusForLead(lead.id);
                                   if (conversion.status === 'pending') {
                                     return (
-                                      <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800 ring-1 ring-amber-200/80">
+                                      <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 ring-1 ring-amber-200/80">
                                         Conversion pending
                                       </span>
                                     );
                                   }
                                   if (conversion.status === 'accepted') {
                                     return (
-                                      <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-200/80">
+                                      <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800 ring-1 ring-emerald-200/80">
                                         Conversion approved
                                       </span>
                                     );
@@ -2404,7 +2404,7 @@ export default function RecruitmentAgencyDashboard() {
                                   if (conversion.status === 'rejected') {
                                     return (
                                       <span
-                                        className="inline-flex max-w-full truncate rounded-full bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-800 ring-1 ring-rose-200/80"
+                                        className="inline-flex max-w-full truncate rounded-full bg-rose-100 px-2 py-0.5 text-xs font-medium text-rose-800 ring-1 ring-rose-200/80"
                                         title={conversion.reviewNote || 'Conversion request was rejected'}
                                       >
                                         Conversion rejected
@@ -2413,7 +2413,7 @@ export default function RecruitmentAgencyDashboard() {
                                   }
                                   return null;
                                 })()}
-                                <span className="text-xs font-medium text-slate-500">{lead.type}</span>
+                                <span className="text-xs font-normal text-slate-500">{lead.type}</span>
                                 </div>
                               </div>
                             </td>
@@ -2425,10 +2425,10 @@ export default function RecruitmentAgencyDashboard() {
                             {leadColumnVisibility.isVisible('contact') ? (
                               <td className="px-3 sm:px-4 py-2">
                                 <div className="flex flex-col gap-0.5">
-                                  <span className="text-sm font-semibold text-slate-900">
+                                  <span className="text-sm font-medium text-slate-900">
                                     {formatDirectorDisplay(lead.directorSalutation, lead.directorName || lead.contactPerson)}
                                   </span>
-                                  <span className="text-xs text-slate-600">
+                                  <span className="text-xs font-normal text-slate-500">
                                     {formatContactListDisplay(lead.emails, lead.email)}
                                   </span>
                                 </div>
@@ -2438,7 +2438,7 @@ export default function RecruitmentAgencyDashboard() {
                               const value = getLeadDynamicFieldValue(lead, label);
                               return (
                                 <td key={`${lead.id}-${label}`} className="px-3 sm:px-4 py-2">
-                                  <span className="line-clamp-2 text-xs text-slate-700">
+                                  <span className="line-clamp-2 text-xs font-normal text-slate-700">
                                     {value || '—'}
                                   </span>
                                 </td>
@@ -2449,7 +2449,7 @@ export default function RecruitmentAgencyDashboard() {
                                 <div className="flex flex-col gap-1.5">
                                   {canUpdateLead ? (
                                     <select
-                                      className="max-w-[10rem] rounded-full border-0 bg-slate-100/90 px-3 py-1.5 text-xs font-semibold text-slate-800 ring-1 ring-slate-200/90 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 cursor-pointer hover:bg-slate-100"
+                                      className="max-w-[10rem] rounded-full border-0 bg-slate-100/90 px-3 py-1.5 text-xs font-medium text-slate-800 ring-1 ring-slate-200/90 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 cursor-pointer hover:bg-slate-100"
                                       value={lead.status}
                                       onChange={(e) =>
                                         handleInlineStatusChange(lead.id, e.target.value as LeadStatus)

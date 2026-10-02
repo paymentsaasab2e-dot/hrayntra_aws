@@ -249,7 +249,7 @@ export function SourceCell({ lead }: SourceCellProps) {
     [target.href, target.newTab],
   );
 
-  const baseClass = `inline-flex items-center gap-1.5 text-xs font-semibold border w-fit px-2.5 py-1.5 rounded-xl shadow-sm transition-colors ${style.className}`;
+  const baseClass = `inline-flex items-center gap-1.5 text-xs font-medium border w-fit px-2.5 py-1.5 rounded-xl shadow-sm transition-colors ${style.className}`;
   const interactiveClass = interactive ? 'cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/30' : 'cursor-default';
 
   return (

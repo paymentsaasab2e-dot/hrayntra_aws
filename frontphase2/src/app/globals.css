@@ -111,6 +111,7 @@ html {
   table tbody tr {
     font-family: var(--ph2-table-row-font);
     font-size: 0.875rem;
+    font-weight: 400;
     line-height: 1.45;
     color: #1e293b;
   }
@@ -118,6 +119,7 @@ html {
   table tbody td {
     font-family: var(--ph2-table-row-font);
     font-size: 0.875rem;
+    font-weight: 400;
     line-height: 1.45;
     color: #1e293b;
     vertical-align: middle;
@@ -143,20 +145,22 @@ html {
   #leads-main-table thead th {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", "Helvetica Neue", Arial, sans-serif !important;
     font-size: 0.8125rem !important;
-    font-weight: 700 !important;
+    font-weight: 600 !important;
     letter-spacing: 0.05em !important;
-    color: #334155 !important;
+    color: #475569 !important;
     padding-top: 0.85rem !important;
     padding-bottom: 0.85rem !important;
   }
 
   #leads-main-table tbody tr {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", "Helvetica Neue", Arial, sans-serif !important;
+    font-weight: 400 !important;
   }
 
   #leads-main-table tbody td {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", "Helvetica Neue", Arial, sans-serif !important;
     font-size: 0.9375rem !important;
+    font-weight: 400 !important;
     padding-top: 0.85rem !important;
     padding-bottom: 0.85rem !important;
     color: #1e293b !important;
@@ -165,8 +169,11 @@ html {
   #leads-main-table tbody td button,
   #leads-main-table tbody td select,
   #leads-main-table tbody td input,
-  #leads-main-table tbody td a {
+  #leads-main-table tbody td a,
+  #leads-main-table tbody td span,
+  #leads-main-table tbody td p {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", "Helvetica Neue", Arial, sans-serif !important;
+    font-weight: 400;
   }
 
   :where(h1) {
