@@ -230,11 +230,18 @@ export function JobDetailsDrawer({
   const {
     panelRef: jobDrawerPanelRef,
     requestClose: requestJobDrawerClose,
+    markClean: markJobDrawerClean,
   } = useDrawerUnsavedGuard<HTMLDivElement>({
     isOpen,
     onClose,
     isDirty: pipelineDirty,
   });
+
+  useEffect(() => {
+    if (isOpen) {
+      markJobDrawerClean();
+    }
+  }, [isOpen, job?.id, markJobDrawerClean]);
 
   const [activeTab, setActiveTab] = useState<(typeof TAB_CONFIG)[number]['id']>('overview');
 
