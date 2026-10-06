@@ -22,20 +22,38 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
-  // Ensure SuperDoc (Word DOCX editor) is compiled for client bundles.
-  transpilePackages: ['superdoc'],
-  // Turbopack + pnpm symlink: resolve package name → real ESM entry (relative, no spaces issues).
+  // SuperDoc ships prebuilt ESM — do not transpilePackages (Vue/jsdom/pdfjs OOM in Docker).
+  // Resolve via alias; load only through dynamic import() in warmSuperDoc / ResumeDocxEditor.
   turbopack: {
     resolveAlias: {
       superdoc: './node_modules/superdoc/dist/superdoc.es.js',
     },
   },
-  webpack: (config) => {
+  webpack: (config, { isServer, webpack: wp }) => {
     config.resolve = config.resolve || {};
     config.resolve.alias = {
       ...(config.resolve.alias || {}),
       superdoc: path.join(__dirname, 'node_modules/superdoc/dist/superdoc.es.js'),
     };
+    // Keep production client builds from pulling SuperDoc's node-only optional deps.
+    if (!isServer) {
+      config.plugins = config.plugins || [];
+      config.plugins.push(
+        new wp.IgnorePlugin({
+          resourceRegExp: /^(canvas|@napi-rs\/canvas|jsdom)$/,
+        }),
+      );
+      config.resolve.fallback = {
+        ...(config.resolve.fallback || {}),
+        fs: false,
+        path: false,
+        canvas: false,
+      };
+    }
+    // Smaller parallel graph — helps Docker builders with tight RAM.
+    if (process.env.NEXT_BUILD_WORKER_HEAP === '1' || process.env.DOCKER === '1') {
+      config.parallelism = 1;
+    }
     return config;
   },
   // Shrinks client graphs for icon/chart/UI barrels (big win on /job, /dashboard compile).
@@ -53,9 +71,21 @@ const nextConfig = {
     serverActions: {
       bodySizeLimit: '64mb',
     },
+    // Lower peak memory on constrained Docker hosts during `next build`.
+    ...(process.env.DOCKER === '1' || process.env.NEXT_DISABLE_WEBPACK_CACHE === '1'
+      ? { webpackMemoryOptimizations: true }
+      : {}),
   },
   // Avoid re-bundling heavy CJS libs during compile when possible
-  serverExternalPackages: ['mammoth', 'pdf-lib', 'xlsx', 'html2canvas', 'jspdf'],
+  serverExternalPackages: [
+    'mammoth',
+    'pdf-lib',
+    'xlsx',
+    'html2canvas',
+    'jspdf',
+    'superdoc',
+    '@superdoc/docx-engine',
+  ],
   outputFileTracingIncludes: {
     '/api/superdoc-style': [
       './public/superdoc/**/*',
