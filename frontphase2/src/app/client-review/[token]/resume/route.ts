@@ -77,7 +77,7 @@ export async function GET(
     });
 
     // Buffer instead of streaming — empty/aborted upstream bodies can crash Next on some hosts.
-    let bytes = Buffer.from(await upstream.arrayBuffer());
+    let bytes: Buffer = Buffer.from(await upstream.arrayBuffer());
     let contentType = upstream.headers.get('content-type') || 'application/pdf';
     let disposition =
       upstream.headers.get('content-disposition') || 'inline; filename="Resume.pdf"';
@@ -106,7 +106,7 @@ export async function GET(
     if (needsClientStamp) {
       const watermark = await fetchPublicReviewWatermark(req, token);
       if (watermark?.enabled) {
-        bytes = await stampPdfBufferWithExportWatermark(bytes, watermark);
+        bytes = Buffer.from(await stampPdfBufferWithExportWatermark(bytes, watermark));
         contentType = 'application/pdf';
         if (!/\.pdf/i.test(disposition)) {
           disposition = 'inline; filename="Resume.pdf"';

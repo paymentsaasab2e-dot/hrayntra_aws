@@ -17,7 +17,10 @@ export async function stampPdfBufferWithExportWatermark(
   buffer: Buffer | Uint8Array,
   watermark: ServerExportWatermark | null | undefined,
 ): Promise<Buffer> {
-  const input = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer || []);
+  const toBuffer = (value: Buffer | Uint8Array): Buffer =>
+    Buffer.isBuffer(value) ? Buffer.from(value) : Buffer.from(value || []);
+
+  const input = toBuffer(buffer);
   if (!input.length) return input;
 
   const cfg = watermark && typeof watermark === 'object' ? watermark : {};
