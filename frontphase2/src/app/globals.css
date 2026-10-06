@@ -849,22 +849,66 @@ table tbody td .text-sm {
   text-decoration: underline;
 }
 
-/* Candidate drawer â€” docx-preview (Word layout fidelity) */
+/* Candidate drawer - docx-preview (Word layout fidelity) */
 .resume-docx-viewer .resume-docx-body {
   min-height: min(720px, calc(100vh - 14rem));
 }
 
-.resume-docx-viewer .docx-preview-resume-wrapper {
+.resume-docx-viewer .docx-preview-resume-wrapper,
+.resume-docx-body .docx-preview-resume-wrapper {
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
   margin-left: auto;
   margin-right: auto;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  align-items: stretch !important;
   background: #ffffff;
   box-shadow: 0 1px 3px rgb(15 23 42 / 0.12);
 }
 
-/* HRYantra CV â€” inline text editing on PDF / Word */
+/* Multi-column Word pages collapse to a thin strip inside docx-preview's flex page. */
+.resume-docx-body section.docx-preview-resume,
+.resume-docx-viewer section.docx-preview-resume {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+  align-items: stretch !important;
+  overflow: hidden !important;
+  position: relative;
+}
+
+.resume-docx-body section.docx-preview-resume > article,
+.resume-docx-viewer section.docx-preview-resume > article {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 100% !important;
+  align-self: stretch !important;
+  box-sizing: border-box;
+  position: relative;
+  z-index: 1;
+  background: transparent;
+}
+
+.saasa-docx-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.resume-docx-body .saasa-docx-column,
+.resume-docx-viewer .saasa-docx-column {
+  min-width: 0;
+}
+
+/* HRYantra CV GÇö inline text editing on PDF / Word */
 .saasa-docx-editable .docx-preview-resume-wrapper,
 .saasa-docx-editable .docx-preview-resume {
-  /* Keep Word layout from docx-preview â€” do not restyle structure */
+  /* Keep Word layout from docx-preview GÇö do not restyle structure */
 }
 
 .saasa-direct-text-editor {
@@ -934,10 +978,12 @@ table tbody td .text-sm {
 
 .saasa-pdf-inplace-layer.saasa-pdf-inplace-layer--active {
   pointer-events: auto;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .saasa-pdf-inplace-line {
-  /* Invisible until edited â€” avoids double-text / ghosting over the PDF canvas */
+  /* Invisible until edited GÇö avoids double-text / ghosting over the PDF canvas */
   color: transparent;
   background: transparent;
   outline: none;
@@ -948,7 +994,7 @@ table tbody td .text-sm {
   text-rendering: geometricPrecision;
 }
 
-/* PDF.js-style: invisible until focused/edited â€” PDF canvas stays visible underneath */
+/* PDF.js-style: invisible until focused/edited GÇö PDF canvas stays visible underneath */
 .saasa-pdf-inplace-line.saasa-pdf-inplace-line--focused,
 .saasa-pdf-inplace-line.saasa-pdf-inplace-line--edited,
 .saasa-pdf-inplace-line.saasa-pdf-inplace-line--cleared {
@@ -958,8 +1004,9 @@ table tbody td .text-sm {
   line-height: 1 !important;
   white-space: pre !important;
   z-index: 3;
-  display: flex !important;
-  align-items: center;
+  display: block !important;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .saasa-pdf-inplace-line.saasa-pdf-inplace-line--cleared {
@@ -969,8 +1016,6 @@ table tbody td .text-sm {
 
 .saasa-pdf-line-mask {
   position: absolute;
-  left: 0;
-  width: 100%;
   background: #ffffff;
   z-index: 1;
   pointer-events: none;

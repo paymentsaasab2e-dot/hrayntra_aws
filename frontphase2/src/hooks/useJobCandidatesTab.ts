@@ -18,6 +18,7 @@ import {
   apiCreateCandidateFromDrawer,
   apiCreateMatch,
   apiDeleteCandidate,
+  apiGetCandidates,
   apiGetMatches,
   apiGetPipelineStages,
   apiMoveCandidateStage,
@@ -27,6 +28,7 @@ import {
   apiToggleSavedMatch,
   apiUploadCandidateResumeFile,
   type AddCandidatePayload,
+  type BackendCandidate,
   type ImportedProfileData,
 } from '../lib/api';
 import { ApiRequestError } from '../lib/apiNetworkErrors';
@@ -928,6 +930,106 @@ export function useJobCandidatesTab(options: UseJobCandidatesTabOptions) {
     [jobId, options.onAddToPipeline, refreshAppliedJobCandidates],
   );
 
+  const [assignPickerOpen, setAssignPickerOpen] = useState(false);
+  const [assignPoolSearch, setAssignPoolSearch] = useState('');
+  const [assignPoolCandidates, setAssignPoolCandidates] = useState<BackendCandidate[]>([]);
+  const [assignPoolLoading, setAssignPoolLoading] = useState(false);
+  const [assignPoolAddingId, setAssignPoolAddingId] = useState<string | null>(null);
+
+  const loadAssignPoolCandidates = useCallback(async (search: string) => {
+    setAssignPoolLoading(true);
+    try {
+      const response = await apiGetCandidates({ limit: 50, search: search || undefined });
+      const raw = (response as { data?: unknown }).data ?? response;
+      const items: BackendCandidate[] = Array.isArray(raw)
+        ? (raw as BackendCandidate[])
+        : Array.isArray((raw as { data?: unknown })?.data)
+          ? ((raw as { data: BackendCandidate[] }).data)
+          : Array.isArray((raw as { items?: unknown })?.items)
+            ? ((raw as { items: BackendCandidate[] }).items)
+            : [];
+      setAssignPoolCandidates(items);
+    } catch (error) {
+      console.error('Failed to load candidate pool for assign:', error);
+      setAssignPoolCandidates([]);
+    } finally {
+      setAssignPoolLoading(false);
+    }
+  }, []);
+
+  const openAssignPicker = useCallback(() => {
+    if (!jobId) return;
+    setAssignPickerOpen(true);
+    setAssignPoolSearch('');
+    void loadAssignPoolCandidates('');
+  }, [jobId, loadAssignPoolCandidates]);
+
+  const closeAssignPicker = useCallback(() => {
+    if (assignPoolAddingId) return;
+    setAssignPickerOpen(false);
+    setAssignPoolSearch('');
+    setAssignPoolCandidates([]);
+  }, [assignPoolAddingId]);
+
+  const handleAssignFromPool = useCallback(
+    async (candidate: BackendCandidate) => {
+      if (!jobId) return;
+      const candidateId = String(candidate.id || '').trim();
+      if (!candidateId) return;
+
+      setAssignPoolAddingId(candidateId);
+      try {
+        const pipelinePayload = {
+          candidateId,
+          jobId,
+          stage: 'Applied',
+          priority: 'Medium' as const,
+        };
+        if (options.onAddToPipeline) {
+          await options.onAddToPipeline(pipelinePayload);
+        } else {
+          await apiAddCandidateToPipeline(candidateId, {
+            jobId,
+            stage: 'Applied',
+            priority: 'Medium',
+          });
+        }
+
+        const name =
+          `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim() || 'Candidate';
+        toast.success(`${name} assigned to this job`);
+        void requestCornerAlert(`${name} assigned to this job`, {
+          tone: 'success',
+          priority: 'high',
+        });
+
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('jobportal:candidates-changed'));
+        }
+        await refreshAppliedJobCandidates({ runPipeline: false, refresh: false, silent: true });
+        setAssignPickerOpen(false);
+        setAssignPoolSearch('');
+        setAssignPoolCandidates([]);
+      } catch (error: unknown) {
+        const message =
+          error instanceof Error ? error.message : 'Failed to assign candidate to this job';
+        toast.error(message);
+        void requestError(message);
+      } finally {
+        setAssignPoolAddingId(null);
+      }
+    },
+    [jobId, options.onAddToPipeline, refreshAppliedJobCandidates],
+  );
+
+  useEffect(() => {
+    if (options.isOpen && jobId) return;
+    setAssignPickerOpen(false);
+    setAssignPoolSearch('');
+    setAssignPoolCandidates([]);
+    setAssignPoolAddingId(null);
+  }, [options.isOpen, jobId]);
+
   useEffect(() => {
     if (!options.isOpen || !jobId) return;
     const onCandidatesChanged = () => {
@@ -1264,5 +1366,15 @@ export function useJobCandidatesTab(options: UseJobCandidatesTabOptions) {
     onOpenAiSubmit,
     refreshAppliedJobCandidates,
     recruiterFallbackForJob,
+    assignPickerOpen,
+    assignPoolSearch,
+    setAssignPoolSearch,
+    assignPoolCandidates,
+    assignPoolLoading,
+    assignPoolAddingId,
+    openAssignPicker,
+    closeAssignPicker,
+    loadAssignPoolCandidates,
+    handleAssignFromPool,
   };
 }

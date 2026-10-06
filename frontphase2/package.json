@@ -3,11 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 3001 --turbopack",
+    "predev": "node scripts/copy-superdoc-assets.js",
+    "prebuild": "node scripts/copy-superdoc-assets.js",
+    "dev": "next dev -p 3001",
     "dev:webpack": "next dev -p 3001",
     "dev:turbo": "next dev -p 3001 --turbopack",
     "clean": "rmdir /s /q .next 2>nul & rmdir /s /q node_modules\\.cache 2>nul & del /q tsconfig.tsbuildinfo 2>nul",
-    "dev:clean": "npm run clean && next dev -p 3001 --turbopack",
+    "dev:clean": "npm run clean && next dev -p 3001",
     "build": "next build",
     "start": "next start -p 3001",
     "lint": "next lint",
@@ -38,6 +40,7 @@
     "rimraf": "^3.0.2",
     "socket.io-client": "^4.8.3",
     "sonner": "^2.0.7",
+    "superdoc": "^2.20.0",
     "swr": "^2.4.1",
     "xlsx": "^0.18.5"
   },

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Calendar, Loader2, Search, Send, Sparkles, Upload, Users, X } from 'lucide-react';
+import { Calendar, Loader2, Search, Send, Sparkles, Upload, UserPlus, Users, X } from 'lucide-react';
 import { CandidateTable } from '../../../app/candidate/components/CandidateTable';
 import type { Candidate as JobDrawerTableCandidate } from '../../../app/candidate/components/CandidateTable';
 import MatchCandidateTable from '../../matches/MatchCandidateTable';
@@ -303,6 +303,16 @@ export default function CandidatesTab(props: CandidatesTabProps) {
               />
               <button
                 type="button"
+                onClick={() => props.openAssignPicker()}
+                disabled={Boolean(props.assignPoolAddingId)}
+                className="inline-flex h-8 shrink-0 items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                title="Assign an existing candidate from the pool to this job"
+              >
+                <UserPlus size={16} strokeWidth={2.25} />
+                Assign
+              </button>
+              <button
+                type="button"
                 onClick={() => props.fileInputRef.current?.click()}
                 disabled={props.uploadingJobCv}
                 className="inline-flex h-8 shrink-0 items-center justify-center gap-2 rounded-lg border border-indigo-200 bg-white px-3 text-sm font-semibold text-indigo-700 shadow-sm transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60"
@@ -453,23 +463,34 @@ export default function CandidatesTab(props: CandidatesTabProps) {
                   No candidates applied, assigned, or in the pipeline for this job yet.
                 </p>
                 {props.canAddCandidate && job?.id ? (
-                  <button
-                    type="button"
-                    onClick={() => props.fileInputRef.current?.click()}
-                    disabled={props.uploadingJobCv}
-                    className="mt-4 inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {props.uploadingJobCv ? (
-                      <Loader2 size={16} className="animate-spin" />
-                    ) : (
-                      <Upload size={16} />
-                    )}
-                    {props.uploadingJobCv
-                      ? props.jobCvUploadProgress
-                        ? `Creating ${props.jobCvUploadProgress.done}/${props.jobCvUploadProgress.total}…`
-                        : 'Creating candidates…'
-                      : 'Upload CVs to add candidates'}
-                  </button>
+                  <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => props.openAssignPicker()}
+                      disabled={Boolean(props.assignPoolAddingId)}
+                      className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <UserPlus size={16} />
+                      Assign candidate
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => props.fileInputRef.current?.click()}
+                      disabled={props.uploadingJobCv}
+                      className="inline-flex items-center gap-2 rounded-xl border border-indigo-200 bg-white px-4 py-2 text-sm font-semibold text-indigo-700 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {props.uploadingJobCv ? (
+                        <Loader2 size={16} className="animate-spin" />
+                      ) : (
+                        <Upload size={16} />
+                      )}
+                      {props.uploadingJobCv
+                        ? props.jobCvUploadProgress
+                          ? `Creating ${props.jobCvUploadProgress.done}/${props.jobCvUploadProgress.total}…`
+                          : 'Creating candidates…'
+                        : 'Upload CVs to add candidates'}
+                    </button>
+                  </div>
                 ) : null}
               </div>
             ) : props.filteredJobTableCandidates.length === 0 ? (
@@ -595,6 +616,95 @@ export default function CandidatesTab(props: CandidatesTabProps) {
               />
             }
           />
+        </div>
+      ) : null}
+
+      {props.assignPickerOpen && job?.id ? (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center px-4">
+          <div
+            className="absolute inset-0 bg-slate-900/40"
+            onClick={() => props.closeAssignPicker()}
+          />
+          <div className="relative flex max-h-[80vh] w-full max-w-2xl flex-col rounded-2xl border border-slate-200 bg-white shadow-2xl">
+            <div className="border-b border-slate-100 p-5">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="text-lg font-bold text-slate-900">Assign candidate</div>
+                  <div className="mt-1 text-xs text-slate-500">
+                    Select a candidate to assign to{' '}
+                    <span className="font-semibold text-slate-700">{job.title}</span>.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                  onClick={() => props.closeAssignPicker()}
+                >
+                  Close
+                </button>
+              </div>
+              <div className="mt-3">
+                <input
+                  type="text"
+                  value={props.assignPoolSearch}
+                  onChange={(event) => {
+                    const next = event.target.value;
+                    props.setAssignPoolSearch(next);
+                    void props.loadAssignPoolCandidates(next);
+                  }}
+                  placeholder="Search by name, email, or skill"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                />
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-3">
+              {props.assignPoolLoading ? (
+                <div className="p-6 text-center text-sm text-slate-500">Loading candidates…</div>
+              ) : props.assignPoolCandidates.length === 0 ? (
+                <div className="p-6 text-center text-sm text-slate-500">
+                  No candidates found
+                  {props.assignPoolSearch ? ` for "${props.assignPoolSearch}"` : ''}. Try another
+                  search.
+                </div>
+              ) : (
+                <ul className="divide-y divide-slate-100">
+                  {props.assignPoolCandidates.map((candidate) => {
+                    const fullName =
+                      `${candidate.firstName || ''} ${candidate.lastName || ''}`.trim() ||
+                      'Candidate';
+                    const adding = props.assignPoolAddingId === candidate.id;
+                    const alreadyOnJob = props.displayJobCandidates.some(
+                      (row) => String(row.id) === String(candidate.id),
+                    );
+                    return (
+                      <li
+                        key={candidate.id}
+                        className="flex items-center justify-between gap-4 px-3 py-3"
+                      >
+                        <div className="min-w-0">
+                          <div className="truncate font-semibold text-slate-900">{fullName}</div>
+                          <div className="truncate text-xs text-slate-500">
+                            {candidate.email || '—'}
+                            {candidate.currentTitle ? ` · ${candidate.currentTitle}` : ''}
+                            {candidate.currentCompany ? ` @ ${candidate.currentCompany}` : ''}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={adding || Boolean(props.assignPoolAddingId) || alreadyOnJob}
+                          onClick={() => void props.handleAssignFromPool(candidate)}
+                          className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                        >
+                          {alreadyOnJob ? 'Assigned' : adding ? 'Assigning…' : 'Assign'}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          </div>
         </div>
       ) : null}
     </div>

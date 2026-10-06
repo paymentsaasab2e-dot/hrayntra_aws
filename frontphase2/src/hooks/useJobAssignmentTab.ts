@@ -285,7 +285,10 @@ const assignmentManagerUsers = useMemo(() => {
 }, [assignmentCurrentUserId, assignmentRecruiterUsers]);
 
 const needsAssignmentOrganizationFirst =
-  assignable.canSelectCompany && !assignable.companyId && assignable.companiesReady;
+  assignable.canSelectCompany &&
+  !assignable.companyId &&
+  assignable.companiesReady &&
+  assignable.companies.length > 0;
 
 const needsAssignmentManagerFirst = !assignmentManagerId;
 

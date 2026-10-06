@@ -401,12 +401,29 @@ export const linkedinService = {
     }
 
     const applyUrl = String(jobData.applyUrl || '').trim();
-    if (applyUrl && shareText.includes('[link-on-save]')) {
-      shareText = shareText.replace(
-        /https?:\/\/[^\s]*\/apply\/\[link-on-save\](?:\?[^\s]*)?/gi,
-        applyUrl,
-      );
-      shareText = shareText.replaceAll('[link-on-save]', applyUrl);
+    const LINKEDIN_POST_MAX = 3000;
+    if (applyUrl) {
+      if (shareText.includes('[link-on-save]')) {
+        shareText = shareText.replace(
+          /https?:\/\/[^\s]*\/apply\/\[link-on-save\](?:\?[^\s]*)?/gi,
+          applyUrl,
+        );
+        shareText = shareText.replaceAll('[link-on-save]', applyUrl);
+      }
+      // Never publish without the apply link (long JD text used to truncate it away).
+      if (!shareText.includes(applyUrl)) {
+        const applyBlock = `\n\nApply now:\n${applyUrl}`;
+        if (shareText.length + applyBlock.length <= LINKEDIN_POST_MAX) {
+          shareText = `${String(shareText || '').replace(/\s+$/, '')}${applyBlock}`;
+        } else {
+          const available = Math.max(0, LINKEDIN_POST_MAX - applyBlock.length);
+          const head =
+            available <= 1
+              ? ''
+              : `${String(shareText).slice(0, available - 1).trimEnd()}…`;
+          shareText = `${head}${applyBlock}`.slice(0, LINKEDIN_POST_MAX);
+        }
+      }
     }
 
     const imageUrl = String(jobData.imageUrl || jobData.linkedinImageUrl || '').trim();

@@ -5,7 +5,7 @@ import { X, Check, Upload, Twitter, Facebook, User } from 'lucide-react';
 import { apiCreateJob, apiUpdateJob, apiGetJob, getJobPreScreenAssessments, apiGetClients, apiGetWorkspaceClient, apiGetClient, apiGetContacts, apiGenerateJobDescription, apiGenerateJobFromPrompt, apiProcessJobCreationPipeline, type JobCreationPipelineResult, apiUploadJobFile, filesApiUpload, apiPublishSocialJob, apiGetSocialStatus, apiConnectIntegration, apiDisconnectIntegration, apiGetJobApplyLink, apiListLinkedInPostTemplates, type SocialPublishingAccount, getTenantDbName, getCachedOrgRecruitmentMode, isOwnCompanyWorkspaceClient, type CreateJobData, type BackendClient, type BackendContact, type BackendUser } from '../lib/api';
 import { getAllTeamMembersForAssign, getLineManagersForJobPicker, linkTeamRequestToJob, teamMembersToBackendUsers } from '../lib/api/teamApi';
 import { assigneeCompanyId, formatAssigneeDisplayName } from '../lib/assigneeDisplay';
-import { buildCandidatePortalApplyUrlPreview, replaceApplyUrlInSocialPostText, buildLinkedInJobPost, buildTwitterJobPost, buildFacebookJobPost, type JobSocialPostInput } from '../lib/jobSocialPost';
+import { buildCandidatePortalApplyUrlPreview, replaceApplyUrlInSocialPostText, ensureApplyUrlInSocialPostText, buildLinkedInJobPost, buildTwitterJobPost, buildFacebookJobPost, type JobSocialPostInput } from '../lib/jobSocialPost';
 import { useLinkedIn } from './useLinkedIn';
 import { requestError, requestInfo, requestSuccess, requestWarning } from '../lib/appDialog';
 import { type CreateJobDetailsFormData } from '../components/drawers/CreateJobDetailsForm';
@@ -27,6 +27,7 @@ import { defaultApplicationFormSchema, normalizeApplicationFormSchema, type Appl
 import { applyDefaultLinkedInPostTemplate, normalizeLinkedInPostTemplateSchema, parseLinkedInPostTemplateList, pickDefaultLinkedInPostTemplate, subscribeLinkedInTemplateDefaultChanged, type JobLinkedInPostTemplate, type LinkedInPostTemplateSection } from '../lib/jobLinkedInPostTemplate';
 import { buildJobContactPersonOptions, type JobContactPersonOption } from '../lib/jobClientContacts';
 import { mergeClientVisibility, parseJobPublicFieldVisibility, buildPublicFieldVisibilityPayload, resolvePostedCompanyNameForSocial } from '../lib/jobPublicFieldVisibility';
+import { invalidateEmployerJobsCache } from '../lib/employerPageCache';
 import { AccordionSection, AiChatMessage, AiDescriptionSection, AiDraftData, ApplicationLogoOption, CREATE_JOB_EDIT_WIZARD_STEPS, CREATE_JOB_WIZARD_STEPS, CreateJobDrawerProps, CreateJobWizardStep, DEFAULT_JOB_DRAWER_ACCORDIONS, JobPromptHints, ScreeningQuestion, buildPlainJobDescriptionHtml, clearCreateJobOauthDraft, defaultTargetHireDateIso, emptyJobPromptHints, extractLabeledPromptValue, hydrateJobListFieldsFromPipelineResult, inferJobTitleFromPrompt, inferWorkModeFromText, makeShortTextScreeningQuestion, parseExperienceRequiredForForm, parseJobPromptHints, parseScreeningQuestionList, peekCreateJobOauthDraft, resolveClientIdByCompanyName, saveCreateJobOauthDraft, serializeScreeningQuestion } from '../components/drawers/createJobShared';
 
 export function useCreateJobDrawer(props: CreateJobDrawerProps) {
@@ -2608,6 +2609,8 @@ const handleSaveJob = async () => {
         }
         onJobCreated?.();
         if (typeof window !== 'undefined') {
+          // Ensure Jobs list refetch is not skipped by a fresh session cache.
+          invalidateEmployerJobsCache();
           window.dispatchEvent(new CustomEvent('jobportal:jobs-changed'));
         }
       }
@@ -2675,26 +2678,36 @@ const handleSaveJob = async () => {
             applyUrl,
             linkedInPostSections,
           };
-          const linkedInPublishText = replaceApplyUrlInSocialPostText(
-            linkedInPostTextTouched && (linkedInPostText || '').trim()
-              ? linkedInPostText
-              : buildLinkedInJobPost(postInput),
+          const linkedInPublishText = ensureApplyUrlInSocialPostText(
+            replaceApplyUrlInSocialPostText(
+              linkedInPostTextTouched && (linkedInPostText || '').trim()
+                ? linkedInPostText
+                : buildLinkedInJobPost(postInput),
+              applyUrl,
+              previewApplyUrl,
+            ),
             applyUrl,
-            previewApplyUrl,
           );
-          const twitterPublishText = replaceApplyUrlInSocialPostText(
-            twitterPostTextTouched && (formData.twitterTweetText || '').trim()
-              ? formData.twitterTweetText
-              : buildTwitterJobPost(postInput),
+          const twitterPublishText = ensureApplyUrlInSocialPostText(
+            replaceApplyUrlInSocialPostText(
+              twitterPostTextTouched && (formData.twitterTweetText || '').trim()
+                ? formData.twitterTweetText
+                : buildTwitterJobPost(postInput),
+              applyUrl,
+              previewApplyUrl,
+            ),
             applyUrl,
-            previewApplyUrl,
+            280,
           );
-          const resolvedFacebookPostText = replaceApplyUrlInSocialPostText(
-            facebookCaptionTouched && (formData.facebookCaption || '').trim()
-              ? formData.facebookCaption
-              : buildFacebookJobPost(postInput),
+          const resolvedFacebookPostText = ensureApplyUrlInSocialPostText(
+            replaceApplyUrlInSocialPostText(
+              facebookCaptionTouched && (formData.facebookCaption || '').trim()
+                ? formData.facebookCaption
+                : buildFacebookJobPost(postInput),
+              applyUrl,
+              previewApplyUrl,
+            ),
             applyUrl,
-            previewApplyUrl,
           );
 
           // Always send real title / location / description for LinkedIn metadata

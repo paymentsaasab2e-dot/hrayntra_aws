@@ -4,16 +4,29 @@ export const SUPERDOC_DOCUMENT_WORKER = '/superdoc/document-worker.js?v=5';
 
 const WARM_READY_MS = 20000;
 
-let enginePromise: Promise<typeof import('superdoc')> | null = null;
+type SuperDocModule = typeof import('superdoc');
+
+let enginePromise: Promise<SuperDocModule> | null = null;
 let warmWorker: Worker | null = null;
 let warmStartedAt = 0;
 let warmReady = false;
 let warmTimer = 0;
 
+/**
+ * Import the SuperDoc ESM build by file path.
+ * Avoids `import('superdoc')` which Turbopack fails to resolve through pnpm symlinks.
+ */
+function importSuperDoc(): Promise<SuperDocModule> {
+  return import(
+    /* webpackChunkName: "superdoc-engine" */
+    '../../node_modules/superdoc/dist/superdoc.es.js'
+  ) as Promise<SuperDocModule>;
+}
+
 function scheduleEngineImport(): void {
   if (enginePromise) return;
   const start = () => {
-    if (!enginePromise) enginePromise = import('superdoc');
+    if (!enginePromise) enginePromise = importSuperDoc();
   };
   const idle = window.requestIdleCallback;
   if (typeof idle === 'function') {
@@ -55,9 +68,9 @@ export function warmSuperDoc(): void {
   }
 }
 
-export function loadSuperDocModule(): Promise<typeof import('superdoc')> {
-  if (typeof window === 'undefined') return import('superdoc');
-  if (!enginePromise) enginePromise = import('superdoc');
+export function loadSuperDocModule(): Promise<SuperDocModule> {
+  if (typeof window === 'undefined') return importSuperDoc();
+  if (!enginePromise) enginePromise = importSuperDoc();
   return enginePromise;
 }
 

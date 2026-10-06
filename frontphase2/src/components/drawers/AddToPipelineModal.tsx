@@ -64,6 +64,13 @@ export function AddToPipelineModal({
   const [removing, setRemoving] = useState(false);
   const [addNewJobMode, setAddNewJobMode] = useState(false);
   const [showMoreOptions, setShowMoreOptions] = useState(false);
+  /** Move-stage multi-select: which pipeline jobs are included in this move. */
+  const [multiSelectedJobIds, setMultiSelectedJobIds] = useState<string[]>([]);
+  /** Target stage per selected job (jobs can move to different stages). */
+  const [targetStageByJobId, setTargetStageByJobId] = useState<Record<string, string>>({});
+  /** Cached stage options keyed by job id for multi-select cards. */
+  const [stagesByJobId, setStagesByJobId] = useState<Record<string, Array<{ id: string; name: string }>>>({});
+  const [loadingStagesForJobIds, setLoadingStagesForJobIds] = useState<string[]>([]);
 
   const jobDropdownRef = useRef<HTMLDivElement | null>(null);
   const stageDropdownRef = useRef<HTMLDivElement | null>(null);
@@ -95,6 +102,10 @@ export function AddToPipelineModal({
       setRemoving(false);
       setAddNewJobMode(false);
       setShowMoreOptions(false);
+      setMultiSelectedJobIds([]);
+      setTargetStageByJobId({});
+      setStagesByJobId({});
+      setLoadingStagesForJobIds([]);
       setPipelineJobOptions(jobs);
       setLoadingJobs(false);
       return;
@@ -111,6 +122,8 @@ export function AddToPipelineModal({
     setJobDropdownOpen(false);
     setStageDropdownOpen(false);
     setRecruiterDropdownOpen(false);
+    setStagesByJobId({});
+    setLoadingStagesForJobIds([]);
 
     const pipelineRows = (candidate?.assignedJobs || [])
       .filter((row) => row.isPipelineEntry && String(row.title || '').trim())
@@ -133,6 +146,8 @@ export function AddToPipelineModal({
         setNotes(String(rowForJob.notes || '').trim());
         setSelectedRecruiterId(candidate?.recruiterId || '');
         setAddNewJobMode(false);
+        setMultiSelectedJobIds([scopedJobId]);
+        setTargetStageByJobId({ [scopedJobId]: entryStage });
         return;
       }
       setSelectedJobId(scopedJobId);
@@ -142,6 +157,8 @@ export function AddToPipelineModal({
       setNotes('');
       setSelectedRecruiterId(candidate?.recruiterId || '');
       setAddNewJobMode(true);
+      setMultiSelectedJobIds([]);
+      setTargetStageByJobId({});
       return;
     }
 
@@ -150,14 +167,24 @@ export function AddToPipelineModal({
       pipelineRows[0];
 
     if (preferred?.id) {
-      setEditingJobId(String(preferred.id));
+      const preferredId = String(preferred.id);
+      setEditingJobId(preferredId);
       const preferredStage = String(preferred.stage || '').trim();
-      setSelectedJobId(String(preferred.id));
+      setSelectedJobId(preferredId);
       setSelectedStage(preferredStage);
       setStagePath(preferredStage ? [preferredStage] : []);
       setNotes(String(preferred.notes || '').trim());
       setSelectedRecruiterId(candidate?.recruiterId || '');
       setAddNewJobMode(false);
+      // Default-select every pipeline job so user can multi-move with different stages.
+      const allIds = pipelineRows.map((row) => String(row.id)).filter(Boolean);
+      const targets: Record<string, string> = {};
+      for (const row of pipelineRows) {
+        if (!row.id) continue;
+        targets[String(row.id)] = String(row.stage || '').trim();
+      }
+      setMultiSelectedJobIds(allIds.length ? allIds : [preferredId]);
+      setTargetStageByJobId(targets);
       return;
     }
 
@@ -168,6 +195,8 @@ export function AddToPipelineModal({
     setNotes('');
     setEditingJobId(null);
     setAddNewJobMode(true);
+    setMultiSelectedJobIds([]);
+    setTargetStageByJobId({});
   }, [
     isOpen,
     jobs,
@@ -225,6 +254,59 @@ export function AddToPipelineModal({
     return () => document.removeEventListener('mousedown', onMouseDown);
   }, [isOpen]);
 
+  const normalizeStageList = (rawStages: Array<{ id: string; name: string }>) => {
+    const seenNames = new Set<string>();
+    const stages: Array<{ id: string; name: string }> = [];
+    for (const st of rawStages) {
+      const key = st.name.toLowerCase().trim().replace(/\s+/g, ' ');
+      if (!key || seenNames.has(key)) continue;
+      seenNames.add(key);
+      stages.push(st);
+    }
+    if (stages.length === 0) return DEFAULT_FALLBACK_STAGES;
+    if (stages.some((stage) => isRejectedPipelineStage(stage.name))) return stages;
+    return [...stages, { id: '', name: PIPELINE_REJECTED_STAGE }];
+  };
+
+  const fetchStagesForJob = async (jobId: string): Promise<Array<{ id: string; name: string }>> => {
+    if (jobStagesCache.has(jobId)) return jobStagesCache.get(jobId)!;
+    let rawStages: Array<{ id: string; name: string }> = [];
+    try {
+      const res = await apiGetPipelineStages(jobId);
+      const stageList = (res as { data?: unknown })?.data || res;
+      if (Array.isArray(stageList) && stageList.length > 0) {
+        rawStages = stageList
+          .map((s: { id?: string; name?: string }) => ({
+            id: String(s?.id || '').trim(),
+            name: String(s?.name || '').trim(),
+          }))
+          .filter((s) => s.name);
+      }
+    } catch {
+      /* fallback to apiGetJob */
+    }
+    if (rawStages.length === 0) {
+      const response = await apiGetJob(jobId);
+      const backendJob =
+        (response as { data?: { data?: { pipelineStages?: unknown }; pipelineStages?: unknown } }).data
+          ?.data ||
+        (response as { data?: { pipelineStages?: unknown } }).data ||
+        response;
+      const pipelineStages = (backendJob as { pipelineStages?: unknown })?.pipelineStages;
+      rawStages = Array.isArray(pipelineStages)
+        ? pipelineStages
+            .map((stage: { id?: string; name?: string }) => ({
+              id: String(stage?.id || '').trim(),
+              name: String(stage?.name || '').trim(),
+            }))
+            .filter((stage) => stage.name)
+        : [];
+    }
+    const withRejected = normalizeStageList(rawStages);
+    jobStagesCache.set(jobId, withRejected);
+    return withRejected;
+  };
+
   useEffect(() => {
     if (!isOpen || !selectedJobId) {
       setJobStageOptions([]);
@@ -233,7 +315,9 @@ export function AddToPipelineModal({
     }
 
     if (jobStagesCache.has(selectedJobId)) {
-      setJobStageOptions(jobStagesCache.get(selectedJobId)!);
+      const cached = jobStagesCache.get(selectedJobId)!;
+      setJobStageOptions(cached);
+      setStagesByJobId((prev) => ({ ...prev, [selectedJobId]: cached }));
       setLoadingJobStages(false);
       return;
     }
@@ -243,54 +327,10 @@ export function AddToPipelineModal({
 
     void (async () => {
       try {
-        let rawStages: Array<{ id: string; name: string }> = [];
-        try {
-          const res = await apiGetPipelineStages(selectedJobId);
-          const stageList = (res as any)?.data || res;
-          if (Array.isArray(stageList) && stageList.length > 0) {
-            rawStages = stageList
-              .map((s: any) => ({
-                id: String(s?.id || '').trim(),
-                name: String(s?.name || '').trim(),
-              }))
-              .filter((s: { id: string; name: string }) => s.name);
-          }
-        } catch {
-          /* fallback to apiGetJob */
-        }
-
-        if (rawStages.length === 0) {
-          const response = await apiGetJob(selectedJobId);
-          const backendJob = (response as any).data?.data || (response as any).data || response;
-          rawStages = Array.isArray(backendJob?.pipelineStages)
-            ? backendJob.pipelineStages
-                .map((stage: any) => ({
-                  id: String(stage?.id || '').trim(),
-                  name: String(stage?.name || '').trim(),
-                }))
-                .filter((stage: { id: string; name: string }) => stage.name)
-            : [];
-        }
-
+        const withRejected = await fetchStagesForJob(selectedJobId);
         if (!load.isActive()) return;
-
-        const seenNames = new Set<string>();
-        const stages: Array<{ id: string; name: string }> = [];
-        for (const st of rawStages) {
-          const key = st.name.toLowerCase().trim().replace(/\s+/g, ' ');
-          if (!key || seenNames.has(key)) continue;
-          seenNames.add(key);
-          stages.push(st);
-        }
-
-        const withRejected = stages.length > 0
-          ? (stages.some((stage) => isRejectedPipelineStage(stage.name))
-              ? stages
-              : [...stages, { id: '', name: PIPELINE_REJECTED_STAGE }])
-          : DEFAULT_FALLBACK_STAGES;
-
-        jobStagesCache.set(selectedJobId, withRejected);
         setJobStageOptions(withRejected);
+        setStagesByJobId((prev) => ({ ...prev, [selectedJobId]: withRejected }));
       } catch (error) {
         console.error('Failed to load pipeline stages for selected job:', error);
         if (load.isActive()) setJobStageOptions(DEFAULT_FALLBACK_STAGES);
@@ -303,6 +343,53 @@ export function AddToPipelineModal({
       load.abort();
     };
   }, [isOpen, selectedJobId]);
+
+  // Prefetch stage options for every multi-selected job (per-job stage pills).
+  useEffect(() => {
+    if (!isOpen || addNewJobMode || multiSelectedJobIds.length === 0) return;
+    let cancelled = false;
+    const jobIds = [...multiSelectedJobIds];
+
+    setStagesByJobId((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      for (const id of jobIds) {
+        if (!next[id] && jobStagesCache.has(id)) {
+          next[id] = jobStagesCache.get(id)!;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+
+    const missing = jobIds.filter((id) => !jobStagesCache.has(id));
+    if (!missing.length) return;
+
+    setLoadingStagesForJobIds((prev) => Array.from(new Set([...prev, ...missing])));
+    void (async () => {
+      for (const jobId of missing) {
+        if (cancelled) return;
+        try {
+          const stages = await fetchStagesForJob(jobId);
+          if (cancelled) return;
+          setStagesByJobId((prev) => ({ ...prev, [jobId]: stages }));
+        } catch (error) {
+          console.error('Failed to load pipeline stages for job:', jobId, error);
+          if (!cancelled) {
+            setStagesByJobId((prev) => ({ ...prev, [jobId]: DEFAULT_FALLBACK_STAGES }));
+          }
+        } finally {
+          if (!cancelled) {
+            setLoadingStagesForJobIds((prev) => prev.filter((id) => id !== jobId));
+          }
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, addNewJobMode, multiSelectedJobIds]);
 
   useEffect(() => {
     if (!selectedJobId) {
@@ -353,19 +440,91 @@ export function AddToPipelineModal({
 
   const isUpdatingEntry = Boolean(existingEntryForSelectedJob);
   const isMoveMode = Boolean(editingJobId && isUpdatingEntry && !addNewJobMode);
+  const useMultiJobMoveUi =
+    isMoveMode && !lockJobToInitial && existingPipelineEntries.length > 0;
   const currentStageOnEntry = String(existingEntryForSelectedJob?.stage || '').trim();
   const targetStage = stagePath[stagePath.length - 1] || selectedStage;
-  const stageChanged =
-    isMoveMode &&
-    Boolean(
-      currentStageOnEntry &&
-      targetStage &&
-      targetStage.trim().toLowerCase() !== currentStageOnEntry.trim().toLowerCase()
-    );
+
+  const multiMovePlans = useMemo(() => {
+    if (!useMultiJobMoveUi) return [];
+    return multiSelectedJobIds
+      .map((jobId) => {
+        const entry = existingPipelineEntries.find((row) => row.id && String(row.id) === jobId);
+        if (!entry?.id) return null;
+        const current = String(entry.stage || '').trim();
+        const target = String(targetStageByJobId[jobId] || current).trim();
+        const changed =
+          Boolean(target) && target.trim().toLowerCase() !== current.trim().toLowerCase();
+        return {
+          jobId: String(entry.id),
+          title: String(entry.title || 'Job'),
+          current,
+          target,
+          changed,
+        };
+      })
+      .filter(Boolean) as Array<{
+      jobId: string;
+      title: string;
+      current: string;
+      target: string;
+      changed: boolean;
+    }>;
+  }, [
+    useMultiJobMoveUi,
+    multiSelectedJobIds,
+    existingPipelineEntries,
+    targetStageByJobId,
+  ]);
+
+  const multiChangedCount = multiMovePlans.filter((plan) => plan.changed).length;
+  const stageChanged = useMultiJobMoveUi
+    ? multiChangedCount > 0
+    : isMoveMode &&
+      Boolean(
+        currentStageOnEntry &&
+          targetStage &&
+          targetStage.trim().toLowerCase() !== currentStageOnEntry.trim().toLowerCase(),
+      );
 
   const syncStageFromPath = (path: string[]) => {
     setStagePath(path);
     setSelectedStage(path[path.length - 1] || '');
+  };
+
+  const setJobTargetStage = (jobId: string, stageName: string) => {
+    const normalized = stageName.trim();
+    setTargetStageByJobId((prev) => ({ ...prev, [jobId]: normalized }));
+    setSelectedJobId(jobId);
+    setEditingJobId(jobId);
+    syncStageFromPath(normalized ? [normalized] : []);
+    setErrors((prev) => ({ ...prev, stage: undefined, job: undefined }));
+  };
+
+  const toggleMultiJobSelected = (jobId: string, entryStage: string) => {
+    setMultiSelectedJobIds((prev) => {
+      if (prev.includes(jobId)) {
+        if (prev.length <= 1) return prev;
+        const next = prev.filter((id) => id !== jobId);
+        const focusId = next[0] || '';
+        setSelectedJobId(focusId);
+        setEditingJobId(focusId || null);
+        if (focusId) {
+          const focusStage = String(targetStageByJobId[focusId] || '').trim();
+          syncStageFromPath(focusStage ? [focusStage] : []);
+        }
+        return next;
+      }
+      setSelectedJobId(jobId);
+      setEditingJobId(jobId);
+      setTargetStageByJobId((targets) => ({
+        ...targets,
+        [jobId]: targets[jobId] || entryStage || '',
+      }));
+      syncStageFromPath(entryStage ? [entryStage] : []);
+      return [...prev, jobId];
+    });
+    setErrors((prev) => ({ ...prev, job: undefined }));
   };
 
   const openRejectFlowForSelectedJob = () => {
@@ -388,11 +547,11 @@ export function AddToPipelineModal({
     return true;
   };
 
-  const resolveStageMeta = (stageName: string) => {
+  const resolveStageMeta = (stageName: string, jobId?: string) => {
     const normalized = stageName.trim().toLowerCase();
-    const match = jobStageOptions.find(
-      (stage) => stage.name.trim().toLowerCase() === normalized,
-    );
+    const options =
+      (jobId && (stagesByJobId[jobId] || jobStagesCache.get(jobId))) || jobStageOptions;
+    const match = options.find((stage) => stage.name.trim().toLowerCase() === normalized);
     const validId = match?.id && isValidObjectId(match.id) ? match.id : undefined;
     return {
       stage: match?.name || stageName.trim(),
@@ -400,32 +559,32 @@ export function AddToPipelineModal({
     };
   };
 
-  const openInterviewFlowForSelectedJob = (stageName: string) => {
+  const openInterviewFlowForSelectedJob = (stageName: string, jobId = selectedJobId) => {
     if (!candidate?.id || !onRequestScheduleInterview) return false;
-    if (!selectedJobId) {
+    if (!jobId) {
       setErrors((prev) => ({ ...prev, job: 'Select a job before scheduling an interview' }));
       return true;
     }
-    const meta = resolveStageMeta(stageName);
+    const meta = resolveStageMeta(stageName, jobId);
     onRequestScheduleInterview({
       candidateId: candidate.id,
-      jobId: selectedJobId,
+      jobId,
       stage: meta.stage,
       stageId: meta.stageId,
     });
     return true;
   };
 
-  const openOfferFlowForSelectedJob = (stageName: string) => {
+  const openOfferFlowForSelectedJob = (stageName: string, jobId = selectedJobId) => {
     if (!candidate?.id || !onRequestOfferPlacement) return false;
-    if (!selectedJobId) {
+    if (!jobId) {
       setErrors((prev) => ({ ...prev, job: 'Select a job before creating a placement' }));
       return true;
     }
-    const meta = resolveStageMeta(stageName);
+    const meta = resolveStageMeta(stageName, jobId);
     onRequestOfferPlacement({
       candidateId: candidate.id,
-      jobId: selectedJobId,
+      jobId,
       stage: meta.stage,
       stageId: meta.stageId,
     });
@@ -449,14 +608,20 @@ export function AddToPipelineModal({
   const loadEntryIntoForm = (row: PipelineEntryRow) => {
     if (!row.id) return;
     const entryStage = String(row.stage || '').trim();
+    const jobId = String(row.id);
     setAddNewJobMode(false);
-    setEditingJobId(String(row.id));
-    setSelectedJobId(String(row.id));
+    setEditingJobId(jobId);
+    setSelectedJobId(jobId);
     syncStageFromPath(entryStage ? [entryStage] : []);
     setNotes(String(row.notes || '').trim());
     setSelectedRecruiterId(candidate?.recruiterId || '');
     setErrors({});
     setRecentlyUpdatedJobId(null);
+    setMultiSelectedJobIds((prev) => (prev.includes(jobId) ? prev : [...prev, jobId]));
+    setTargetStageByJobId((prev) => ({
+      ...prev,
+      [jobId]: prev[jobId] || entryStage,
+    }));
   };
 
   const startAddNewJob = () => {
@@ -468,6 +633,7 @@ export function AddToPipelineModal({
     setSelectedRecruiterId(candidate?.recruiterId || '');
     setErrors({});
     setRecentlyUpdatedJobId(null);
+    setMultiSelectedJobIds([]);
   };
 
   const handleRemoveFromPipeline = async () => {
@@ -500,8 +666,13 @@ export function AddToPipelineModal({
 
   const validate = () => {
     const nextErrors: { job?: string; stage?: string } = {};
-    if (!selectedJobId) nextErrors.job = 'Job is required';
-    if (!stagePath.length || !targetStage) nextErrors.stage = 'Select a pipeline stage';
+    if (useMultiJobMoveUi) {
+      if (multiSelectedJobIds.length === 0) nextErrors.job = 'Select at least one job';
+      else if (multiChangedCount === 0) nextErrors.stage = 'Choose a new stage for at least one job';
+    } else {
+      if (!selectedJobId) nextErrors.job = 'Job is required';
+      if (!stagePath.length || !targetStage) nextErrors.stage = 'Select a pipeline stage';
+    }
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
   };
@@ -509,6 +680,66 @@ export function AddToPipelineModal({
   const handleSubmit = async () => {
     if (!candidate) return;
     if (!validate()) return;
+
+    if (useMultiJobMoveUi) {
+      const changedPlans = multiMovePlans.filter((plan) => plan.changed);
+      const isSpecialTarget = (stage: string) =>
+        isSubmitToClientStageOption(stage) ||
+        isRejectedPipelineStage(stage) ||
+        isInterviewPipelineStage(stage) ||
+        isOfferPipelineStage(stage);
+      const normalPlans = changedPlans.filter((plan) => !isSpecialTarget(plan.target));
+      const specialPlan = changedPlans.find((plan) => isSpecialTarget(plan.target));
+
+      try {
+        setSubmitting(true);
+        for (const plan of normalPlans) {
+          await Promise.resolve(
+            onSubmit?.({
+              candidateId: candidate.id,
+              jobId: plan.jobId,
+              stage: plan.target,
+              priority,
+              notes: notes.trim() || undefined,
+            }),
+          );
+        }
+
+        if (specialPlan) {
+          setSelectedJobId(specialPlan.jobId);
+          setEditingJobId(specialPlan.jobId);
+          syncStageFromPath([specialPlan.target]);
+          if (isSubmitToClientStageOption(specialPlan.target) && onRequestSubmitToClient) {
+            onRequestSubmitToClient({ candidateId: candidate.id, jobId: specialPlan.jobId });
+            return;
+          }
+          if (isRejectedPipelineStage(specialPlan.target) && onRequestReject) {
+            onRequestReject({ candidateId: candidate.id, jobId: specialPlan.jobId });
+            return;
+          }
+          if (isInterviewPipelineStage(specialPlan.target) && onRequestScheduleInterview) {
+            openInterviewFlowForSelectedJob(specialPlan.target, specialPlan.jobId);
+            return;
+          }
+          if (isOfferPipelineStage(specialPlan.target) && onRequestOfferPlacement) {
+            openOfferFlowForSelectedJob(specialPlan.target, specialPlan.jobId);
+            return;
+          }
+        }
+
+        if (typeof window !== 'undefined') {
+          void requestSuccess(
+            normalPlans.length === 1
+              ? 'Stage updated successfully.'
+              : `Updated stages for ${normalPlans.length} jobs.`,
+          );
+        }
+        onClose();
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
 
     if (isSubmitToClientStageOption(targetStage) && onRequestSubmitToClient) {
       openSubmitToClientFlowForSelectedJob();
@@ -547,9 +778,15 @@ export function AddToPipelineModal({
   };
 
   const candidateInitials = getAvatarInitials(candidate?.name || 'Candidate');
-  const showStageSection = (isMoveMode || addNewJobMode) && Boolean(selectedJobId);
+  const showStageSection =
+    !useMultiJobMoveUi && (isMoveMode || addNewJobMode) && Boolean(selectedJobId);
   const canSubmitMove = !isMoveMode || Boolean(stageChanged);
   const primaryDisabled = submitting || (isMoveMode && !stageChanged);
+  const headerJobLabel = useMultiJobMoveUi
+    ? multiSelectedJobIds.length > 1
+      ? `${multiSelectedJobIds.length} jobs selected`
+      : selectedJob?.title || existingPipelineEntries[0]?.title || ''
+    : selectedJob?.title || '';
 
   return (
     <AnimatePresence>
@@ -602,8 +839,8 @@ export function AddToPipelineModal({
                       </h3>
                       <p className="truncate text-sm text-slate-500">
                         {candidate?.name || 'Candidate'}
-                        {selectedJob?.title ? (
-                          <span className="text-slate-400"> · {selectedJob.title}</span>
+                        {headerJobLabel ? (
+                          <span className="text-slate-400"> · {headerJobLabel}</span>
                         ) : null}
                       </p>
                     </div>
@@ -637,7 +874,148 @@ export function AddToPipelineModal({
                   </div>
                   {existingPipelineEntries.length > 0 && !addNewJobMode ? (
                     <div className="space-y-2">
-                      {existingPipelineEntries.length === 1 ? (
+                      {useMultiJobMoveUi ? (
+                        <>
+                          <p className="text-xs text-slate-500">
+                            Select one or more jobs. Each job can move to a different stage.
+                          </p>
+                          <div className="space-y-2">
+                            {existingPipelineEntries.map((row, idx) => {
+                              const jobId = String(row.id || '');
+                              if (!jobId) return null;
+                              const checked = multiSelectedJobIds.includes(jobId);
+                              const currentStage = String(row.stage || '').trim();
+                              const jobTarget = String(
+                                targetStageByJobId[jobId] || currentStage,
+                              ).trim();
+                              const stageOptions =
+                                stagesByJobId[jobId] ||
+                                jobStagesCache.get(jobId) ||
+                                DEFAULT_FALLBACK_STAGES;
+                              const stagesLoading = loadingStagesForJobIds.includes(jobId);
+                              const jobChanged =
+                                Boolean(jobTarget) &&
+                                jobTarget.toLowerCase() !== currentStage.toLowerCase();
+                              return (
+                                <div
+                                  key={row.pipelineEntryId || jobId || idx}
+                                  className={`rounded-2xl border bg-white shadow-sm transition-colors ${
+                                    checked
+                                      ? 'border-indigo-300 ring-2 ring-indigo-100'
+                                      : 'border-slate-200/80'
+                                  }`}
+                                >
+                                  <label className="flex cursor-pointer items-start gap-3 px-3.5 py-3">
+                                    <input
+                                      type="checkbox"
+                                      checked={checked}
+                                      onChange={() =>
+                                        toggleMultiJobSelected(jobId, currentStage)
+                                      }
+                                      className="mt-1 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                                    />
+                                    <div className="min-w-0 flex-1">
+                                      <div className="flex items-start justify-between gap-2">
+                                        <p className="text-sm font-semibold text-slate-900">
+                                          {row.title}
+                                        </p>
+                                        <span
+                                          className={`inline-flex shrink-0 items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold ${getCandidateStageBadgeClasses(
+                                            row.stage || row.status,
+                                          )}`}
+                                        >
+                                          {currentStage || getCandidateStageLabel(row.status)}
+                                        </span>
+                                      </div>
+                                      {checked && jobChanged ? (
+                                        <p className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-700">
+                                          {currentStage || '—'}
+                                          <ArrowRightCircle size={12} />
+                                          {jobTarget}
+                                        </p>
+                                      ) : null}
+                                    </div>
+                                  </label>
+                                  {checked ? (
+                                    <div className="border-t border-slate-100 px-3.5 pb-3 pt-2">
+                                      <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                                        New stage for this job
+                                      </p>
+                                      {stagesLoading ? (
+                                        <p className="text-xs text-slate-500">Loading stages…</p>
+                                      ) : (
+                                        <div className="flex flex-wrap gap-1.5">
+                                          {stageOptions.map((stage) => {
+                                            const stageName = stage.name;
+                                            const isCurrent =
+                                              Boolean(currentStage) &&
+                                              currentStage.toLowerCase() ===
+                                                stageName.trim().toLowerCase();
+                                            const isSelected =
+                                              Boolean(jobTarget) &&
+                                              jobTarget.toLowerCase() ===
+                                                stageName.trim().toLowerCase();
+                                            return (
+                                              <button
+                                                key={`${jobId}-${stage.id || stageName}`}
+                                                type="button"
+                                                onClick={() =>
+                                                  setJobTargetStage(jobId, stageName)
+                                                }
+                                                className={`rounded-full px-3 py-1.5 text-[11px] font-semibold transition-all ${
+                                                  isSelected
+                                                    ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-500/25'
+                                                    : isCurrent
+                                                      ? 'bg-slate-100 text-slate-700 ring-1 ring-slate-300'
+                                                      : 'bg-slate-50 text-slate-700 ring-1 ring-slate-200 hover:ring-indigo-200 hover:text-indigo-700'
+                                                }`}
+                                              >
+                                                {stageName}
+                                                {isCurrent ? (
+                                                  <span className="ml-1 text-[10px] opacity-70">
+                                                    now
+                                                  </span>
+                                                ) : null}
+                                              </button>
+                                            );
+                                          })}
+                                          {onRequestSubmitToClient &&
+                                          !stageOptions.some((s) =>
+                                            isSubmitToClientStageOption(s.name),
+                                          ) ? (
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                setJobTargetStage(
+                                                  jobId,
+                                                  SUBMIT_TO_CLIENT_STAGE_OPTION_VALUE,
+                                                )
+                                              }
+                                              className={`rounded-full px-3 py-1.5 text-[11px] font-semibold transition-all ${
+                                                isSubmitToClientStageOption(jobTarget)
+                                                  ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-500/25'
+                                                  : 'bg-slate-50 text-slate-700 ring-1 ring-slate-200 hover:ring-indigo-200 hover:text-indigo-700'
+                                              }`}
+                                            >
+                                              {SUBMIT_TO_CLIENT_STAGE_OPTION_LABEL}
+                                            </button>
+                                          ) : null}
+                                        </div>
+                                      )}
+                                    </div>
+                                  ) : null}
+                                </div>
+                              );
+                            })}
+                          </div>
+                          {errors.job ? (
+                            <p className="text-xs text-red-600">{errors.job}</p>
+                          ) : null}
+                          {errors.stage ? (
+                            <p className="text-xs text-red-600">{errors.stage}</p>
+                          ) : null}
+                        </>
+                      ) : existingPipelineEntries.length === 1 ? (
                         <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200/80 bg-gradient-to-br from-slate-50 to-white px-4 py-3.5 shadow-sm">
                           <div className="min-w-0">
                             <p className="truncate text-sm font-semibold text-slate-900">
@@ -964,11 +1342,15 @@ export function AddToPipelineModal({
               {/* Footer */}
               <div className="flex shrink-0 items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/90 px-5 py-3.5 backdrop-blur-sm">
                 <p className="hidden min-w-0 truncate text-[11px] text-slate-400 sm:block">
-                  {isMoveMode
+                  {useMultiJobMoveUi
                     ? stageChanged
-                      ? `Ready to move to ${targetStage}`
-                      : 'Select a new stage'
-                    : 'Complete the fields, then confirm'}
+                      ? `Ready to update ${multiChangedCount} job${multiChangedCount === 1 ? '' : 's'}`
+                      : 'Select jobs and choose a new stage for each'
+                    : isMoveMode
+                      ? stageChanged
+                        ? `Ready to move to ${targetStage}`
+                        : 'Select a new stage'
+                      : 'Complete the fields, then confirm'}
                 </p>
                 <div className="ml-auto flex items-center gap-2">
                   <button
@@ -990,13 +1372,19 @@ export function AddToPipelineModal({
                         : isUpdatingEntry
                           ? 'Updating…'
                           : 'Adding…'
-                      : isMoveMode
+                      : useMultiJobMoveUi
                         ? canSubmitMove
-                          ? `Move to ${targetStage}`
+                          ? multiChangedCount > 1
+                            ? `Move ${multiChangedCount} jobs`
+                            : `Move to ${multiMovePlans.find((p) => p.changed)?.target || 'stage'}`
                           : 'Move stage'
-                        : isUpdatingEntry
-                          ? 'Update entry'
-                          : 'Add to Pipeline'}
+                        : isMoveMode
+                          ? canSubmitMove
+                            ? `Move to ${targetStage}`
+                            : 'Move stage'
+                          : isUpdatingEntry
+                            ? 'Update entry'
+                            : 'Add to Pipeline'}
                   </button>
                 </div>
               </div>

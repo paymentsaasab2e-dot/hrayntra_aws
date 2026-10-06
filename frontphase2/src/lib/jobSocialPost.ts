@@ -126,24 +126,199 @@ function toBulletLines(value?: string): string[] {
     .filter(Boolean);
 }
 
+/** Known JD subsection titles — render as headings, not bullets. */
+const JD_SECTION_HEADING_RE =
+  /^(job summary|overview|about the role|about (?:the )?company|key responsibilities|responsibilities|required skills|requirements|must[- ]have|nice to have|good to have|preferred skills|qualifications|preferred education(?:\s*\/\s*qualifications)?|candidate requirements|compensation(?:\s*&\s*|\s+and\s+)?benefits|benefits|key performance indicators|\(?kpis?\)?|what you.?ll do|what we.?re looking for)\s*:?\s*$/i;
+
+function stripListPrefix(line: string): string {
+  return String(line || '')
+    .replace(/^[-–—•*\d.)\s]+/, '')
+    .trim();
+}
+
+function isJdHeadingLine(line: string): boolean {
+  return JD_SECTION_HEADING_RE.test(stripListPrefix(line));
+}
+
+function looksLikeFullJdDump(text: string): boolean {
+  let headingCount = 0;
+  for (const raw of String(text || '').split(/\r?\n/)) {
+    if (isJdHeadingLine(raw)) headingCount += 1;
+    if (headingCount >= 2) return true;
+  }
+  return false;
+}
+
+/** When overview holds a full JD dump, keep only the Job Summary paragraph. */
+function extractJobSummaryOnly(text: string): string {
+  const lines = String(text || '').split(/\r?\n/);
+  const out: string[] = [];
+  let mode: 'pre' | 'summary' | 'done' = 'pre';
+
+  for (const raw of lines) {
+    const cleaned = stripListPrefix(raw);
+    if (!cleaned) {
+      if (mode === 'summary' && out.length) mode = 'done';
+      continue;
+    }
+    if (isJdHeadingLine(cleaned)) {
+      if (/^(job summary|overview|about the role)\s*:?\s*$/i.test(cleaned)) {
+        mode = 'summary';
+        continue;
+      }
+      if (mode === 'summary' || out.length) {
+        mode = 'done';
+        continue;
+      }
+      continue;
+    }
+    if (mode === 'done') break;
+    if (mode === 'summary' || mode === 'pre') {
+      out.push(cleaned);
+      if (mode === 'pre') mode = 'summary';
+    }
+  }
+
+  return out.join('\n\n').trim();
+}
+
 function appendLine(lines: string[], label: string, value?: string) {
   const v = String(value || '').trim();
   if (v) lines.push(`${label}: ${v}`);
 }
 
-function appendSection(lines: string[], heading: string, body?: string) {
-  const bullets = toBulletLines(body);
-  if (!bullets.length) {
-    const plain = String(body || '').trim();
-    if (!plain) return;
-    lines.push('');
-    lines.push(heading);
-    lines.push(plain);
-    return;
+/**
+ * Expand a pasted full JD (with internal headings) into spaced top-level
+ * sections instead of nesting everything under a single "Overview" bullet list.
+ */
+function appendExpandedJdDump(lines: string[], body: string) {
+  const parts = String(body || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (!parts.length) return;
+
+  let currentHeading = 'Overview';
+  let bucket: string[] = [];
+
+  const flush = () => {
+    if (!bucket.length && !currentHeading) return;
+    const chunk = bucket.join('\n').trim();
+    if (chunk || currentHeading === 'Overview') {
+      const start = lines.length;
+      lines.push('');
+      lines.push(currentHeading);
+      const preferProse = /^(overview|job summary|about the role)$/i.test(currentHeading);
+      if (chunk) {
+        const items = chunk.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+        for (const item of items) {
+          const cleaned = stripListPrefix(item);
+          if (!cleaned) continue;
+          const lookedLikeBullet = /^[-–—•*]|\d+[.)]\s+/.test(item);
+          const wordCount = cleaned.split(/\s+/).filter(Boolean).length;
+          const isProse =
+            (!lookedLikeBullet && preferProse) ||
+            (!lookedLikeBullet && (cleaned.length > 110 || wordCount > 18));
+          lines.push(isProse ? cleaned : `• ${cleaned}`);
+        }
+      }
+      if (lines.length === start + 2 && !chunk) {
+        // drop empty heading-only block
+        lines.pop();
+        lines.pop();
+        if (lines[lines.length - 1] === '') lines.pop();
+      }
+    }
+    bucket = [];
+  };
+
+  for (const part of parts) {
+    const cleaned = stripListPrefix(part);
+    if (!cleaned) continue;
+    if (isJdHeadingLine(cleaned)) {
+      flush();
+      currentHeading = cleaned.replace(/:$/, '').trim() || 'Overview';
+      continue;
+    }
+    bucket.push(part);
   }
+  flush();
+}
+
+/**
+ * Append a narrative JD block with readable LinkedIn spacing:
+ * - blank line before the section title
+ * - known subsection titles as plain headings (not bullets)
+ * - short items as bullets; longer prose as paragraphs
+ */
+function appendSection(lines: string[], heading: string, body?: string) {
+  const raw = String(body || '').trim();
+  if (!raw) return;
+
   lines.push('');
   lines.push(heading);
-  bullets.forEach((item) => lines.push(`• ${item}`));
+
+  const parts = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (!parts.length) {
+    lines.push(raw);
+    return;
+  }
+
+  // Flat bullet list with no internal headings — keep simple bullets.
+  const hasInternalHeadings = parts.some((part) => isJdHeadingLine(part));
+  if (!hasInternalHeadings) {
+    const bullets = toBulletLines(raw);
+    if (bullets.length <= 1 && raw.length > 160 && !/^[-•*]/.test(parts[0] || '')) {
+      lines.push(raw.replace(/\n{3,}/g, '\n\n'));
+      return;
+    }
+    bullets.forEach((item) => lines.push(`• ${item}`));
+    return;
+  }
+
+  for (const part of parts) {
+    const cleaned = stripListPrefix(part);
+    if (!cleaned) continue;
+
+    if (isJdHeadingLine(cleaned)) {
+      const title = cleaned.replace(/:$/, '').trim();
+      if (lines.length && lines[lines.length - 1] !== '') lines.push('');
+      lines.push(title);
+      continue;
+    }
+
+    const lookedLikeBullet = /^[-–—•*]|\d+[.)]\s+/.test(part);
+    const wordCount = cleaned.split(/\s+/).filter(Boolean).length;
+    const isProse = !lookedLikeBullet && (cleaned.length > 110 || wordCount > 18);
+    if (isProse) {
+      if (lines.length && lines[lines.length - 1] !== '' && !isJdHeadingLine(lines[lines.length - 1] || '')) {
+        // keep paragraph blocks readable without stacking blank lines
+      }
+      lines.push(cleaned);
+    } else {
+      lines.push(`• ${cleaned}`);
+    }
+  }
+}
+
+/** Collapse excess blanks and ensure a blank line before major section titles. */
+function normalizeSocialPostSpacing(lines: string[]): string[] {
+  const majorHeading =
+    /^(Overview|Key Responsibilities|Preferred Education|Candidate Requirements|Compensation|Job Summary|Required Skills|Nice to Have|Qualifications|Key Performance Indicators)/i;
+  const out: string[] = [];
+  for (const line of lines) {
+    if (line === '') {
+      if (!out.length || out[out.length - 1] === '') continue;
+      out.push('');
+      continue;
+    }
+    if (majorHeading.test(line) || isJdHeadingLine(line)) {
+      if (out.length && out[out.length - 1] !== '') out.push('');
+    }
+    out.push(line);
+  }
+  while (out.length && out[out.length - 1] === '') out.pop();
+  return out;
 }
 
 function hasCustomLinkedInTemplate(input: JobSocialPostInput): boolean {
@@ -266,6 +441,17 @@ export function buildJobSocialDetailLines(input: JobSocialPostInput): string[] {
       case 'overview': {
         const summary = String(input.jobSummary || '').trim();
         if (summary) {
+          // Full JD pasted into overview → spaced sections (or short summary
+          // when dedicated JD fields are already filled).
+          if (looksLikeFullJdDump(summary)) {
+            if (hasStructuredJdContent(input)) {
+              const excerpt = extractJobSummaryOnly(summary);
+              if (excerpt) appendSection(lines, 'Overview', excerpt);
+            } else {
+              appendExpandedJdDump(lines, summary);
+            }
+            break;
+          }
           appendSection(lines, 'Overview', summary);
           break;
         }
@@ -275,7 +461,18 @@ export function buildJobSocialDetailLines(input: JobSocialPostInput): string[] {
           break;
         }
         const dumped = stripHtml(input.jobDescriptionHtml || '');
-        if (dumped) appendSection(lines, 'Overview', dumped);
+        if (dumped) {
+          if (looksLikeFullJdDump(dumped)) {
+            if (hasStructuredJdContent(input)) {
+              const excerpt = extractJobSummaryOnly(dumped);
+              if (excerpt) appendSection(lines, 'Overview', excerpt);
+            } else {
+              appendExpandedJdDump(lines, dumped);
+            }
+          } else {
+            appendSection(lines, 'Overview', dumped);
+          }
+        }
         break;
       }
       case 'keyResponsibilities':
@@ -321,7 +518,38 @@ export function buildJobSocialDetailLines(input: JobSocialPostInput): string[] {
     }
   }
 
-  return lines;
+  return normalizeSocialPostSpacing(lines);
+}
+
+function buildLinkedInApplyFooter(applyUrl?: string): string {
+  const url = String(applyUrl || '').trim();
+  // Extra blank line before Apply so the CTA reads as its own section.
+  return url
+    ? `\n\n\nApply now:\n${url}\n\n#hiring #jobs #careers`
+    : '\n\n#hiring #jobs #careers';
+}
+
+/**
+ * Keep the apply link (+ hashtags) when the post exceeds LinkedIn's 3000-char cap.
+ * Truncating from the end used to chop off "Apply now:" entirely.
+ */
+function joinLinkedInPostParts(
+  lead: string,
+  body: string,
+  footer: string,
+  maxLength: number,
+): string {
+  const full = `${lead}${body}${footer}`;
+  if (full.length <= maxLength) return full;
+
+  const reserved = footer.length + 1; // room for ellipsis on the body
+  const available = Math.max(0, maxLength - reserved);
+  let head = `${lead}${body}`.trimEnd();
+  if (head.length > available) {
+    head = `${head.slice(0, Math.max(0, available - 1)).trimEnd()}…`;
+  }
+  const out = `${head}${footer}`;
+  return out.length <= maxLength ? out : out.slice(0, maxLength);
 }
 
 export function buildLinkedInJobPost(
@@ -334,18 +562,14 @@ export function buildLinkedInJobPost(
     return index > 0 && rows[index - 1] !== '';
   });
   const body = bodyLines.join('\n').replace(/^\n+/, '').trim();
-  const footer = applyUrl
-    ? `\n\nApply now:\n${applyUrl}\n\n#hiring #jobs #careers`
-    : '\n\n#hiring #jobs #careers';
+  const footer = buildLinkedInApplyFooter(applyUrl);
 
   const { header, title, company } = socialHeadline(input);
   // Always lead with the hiring line so LinkedIn posts keep the job title
   // (and company when allowed). Custom templates used to drop this header.
   const lead =
     title || company || !hasCustomLinkedInTemplate(input) ? `${header}\n\n` : '';
-  const post = `${lead}${body}${footer}`;
-  if (post.length <= maxLength) return post;
-  return `${post.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+  return joinLinkedInPostParts(lead, body, footer, maxLength);
 }
 
 export function buildFacebookJobPost(input: JobSocialPostInput): string {
@@ -355,6 +579,7 @@ export function buildFacebookJobPost(input: JobSocialPostInput): string {
 export function buildTwitterJobPost(input: JobSocialPostInput, maxLength = 280): string {
   const { header } = socialHeadline(input);
   const applyUrl = String(input.applyUrl || '').trim();
+  const applyPart = applyUrl ? ` Apply: ${applyUrl}` : '';
   const parts: string[] = [header];
   if (isSocialSectionIncluded(input, 'location')) {
     const location = formatLocation(input);
@@ -376,8 +601,15 @@ export function buildTwitterJobPost(input: JobSocialPostInput, maxLength = 280):
   let tweet = parts.join(' | ');
   if (tweet.length <= maxLength) return tweet;
 
-  tweet = `${header}${applyUrl ? ` Apply: ${applyUrl}` : ''} #hiring`;
-  return tweet.substring(0, maxLength);
+  // Prefer keeping the apply URL over secondary details when over the limit.
+  tweet = `${header}${applyPart} #hiring`;
+  if (tweet.length <= maxLength) return tweet;
+  if (!applyUrl) return tweet.substring(0, maxLength);
+  const suffix = `${applyPart} #hiring`;
+  const available = Math.max(0, maxLength - suffix.length);
+  const head =
+    available <= 1 ? '' : `${header.slice(0, available - 1).trimEnd()}…`;
+  return `${head}${suffix}`.slice(0, maxLength);
 }
 
 export const APPLY_LINK_TOKEN_PLACEHOLDER = '[link-on-save]';
@@ -404,6 +636,39 @@ export function replaceApplyUrlInSocialPostText(
     next = next.replaceAll(APPLY_LINK_TOKEN_PLACEHOLDER, resolved);
   }
   return next;
+}
+
+/**
+ * Guarantee the candidate apply URL appears in social post copy
+ * (preview + publish). Replaces placeholders, or appends an Apply block
+ * when the link was truncated / edited away.
+ */
+export function ensureApplyUrlInSocialPostText(
+  text: string,
+  applyUrl: string,
+  maxLength = LINKEDIN_POST_MAX_LENGTH,
+): string {
+  const url = String(applyUrl || '').trim();
+  let body = String(text || '');
+  if (!url) return body;
+
+  body = replaceApplyUrlInSocialPostText(body, url);
+
+  if (body.includes(url)) {
+    return body.length <= maxLength ? body : body.slice(0, maxLength);
+  }
+
+  const applyBlock = `\n\nApply now:\n${url}`;
+  if (body.length + applyBlock.length <= maxLength) {
+    return `${body.replace(/\s+$/, '')}${applyBlock}`;
+  }
+
+  const available = Math.max(0, maxLength - applyBlock.length);
+  const trimmed =
+    available <= 1
+      ? ''
+      : `${body.slice(0, available - 1).trimEnd()}…`;
+  return `${trimmed}${applyBlock}`.slice(0, maxLength);
 }
 
 export function buildCandidatePortalApplyUrlPreview(tenantDbName?: string | null): string {

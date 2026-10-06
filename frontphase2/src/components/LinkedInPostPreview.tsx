@@ -1,8 +1,9 @@
 'use client';
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Globe2, Linkedin, MessageCircle, Repeat2, Send, ThumbsUp } from 'lucide-react';
 import { linkifyPostText } from '../utils/linkifyPostText';
+import { ensureApplyUrlInSocialPostText } from '../lib/jobSocialPost';
 
 interface LinkedInPostPreviewProps {
   userName: string;
@@ -47,7 +48,21 @@ export function LinkedInPostPreview({
   postText: postTextOverride,
   imageUrl,
 }: LinkedInPostPreviewProps) {
-  const postText = postTextOverride?.trim() || fallbackPostText({
+  const postText = useMemo(() => {
+    const base =
+      postTextOverride?.trim() ||
+      fallbackPostText({
+        userName,
+        userPicture,
+        jobTitle,
+        company,
+        description,
+        applyUrl,
+        location,
+      });
+    return ensureApplyUrlInSocialPostText(base, applyUrl);
+  }, [
+    postTextOverride,
     userName,
     userPicture,
     jobTitle,
@@ -55,7 +70,7 @@ export function LinkedInPostPreview({
     description,
     applyUrl,
     location,
-  });
+  ]);
   const displayHeadline =
     headline ||
     (accountType === 'page'

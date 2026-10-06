@@ -1,11 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { fetchSaasaCvPdfBytes, saasaPdfJsDocumentOptions } from '../../lib/saasaCvPdfRender';
-
-/** PDF.js 3.11 exposes global pdfjsLib (v4 CDN builds do not — caused load timeouts). */
-const PDFJS_VERSION = '3.11.174';
-const PDFJS_CDN = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VERSION}`;
+import { fetchSaasaCvPdfBytes, loadSaasaPdfJs, saasaPdfJsDocumentOptions } from '../../lib/saasaCvPdfRender';
 
 export interface SaasaCvPdfDocumentMeta {
   width: number;
@@ -31,53 +27,6 @@ interface PdfPage {
     canvasContext: CanvasRenderingContext2D;
     viewport: { width: number; height: number };
   }) => { promise: Promise<void> };
-}
-
-function getPdfJsLib(): PdfJsLib | null {
-  if (typeof window === 'undefined') return null;
-  return (window as Window & { pdfjsLib?: PdfJsLib }).pdfjsLib ?? null;
-}
-
-let pdfJsLoadPromise: Promise<PdfJsLib> | null = null;
-
-function loadPdfJsFromCdn(): Promise<PdfJsLib> {
-  const existing = getPdfJsLib();
-  if (existing?.getDocument) {
-    existing.GlobalWorkerOptions.workerSrc = `${PDFJS_CDN}/pdf.worker.min.js`;
-    return Promise.resolve(existing);
-  }
-
-  if (pdfJsLoadPromise) return pdfJsLoadPromise;
-
-  pdfJsLoadPromise = new Promise((resolve, reject) => {
-    const timeout = window.setTimeout(() => {
-      pdfJsLoadPromise = null;
-      reject(new Error('PDF.js load timeout'));
-    }, 45000);
-
-    const script = document.createElement('script');
-    script.src = `${PDFJS_CDN}/pdf.min.js`;
-    script.async = true;
-    script.onload = () => {
-      const lib = getPdfJsLib();
-      window.clearTimeout(timeout);
-      if (!lib?.getDocument) {
-        pdfJsLoadPromise = null;
-        reject(new Error('PDF.js failed to initialize'));
-        return;
-      }
-      lib.GlobalWorkerOptions.workerSrc = `${PDFJS_CDN}/pdf.worker.min.js`;
-      resolve(lib);
-    };
-    script.onerror = () => {
-      window.clearTimeout(timeout);
-      pdfJsLoadPromise = null;
-      reject(new Error('Failed to load PDF.js'));
-    };
-    document.head.appendChild(script);
-  });
-
-  return pdfJsLoadPromise;
 }
 
 interface SaasaCvPdfViewerProps {
@@ -109,7 +58,7 @@ export function SaasaCvPdfViewer({
       container.innerHTML = '';
 
       try {
-        const pdfjs = await loadPdfJsFromCdn();
+        const pdfjs = await loadSaasaPdfJs();
         const bytes = await fetchSaasaCvPdfBytes(pdfUrl);
         const pdf = await pdfjs.getDocument(
           saasaPdfJsDocumentOptions(bytes) as unknown as Parameters<PdfJsLib['getDocument']>[0],

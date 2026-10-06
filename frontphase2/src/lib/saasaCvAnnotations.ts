@@ -371,6 +371,60 @@ export function resolveSaasaCvPreviewUrl(
   return fromType || null;
 }
 
+export function normalizeSaasaResumeKey(url: string): string {
+  const raw = String(url || '').trim();
+  if (!raw) return '';
+  try {
+    const parsed = new URL(raw);
+    return `${parsed.origin}${parsed.pathname}`.replace(/\/+$/, '').toLowerCase();
+  } catch {
+    return raw.split('?')[0]?.replace(/\/+$/, '').toLowerCase() || '';
+  }
+}
+
+/**
+ * A DOCX edit must stay the HRYantra CV. If a previous save wrote that file
+ * onto the candidate resume, version lists still show the original as v1.
+ */
+export function guardHryantraDocxResumeVersions(
+  extraData: Record<string, unknown> | null | undefined,
+  primaryUrl: string,
+): { versionPrimaryUrl: string; excludeKeys: string[]; hryantraUrl: string } {
+  const extra =
+    extraData && typeof extraData === 'object' && !Array.isArray(extraData) ? extraData : {};
+  const stored = readSaasaCvAnnotations(extra);
+  const original = String(
+    (typeof extra.firstOriginalResumeUrl === 'string' && extra.firstOriginalResumeUrl) ||
+      (typeof extra.originalResumeUrl === 'string' && extra.originalResumeUrl) ||
+      '',
+  ).trim();
+  const primary = String(primaryUrl || '').trim();
+  const originalKey = normalizeSaasaResumeKey(original);
+  const primaryKey = normalizeSaasaResumeKey(primary);
+  const excludeKeys: string[] = [];
+  const seen = new Set<string>();
+  const exclude = (url: string) => {
+    const key = normalizeSaasaResumeKey(url);
+    if (!key || !originalKey || key === originalKey || seen.has(key)) return;
+    seen.add(key);
+    excludeKeys.push(key);
+  };
+  const savedResume = String(stored?.resumeUrl || '').trim();
+  if (savedResume) exclude(savedResume);
+  const savedFile = String(stored?.fileUrl || '').trim();
+  if (/\.docx(?:$|\?)/i.test(savedFile)) exclude(savedFile);
+  const stolen = Boolean(primaryKey && excludeKeys.includes(primaryKey) && original);
+  const savedFileUrl = String(stored?.fileUrl || '').trim();
+  const hryantraUrl =
+    savedFileUrl ||
+    (excludeKeys.includes(normalizeSaasaResumeKey(savedResume)) ? savedResume : '');
+  return {
+    versionPrimaryUrl: stolen ? original : primary,
+    excludeKeys,
+    hryantraUrl,
+  };
+}
+
 export function hasSaasaCvSaved(stored: SaasaCvAnnotationsStored | null | undefined): boolean {
   if (!stored) return false;
   return Boolean(

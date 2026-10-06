@@ -555,7 +555,6 @@ const JobsListView = ({
     (show('client') ? 1 : 0) +
     (show('status') ? 1 : 0) +
     (show('pipeline') ? 1 : 0) +
-    (show('details') ? 1 : 0) +
     (show('location') ? 1 : 0) +
     (show('openings') ? 1 : 0) +
     (show('owner') ? 1 : 0) +
@@ -591,7 +590,6 @@ const JobsListView = ({
             {show('client') ? <th className="px-3 py-2 sm:px-4">Client</th> : null}
             {show('status') ? <th className="px-3 py-2 sm:px-4">Status</th> : null}
             {show('pipeline') ? <th className="px-3 py-2 sm:px-4">Pipeline</th> : null}
-            {show('details') ? <th className="px-3 py-2 sm:px-4">Details</th> : null}
             {show('location') ? <th className="px-3 py-2 sm:px-4">Location</th> : null}
             {show('openings') ? <th className="px-3 py-2 sm:px-4">Openings</th> : null}
             {show('owner') ? <th className="px-3 py-2 sm:px-4">Recruiter</th> : null}
@@ -705,17 +703,6 @@ const JobsListView = ({
                 stages={job.pipelineStages}
                 visibleStageKeys={visiblePipelineStageKeys}
               />
-            </td>
-                ) : null}
-                {show('details') ? (
-                <td className="px-3 py-2 sm:px-4">
-                  <div className="flex flex-col gap-1.5">
-                    <span className="text-xs font-normal uppercase tracking-wider text-slate-400">Recruiter</span>
-                    <AssigneeAvatars assignees={job.recruiterAssignees || []} />
-                    <span className="text-xs font-normal uppercase tracking-wider text-slate-400">Manager</span>
-                    <span className="text-xs text-slate-700">{job.managerName || '—'}</span>
-                    <span className="text-xs text-slate-500">{formatDateDMY(job.createdDate)}</span>
-              </div>
             </td>
                 ) : null}
                 {show('location') ? (

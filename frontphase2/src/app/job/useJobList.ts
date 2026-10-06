@@ -1754,6 +1754,7 @@ export function useJobList() {
   const [deletingJobId, setDeletingJobId] = useState<string | null>(null);
 
   const reloadMyJobsAndMetrics = useCallback(async () => {
+    invalidateEmployerJobsCache();
     await loadJobsPageData({ silent: false });
   }, [loadJobsPageData]);
 
