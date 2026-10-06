@@ -45,6 +45,7 @@ async function fetchHqCatalog() {
     method: 'GET',
     headers,
     cache: 'no-store',
+    signal: AbortSignal.timeout(2500),
   });
   const json = await response.json().catch(() => null);
   if (!response.ok || !json?.success) {

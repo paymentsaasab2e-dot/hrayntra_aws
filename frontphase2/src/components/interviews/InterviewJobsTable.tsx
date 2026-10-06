@@ -22,7 +22,7 @@ export function InterviewJobsTable({ jobs, onSelectJob }: InterviewJobsTableProp
   return (
     <table className="w-max min-w-full border-collapse text-left text-sm">
       <thead className="sticky top-0 z-10">
-        <tr className="border-b border-indigo-100/50 bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 text-[9px] font-bold uppercase tracking-[0.12em] text-indigo-950/45 backdrop-blur-sm">
+        <tr className="border-b border-indigo-100/50 bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 text-xs font-bold uppercase tracking-[0.06em] text-indigo-950/70 backdrop-blur-sm">
           <th className="px-3 py-2 first:pl-4 sm:px-4">Job</th>
           <th className="px-3 py-2 sm:px-4">Client</th>
           <th className="px-3 py-2 sm:px-4">Candidates</th>

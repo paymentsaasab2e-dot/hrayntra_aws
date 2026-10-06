@@ -25,13 +25,18 @@ async function getCatalog(req, res) {
     let lifecycleGranted = [];
     if (candidateId) {
       try {
+        balance = await tokenService.getBalance(candidateId);
+      } catch (err) {
+        console.warn('[tokens] catalog balance failed:', err?.message || err);
+      }
+      try {
         const sync = await tokenService.syncLifecycleEarns(candidateId);
         lifecycleGranted = sync?.granted || [];
         balance = await tokenService.getBalance(candidateId);
         claimedEarnKeys = await tokenService.listClaimedEarnKeys(candidateId);
         earnLifecycle = await tokenService.getEarnLifecycle(candidateId);
-      } catch {
-        balance = null;
+      } catch (err) {
+        console.warn('[tokens] catalog lifecycle sync failed:', err?.message || err);
       }
     }
     const catalog = await tokenService.getCatalog();

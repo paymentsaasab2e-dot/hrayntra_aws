@@ -187,7 +187,7 @@ export function ClientTable({
       <div className={fillScrollParent ? 'contents' : 'no-scrollbar overflow-x-auto'}>
         <table className="w-max min-w-full border-collapse text-left">
           <thead className="sticky top-0 z-10">
-            <tr className="bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 border-b border-indigo-100/50 text-indigo-950/45 uppercase text-[9px] font-bold tracking-[0.12em] backdrop-blur-sm">
+            <tr className="bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 border-b border-indigo-100/50 text-indigo-950/70 uppercase text-xs font-bold tracking-[0.06em] backdrop-blur-sm">
               <th className="w-10 px-3 sm:px-4 py-2 first:pl-4">
                 <CustomCheckbox
                   checked={selectedIds.length === clients.length && clients.length > 0}
@@ -292,13 +292,13 @@ export function ClientTable({
                       <button
                         type="button"
                         onClick={() => onSelectClient?.(client)}
-                        className="block truncate text-left text-xs font-semibold text-slate-900 transition-colors hover:text-indigo-700"
+                        className="block truncate text-left text-sm font-medium text-slate-900 transition-colors hover:text-indigo-700"
                         title="View client details"
                       >
                         {client.name}
                       </button>
                       {showInRecruitmentBadge && client.recruitmentEnabled ? (
-                        <span className="mt-0.5 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800 ring-1 ring-amber-200/80">
+                        <span className="mt-0.5 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 ring-1 ring-amber-200/80">
                           In Recruitment
                         </span>
                       ) : null}
@@ -307,21 +307,21 @@ export function ClientTable({
                         if (!handoff || handoff.status === 'none') return null;
                         if (handoff.status === 'pending') {
                           return (
-                            <span className="mt-0.5 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800 ring-1 ring-amber-200/80">
+                            <span className="mt-0.5 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 ring-1 ring-amber-200/80">
                               Handoff pending
                             </span>
                           );
                         }
                         if (handoff.status === 'accepted') {
                           return (
-                            <span className="mt-0.5 inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800 ring-1 ring-emerald-200/80">
+                            <span className="mt-0.5 inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800 ring-1 ring-emerald-200/80">
                               Handed off
                             </span>
                           );
                         }
                         return (
                           <span
-                            className="mt-0.5 inline-flex max-w-full truncate rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold text-rose-800 ring-1 ring-rose-200/80"
+                            className="mt-0.5 inline-flex max-w-full truncate rounded-full bg-rose-100 px-2 py-0.5 text-xs font-medium text-rose-800 ring-1 ring-rose-200/80"
                             title={handoff.reviewNote || 'Handoff request was rejected'}
                           >
                             Handoff rejected

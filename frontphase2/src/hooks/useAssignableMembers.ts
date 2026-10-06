@@ -142,14 +142,19 @@ export function useAssignableMembers(
   useEffect(() => {
     if (!enabled) return;
     if (!companiesReady) return;
-    // Super Admin on All companies: do not fetch people from every org.
-    if ((canSelectCompany || mayPickCompany) && !companyId) {
+    // Super Admin / cross-company: wait until an org is chosen when options exist.
+    // If assign-companies is empty (e.g. HQ-only filtered out), load tenant-wide
+    // so Assignment Manager / Team members are not stuck on "Select organization first".
+    const mustPickCompany =
+      (canSelectCompany || mayPickCompany) && companies.length > 0 && !companyId;
+    if (mustPickCompany) {
       setMembers([]);
       setLoading(false);
       return;
     }
     const load = startAsyncLoad(setLoading);
-    const requestedCompanyId = canSelectCompany || mayPickCompany ? companyId : '';
+    const requestedCompanyId =
+      (canSelectCompany || mayPickCompany) && companyId ? companyId : '';
     void getAllTeamMembersForAssign(requestedCompanyId || undefined, module)
       .then((rows) => {
         if (load.isActive()) setMembers(rows || []);
@@ -163,7 +168,16 @@ export function useAssignableMembers(
     return () => {
       load.abort();
     };
-  }, [enabled, companiesReady, canSelectCompany, mayPickCompany, companyId, module, rulesEpoch]);
+  }, [
+    enabled,
+    companiesReady,
+    canSelectCompany,
+    mayPickCompany,
+    companies.length,
+    companyId,
+    module,
+    rulesEpoch,
+  ]);
 
   const membersWithSelf = useMemo(() => ensureCurrentUserInMembers(members), [members]);
   const users: BackendUser[] = useMemo(

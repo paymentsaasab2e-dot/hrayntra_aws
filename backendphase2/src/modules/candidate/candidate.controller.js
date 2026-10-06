@@ -24,6 +24,15 @@ export const candidateController = {
     }
   },
 
+  async linkPerson(req, res) {
+    try {
+      const result = await candidateService.linkPerson(req.body || {});
+      sendResponse(res, result.created ? 201 : 200, 'Person linked to workspace', result);
+    } catch (error) {
+      sendError(res, error?.statusCode || 400, error.message, error);
+    }
+  },
+
   async create(req, res) {
     try {
       const candidate = await candidateService.create(req.body, req.user?.id, req);

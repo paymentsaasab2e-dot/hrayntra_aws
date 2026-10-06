@@ -32,6 +32,7 @@ const CANDIDATE_SELECT = {
   lastName: true,
   email: true,
   phone: true,
+  personId: true,
   currentTitle: true,
   designation: true,
   location: true,
@@ -73,6 +74,39 @@ function fullName(first, last) {
 
 function candidateKey(origin, id, tenantDbName = '') {
   return `${origin}:${tenantDbName || ''}:${id}`;
+}
+
+function hqCandidateIdentityScore(row) {
+  let score = 0;
+  if (String(row.personId || '').trim()) score += 16;
+  const name = String(row.name || '').trim();
+  if (name && name !== '—') score += 4;
+  if (String(row.email || '').trim()) score += 4;
+  if (String(row.phone || '').trim()) score += 2;
+  if (String(row.location || '').trim() && row.location !== '—') score += 1;
+  return score;
+}
+
+/** One human per HQ Candidates result — never list the same email twice. */
+function collapseHqCandidateRows(rows) {
+  const chosen = [];
+  for (const row of rows || []) {
+    const personId = String(row.personId || '').trim();
+    const email = String(row.email || '').trim().toLowerCase();
+    const name = String(row.name || '').trim();
+    if (!personId && !email && (!name || name === '—')) continue;
+    const idx = chosen.findIndex((prev) => {
+      const prevPerson = String(prev.personId || '').trim();
+      const prevEmail = String(prev.email || '').trim().toLowerCase();
+      return (personId && prevPerson && personId === prevPerson) || (email && prevEmail && email === prevEmail);
+    });
+    if (idx < 0) {
+      chosen.push(row);
+    } else if (hqCandidateIdentityScore(row) > hqCandidateIdentityScore(chosen[idx])) {
+      chosen[idx] = row;
+    }
+  }
+  return chosen;
 }
 
 function notSoftDeletedWhere() {
@@ -182,8 +216,9 @@ function toPortalCandidateRow(doc, origin, extra = {}) {
   return {
     id: doc.id,
     name: fullName(doc.firstName, doc.lastName),
-    email: doc.email || '',
+    email: doc.email || extra.profileEmail || '',
     phone: doc.phone || '',
+    personId: doc.personId || '',
     title: doc.currentTitle || doc.designation || '',
     location: doc.location || doc.city || '',
     status: String(doc.status || doc.recruiterStatus || doc.stage || '—'),
@@ -641,6 +676,7 @@ export const hqPortalService = {
               lastName: true,
               email: true,
               phone: true,
+              personId: true,
               currentTitle: true,
               designation: true,
               location: true,
@@ -666,6 +702,7 @@ export const hqPortalService = {
               select: {
                 candidateId: true,
                 fullName: true,
+                email: true,
                 dateOfBirth: true,
                 phoneNumber: true,
                 passportNumber: true,
@@ -689,10 +726,12 @@ export const hqPortalService = {
     const portalIdSet = new Set(portalIds);
 
     const portalCandidates = portalCandidateDocs.map((row) => {
-      const kyc = evaluatePortalKyc(row, profileById.get(String(row.id)));
+      const profile = profileById.get(String(row.id));
+      const kyc = evaluatePortalKyc(row, profile);
       return toPortalCandidateRow(row, 'phase1_portal', {
         kycVerified: kyc.kycVerified,
         isInterviewer: interviewerIds.has(String(row.id)),
+        profileEmail: profile?.email || '',
       });
     });
 
@@ -706,6 +745,7 @@ export const hqPortalService = {
             lastName: row.lastName,
             email: row.email,
             phone: row.phone,
+            personId: row.personId,
             currentTitle: row.currentTitle,
             designation: row.designation,
             location: row.location,
@@ -721,12 +761,10 @@ export const hqPortalService = {
         ),
       );
 
-    const candidateByKey = new Map();
-    for (const row of [...portalCandidates, ...commonOnlyCandidates]) {
-      candidateByKey.set(candidateKey(row.origin, row.id, row.tenantDbName), row);
-    }
-
-    const candidates = Array.from(candidateByKey.values()).sort((a, b) => {
+    const candidates = collapseHqCandidateRows([
+      ...portalCandidates,
+      ...commonOnlyCandidates,
+    ]).sort((a, b) => {
       const ta = new Date(a.updatedAt || a.createdAt || 0).getTime();
       const tb = new Date(b.updatedAt || b.createdAt || 0).getTime();
       return tb - ta;
@@ -736,8 +774,8 @@ export const hqPortalService = {
       candidates,
       stats: {
         totalCandidates: candidates.length,
-        portalCandidates: portalCandidates.length,
-        commonCandidates: commonOnlyCandidates.length,
+        portalCandidates: candidates.filter((row) => row.origin === 'phase1_portal').length,
+        commonCandidates: candidates.filter((row) => row.origin === 'phase1_common').length,
         phase2Candidates: 0,
         tenantCount: 0,
       },
@@ -791,6 +829,7 @@ export const hqPortalService = {
               lastName: true,
               email: true,
               phone: true,
+              personId: true,
               currentTitle: true,
               designation: true,
               location: true,
@@ -830,6 +869,7 @@ export const hqPortalService = {
             lastName: row.lastName,
             email: row.email,
             phone: row.phone,
+            personId: row.personId,
             currentTitle: row.currentTitle,
             designation: row.designation,
             location: row.location,
@@ -844,12 +884,11 @@ export const hqPortalService = {
         ),
       );
 
-    const candidateByKey = new Map();
-    for (const row of [...portalCandidates, ...commonOnlyCandidates, ...phase2Candidates]) {
-      candidateByKey.set(candidateKey(row.origin, row.id, row.tenantDbName), row);
-    }
-
-    const candidates = Array.from(candidateByKey.values()).sort((a, b) => {
+    const candidates = collapseHqCandidateRows([
+      ...portalCandidates,
+      ...commonOnlyCandidates,
+      ...phase2Candidates,
+    ]).sort((a, b) => {
       const ta = new Date(a.updatedAt || a.createdAt || 0).getTime();
       const tb = new Date(b.updatedAt || b.createdAt || 0).getTime();
       return tb - ta;
@@ -886,8 +925,8 @@ export const hqPortalService = {
       jobs,
       stats: {
         totalCandidates: candidates.length,
-        portalCandidates: portalCandidates.length,
-        commonCandidates: commonOnlyCandidates.length,
+        portalCandidates: candidates.filter((row) => row.origin === 'phase1_portal').length,
+        commonCandidates: candidates.filter((row) => row.origin === 'phase1_common').length,
         phase2Candidates: phase2CandidateCount,
         totalJobs: jobs.length,
         phase2Jobs: phase2JobCount,

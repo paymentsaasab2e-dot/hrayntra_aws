@@ -3,7 +3,7 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import type { SuperDoc } from 'superdoc';
 import { buildResumeDocxBytesUrl } from '../../lib/resumePreview';
-import { releaseSuperDocWarmWorker } from '../../lib/warmSuperDoc';
+import { loadSuperDocModule, releaseSuperDocWarmWorker } from '../../lib/warmSuperDoc';
 import { prepareResumeDocxForEditor, restoreResumeDocxAfterEditor } from '../../lib/docxColumnLayout';
 
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
@@ -223,7 +223,7 @@ export const ResumeDocxEditor = forwardRef<ResumeDocxEditorHandle, ResumeDocxEdi
           const file = new File([new Uint8Array(bytes)], fileNameFromUrl(resumeUrl), { type: DOCX_MIME });
           releaseSuperDocWarmWorker();
           const [{ SuperDoc: Editor }] = await Promise.all([
-            import('superdoc'),
+            loadSuperDocModule(),
             ensureSuperDocStyles(),
           ]);
           if (cancelled || !hostRef.current || !toolbarRef.current) return;
@@ -270,7 +270,7 @@ export const ResumeDocxEditor = forwardRef<ResumeDocxEditorHandle, ResumeDocxEdi
                 setStatus('ready');
                 setMessage('');
               },
-              onContentError: ({ error }) => {
+              onContentError: ({ error }: { error?: unknown }) => {
                 if (cancelled || readyRef.current) return;
                 console.error('[resume-docx] content error', error);
               },

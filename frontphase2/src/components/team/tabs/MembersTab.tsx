@@ -78,7 +78,7 @@ const roleColorMap: Record<string, string> = {
 };
 
 const TEAM_TABLE_HEAD_ROW =
-  'bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 border-b border-indigo-100/50 text-indigo-950/45 uppercase text-[9px] font-bold tracking-[0.12em]';
+  'bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 border-b border-indigo-100/50 text-indigo-950/70 uppercase text-xs font-bold tracking-[0.06em]';
 
 const TEAM_TH = 'px-3 py-2.5 text-left first:pl-4 sm:px-4 sm:first:pl-6 sm:py-3';
 
@@ -719,11 +719,11 @@ export const MembersTab: React.FC<MembersTabProps> = ({
                               {getInitials(member.firstName, member.lastName)}
                             </div>
                             <div>
-                              <div className="text-xs font-semibold text-slate-900">
+                              <div className="text-sm font-medium text-slate-900">
                                 {member.firstName} {member.lastName}
                               </div>
                               {member.designation ? (
-                                <div className="text-[10px] text-slate-500">{member.designation}</div>
+                                <div className="text-xs text-slate-500">{member.designation}</div>
                               ) : null}
                               {member.orgUnit ? (
                                 <div className="mt-0.5 inline-flex items-center rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">

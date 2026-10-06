@@ -85,7 +85,7 @@ export const DRAWER_TABLE_SHELL =
 export const DRAWER_TABLE_SCROLL =
   'overflow-x-auto [scrollbar-width:thin] [scrollbar-color:rgba(129,140,248,0.45)_transparent]';
 export const DRAWER_TABLE_HEAD_ROW =
-  'border-b border-indigo-100/60 bg-gradient-to-r from-slate-50 via-indigo-50/55 to-violet-50/40 text-[10px] font-bold uppercase tracking-[0.14em] text-indigo-900/50 backdrop-blur-md';
+  'border-b border-indigo-100/60 bg-gradient-to-r from-slate-50 via-indigo-50/55 to-violet-50/40 text-xs font-bold uppercase tracking-[0.06em] text-indigo-950/70 backdrop-blur-md';
 export const DRAWER_TABLE_TH = 'px-3 py-3 sm:px-4';
 export const DRAWER_TABLE_TD = 'px-3 py-3 sm:px-4 sm:py-3.5';
 export const DRAWER_TABLE_BODY = 'divide-y divide-indigo-50/80';

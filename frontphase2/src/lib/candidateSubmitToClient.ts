@@ -8,10 +8,11 @@ export const SUBMIT_TO_CLIENT_STAGE_OPTION_VALUE = '__submit_to_client__';
 export const SUBMIT_TO_CLIENT_STAGE_OPTION_LABEL = 'Submit to client';
 
 export function isSubmitToClientStageOption(value: string): boolean {
-  const normalized = String(value || '').trim().toLowerCase();
+  const normalized = String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
   return (
     value === SUBMIT_TO_CLIENT_STAGE_OPTION_VALUE ||
-    normalized === SUBMIT_TO_CLIENT_STAGE_OPTION_LABEL.toLowerCase()
+    normalized === SUBMIT_TO_CLIENT_STAGE_OPTION_LABEL.toLowerCase() ||
+    normalized === 'submit to client'
   );
 }
 

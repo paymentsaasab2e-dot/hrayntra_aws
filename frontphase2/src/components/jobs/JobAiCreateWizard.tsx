@@ -101,7 +101,7 @@ import {
   resolvePostedCompanyNameForSocial,
   type JobPublicFieldVisibility,
 } from '@/lib/jobPublicFieldVisibility';
-import { buildCandidatePortalApplyUrlPreview, buildLinkedInJobPost, replaceApplyUrlInSocialPostText, stripHtml } from '@/lib/jobSocialPost';
+import { buildCandidatePortalApplyUrlPreview, buildLinkedInJobPost, ensureApplyUrlInSocialPostText, replaceApplyUrlInSocialPostText, stripHtml } from '@/lib/jobSocialPost';
 import { loadJobVisibilityUserDefaults, visibilityDefaultsForNewJob, jobVisibilityDefaultsEqual } from '@/lib/jobVisibilityUserDefaults';
 import { startAsyncLoad } from '@/lib/asyncLoadGuard';
 import {
@@ -1886,7 +1886,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
             .replace(/\s+/g, ' ')
             .trim()
             .slice(0, 500);
-          const linkedinPostText =
+          const linkedinPostText = ensureApplyUrlInSocialPostText(
             linkedInPostTextTouched && linkedInPostText.trim()
               ? replaceApplyUrlInSocialPostText(
                   linkedInPostText,
@@ -1897,7 +1897,9 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                   ...linkedInPostInputBase,
                   jobDescriptionHtml: descriptionHtml || draft.jobDescriptionHtml,
                   applyUrl,
-                });
+                }),
+            applyUrl,
+          );
 
           const socialResult = await apiPublishSocialJob({
             jobId: createdJob.id,

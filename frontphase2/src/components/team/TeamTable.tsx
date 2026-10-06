@@ -250,7 +250,7 @@ export const TeamTable: React.FC<TeamTableProps> = ({ onSelectMember }) => {
                         </div>
                         <div>
                           <div className="flex items-center gap-2">
-                            <p className="font-semibold text-slate-900">
+                            <p className="font-medium text-slate-900">
                               {member.firstName} {member.lastName}
                             </p>
                             {member.credential?.isLocked && (
@@ -266,7 +266,7 @@ export const TeamTable: React.FC<TeamTableProps> = ({ onSelectMember }) => {
                     </td>
                     <td className="px-6 py-4">
                       {member.role ? (
-                        <span className="px-2 py-1 rounded-lg text-xs font-semibold bg-indigo-100 text-indigo-700">
+                        <span className="px-2 py-1 rounded-lg text-xs font-medium bg-indigo-100 text-indigo-700">
                           {member.role.roleName}
                         </span>
                       ) : (

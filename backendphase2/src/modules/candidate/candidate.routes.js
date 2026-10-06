@@ -14,6 +14,7 @@ router.post('/trash/bulk-purge', requireAnyPermission(['candidates_delete', 'del
 router.post('/:id/restore', requireAnyPermission(['candidates_update', 'edit_candidate', 'candidates_create', 'add_candidate']), candidateController.restore);
 router.delete('/:id/purge', requireAnyPermission(['candidates_delete', 'delete_candidate']), candidateController.purge);
 router.get('/', requireAnyPermission(['candidates_read', 'view_all_candidates', 'view_assigned_candidates']), candidateController.getAll);
+router.post('/link-person', requireAnyPermission(['candidates_create', 'add_candidate', 'candidates_update', 'edit_candidate']), candidateController.linkPerson);
 router.post('/:id/notes', requireAnyPermission(['candidates_update', 'edit_candidate']), candidateController.addNote);
 router.patch('/:id/notes/:noteId', requireAnyPermission(['candidates_update', 'edit_candidate']), candidateController.updateNote);
 router.delete('/:id/notes/:noteId', requireAnyPermission(['candidates_delete', 'delete_candidate']), candidateController.deleteNote);

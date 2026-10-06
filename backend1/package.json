@@ -5,8 +5,9 @@
   "main": "src/server.js",
   "type": "commonjs",
   "scripts": {
-    "dev": "node scripts/dev-watch.js",
-    "dev:setup": "prisma generate && node scripts/dev-watch.js",
+    "dev": "node src/server.js",
+    "dev:watch": "node --watch --watch-path=src src/server.js",
+    "dev:setup": "prisma generate && node src/server.js",
     "prestart": "prisma generate",
     "start": "node src/server.js",
     "postinstall": "prisma generate || true",
@@ -24,6 +25,8 @@
     "test:cv-golden": "node --test src/services/cv-golden-set.test.js",
     "test:cv-concurrency": "node --test src/services/cv-parse-job.concurrency.test.js",
     "test:security": "node --test src/security/security-remediation.test.js",
+    "test": "node --test src/security/portal-incomplete-login.test.js src/security/security-remediation.test.js",
+    "test:w1": "node --test src/security/portal-incomplete-login.test.js",
     "test:job-feeds": "node --test src/services/adzuna/feed.test.js src/services/careerjet/feed.test.js src/services/job-feeds/publicPortalUrl.test.js src/services/job-feeds/fetchPortalJobs.test.js"
   },
   "keywords": [

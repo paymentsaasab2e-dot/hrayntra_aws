@@ -16,8 +16,6 @@ function mapEmploymentTypeToDb(value) {
     contract: 'CONTRACT',
     internship: 'INTERNSHIP',
     freelance: 'FREELANCE',
-    volunteer: 'VOLUNTEER',
-    volunteering: 'VOLUNTEER',
     full_time: 'FULL_TIME',
     part_time: 'PART_TIME',
   };
@@ -31,7 +29,6 @@ function mapEmploymentTypeToDb(value) {
     CONTRACT: 'CONTRACT',
     INTERNSHIP: 'INTERNSHIP',
     FREELANCE: 'FREELANCE',
-    VOLUNTEER: 'VOLUNTEER',
   };
 
   return upperMap[upper] || null;
@@ -48,7 +45,6 @@ function mapEmploymentTypeFromDb(value) {
     CONTRACT: 'contract',
     INTERNSHIP: 'internship',
     FREELANCE: 'freelance',
-    VOLUNTEER: 'volunteer',
   };
 
   if (fromDb[upper]) return fromDb[upper];
@@ -121,7 +117,6 @@ function mapWorkExperienceForClient(exp) {
     workLocation: exp.workLocation || '',
     workMode: mapWorkModeFromDb(exp.workMode),
     companyProfile: exp.companyProfile || '',
-    companyWebsite: exp.companyWebsite || '',
     companyTurnover: exp.companyTurnover || '',
     keyResponsibilities: exp.responsibilities || '',
     achievements: exp.achievements || '',

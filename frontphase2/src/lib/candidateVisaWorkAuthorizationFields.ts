@@ -322,7 +322,7 @@ export function visaDisplayEntriesToSnapshot(
 
   return {
     ...previousRecord,
-    openForAll: previous?.openForAll === true,
+    openForAll: previous?.openForAll === true && !primary,
     selectedDestination: primary?.country || primary?.countryName || '',
     requiresVisa: primary?.requiresVisa || '',
     visaDetailsExpected:

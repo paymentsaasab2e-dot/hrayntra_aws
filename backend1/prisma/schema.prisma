@@ -94,7 +94,6 @@ enum EmploymentType {
   CONTRACT
   INTERNSHIP
   FREELANCE
-  VOLUNTEER
 }
 
 enum InterviewRequestStatus {
@@ -140,6 +139,7 @@ model Candidate {
   lastName          String?
   email             String?
   phone             String?
+  personId          String?
   linkedIn          String?
   resumeUrl         String?
   recruiterSkills   String[]  @default([])
@@ -230,6 +230,7 @@ model Candidate {
   settings          Settings?
   sessions          Session[]
 
+  @@index([personId])
   @@index([email])
   @@index([firstName, lastName])
   @@map("candidates")
@@ -354,8 +355,6 @@ model CandidateProfile {
   employmentStatus    EmploymentStatus?
   profileCompleteness Int             @default(0)
   skillsAdditionalNotes String?      // Additional notes for skills section
-  /// Location extras that have no dedicated columns (state, zip).
-  portalExtras          Json?
   createdAt           DateTime        @default(now())
   updatedAt           DateTime        @updatedAt
 
@@ -430,8 +429,7 @@ model Education {
   grade          String?
   modeOfStudy    String?   // Full-time, Part-time, Online, etc.
   courseDuration String?   // e.g., "3 years"
-  additionalCourses String? // Extra courses beyond the degree program
-  description    String?   // Extracurricular activities
+  description    String?
   documents      String[]  @default([]) // URLs to uploaded certificate/document files
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
@@ -513,7 +511,6 @@ model WorkExperience {
   employmentType   EmploymentType?
   numberOfReportees String?
   companyProfile   String?
-  companyWebsite   String?
   companyTurnover  String?
   achievements     String?
   workSkills       String[]  @default([])
@@ -1668,6 +1665,12 @@ model CandidateCommon {
   lastName                String?
   email                   String?
   phone                   String?
+  personId                String?
+  emailNormalized         String?
+  phoneE164               String?
+  resumeSha256            String?
+  fingerprintKeys         String[]  @default([])
+  mergedIntoPersonId      String?
   linkedIn                String?
   resumeUrl               String?
   skills                  String[]  @default([])
@@ -1716,6 +1719,10 @@ model CandidateCommon {
   @@index([assignedJobs])
   @@index([matchJobIds])
   @@index([isVerified])
+  @@index([personId])
+  @@index([emailNormalized])
+  @@index([phoneE164])
+  @@index([resumeSha256])
   @@map("candidate_commons")
 }
 

@@ -375,8 +375,8 @@ export function PlacementsTable({
 
   const outerWrap = embedded ? 'contents' : 'overflow-hidden rounded-xl bg-white shadow-sm';
   const theadRow = embedded
-    ? 'border-b border-indigo-100/60 bg-gradient-to-r from-slate-50 via-indigo-50/55 to-violet-50/40 text-[10px] font-bold uppercase tracking-[0.14em] text-indigo-900/50 backdrop-blur-md'
-    : 'bg-gray-50 text-xs font-medium uppercase tracking-wide text-gray-500';
+    ? 'border-b border-indigo-100/60 bg-gradient-to-r from-slate-50 via-indigo-50/55 to-violet-50/40 text-xs font-bold uppercase tracking-[0.06em] text-indigo-950/70 backdrop-blur-md'
+    : 'bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-600';
   const thPad = embedded ? 'px-3 py-3 sm:px-4' : 'px-6 py-4';
   const tdPad = embedded ? 'px-3 py-3 sm:px-4 sm:py-3.5' : 'px-6 py-4';
   const rowClass = embedded
@@ -451,14 +451,14 @@ export function PlacementsTable({
                           <button
                             type="button"
                             onClick={() => onView(placement)}
-                            className="text-left text-sm font-semibold text-slate-900 transition-colors hover:text-indigo-700"
+                            className="text-left text-sm font-medium text-slate-900 transition-colors hover:text-indigo-700"
                           >
                             {formatPlacementPersonName(placement.candidate)}
                           </button>
                           {placement.paymentStatus === 'PAID' || placement.paymentStatus === 'OVERDUE' ? (
                             <div className="mt-1">
                               <span
-                                className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                                className={`rounded-full px-2 py-0.5 text-xs font-medium ${
                                   placement.paymentStatus === 'PAID'
                                     ? 'bg-[#D1FAE5] text-[#065F46]'
                                     : 'bg-red-50 text-red-700'
@@ -474,7 +474,7 @@ export function PlacementsTable({
                     show('clientJob') ? (
                       <td key="clientJob" className={tdPad}>
                         <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold text-slate-900">
+                          <p className="truncate text-sm font-medium text-slate-900">
                             {placement.client.companyName}
                           </p>
                           <p className="truncate text-xs text-slate-500">{placement.job.title}</p>
@@ -499,7 +499,7 @@ export function PlacementsTable({
                     show('type') ? (
                       <td key="type" className={tdPad}>
                         <span
-                          className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-bold shadow-sm ${typeStyle.bg} ${typeStyle.text}`}
+                          className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium shadow-sm ${typeStyle.bg} ${typeStyle.text}`}
                         >
                           {placement.employmentType || '—'}
                         </span>

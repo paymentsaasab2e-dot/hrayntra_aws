@@ -11,8 +11,6 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { CandidateProfileDrawerData } from '../drawers/CandidateProfileDrawer';
-import { CandidatePhase1DetailSections } from './CandidatePhase1DetailSections';
-import { TENANT_FORM_MISSING_PHASE1_SECTIONS } from '@/lib/phase1ClientPresentationSections';
 import { DrawerSectionCard } from '../drawers/drawerFormUi';
 import { DrawerLinkActions, looksLikeHttpUrl } from '../drawers/DrawerLinkActions';
 import {
@@ -330,8 +328,6 @@ function buildOverviewModel(candidate: CandidateProfileDrawerData) {
       name: candidate.name,
       email: candidate.email || display(phase1Pi.email),
       phone: candidate.phone || display(phase1Pi.phone),
-      phoneCode: display(personal.phoneCode) || display(phase1Pi.phoneCode),
-      employment: display(personal.employment) || display(phase1Pi.employment),
       age: display(personal.age),
       candidateScore,
       cityState: cityState || [phase1Pi.city, phase1Pi.country].filter(Boolean).join(', ') || candidate.location,
@@ -574,9 +570,7 @@ export function CandidateAtsExtractedOverview({
         <div className="grid gap-2 sm:grid-cols-2">
           <FieldRow label="Name" value={p.name} optional={false} />
           <FieldRow label="E-mail" value={p.email} />
-          <FieldRow label="Phone code" value={p.phoneCode} />
           <FieldRow label="Mobile No" value={p.phone} />
-          <FieldRow label="Employment status" value={p.employment} />
           <FieldRow label="Age" value={p.age} />
           <FieldRow label="Candidate Score" value={p.candidateScore} />
           <FieldRow label="City & State" value={p.cityState} />
@@ -754,12 +748,6 @@ export function CandidateAtsExtractedOverview({
         {sum.hackathons ? <FieldRow label="Hackathons (extra)" value={sum.hackathons} /> : null}
       </SectionBlock>
       ) : null}
-      <CandidatePhase1DetailSections
-        candidate={candidate}
-        includeSectionIds={TENANT_FORM_MISSING_PHASE1_SECTIONS}
-        hideHiring
-        hideEmptyState
-      />
     </div>
   );
 }

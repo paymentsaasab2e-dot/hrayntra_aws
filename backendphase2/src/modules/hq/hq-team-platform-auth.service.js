@@ -11,7 +11,7 @@ let cachedClient = null;
 
 async function getCollection() {
   if (!env.HEADQUARTERS_DATABASE_URL) {
-    throw new Error('HEADQUARTERS_DATABASE_URL is not configured');
+    return null;
   }
   if (!cachedClient) {
     cachedClient = new MongoClient(env.HEADQUARTERS_DATABASE_URL);
@@ -73,6 +73,7 @@ function looksLikeEmail(value) {
 
 export async function findHqTeamMemberByCredentials(loginIdOrEmail, password) {
   const collection = await getCollection();
+  if (!collection) return null;
   const identifier = normalizeLookup(loginIdOrEmail);
   const email = looksLikeEmail(loginIdOrEmail) ? normalizeEmail(loginIdOrEmail) : '';
   const plainPassword = normalizeLookup(password);
@@ -102,6 +103,7 @@ export async function findHqTeamMemberByCredentials(loginIdOrEmail, password) {
 
 export async function findActiveHqTeamMemberByIdentity(loginIdOrEmail) {
   const collection = await getCollection();
+  if (!collection) return null;
   const identifier = normalizeLookup(loginIdOrEmail);
   const email = looksLikeEmail(loginIdOrEmail) ? normalizeEmail(loginIdOrEmail) : '';
   if (!identifier && !email) return null;
@@ -263,6 +265,7 @@ export async function provisionHqTeamMemberPlatformAccount(memberInput) {
 export async function getHqTeamMemberById(id) {
   if (!ObjectId.isValid(id)) return null;
   const collection = await getCollection();
+  if (!collection) return null;
   const doc = await collection.findOne({ _id: new ObjectId(id) });
   return mapMemberDoc(doc);
 }

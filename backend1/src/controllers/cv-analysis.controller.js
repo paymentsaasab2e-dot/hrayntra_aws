@@ -185,6 +185,15 @@ async function analyzeCV(req, res) {
       },
     });
 
+    try {
+      await prisma.resume.update({
+        where: { candidateId },
+        data: { atsScore: cvScore, aiAnalyzed: true },
+      });
+    } catch (err) {
+      console.warn('[cv-analysis] resume atsScore mirror failed:', err?.message || err);
+    }
+
     // Update DashboardStats
     await prisma.dashboardStats.upsert({
       where: { candidateId: candidateId },

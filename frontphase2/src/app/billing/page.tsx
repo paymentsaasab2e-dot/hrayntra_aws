@@ -364,7 +364,7 @@ function Table({
     <div className="min-h-0 min-w-0">
       <table className="w-max min-w-full border-collapse text-left">
         <thead>
-          <tr className="bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 border-b border-indigo-100/50 text-indigo-950/45 uppercase text-[9px] font-bold tracking-[0.12em]">
+          <tr className="bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 border-b border-indigo-100/50 text-indigo-950/70 uppercase text-xs font-bold tracking-[0.06em]">
             {columns.map((column) => (
               <th key={column} className="px-3 sm:px-4 py-2 text-left first:pl-4">
                 {column}

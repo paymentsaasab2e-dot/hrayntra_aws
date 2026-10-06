@@ -15,6 +15,7 @@ const {
 } = require('../services/candidateCommonSync.service');
 const { filterPortfolioLinks } = require('../utils/portfolioLinkFilter.util');
 const { resolvePersonalInfoNames } = require('../utils/person-name.util');
+const { isAbsorbablePortalDuplicate, portalLoginEmailWhere } = require('../lib/portalCandidateIdentity');
 
 function isPlaceholderProfileEmail(email) {
   const value = String(email || '').trim().toLowerCase();
@@ -22,11 +23,11 @@ function isPlaceholderProfileEmail(email) {
 }
 
 function resolveProfileDisplayEmail(candidate) {
-  const profileEmail = String(candidate?.profile?.email || '').trim();
   const candidateEmail = String(candidate?.email || '').trim();
+  const profileEmail = String(candidate?.profile?.email || '').trim();
 
-  if (profileEmail && !isPlaceholderProfileEmail(profileEmail)) return profileEmail;
   if (candidateEmail && !isPlaceholderProfileEmail(candidateEmail)) return candidateEmail;
+  if (profileEmail && !isPlaceholderProfileEmail(profileEmail)) return profileEmail;
 
   const resumeJson = candidate?.resume?.resumeJson;
   if (resumeJson && typeof resumeJson === 'object') {
@@ -56,7 +57,6 @@ function mapEducationForClient(edu) {
     grade: edu.grade || '',
     modeOfStudy: edu.modeOfStudy || '',
     courseDuration: edu.courseDuration || '',
-    additionalCourses: edu.additionalCourses || '',
     description: edu.description || '',
     documents: Array.isArray(edu.documents) ? edu.documents : [],
   };
@@ -255,6 +255,7 @@ async function getProfileData(req, res) {
         },
         visaWorkAuthorization: true,
         vaccination: true,
+        cvAnalysis: true,
       },
     });
       });
@@ -373,23 +374,6 @@ async function getProfileData(req, res) {
         nationality: candidate.profile.nationality || '',
         passportNumber: candidate.profile.passportNumber || '',
         linkedinUrl: candidate.profile.linkedinUrl || '',
-        maritalStatus:
-          mapMaritalLabel(candidate.profile.maritalStatus) ||
-          (candidate.profile.portalExtras && typeof candidate.profile.portalExtras === 'object'
-            ? String(candidate.profile.portalExtras.maritalStatus || '')
-            : ''),
-        state:
-          candidate.profile.portalExtras && typeof candidate.profile.portalExtras === 'object'
-            ? String(candidate.profile.portalExtras.state || '')
-            : '',
-        zip:
-          candidate.profile.portalExtras && typeof candidate.profile.portalExtras === 'object'
-            ? String(candidate.profile.portalExtras.zip || '')
-            : '',
-        portalExtras:
-          candidate.profile.portalExtras && typeof candidate.profile.portalExtras === 'object'
-            ? candidate.profile.portalExtras
-            : {},
       } : null,
       summaryText: candidate.summary?.summaryText || '',
       gapExplanation: latestGapExplanation,
@@ -418,8 +402,6 @@ async function getProfileData(req, res) {
         grade: edu.grade || '',
         modeOfStudy: edu.modeOfStudy || '',
         courseDuration: edu.courseDuration || '',
-        additionalCourses: edu.additionalCourses || '',
-        description: edu.description || '',
         documents: Array.isArray(edu.documents) ? edu.documents : [],
       })),
       workExperience: candidate.workExperiences.map((exp) =>
@@ -531,7 +513,11 @@ async function getProfileData(req, res) {
         fileUrl: candidate.resume.fileUrl || '',
         fileSize: candidate.resume.fileSize || null,
         mimeType: candidate.resume.mimeType || null,
-        atsScore: candidate.resume.atsScore || null,
+        atsScore:
+          candidate.resume.atsScore ??
+          candidate.cvAnalysis?.cvScore ??
+          candidate.cvAnalysis?.atsScore ??
+          null,
         aiAnalyzed: candidate.resume.aiAnalyzed || false,
         uploadedDate: candidate.resume.uploadedAt ? new Date(candidate.resume.uploadedAt).toISOString() : '',
       } : null,
@@ -679,39 +665,6 @@ async function getProfileCompleteness(req, res) {
   }
 }
 
-function mapMaritalLabel(value) {
-  const map = {
-    SINGLE: 'Single',
-    MARRIED: 'Married',
-    DIVORCED: 'Divorced',
-    WIDOWED: 'Widowed',
-  };
-  const key = String(value || '').trim().toUpperCase();
-  return map[key] || '';
-}
-
-function mapMaritalToDb(value) {
-  const key = String(value || '').trim().toLowerCase();
-  const map = {
-    single: 'SINGLE',
-    married: 'MARRIED',
-    divorced: 'DIVORCED',
-    widowed: 'WIDOWED',
-  };
-  return map[key] || null;
-}
-
-function normalizePortalExtras(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const out = {};
-  for (const [key, raw] of Object.entries(value)) {
-    const text = String(raw ?? '').trim();
-    if (!text) continue;
-    out[key] = text;
-  }
-  return Object.keys(out).length ? out : null;
-}
-
 /**
  * Update personal information
  * PUT /api/profile/personal-info/:candidateId
@@ -747,7 +700,6 @@ async function updatePersonalInfo(req, res) {
       passportNumber: normalizeNullableText(personalInfo.passportNumber),
       linkedinUrl: normalizeNullableText(personalInfo.linkedinUrl),
       employment: normalizeNullableText(personalInfo.employment),
-      portalExtras: normalizePortalExtras(personalInfo.portalExtras),
     };
 
     // JWT is authoritative (storage URL param can be stale after re-login / email-based ids).
@@ -802,7 +754,6 @@ async function updatePersonalInfo(req, res) {
         'Employed': 'EMPLOYED',
         'Unemployed': 'UNEMPLOYED',
         'Freelancing': 'FREELANCING',
-        'Self-Employed': 'FREELANCING',
         'Student': 'STUDENT',
         'Other': 'OTHER',
       };
@@ -816,35 +767,9 @@ async function updatePersonalInfo(req, res) {
         'Male': 'MALE',
         'Female': 'FEMALE',
         'Other': 'OTHER',
-        'Prefer not to say': 'OTHER',
       };
       gender = genderMap[normalizedInfo.gender] || null;
     }
-
-    const hasLinkedin = Object.prototype.hasOwnProperty.call(personalInfo, 'linkedinUrl');
-    const hasMarital = Object.prototype.hasOwnProperty.call(personalInfo, 'maritalStatus');
-    const maritalStatus = mapMaritalToDb(personalInfo.maritalStatus);
-    const relocatedExtraKeys = [
-      'age',
-      'location',
-      'maritalStatus',
-      'currentCompanyWebsite',
-      'preferredLocation',
-      'twitter',
-      'xing',
-      'skypeId',
-      'facebook',
-      'stackOverflow',
-      'website',
-      'educationCourses',
-      'extracurricular',
-      'volunteers',
-      'hackathons',
-      'workHistoryText',
-      'remarks',
-      'notes',
-      'candidateScore',
-    ];
 
     const normalizedEmail = normalizedInfo.email;
     if (!normalizedEmail) {
@@ -857,15 +782,31 @@ async function updatePersonalInfo(req, res) {
     const emailToPersist = normalizedEmail;
 
     // Email + mobile are unique login credentials — block taking another account's
-    const emailTaken = await prisma.candidate.findFirst({
+    const emailTaken = await prisma.candidate.findMany({
       where: {
-        email: emailToPersist,
-        NOT: { id: saveCandidateId },
-        OR: [{ isVerified: true }, { passwordHash: { not: null } }],
+        AND: [
+          { NOT: { id: saveCandidateId } },
+          portalLoginEmailWhere(emailToPersist),
+        ],
       },
-      select: { id: true },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        passwordHash: true,
+        isVerified: true,
+        personId: true,
+        phone: true,
+      },
     });
-    if (emailTaken) {
+    for (const other of emailTaken) {
+      if (isAbsorbablePortalDuplicate(other)) {
+        await prisma.candidate.update({
+          where: { id: other.id },
+          data: { email: null, whatsappNumber: null },
+        });
+        continue;
+      }
       return res.status(409).json({
         success: false,
         code: 'EMAIL_TAKEN',
@@ -888,24 +829,32 @@ async function updatePersonalInfo(req, res) {
       const phoneCandidates = await prisma.candidate.findMany({
         where: {
           NOT: { id: saveCandidateId },
-          AND: [
-            {
-              OR: [{ isVerified: true }, { passwordHash: { not: null } }],
-            },
-            {
-              OR: [
-                { whatsappNumber: fullWhatsAppNumber },
-                { whatsappNumber: normalizeE164(fullWhatsAppNumber) },
-                { phone: localPhone },
-                { profile: { phoneNumber: localPhone } },
-              ],
-            },
+          OR: [
+            { whatsappNumber: fullWhatsAppNumber },
+            { whatsappNumber: normalizeE164(fullWhatsAppNumber) },
+            { phone: localPhone },
+            { profile: { phoneNumber: localPhone } },
           ],
         },
-        select: { id: true },
-        take: 1,
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          passwordHash: true,
+          isVerified: true,
+          personId: true,
+          phone: true,
+        },
+        take: 20,
       });
-      if (phoneCandidates.length > 0) {
+      for (const other of phoneCandidates) {
+        if (isAbsorbablePortalDuplicate(other)) {
+          await prisma.candidate.update({
+            where: { id: other.id },
+            data: { email: null, whatsappNumber: null, phone: null },
+          });
+          continue;
+        }
         return res.status(409).json({
           success: false,
           code: 'PHONE_TAKEN',
@@ -914,55 +863,41 @@ async function updatePersonalInfo(req, res) {
       }
     }
 
-    const existingProfile = await prisma.candidateProfile.findUnique({
-      where: { candidateId: saveCandidateId },
-      select: { portalExtras: true },
-    });
-    const mergedExtras = {
-      ...(existingProfile?.portalExtras &&
-      typeof existingProfile.portalExtras === 'object' &&
-      !Array.isArray(existingProfile.portalExtras)
-        ? existingProfile.portalExtras
-        : {}),
-    };
-    for (const key of relocatedExtraKeys) delete mergedExtras[key];
-    const incomingExtras = normalizedInfo.portalExtras || {};
-    const stateValue = normalizeNullableText(personalInfo.state) || incomingExtras.state || '';
-    const zipValue = normalizeNullableText(personalInfo.zip) || incomingExtras.zip || '';
-    if (stateValue) mergedExtras.state = stateValue;
-    else delete mergedExtras.state;
-    if (zipValue) mergedExtras.zip = zipValue;
-    else delete mergedExtras.zip;
-    const portalExtrasToSave = Object.keys(mergedExtras).length ? mergedExtras : null;
-
-    const profileWrite = {
-      fullName,
-      email: emailToPersist || '',
-      phoneNumber: localPhone || normalizedInfo.phone,
-      gender: gender || undefined,
-      dateOfBirth: dateOfBirth || undefined,
-      country: normalizedInfo.country,
-      city: normalizedInfo.city,
-      address: normalizedInfo.address,
-      nationality: normalizedInfo.nationality,
-      passportNumber: normalizedInfo.passportNumber,
-      employmentStatus: employmentStatus || undefined,
-      portalExtras: portalExtrasToSave,
-    };
-    if (hasLinkedin) profileWrite.linkedinUrl = normalizedInfo.linkedinUrl;
-    if (hasMarital) profileWrite.maritalStatus = maritalStatus;
-
     // Upsert candidate profile
     await prisma.candidateProfile.upsert({
       where: { candidateId: saveCandidateId },
-      update: profileWrite,
+      update: {
+        fullName,
+        email: emailToPersist || '',
+        phoneNumber: localPhone || normalizedInfo.phone,
+        gender: gender || undefined,
+        dateOfBirth: dateOfBirth || undefined,
+        country: normalizedInfo.country,
+        city: normalizedInfo.city,
+        address: normalizedInfo.address,
+        nationality: normalizedInfo.nationality,
+        passportNumber: normalizedInfo.passportNumber,
+        linkedinUrl: normalizedInfo.linkedinUrl,
+        employmentStatus: employmentStatus || undefined,
+      },
       create: {
         candidateId: saveCandidateId,
-        ...profileWrite,
+        fullName,
+        email: emailToPersist || '',
+        phoneNumber: localPhone || normalizedInfo.phone,
+        gender: gender || undefined,
+        dateOfBirth: dateOfBirth || undefined,
+        country: normalizedInfo.country,
+        city: normalizedInfo.city,
+        address: normalizedInfo.address,
+        nationality: normalizedInfo.nationality,
+        passportNumber: normalizedInfo.passportNumber,
+        linkedinUrl: normalizedInfo.linkedinUrl,
+        employmentStatus: employmentStatus || undefined,
       },
     });
 
-    // Mirror contact + name on Candidate (used by auth, OTP login, and common sync)
+    // Signup email is the primary. Keep Candidate.email and profile.email in lockstep.
     try {
       const candidateUpdate = {
         email: emailToPersist,
@@ -1111,7 +1046,6 @@ async function saveEducation(req, res) {
       grade: education.grade?.trim() || null,
       modeOfStudy: education.modeOfStudy?.trim() || null,
       courseDuration: education.courseDuration?.trim() || null,
-      additionalCourses: education.additionalCourses?.trim() || null,
       description: education.description?.trim() || null,
       documents: Array.isArray(education.documents) 
         ? education.documents.map(doc => typeof doc === 'string' ? doc : doc.url || doc.name).filter(Boolean)
@@ -1282,7 +1216,6 @@ async function saveWorkExperience(req, res) {
       employmentType,
       numberOfReportees: experience.numberOfReportees?.trim() || null,
       companyProfile: experience.companyProfile?.trim() || null,
-      companyWebsite: experience.companyWebsite?.trim() || null,
       companyTurnover: experience.companyTurnover?.trim() || null,
       achievements: experience.achievements?.trim() || null,
       workSkills: Array.isArray(experience.workSkills) ? experience.workSkills.filter(skill => skill && skill.trim()) : [],
@@ -3233,15 +3166,29 @@ async function inspectResumeFile(req, res) {
 
     const { parseResumeFromBuffer } = require('../services/resume-parser.service');
 
-    const [profile, parsedData] = await Promise.all([
-      prisma.candidateProfile.findUnique({
-        where: { candidateId },
-        select: { fullName: true },
-      }),
-      parseResumeFromBuffer(file.buffer, file.mimetype, file.originalname),
-    ]);
-
+    const profile = await prisma.candidateProfile.findUnique({
+      where: { candidateId },
+      select: { fullName: true },
+    });
     const profileCandidateName = String(profile?.fullName || '').trim();
+
+    let parsedData = null;
+    try {
+      parsedData = await parseResumeFromBuffer(file.buffer, file.mimetype, file.originalname);
+    } catch (parseErr) {
+      console.warn('Resume inspect parse skipped:', parseErr?.message || parseErr);
+      return res.json({
+        success: true,
+        message: 'Resume inspect skipped (parser unavailable)',
+        data: {
+          profileCandidateName,
+          resumeCandidateName: '',
+          namesMatch: true,
+          personalInformation: null,
+        },
+      });
+    }
+
     const resumeCandidateName = String(parsedData?.personalInformation?.fullName || '').trim();
     const namesMatch = candidateNamesLikelyMatch(resumeCandidateName, profileCandidateName);
 

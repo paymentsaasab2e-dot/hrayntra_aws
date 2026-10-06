@@ -26,21 +26,14 @@ export function parseDeviceFromUserAgent(userAgent = '') {
   return { browser, operatingSystem, deviceType };
 }
 
-function isNonPublicIp(ip) {
+function isLoopbackIp(ip) {
   const normalized = formatDisplayIp(ip);
-  if (!normalized || normalized === '127.0.0.1' || normalized === '0.0.0.0') return true;
-  if (/^10\./.test(normalized)) return true;
-  if (/^192\.168\./.test(normalized)) return true;
-  if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(normalized)) return true;
-  if (/^169\.254\./.test(normalized)) return true;
-  const lower = normalized.toLowerCase();
-  if (lower.startsWith('fc') || lower.startsWith('fd') || lower.startsWith('fe80')) return true;
-  return false;
+  return !normalized || normalized === '127.0.0.1';
 }
 
 /**
  * Best-effort client IP from proxy headers, socket, or browser-reported public IP.
- * Loopback and private addresses are skipped when a public address is available.
+ * On localhost, prefers `clientPublicIp` from the frontend (ipify) over 127.0.0.1.
  */
 /** Client device identifier (MAC id surrogate from browser storage). */
 export function resolveMacAddress(body = {}) {
@@ -66,10 +59,10 @@ export function resolveClientIp(req, body = {}) {
     req.ip || req.socket?.remoteAddress || req.connection?.remoteAddress
   );
 
-  if (!isNonPublicIp(forwarded)) return forwarded;
-  if (!isNonPublicIp(direct)) return direct;
-  if (!isNonPublicIp(bodyIp)) return bodyIp;
-  return null;
+  if (!isLoopbackIp(forwarded)) return forwarded;
+  if (!isLoopbackIp(direct)) return direct;
+  if (!isLoopbackIp(bodyIp)) return bodyIp;
+  return direct || bodyIp || forwarded || null;
 }
 
 export function buildDeviceMeta(req, body = {}) {

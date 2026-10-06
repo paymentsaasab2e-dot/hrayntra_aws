@@ -188,23 +188,23 @@ export default function MatchCandidateTable({
                           <button
                             type="button"
                             onClick={() => onViewProfile(candidate.id)}
-                            className="truncate text-left text-sm font-semibold text-slate-900 transition-colors hover:text-indigo-700"
+                            className="truncate text-left text-sm font-medium text-slate-900 transition-colors hover:text-indigo-700"
                           >
                             {candidate.name}
                           </button>
                           <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
                             {candidate.isAppliedCandidate ? (
-                              <span className="rounded-md bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700 ring-1 ring-amber-100">
+                              <span className="rounded-md bg-amber-50 px-1.5 py-0.5 text-xs font-medium uppercase tracking-wide text-amber-700 ring-1 ring-amber-100">
                                 Applied
                               </span>
                             ) : null}
                             {candidate.isPhase1Candidate && !candidate.isAppliedCandidate ? (
-                              <span className="rounded-md bg-violet-50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-violet-700 ring-1 ring-violet-100">
+                              <span className="rounded-md bg-violet-50 px-1.5 py-0.5 text-xs font-medium uppercase tracking-wide text-violet-700 ring-1 ring-violet-100">
                                 Phase 1
                               </span>
                             ) : null}
                             {candidate.skills.slice(0, 4).map((skill) => (
-                              <span key={skill} className="truncate text-[10px] text-slate-400">
+                              <span key={skill} className="truncate text-xs text-slate-400">
                                 #{skill}
                               </span>
                             ))}
@@ -217,7 +217,7 @@ export default function MatchCandidateTable({
                         <div className="flex flex-col items-center gap-1">
                           {showScoreValue ? (
                             <span
-                              className={`inline-flex min-w-[2.85rem] justify-center rounded-full px-2.5 py-1 text-xs font-bold tabular-nums shadow-sm ${scoreBadgeClass(
+                              className={`inline-flex min-w-[2.85rem] justify-center rounded-full px-2.5 py-1 text-xs font-medium tabular-nums shadow-sm ${scoreBadgeClass(
                                 candidate.score,
                               )}`}
                             >

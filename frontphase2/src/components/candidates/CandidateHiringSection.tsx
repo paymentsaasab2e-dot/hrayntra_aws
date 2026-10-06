@@ -252,9 +252,6 @@ export function CandidateHiringEditSection({ form, onChange, recruiters, jobs }:
             // New job assignment starts at Applied unless the user then picks another stage.
             if (nextJobId && nextJobId !== prevJobId) {
               onChange('stage', 'Applied');
-            } else if (!nextJobId) {
-              const stage = String(form.stage || '').trim().toLowerCase();
-              if (!stage || stage === 'applied' || stage === 'new') onChange('stage', '');
             }
           }}
           placeholder="Search and select a job"
@@ -300,10 +297,7 @@ export function applyHiringFieldsFromEditForm(
       ? formStage && formStage.toLowerCase() !== 'new'
         ? formStage
         : 'Applied'
-      : !nextJobId &&
-          (!formStage || formStage.toLowerCase() === 'applied' || formStage.toLowerCase() === 'new')
-        ? null
-        : formStage || undefined,
+      : formStage || undefined,
     status: editForm.status.trim() || undefined,
     source: editForm.source.trim() || undefined,
     availability: editForm.availability.trim() || undefined,

@@ -66,27 +66,6 @@ function filterPassportNumbers(passportNumbersByLocation) {
   );
 }
 
-function splitAvailability(raw) {
-  const saved = String(raw?.availabilityToStart || '').trim();
-  const combined = /^(\d{4}-\d{2}-\d{2})\s*—\s*(.+)$/.exec(saved);
-  const parsed = combined
-    ? { earliestStartDate: combined[1], describeAvailability: combined[2].trim() }
-    : /^\d{4}-\d{2}-\d{2}$/.test(saved)
-      ? { earliestStartDate: saved, describeAvailability: '' }
-      : { earliestStartDate: '', describeAvailability: saved };
-  const earliestStartDate =
-    typeof raw?.earliestStartDate === 'string' ? raw.earliestStartDate.trim() : parsed.earliestStartDate;
-  const describeAvailability =
-    typeof raw?.describeAvailability === 'string'
-      ? raw.describeAvailability.trim()
-      : parsed.describeAvailability;
-  const availabilityToStart =
-    earliestStartDate && describeAvailability
-      ? `${earliestStartDate} — ${describeAvailability}`
-      : describeAvailability || earliestStartDate || null;
-  return { earliestStartDate, describeAvailability, availabilityToStart };
-}
-
 function parseNullableNumber(value) {
   if (value === null || value === undefined || value === '') return null;
   const parsed = Number(value);
@@ -124,7 +103,6 @@ export function normalizePortalCareerPreferences(raw, candidate = {}) {
       : raw.openToRelocation === false
         ? 'Not Open to Relocate'
         : null);
-  const availability = splitAvailability(raw);
 
   return {
     currentRole:
@@ -155,9 +133,7 @@ export function normalizePortalCareerPreferences(raw, candidate = {}) {
     currentSalaryType: normalizeSalaryType(raw.currentSalaryType),
     currentLocation: raw.currentLocation || null,
     currentBenefits: normalizeStringArray(raw.currentBenefits),
-    earliestStartDate: availability.earliestStartDate || null,
-    describeAvailability: availability.describeAvailability || null,
-    availabilityToStart: availability.availabilityToStart,
+    availabilityToStart: raw.availabilityToStart || null,
     noticePeriod,
     noticePeriodDays:
       raw.noticePeriodDays != null && Number.isFinite(Number(raw.noticePeriodDays))

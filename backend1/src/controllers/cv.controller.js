@@ -263,8 +263,6 @@ async function processCvParseJob({ candidateId, jobId, file, fileUrl, candidate 
     claimQueuedJob,
     markJobCompleted,
     markJobFailed,
-    markCvParseActive,
-    clearCvParseActive,
     RETRY_DELAY_MS,
     MAX_ATTEMPTS,
   } = require('../services/cv-parse-job.service');
@@ -277,10 +275,6 @@ async function processCvParseJob({ candidateId, jobId, file, fileUrl, candidate 
     return;
   }
 
-  let holdingParse = false;
-  try {
-    markCvParseActive();
-    holdingParse = true;
   const timing = {
     jobId,
     candidateId,
@@ -519,9 +513,6 @@ async function processCvParseJob({ candidateId, jobId, file, fileUrl, candidate 
         });
       }, RETRY_DELAY_MS);
     }
-  }
-  } finally {
-    if (holdingParse) clearCvParseActive();
   }
 }
 
@@ -861,9 +852,14 @@ async function updateCandidateProfile(req, res) {
         maritalStatusEnum = maritalStatusMap[personalInformation.maritalStatus] || null;
       }
 
+      const signupEmail = String(candidate.email || '').trim();
       const profileData = {
         ...(personalInformation.fullName !== undefined && { fullName: personalInformation.fullName }),
-        ...(personalInformation.email !== undefined && { email: personalInformation.email }),
+        ...(signupEmail
+          ? { email: signupEmail }
+          : personalInformation.email !== undefined
+            ? { email: personalInformation.email }
+            : {}),
         ...(personalInformation.phoneNumber !== undefined && { phoneNumber: personalInformation.phoneNumber }),
         ...(personalInformation.alternatePhoneNumber !== undefined && { alternatePhone: personalInformation.alternatePhoneNumber }),
         ...(genderEnum && { gender: genderEnum }),

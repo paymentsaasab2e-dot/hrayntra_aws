@@ -352,7 +352,7 @@ function buildSectionsFromEditForm(editForm, visibility) {
       ['Marital Status', editForm.maritalStatus],
       ['Birth Date', editForm.birthDate],
       ['Passport Number', editForm.passportNumber],
-      ['Preferred Location', joinUniqueDisplay(editForm.p1PreferredLocations, editForm.preferredLocation)],
+      ['Preferred Location', joinUniqueDisplay(editForm.preferredLocation, editForm.p1PreferredLocations)],
     ]);
   }
 
@@ -398,10 +398,6 @@ function buildSectionsFromEditForm(editForm, visibility) {
       ['Expected Salary Currency', editForm.expectedSalaryCurrency],
       ['Expected Benefits', editForm.expectedBenefits],
       ['Notice Period', editForm.noticePeriod],
-      ['Preferred Location', joinUniqueDisplay(editForm.p1PreferredLocations, editForm.preferredLocation)],
-      ['Current location', editForm.p1CurrentLocation],
-      ['Current salary type', editForm.p1CurrentSalaryType],
-      ['Preferred salary type', editForm.p1PreferredSalaryType],
       ['Work history (narrative)', editForm.workHistoryText],
       ['Extracurricular activities', editForm.extracurricular],
       ['Volunteers', editForm.volunteers],
@@ -982,18 +978,6 @@ export function buildClientReviewSectionsFromPresentation(saved) {
     }
     if (Array.isArray(section.entries) && section.entries.length) {
       score += section.entries.length * 2;
-      for (const entry of section.entries) {
-        if (!entry || typeof entry !== 'object') continue;
-        for (const value of Object.values(entry)) {
-          if (Array.isArray(value)) {
-            if (value.some((item) => String(item || '').trim())) score += 1;
-          } else if (value && typeof value === 'object') {
-            if (Object.keys(value).length) score += 1;
-          } else if (String(value ?? '').trim()) {
-            score += 1;
-          }
-        }
-      }
     }
     return score;
   };
@@ -1032,11 +1016,7 @@ export function buildClientReviewSectionsFromPresentation(saved) {
   // Phase 1 extras also exist; Phase 1 then fills missing section ids (certs, visa, …).
   ingest(fromEditForm);
   ingest(fromPhase1);
-  for (const section of fromStoredSections) {
-    if (!section?.id || byId.has(section.id)) continue;
-    byId.set(section.id, section);
-    order.push(section.id);
-  }
+  ingest(fromStoredSections);
 
   const merged = order.map((id) => byId.get(id)).filter(Boolean);
   return foldDuplicateClientReviewSections(merged).map((section) => ({
@@ -1446,17 +1426,12 @@ export function attachSharedResumeToClientReviewSections(sections, resumeUrl) {
   return list.map((section) => {
     if (section?.id !== 'resume') return section;
     const fields = Array.isArray(section.fields) ? [...section.fields] : [];
-    const isResumeLabel = (row) => {
+    if (fields.some((row) => isOpenableClientResumeHref(row?.value))) return section;
+    const idx = fields.findIndex((row) => {
       const key = String(row?.label || '').trim().toLowerCase();
-      return key === 'resume / cv' || key === 'resume' || key === 'resume url' || key === 'cv';
-    };
-    const idx = fields.findIndex(isResumeLabel);
-    if (idx >= 0) {
-      fields[idx] = { ...fields[idx], value: url };
-      return { ...section, fields };
-    }
-    const hrefIdx = fields.findIndex((row) => isOpenableClientResumeHref(row?.value));
-    if (hrefIdx >= 0) fields[hrefIdx] = { ...fields[hrefIdx], value: url };
+      return (key === 'resume / cv' || key === 'resume') && !String(row?.value || '').trim();
+    });
+    if (idx >= 0) fields[idx] = { ...fields[idx], value: url };
     else fields.unshift({ label: 'Resume / CV', value: url });
     return { ...section, fields };
   });

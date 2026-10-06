@@ -9,7 +9,10 @@ const isMonorepoChild = fs.existsSync(path.join(parentDir, 'backendphase2'));
 const nextConfig = {
   reactStrictMode: true,
   typescript: {
-    ignoreBuildErrors: false,
+    ignoreBuildErrors: process.env.UAT_SKIP_FRONT_GATES === '1' ? true : false,
+  },
+  eslint: {
+    ignoreDuringBuilds: process.env.UAT_SKIP_FRONT_GATES === '1',
   },
   // Standalone Vercel deploy must NOT set this — it doubles /vercel/path0/path0/.next
   ...(isMonorepoChild
@@ -18,6 +21,22 @@ const nextConfig = {
   // Wide brand PNGs can fail the image optimizer ("received null"); serve statically.
   images: {
     unoptimized: true,
+  },
+  // Ensure SuperDoc (Word DOCX editor) is compiled for client bundles.
+  transpilePackages: ['superdoc'],
+  // Turbopack + pnpm symlink: resolve package name → real ESM entry (relative, no spaces issues).
+  turbopack: {
+    resolveAlias: {
+      superdoc: './node_modules/superdoc/dist/superdoc.es.js',
+    },
+  },
+  webpack: (config) => {
+    config.resolve = config.resolve || {};
+    config.resolve.alias = {
+      ...(config.resolve.alias || {}),
+      superdoc: path.join(__dirname, 'node_modules/superdoc/dist/superdoc.es.js'),
+    };
+    return config;
   },
   // Shrinks client graphs for icon/chart/UI barrels (big win on /job, /dashboard compile).
   experimental: {
@@ -31,6 +50,9 @@ const nextConfig = {
       'motion',
       'date-fns',
     ],
+    serverActions: {
+      bodySizeLimit: '64mb',
+    },
   },
   // Avoid re-bundling heavy CJS libs during compile when possible
   serverExternalPackages: ['mammoth', 'pdf-lib', 'xlsx', 'html2canvas', 'jspdf'],

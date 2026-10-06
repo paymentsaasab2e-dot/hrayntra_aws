@@ -1632,28 +1632,10 @@ export const jobService = {
         console.error('[jobs] ordered ids page load failed, using standard list', error);
         [jobs, total] = await loadPagedJobs();
       }
-    } else if (!isOrgCompanyScoped(orgScope)) {
-      try {
-        const uniqueResult = await uniqueJobIdsForAllCompanies(scopedWhere, { skip, limit });
-        const uniqueIds = uniqueResult.ids;
-        // Prefer exact DB count for pagination chrome; unique window only drives the page slice.
-        const [pageCount] = await Promise.all([prisma.job.count({ where: scopedWhere })]);
-        total = pageCount;
-        const pageIds =
-          uniqueIds.length > skip
-            ? uniqueIds.slice(skip, skip + limit)
-            : uniqueIds.slice(0, limit);
-        // Deep page beyond unique window: fall back to standard skip/take (no full-table unique scan).
-        if (skip >= uniqueIds.length && uniqueResult.capped) {
-          [jobs, total] = await loadPagedJobs();
-        } else {
-          await loadJobsByOrderedIds(pageIds, total);
-        }
-      } catch (error) {
-        console.error('[jobs] unique page load failed, using standard list', error);
-        [jobs, total] = await loadPagedJobs();
-      }
     } else {
+      // Always page real job rows. Transfer-identity dedupe used to hide legitimate
+      // openings that share title+client+location (HQ "all companies" view), which made
+      // "Showing 1-N of N" disagree with the table and newly created jobs disappear.
       [jobs, total] = await loadPagedJobs();
     }
 

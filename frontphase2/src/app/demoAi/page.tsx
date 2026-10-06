@@ -16,7 +16,7 @@ import {
 import { Toaster, toast } from 'sonner';
 import { SummaryCard } from '../../components/ui/SummaryCard';
 import { usePermissions } from '../../hooks/usePermissions';
-import { apiParseCandidateResume } from '../../lib/api';
+import { apiParseCandidateResumeQueued } from '../../lib/api';
 import { filterBulkCvFiles } from '../../lib/bulkCvCollect';
 import { formatDateTimeDMY } from '../../utils/dateDisplay';
 import { downloadCsv } from '../../utils/csv';
@@ -177,7 +177,7 @@ export default function DemoAiPage() {
         const file = pendingFiles[i];
         setParseProgress({ current: i + 1, total: pendingFiles.length });
         try {
-          const response = await apiParseCandidateResume(file, { signal: controller.signal });
+          const response = await apiParseCandidateResumeQueued(file, { signal: controller.signal });
           const usage = tokenUsageFromParseResponse(response);
           batch.push(recordFromFileAndUsage(file.name, usage));
         } catch (err: unknown) {

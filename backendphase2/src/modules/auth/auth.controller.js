@@ -24,7 +24,7 @@ export const authController = {
         ...buildDeviceMeta(req, req.body),
         forceSessionTakeover: Boolean(forceSessionTakeover),
       };
-      const ipAddress = resolveClientIp(req, req.body) || '';
+      const ipAddress = resolveClientIp(req, req.body) || deviceMeta.ipAddress || req.ip || 'Unknown';
       const userAgent = req.get('user-agent') || deviceMeta.userAgent || 'Unknown';
       const result = await authService.login(loginIdentifier, password, ipAddress, userAgent, deviceMeta);
       if (result?.duplicateSession) {
@@ -37,6 +37,9 @@ export const authController = {
       }
       if (error.statusCode === 403 || error.code === 'TRIAL_EXPIRED') {
         return sendError(res, 403, error.message || 'Trial has ended', error);
+      }
+      if (error.code === 'TENANT_NOT_FOUND' || error.statusCode === 400) {
+        return sendError(res, error.statusCode || 400, error.message, error);
       }
       const message =
         error?.message === 'Invalid credentials'
@@ -144,11 +147,7 @@ export const authController = {
     try {
       const identifier = req.body.loginId || req.body.email;
       const { otp, newPassword } = req.body;
-      const result = await authService.resetPassword(identifier, otp, newPassword, {
-        ipAddress: resolveClientIp(req, req.body) || req.ip || '',
-        device: req.get('user-agent') || '',
-        source: 'forgot_password',
-      });
+      const result = await authService.resetPassword(identifier, otp, newPassword);
       sendResponse(res, 200, result.message);
     } catch (error) {
       sendError(res, 400, error.message, error);
@@ -174,11 +173,7 @@ export const authController = {
         return sendError(res, 403, 'You can only change your own password');
       }
 
-      const result = await authService.changePassword(userId, newPassword, {
-        ipAddress: resolveClientIp(req, req.body) || req.ip || '',
-        device: req.get('user-agent') || '',
-        source: 'change_password',
-      });
+      const result = await authService.changePassword(userId, newPassword);
       sendResponse(res, 200, result.message);
     } catch (error) {
       sendError(res, 400, error.message, error);

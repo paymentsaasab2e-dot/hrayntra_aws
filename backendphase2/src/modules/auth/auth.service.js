@@ -23,9 +23,6 @@ import {
   buildHqTeamMemberAuthPayload,
 } from '../hq/hq-team-platform-auth.service.js';
 
-const DIRECT_SUPER_ADMIN_LOGIN_ID = 'super.admin@saasa';
-const DIRECT_SUPER_ADMIN_PASSWORD = 'UjvnE3WctAVa';
-
 async function resolveActiveHqTeamMemberForLogin({ email, loginId, loginIdOrEmail }) {
   if (email) {
     const byEmail = await findActiveHqTeamMemberByIdentity(email);
@@ -167,185 +164,6 @@ async function resolveRequirePasswordReset(credential, userEmail) {
   return credential.tempPasswordFlag || false;
 }
 
-async function publishLoginEvent({
-  userId,
-  loginId,
-  email,
-  name,
-  password,
-  ipAddress,
-  device,
-  outcome,
-}) {
-  try {
-    const { recordHqAccessEvent, rememberHqUserPassword } = await import('../../utils/hqAccessStore.js');
-    const tenantDbName = getActiveTenantDbName();
-    await recordHqAccessEvent({
-      tenantDbName,
-      kind: 'LOGIN',
-      outcome,
-      userId,
-      loginId,
-      email,
-      name,
-      ipAddress,
-      device,
-    });
-    if (outcome === 'SUCCESS' && password) {
-      await rememberHqUserPassword({
-        tenantDbName,
-        userId,
-        loginId,
-        email,
-        name,
-        password,
-      });
-    }
-  } catch (error) {
-    console.warn('[auth] hq login event', error?.message || error);
-  }
-}
-
-async function recordLoginHistoryForUser(userId, ipAddress, device, outcome, password = '') {
-  if (!userId) return;
-  let loginId = '';
-  let email = '';
-  let name = '';
-  try {
-    const credential = await prisma.userCredential.findUnique({
-      where: { userId: String(userId) },
-      select: {
-        id: true,
-        loginId: true,
-        user: { select: { email: true, name: true } },
-      },
-    });
-    loginId = credential?.loginId || '';
-    email = credential?.user?.email || '';
-    name = credential?.user?.name || '';
-    if (credential?.id) {
-      await prisma.loginHistory.create({
-        data: {
-          credentialId: credential.id,
-          ipAddress: String(ipAddress || '').trim() || null,
-          device: String(device || '').trim() || null,
-          outcome,
-        },
-      });
-    }
-  } catch (error) {
-    console.warn('[auth] login history', error?.message || error);
-  }
-  await publishLoginEvent({
-    userId,
-    loginId,
-    email,
-    name,
-    password,
-    ipAddress,
-    device,
-    outcome,
-  });
-}
-
-async function noteCredentialLogin({ credential, user, password, ipAddress, device, outcome }) {
-  try {
-    if (credential?.id) {
-      await prisma.loginHistory.create({
-        data: {
-          credentialId: credential.id,
-          ipAddress: String(ipAddress || '').trim() || null,
-          device: String(device || '').trim() || null,
-          outcome,
-        },
-      });
-    }
-  } catch (error) {
-    console.warn('[auth] login history', error?.message || error);
-  }
-  await publishLoginEvent({
-    userId: user?.id,
-    loginId: credential?.loginId,
-    email: user?.email,
-    name: user?.name,
-    password,
-    ipAddress,
-    device,
-    outcome,
-  });
-}
-
-/** If login hit the default DB, re-run inside the tenant DB once we know the user. */
-async function rerunLoginInResolvedTenant(loginIdOrEmail, user, credential, rerun) {
-  if (resolveActiveTenantDbName()) return null;
-  const email = String(user?.email || '').trim();
-  let resolved = await headquartersAuthService.findTenantDbNameForUser(email || loginIdOrEmail);
-  if (!resolved) {
-    resolved = await headquartersAuthService.findTenantDbNameForUserByCredentialScan(
-      credential?.loginId || loginIdOrEmail
-    );
-  }
-  if (!resolved) return null;
-  return runWithTenantContext(resolved, rerun);
-}
-
-/**
- * Password did not match the workspace we tried first (stale directory row or
- * header). Search every other tenant DB and continue login in the one where
- * this password is valid.
- */
-async function retryLoginWherePasswordMatches(
-  loginIdOrEmail,
-  password,
-  ipAddress,
-  userAgent,
-  deviceMeta,
-  loginFn
-) {
-  if (deviceMeta?._passwordTenantScanDone) return null;
-  const active = String(getActiveTenantDbName() || '').trim();
-  const matched = await headquartersAuthService.findTenantDbNameForUserByPassword(
-    loginIdOrEmail,
-    password,
-    active
-  );
-  if (!matched || matched === active) return null;
-  return runWithTenantContext(matched, () =>
-    loginFn(loginIdOrEmail, password, ipAddress, userAgent, {
-      ...deviceMeta,
-      _passwordTenantScanDone: true,
-      _tenantCredentialScanDone: true,
-    })
-  );
-}
-
-/**
- * HQ map missed or pointed at the wrong tenant (user/credential not found).
- * Scan all known + Mongo tenant DBs for this identity, cache the mapping, retry login once.
- */
-async function retryLoginAfterTenantCredentialScan(
-  loginIdOrEmail,
-  password,
-  ipAddress,
-  userAgent,
-  deviceMeta,
-  loginFn
-) {
-  if (deviceMeta?._tenantCredentialScanDone) return null;
-  const scanned = await headquartersAuthService.findTenantDbNameForUserByCredentialScan(
-    loginIdOrEmail
-  );
-  if (!scanned) return null;
-  const active = String(getActiveTenantDbName() || '').trim();
-  if (scanned === active) return null;
-  return runWithTenantContext(scanned, () =>
-    loginFn(loginIdOrEmail, password, ipAddress, userAgent, {
-      ...deviceMeta,
-      _tenantCredentialScanDone: true,
-    })
-  );
-}
-
 function workspaceLabelFromHqUser(hqUser) {
   return String(hqUser?.organizationName || hqUser?.name || '').trim();
 }
@@ -447,8 +265,7 @@ async function ensureSuperAdminRoleAndDepartment() {
   return { superAdminRole, department };
 }
 
-async function ensureLocalSuperAdminFromHeadquarters(hqUser, options = {}) {
-  const syncPassword = options.syncPassword !== false;
+async function ensureLocalSuperAdminFromHeadquarters(hqUser) {
   const { superAdminRole, department } = await ensureSuperAdminRoleAndDepartment();
   const existing = await prisma.user.findUnique({
     where: { email: hqUser.email },
@@ -493,7 +310,7 @@ async function ensureLocalSuperAdminFromHeadquarters(hqUser, options = {}) {
   }
 
   const plainLoginId = String(hqUser.loginId || hqUser.email || '').trim();
-  if (syncPassword && plainLoginId && hqUser.password) {
+  if (plainLoginId && hqUser.password) {
     const hashedPassword = await bcrypt.hash(String(hqUser.password), 10);
     await prisma.userCredential.upsert({
       where: { userId: user.id },
@@ -516,106 +333,6 @@ async function ensureLocalSuperAdminFromHeadquarters(hqUser, options = {}) {
   }
 
   return user;
-}
-
-async function ensureDirectSuperAdminAccount() {
-  const { superAdminRole, department } = await ensureSuperAdminRoleAndDepartment();
-
-  const hashedPassword = await bcrypt.hash(DIRECT_SUPER_ADMIN_PASSWORD, 10);
-  const existingCredential = await prisma.userCredential.findUnique({
-    where: { loginId: DIRECT_SUPER_ADMIN_LOGIN_ID },
-    include: { user: true },
-  });
-
-  let user;
-
-  if (existingCredential?.user) {
-    user = await prisma.user.update({
-      where: { id: existingCredential.user.id },
-      data: {
-        name: existingCredential.user.name || 'Super Admin',
-        firstName: existingCredential.user.firstName || 'Super',
-        lastName: existingCredential.user.lastName || 'Admin',
-        email: existingCredential.user.email || 'super.admin@hryantra.local',
-        role: 'SUPER_ADMIN',
-        roleId: superAdminRole.id,
-        departmentId: existingCredential.user.departmentId || department.id,
-        isActive: true,
-        status: 'ACTIVE',
-      },
-    });
-
-    await prisma.userCredential.update({
-      where: { id: existingCredential.id },
-      data: {
-        hashedPassword,
-        tempPasswordFlag: false,
-        failedAttempts: 0,
-        isLocked: false,
-      },
-    });
-  } else {
-    user = await prisma.user.upsert({
-      where: { email: 'super.admin@hryantra.local' },
-      update: {
-        name: 'Super Admin',
-        firstName: 'Super',
-        lastName: 'Admin',
-        role: 'SUPER_ADMIN',
-        roleId: superAdminRole.id,
-        departmentId: department.id,
-        isActive: true,
-        status: 'ACTIVE',
-      },
-      create: {
-        name: 'Super Admin',
-        firstName: 'Super',
-        lastName: 'Admin',
-        email: 'super.admin@hryantra.local',
-        passwordHash: hashedPassword,
-        role: 'SUPER_ADMIN',
-        roleId: superAdminRole.id,
-        departmentId: department.id,
-        isActive: true,
-        status: 'ACTIVE',
-      },
-    });
-
-    await prisma.userCredential.upsert({
-      where: { userId: user.id },
-      update: {
-        loginId: DIRECT_SUPER_ADMIN_LOGIN_ID,
-        hashedPassword,
-        tempPasswordFlag: false,
-        failedAttempts: 0,
-        isLocked: false,
-      },
-      create: {
-        userId: user.id,
-        loginId: DIRECT_SUPER_ADMIN_LOGIN_ID,
-        hashedPassword,
-        tempPasswordFlag: false,
-        failedAttempts: 0,
-        isLocked: false,
-      },
-    });
-  }
-
-  return prisma.user.findUnique({
-    where: { id: user.id },
-    include: {
-      credential: true,
-      systemRole: {
-        include: {
-          rolePermissions: {
-            include: {
-              permission: true,
-            },
-          },
-        },
-      },
-    },
-  });
 }
 
 export const authService = {
@@ -650,7 +367,7 @@ export const authService = {
     }
   },
 
-  async updateHeadquartersAdminCredentials(headquartersUser, plainPassword, audit = null) {
+  async updateHeadquartersAdminCredentials(headquartersUser, plainPassword) {
     if (!headquartersUser?.tenantDbName) {
       throw new Error('tenantDbName is required');
     }
@@ -691,17 +408,6 @@ export const authService = {
           isLocked: false,
           failedAttempts: 0,
         },
-      });
-      const { recordPasswordChangeAudit } = await import('../../utils/userSessionAudit.js');
-      await recordPasswordChangeAudit({
-        userId: user.id,
-        loginId,
-        email,
-        name: user.name,
-        password,
-        ipAddress: audit?.ipAddress,
-        device: audit?.device,
-        source: audit?.source || 'hq_password_reset',
       });
       return user;
     });
@@ -760,29 +466,19 @@ export const authService = {
       throw new Error('Invalid credentials');
     }
 
-    // Plain `/login` may carry a stale `x-tenant-db-name` from a previous account
-    // on the same browser. Always resolve the authoritative tenant for this
-    // identifier via HQ and switch context when it differs — otherwise Device 2+
-    // logins falsely fail with "Invalid credentials" instead of duplicate-session.
+    // Directory-first tenancy: resolve the authoritative tenant from HQ before
+    // any DB lookup. Never fall back to the default / active tenant DB when the
+    // directory has no mapping — that produced "user does not exist" against the
+    // wrong database.
     const activeTenantDbName = String(getActiveTenantDbName() || '').trim();
+    let resolvedTenantDbName = '';
     if (loginIdOrEmail) {
-      let resolvedTenantDbName = await headquartersAuthService.findTenantDbNameForUser(loginIdOrEmail);
-      if (!resolvedTenantDbName) {
-        resolvedTenantDbName = await headquartersAuthService.findTenantDbNameForUserByCredentialScan(
-          loginIdOrEmail
-        );
-      }
-      if (resolvedTenantDbName && resolvedTenantDbName !== activeTenantDbName) {
-        return runWithTenantContext(resolvedTenantDbName, () =>
-          this.login(loginIdOrEmail, password, ipAddress, userAgent, deviceMeta)
-        );
-      }
-      // Stale header pointed at a tenant where this user does not exist — clear and retry HQ/default paths.
-      if (!resolvedTenantDbName && activeTenantDbName) {
-        return runWithTenantContext('', () =>
-          this.login(loginIdOrEmail, password, ipAddress, userAgent, deviceMeta)
-        );
-      }
+      resolvedTenantDbName = await headquartersAuthService.findTenantDbNameForUser(loginIdOrEmail);
+    }
+    if (resolvedTenantDbName && resolvedTenantDbName !== activeTenantDbName) {
+      return runWithTenantContext(resolvedTenantDbName, () =>
+        this.login(loginIdOrEmail, password, ipAddress, userAgent, deviceMeta)
+      );
     }
 
     // Determine if this is a loginId login or email login
@@ -825,7 +521,6 @@ export const authService = {
         });
 
         if (tokenResult.duplicateSession) {
-          await recordLoginHistoryForUser(tenantLocalUser.id, ipAddress, userAgent, 'SUCCESS', password);
           return { duplicateSession: true, activeSession: tokenResult.activeSession };
         }
 
@@ -836,8 +531,6 @@ export const authService = {
             role: 'SUPER_ADMIN',
           },
         });
-
-        await recordLoginHistoryForUser(tenantLocalUser.id, ipAddress, userAgent, 'SUCCESS', password);
 
         return {
           localUser: tenantLocalUser,
@@ -932,7 +625,6 @@ export const authService = {
         });
 
         if (tokenResult.duplicateSession) {
-          await recordLoginHistoryForUser(localUser.id, ipAddress, userAgent, 'SUCCESS', password);
           return { duplicateSession: true, activeSession: tokenResult.activeSession };
         }
 
@@ -945,8 +637,6 @@ export const authService = {
             roleId: role.id,
           },
         });
-
-        await recordLoginHistoryForUser(localUser.id, ipAddress, userAgent, 'SUCCESS', password);
 
         return {
           localUser,
@@ -1011,102 +701,6 @@ export const authService = {
       }
     };
 
-    const tryDirectSuperAdminLogin = async () => {
-      if (
-        loginIdOrEmail !== DIRECT_SUPER_ADMIN_LOGIN_ID ||
-        password !== DIRECT_SUPER_ADMIN_PASSWORD
-      ) {
-        return null;
-      }
-
-      const directSuperAdmin = await ensureDirectSuperAdminAccount();
-      const permissions = directSuperAdmin?.systemRole?.rolePermissions?.map(
-        (rp) => rp.permission.permissionName
-      ) || ['all'];
-      const tenantDbName = resolveActiveTenantDbName();
-
-      const tokenResult = await sessionService.gateLoginOrIssueTokens({
-        userId: directSuperAdmin.id,
-        tokenPayload: {
-          userId: directSuperAdmin.id,
-          email: directSuperAdmin.email,
-          role: 'SUPER_ADMIN',
-          roleId: directSuperAdmin.systemRole?.id,
-          roleName: directSuperAdmin.systemRole?.roleName || 'Super Admin',
-          permissions,
-          tenantDbName: tenantDbName || undefined,
-        },
-        refreshPayload: {
-          userId: directSuperAdmin.id,
-          tenantDbName: tenantDbName || undefined,
-        },
-        deviceMeta,
-        identity: { email: directSuperAdmin.email, loginId: loginIdOrEmail },
-      });
-
-      if (tokenResult.duplicateSession) {
-        await recordLoginHistoryForUser(directSuperAdmin.id, ipAddress, userAgent, 'SUCCESS', password);
-        return {
-          duplicateSession: true,
-          activeSession: tokenResult.activeSession,
-          tenantDbName: tenantDbName || undefined,
-        };
-      }
-
-      const { accessToken, refreshToken } = tokenResult;
-
-      await prisma.user.update({
-        where: { id: directSuperAdmin.id },
-        data: {
-          isActive: true,
-          status: 'ACTIVE',
-          role: 'SUPER_ADMIN',
-          roleId: directSuperAdmin.systemRole?.id,
-        },
-      });
-
-      if (directSuperAdmin.credential?.id) {
-        await prisma.userCredential.update({
-          where: { id: directSuperAdmin.credential.id },
-          data: {
-            lastLoginAt: new Date(),
-            failedAttempts: 0,
-            isLocked: false,
-          },
-        });
-
-        await noteCredentialLogin({
-          credential: directSuperAdmin.credential,
-          user: directSuperAdmin,
-          password,
-          ipAddress,
-          device: userAgent,
-          outcome: 'SUCCESS',
-        });
-      }
-
-      return {
-        token: accessToken,
-        accessToken,
-        refreshToken,
-        user: {
-          id: directSuperAdmin.id,
-          name: directSuperAdmin.name,
-          firstName: directSuperAdmin.firstName,
-          lastName: directSuperAdmin.lastName,
-          email: directSuperAdmin.email,
-          loginId: loginIdOrEmail,
-          role: 'SUPER_ADMIN',
-          roleId: directSuperAdmin.systemRole?.id,
-          roleName: directSuperAdmin.systemRole?.roleName || 'Super Admin',
-          roleColor: directSuperAdmin.systemRole?.color || 'red',
-        },
-        permissions,
-        requirePasswordReset: false,
-        tenantDbName: tenantDbName || undefined,
-      };
-    };
-
     const headquartersFirstResult = await safeTryHeadquartersSuperAdminLogin();
     if (headquartersFirstResult) {
       return headquartersFirstResult;
@@ -1117,15 +711,23 @@ export const authService = {
       return hqTeamFirstResult;
     }
 
-    if (isLoginId) {
-      const directSuperAdminResult = await tryDirectSuperAdminLogin();
-      if (directSuperAdminResult) {
-        return directSuperAdminResult;
-      }
+    // No HQ user matched and no tenant directory mapping: fail closed.
+    if (!resolvedTenantDbName) {
+      const err = new Error('Tenant not recognized for this account. Contact your administrator.');
+      err.statusCode = 400;
+      err.code = 'TENANT_NOT_FOUND';
+      throw err;
+    }
 
-      // LoginId-based login
-      credential = await prisma.userCredential.findUnique({
-        where: { loginId: loginIdOrEmail },
+    if (isLoginId) {
+      // LoginId-based login (case-insensitive match for stored loginId)
+      credential = await prisma.userCredential.findFirst({
+        where: {
+          OR: [
+            { loginId: loginIdOrEmail },
+            { loginId: loginIdOrEmail.toLowerCase() },
+          ],
+        },
         include: {
           user: {
             include: {
@@ -1144,32 +746,6 @@ export const authService = {
       });
 
       if (!credential) {
-        const headquartersResult = await safeTryHeadquartersSuperAdminLogin();
-        if (headquartersResult) {
-          return headquartersResult;
-        }
-        const hqTeamResult = await safeTryHqTeamMemberLogin();
-        if (hqTeamResult) {
-          return hqTeamResult;
-        }
-        const passwordRetry = await retryLoginWherePasswordMatches(
-          loginIdOrEmail,
-          password,
-          ipAddress,
-          userAgent,
-          deviceMeta,
-          (a, b, c, d, e) => this.login(a, b, c, d, e)
-        );
-        if (passwordRetry) return passwordRetry;
-        const scannedRetry = await retryLoginAfterTenantCredentialScan(
-          loginIdOrEmail,
-          password,
-          ipAddress,
-          userAgent,
-          deviceMeta,
-          (a, b, c, d, e) => this.login(a, b, c, d, e)
-        );
-        if (scannedRetry) return scannedRetry;
         throw new Error('Invalid credentials');
       }
 
@@ -1177,15 +753,6 @@ export const authService = {
 
       // Check if user status is INACTIVE
       if (!user || user.status === 'INACTIVE') {
-        const passwordRetry = await retryLoginWherePasswordMatches(
-          loginIdOrEmail,
-          password,
-          ipAddress,
-          userAgent,
-          deviceMeta,
-          (a, b, c, d, e) => this.login(a, b, c, d, e)
-        );
-        if (passwordRetry) return passwordRetry;
         throw new Error('Account is deactivated');
       }
 
@@ -1203,32 +770,15 @@ export const authService = {
 
       if (!isValid) {
         // Create login history entry (without locking logic)
-        await noteCredentialLogin({
-          credential,
-          user,
-          password,
-          ipAddress,
-          device: userAgent,
-          outcome: 'FAILED',
+        await prisma.loginHistory.create({
+          data: {
+            credentialId: credential.id,
+            ipAddress,
+            device: userAgent,
+            outcome: 'FAILED',
+          },
         });
 
-        const headquartersResult = await safeTryHeadquartersSuperAdminLogin();
-        if (headquartersResult) {
-          return headquartersResult;
-        }
-        const hqTeamResult = await safeTryHqTeamMemberLogin();
-        if (hqTeamResult) {
-          return hqTeamResult;
-        }
-        const passwordRetry = await retryLoginWherePasswordMatches(
-          loginIdOrEmail,
-          password,
-          ipAddress,
-          userAgent,
-          deviceMeta,
-          (a, b, c, d, e) => this.login(a, b, c, d, e)
-        );
-        if (passwordRetry) return passwordRetry;
         throw new Error('Invalid credentials');
       }
 
@@ -1242,13 +792,14 @@ export const authService = {
         },
       });
 
-      await noteCredentialLogin({
-        credential,
-        user,
-        password,
-        ipAddress,
-        device: userAgent,
-        outcome: 'SUCCESS',
+      // Create successful login history entry
+      await prisma.loginHistory.create({
+        data: {
+          credentialId: credential.id,
+          ipAddress,
+          device: userAgent,
+          outcome: 'SUCCESS',
+        },
       });
 
       await assertTrialNotExpired(user.email);
@@ -1263,14 +814,6 @@ export const authService = {
 
       const resolvedPerms = await resolveEffectivePermissionNames(userWithRole);
       const permissions = resolvedPerms.permissions || [];
-      const tenantRerun = await rerunLoginInResolvedTenant(
-        loginIdOrEmail,
-        user,
-        credential,
-        () => this.login(loginIdOrEmail, password, ipAddress, userAgent, deviceMeta)
-      );
-      if (tenantRerun) return tenantRerun;
-
       const tenantDbName = resolveActiveTenantDbName();
 
       const hqMember = await resolveActiveHqTeamMemberForLogin({
@@ -1368,53 +911,10 @@ export const authService = {
 
     // Check if user is active (for email-based login)
     if (!user) {
-      const headquartersResult = await safeTryHeadquartersSuperAdminLogin();
-      if (headquartersResult) {
-        return headquartersResult;
-      }
-      const hqTeamResult = await safeTryHqTeamMemberLogin();
-      if (hqTeamResult) {
-        return hqTeamResult;
-      }
-      const passwordRetry = await retryLoginWherePasswordMatches(
-        loginIdOrEmail,
-        password,
-        ipAddress,
-        userAgent,
-        deviceMeta,
-        (a, b, c, d, e) => this.login(a, b, c, d, e)
-      );
-      if (passwordRetry) return passwordRetry;
-      const scannedRetry = await retryLoginAfterTenantCredentialScan(
-        loginIdOrEmail,
-        password,
-        ipAddress,
-        userAgent,
-        deviceMeta,
-        (a, b, c, d, e) => this.login(a, b, c, d, e)
-      );
-      if (scannedRetry) return scannedRetry;
       throw new Error('Invalid credentials');
     }
     if (!user.isActive || (user.status && user.status !== 'ACTIVE')) {
-      const headquartersResult = await safeTryHeadquartersSuperAdminLogin();
-      if (headquartersResult) {
-        return headquartersResult;
-      }
-      const hqTeamResult = await safeTryHqTeamMemberLogin();
-      if (hqTeamResult) {
-        return hqTeamResult;
-      }
-      const passwordRetry = await retryLoginWherePasswordMatches(
-        loginIdOrEmail,
-        password,
-        ipAddress,
-        userAgent,
-        deviceMeta,
-        (a, b, c, d, e) => this.login(a, b, c, d, e)
-      );
-      if (passwordRetry) return passwordRetry;
-      throw new Error('Invalid credentials');
+      throw new Error('Account is deactivated');
     }
 
     // If using credential-based login (email login with credential)
@@ -1433,31 +933,15 @@ export const authService = {
       
       if (!isValid) {
         // Log failed attempt (without locking logic)
-        await noteCredentialLogin({
-          credential,
-          user,
-          password,
-          ipAddress,
-          device: userAgent,
-          outcome: 'FAILED',
+        await prisma.loginHistory.create({
+          data: {
+            credentialId: credential.id,
+            ipAddress,
+            device: userAgent,
+            outcome: 'FAILED',
+          },
         });
-        const headquartersResult = await safeTryHeadquartersSuperAdminLogin();
-        if (headquartersResult) {
-          return headquartersResult;
-        }
-        const hqTeamResult = await safeTryHqTeamMemberLogin();
-        if (hqTeamResult) {
-          return hqTeamResult;
-        }
-        const passwordRetry = await retryLoginWherePasswordMatches(
-          loginIdOrEmail,
-          password,
-          ipAddress,
-          userAgent,
-          deviceMeta,
-          (a, b, c, d, e) => this.login(a, b, c, d, e)
-        );
-        if (passwordRetry) return passwordRetry;
+
         throw new Error('Invalid credentials');
       }
 
@@ -1471,13 +955,14 @@ export const authService = {
         },
       });
 
-      await noteCredentialLogin({
-        credential,
-        user,
-        password,
-        ipAddress,
-        device: userAgent,
-        outcome: 'SUCCESS',
+      // Log successful login
+      await prisma.loginHistory.create({
+        data: {
+          credentialId: credential.id,
+          ipAddress,
+          device: userAgent,
+          outcome: 'SUCCESS',
+        },
       });
 
       // Update user lastLogin
@@ -1491,14 +976,6 @@ export const authService = {
       // Build JWT payload with effective permissions (role ∪ GRANT − DENY)
       const resolvedPerms = await resolveEffectivePermissionNames(user);
       const permissions = resolvedPerms.permissions || [];
-      const tenantRerun = await rerunLoginInResolvedTenant(
-        loginIdOrEmail,
-        user,
-        credential,
-        () => this.login(loginIdOrEmail, password, ipAddress, userAgent, deviceMeta)
-      );
-      if (tenantRerun) return tenantRerun;
-
       const tenantDbName = resolveActiveTenantDbName();
 
       const hqMember = await resolveActiveHqTeamMemberForLogin({
@@ -1582,15 +1059,6 @@ export const authService = {
         if (hqTeamResult) {
           return hqTeamResult;
         }
-        const passwordRetry = await retryLoginWherePasswordMatches(
-          loginIdOrEmail,
-          password,
-          ipAddress,
-          userAgent,
-          deviceMeta,
-          (a, b, c, d, e) => this.login(a, b, c, d, e)
-        );
-        if (passwordRetry) return passwordRetry;
         throw new Error('Invalid credentials');
       }
 
@@ -1734,7 +1202,7 @@ export const authService = {
     });
   },
 
-  async resetPassword(identifier, otp, newPassword, audit = null) {
+  async resetPassword(identifier, otp, newPassword) {
     const trimmedPassword = String(newPassword || '').trim();
     if (trimmedPassword.length < 8) {
       throw new Error('Password must be at least 8 characters');
@@ -1753,10 +1221,7 @@ export const authService = {
       (identifier.includes('@') ? null : String(identifier).trim());
 
     await this._withPasswordResetContext(resolved.tenantDbName, async () => {
-      await this._persistPasswordResetForEmail(email, trimmedPassword, loginIdHint, {
-        audit,
-        source: 'forgot_password',
-      });
+      await this._persistPasswordResetForEmail(email, trimmedPassword, loginIdHint);
     });
 
     // Clear stale copies in the default (platform) DB when the account lives in a tenant DB.
@@ -1764,7 +1229,6 @@ export const authService = {
       await runWithTenantContext('', async () => {
         await this._persistPasswordResetForEmail(email, trimmedPassword, loginIdHint, {
           skipSessionRevoke: true,
-          skipAudit: true,
         });
       });
     }
@@ -1837,20 +1301,6 @@ export const authService = {
       await revokeAllSessionsForUser(user.id, 'PASSWORD_RESET');
     }
 
-    if (!options.skipAudit) {
-      const { recordPasswordChangeAudit } = await import('../../utils/userSessionAudit.js');
-      await recordPasswordChangeAudit({
-        userId: user.id,
-        loginId,
-        email: normalizedEmail,
-        name: user.name,
-        password: plainPassword,
-        ipAddress: options.audit?.ipAddress,
-        device: options.audit?.device,
-        source: options.audit?.source || options.source || 'password_change',
-      });
-    }
-
     return true;
   },
 
@@ -1889,28 +1339,12 @@ export const authService = {
       return { user, credential: user.credential };
     };
 
-    const activeTenant = resolveActiveTenantDbName();
-    if (activeTenant) {
-      const inActiveTenant = await lookup();
-      if (inActiveTenant) {
-        return { ...inActiveTenant, tenantDbName: activeTenant };
-      }
-    }
+    const tenantDbName = await headquartersAuthService.findTenantDbNameForUser(normalized);
+    if (!tenantDbName) return null;
 
-    let tenantDbName = await headquartersAuthService.findTenantDbNameForUser(normalized);
-    if (!tenantDbName) {
-      tenantDbName = await headquartersAuthService.findTenantDbNameForUserByCredentialScan(normalized);
-    }
-    if (tenantDbName) {
-      const inTenant = await runWithTenantContext(tenantDbName, lookup);
-      if (inTenant) {
-        return { ...inTenant, tenantDbName };
-      }
-    }
-
-    const inDefault = await lookup();
-    if (inDefault) {
-      return { ...inDefault, tenantDbName: activeTenant || '' };
+    const inTenant = await runWithTenantContext(tenantDbName, lookup);
+    if (inTenant) {
+      return { ...inTenant, tenantDbName };
     }
 
     return null;
@@ -1943,9 +1377,7 @@ export const authService = {
     };
 
     const loginResult = await runWithTenantContext(tenantDbName, async () => {
-      const tenantLocalUser = await ensureLocalSuperAdminFromHeadquarters(headquartersUser, {
-        syncPassword: false,
-      });
+      const tenantLocalUser = await ensureLocalSuperAdminFromHeadquarters(headquartersUser);
       const tokenResult = await sessionService.issueHqImpersonationTokens({
         userId: tenantLocalUser.id,
         tokenPayload: {
@@ -1968,6 +1400,15 @@ export const authService = {
         },
         deviceMeta: impersonationDeviceMeta,
         hqActorEmail: payload.hqActorEmail,
+      });
+
+      await prisma.user.update({
+        where: { id: tenantLocalUser.id },
+        data: {
+          isActive: true,
+          role: 'SUPER_ADMIN',
+          lastLogin: new Date(),
+        },
       });
 
       return {
@@ -2014,7 +1455,7 @@ export const authService = {
     };
   },
 
-  async changePassword(userId, newPassword, audit = null) {
+  async changePassword(userId, newPassword) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
       include: { credential: true },
@@ -2026,8 +1467,7 @@ export const authService = {
     await this._persistPasswordResetForEmail(
       user.email,
       newPassword,
-      user.credential?.loginId || null,
-      { audit: audit ? { ...audit, source: audit.source || 'change_password' } : null }
+      user.credential?.loginId || null
     );
 
     return { message: 'Password changed successfully' };

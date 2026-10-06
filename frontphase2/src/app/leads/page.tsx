@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import nextDynamic from 'next/dynamic';
 import { SHOW_TABLE_ROW_EDIT_ICON } from '../../constants/tableUi';
 import {
   Plus,
@@ -52,7 +53,6 @@ import { formatDirectorDisplay } from '../../constants/salutations';
 import { formatContactListDisplay, normalizeContactList } from '../../lib/contact-channels';
 import { AssigneeAvatars } from './AssigneeAvatars';
 import { SourceCell } from './SourceCell';
-import { LeadDetailsDrawer } from '../../components/drawers/LeadDetailsDrawer';
 import { isLeadSource, LEAD_SOURCE_OPTIONS } from '../../components/drawers/LeadSourceFields';
 import { LeadImportDrawer } from '../../components/drawers/LeadImportDrawer';
 import { ShareLeadFormMemberModal } from '../../components/leads/ShareLeadFormMemberModal';
@@ -104,11 +104,16 @@ import {
 } from '../../hooks/usePersistedColumnVisibility';
 import { LEAD_TABLE_COLUMNS } from '../../lib/tableColumns/moduleTableColumns';
 
+const LeadDetailsDrawer = nextDynamic(
+  () => import('../../components/drawers/LeadDetailsDrawer').then((mod) => ({ default: mod.LeadDetailsDrawer })),
+  { ssr: false, loading: () => null }
+);
+
 const LEADS_FILTER_SELECT =
   'h-9 shrink-0 rounded-lg border border-indigo-100/90 bg-white/95 px-2.5 py-1.5 text-xs font-medium text-slate-800 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-300 cursor-pointer hover:border-indigo-200/90 hover:bg-indigo-50/40';
 const LEADS_DYNAMIC_COLUMNS_STORAGE_KEY = 'leads.dynamicColumns';
 
-/** Last / next follow-up column: date + time on separate lines (not raw ISO). */
+/** Last / next follow-up column: rendered in a single row (e.g. 30/09/2026 - 9:00 am). */
 function LeadFollowUpTableCell({
   lastFollowUp,
   nextFollowUp,
@@ -118,24 +123,18 @@ function LeadFollowUpTableCell({
 }) {
   const last = splitDateTimeForDisplay(lastFollowUp);
   const next = splitDateTimeForDisplay(nextFollowUp);
+  const target = last || next;
+
+  if (!target) {
+    return <span className="text-xs text-slate-400">—</span>;
+  }
+
+  const formatted = target.time ? `${target.date} - ${target.time}` : target.date;
+
   return (
-    <div className="flex flex-col gap-2 min-w-[9rem]">
-      {last ? (
-        <div className="rounded-xl bg-indigo-500/[0.06] px-2.5 py-2 ring-1 ring-indigo-500/10">
-          <p className="text-[9px] font-bold text-indigo-600/90 uppercase tracking-[0.12em]">Last</p>
-          <p className="text-xs font-semibold text-slate-800 leading-snug mt-0.5">{last.date}</p>
-          <p className="text-[10px] text-slate-500 mt-1 tabular-nums">{last.time}</p>
-        </div>
-      ) : (
-        <span className="inline-flex rounded-lg bg-slate-100/80 px-2 py-1 text-[11px] font-medium text-slate-400">—</span>
-      )}
-      {next && (
-        <div className="rounded-xl bg-gradient-to-br from-blue-500/10 to-indigo-500/10 px-2.5 py-2 ring-1 ring-blue-400/15">
-          <p className="text-xs font-semibold text-blue-900 leading-snug">{next.date}</p>
-          <p className="text-[10px] text-blue-700/90 mt-1 tabular-nums">{next.time}</p>
-        </div>
-      )}
-    </div>
+    <span className="whitespace-nowrap text-sm font-normal text-slate-700 tabular-nums">
+      {formatted}
+    </span>
   );
 }
 
@@ -280,7 +279,7 @@ const StatusTag = ({ status }: { status: LeadStatus }) => {
     'bg-indigo-500/10 text-indigo-800 ring-1 ring-indigo-500/20 shadow-sm';
 
   return (
-    <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-[11px] font-semibold tracking-wide ${badgeClass}`}>
+    <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium tracking-wide ${badgeClass}`}>
       {status}
     </span>
   );
@@ -2262,7 +2261,7 @@ export default function RecruitmentAgencyDashboard() {
                 {!loading && !error && (
                   <table id="leads-main-table" className="w-max min-w-full text-left" aria-label="Leads">
                     <thead className="sticky top-0 z-10">
-                      <tr className="bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 border-b border-indigo-100/50 text-indigo-950/45 uppercase text-[9px] font-bold tracking-[0.12em] backdrop-blur-sm">
+                      <tr className="bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 border-b border-indigo-100/50 text-indigo-950/70 uppercase text-xs font-bold tracking-[0.06em] backdrop-blur-sm">
                         <th className="px-3 sm:px-4 py-2 w-10 first:pl-4">
                           <SelectionCheckbox
                             checked={allVisibleSelected}
@@ -2342,8 +2341,8 @@ export default function RecruitmentAgencyDashboard() {
                             }
                             className="px-4 py-12 text-center"
                           >
-                            <p className="text-xs font-medium text-slate-500">No leads match your filters</p>
-                            <p className="mt-1 text-[11px] text-slate-400">Try adjusting search or clear filters</p>
+                            <p className="text-sm font-medium text-slate-500">No leads match your filters</p>
+                            <p className="mt-1 text-xs text-slate-400">Try adjusting search or clear filters</p>
                           </td>
                         </tr>
                       ) : (
@@ -2379,7 +2378,7 @@ export default function RecruitmentAgencyDashboard() {
                                 <div className="flex min-w-[8rem] flex-col justify-center gap-0.5">
                                 <button
                                   type="button"
-                                  className="text-left text-xs font-semibold leading-snug text-slate-900 hover:text-indigo-700 transition-colors whitespace-normal break-words"
+                                  className="text-left text-[15px] font-medium leading-snug text-slate-900 hover:text-indigo-700 transition-colors whitespace-normal break-words"
                                   onClick={() => {
                                     void openLeadDrawerWithFreshData(lead, 'view');
                                   }}
@@ -2390,14 +2389,14 @@ export default function RecruitmentAgencyDashboard() {
                                   const conversion = getStatusForLead(lead.id);
                                   if (conversion.status === 'pending') {
                                     return (
-                                      <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800 ring-1 ring-amber-200/80">
+                                      <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 ring-1 ring-amber-200/80">
                                         Conversion pending
                                       </span>
                                     );
                                   }
                                   if (conversion.status === 'accepted') {
                                     return (
-                                      <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800 ring-1 ring-emerald-200/80">
+                                      <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800 ring-1 ring-emerald-200/80">
                                         Conversion approved
                                       </span>
                                     );
@@ -2405,7 +2404,7 @@ export default function RecruitmentAgencyDashboard() {
                                   if (conversion.status === 'rejected') {
                                     return (
                                       <span
-                                        className="inline-flex max-w-full truncate rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold text-rose-800 ring-1 ring-rose-200/80"
+                                        className="inline-flex max-w-full truncate rounded-full bg-rose-100 px-2 py-0.5 text-xs font-medium text-rose-800 ring-1 ring-rose-200/80"
                                         title={conversion.reviewNote || 'Conversion request was rejected'}
                                       >
                                         Conversion rejected
@@ -2414,7 +2413,6 @@ export default function RecruitmentAgencyDashboard() {
                                   }
                                   return null;
                                 })()}
-                                <span className="text-[10px] font-medium text-slate-500">{lead.type}</span>
                                 </div>
                               </div>
                             </td>
@@ -2426,10 +2424,10 @@ export default function RecruitmentAgencyDashboard() {
                             {leadColumnVisibility.isVisible('contact') ? (
                               <td className="px-3 sm:px-4 py-2">
                                 <div className="flex flex-col gap-0.5">
-                                  <span className="text-xs font-medium text-slate-800">
+                                  <span className="text-[14px] font-medium text-slate-900 leading-tight">
                                     {formatDirectorDisplay(lead.directorSalutation, lead.directorName || lead.contactPerson)}
                                   </span>
-                                  <span className="text-[10px] text-slate-500">
+                                  <span className="text-[12.5px] font-normal text-slate-500 leading-tight">
                                     {formatContactListDisplay(lead.emails, lead.email)}
                                   </span>
                                 </div>
@@ -2439,7 +2437,7 @@ export default function RecruitmentAgencyDashboard() {
                               const value = getLeadDynamicFieldValue(lead, label);
                               return (
                                 <td key={`${lead.id}-${label}`} className="px-3 sm:px-4 py-2">
-                                  <span className="line-clamp-2 text-xs text-slate-700">
+                                  <span className="line-clamp-2 text-[13.5px] font-normal text-slate-700">
                                     {value || '—'}
                                   </span>
                                 </td>
@@ -2450,7 +2448,7 @@ export default function RecruitmentAgencyDashboard() {
                                 <div className="flex flex-col gap-1.5">
                                   {canUpdateLead ? (
                                     <select
-                                      className="max-w-[10rem] rounded-full border-0 bg-slate-100/80 px-2 py-1 text-[11px] font-semibold text-slate-800 ring-1 ring-slate-200/90 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 cursor-pointer hover:bg-slate-100"
+                                      className="max-w-[10rem] rounded-full border-0 bg-slate-100/90 px-2.5 py-1 text-[13px] font-medium text-slate-800 ring-1 ring-slate-200/90 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 cursor-pointer hover:bg-slate-100"
                                       value={lead.status}
                                       onChange={(e) =>
                                         handleInlineStatusChange(lead.id, e.target.value as LeadStatus)
@@ -2515,34 +2513,34 @@ export default function RecruitmentAgencyDashboard() {
                               </td>
                             ) : null}
                             {leadColumnVisibility.isVisible('type') ? (
-                              <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
+                              <td className="px-3 sm:px-4 py-2 text-[13.5px] text-slate-600">
                                 {lead.type || '—'}
                               </td>
                             ) : null}
                             {leadColumnVisibility.isVisible('priority') ? (
                               <td className="px-3 sm:px-4 py-2">
                                 {lead.priority ? <PriorityTag priority={lead.priority} /> : (
-                                  <span className="text-xs text-slate-400">—</span>
+                                  <span className="text-[13.5px] text-slate-400">—</span>
                                 )}
                               </td>
                             ) : null}
                             {leadColumnVisibility.isVisible('phone') ? (
-                              <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
+                              <td className="px-3 sm:px-4 py-2 text-[13.5px] text-slate-600">
                                 {formatContactListDisplay(lead.phones, lead.phone) || '—'}
                               </td>
                             ) : null}
                             {leadColumnVisibility.isVisible('industry') ? (
-                              <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
+                              <td className="px-3 sm:px-4 py-2 text-[13.5px] text-slate-600">
                                 {lead.industry || '—'}
                               </td>
                             ) : null}
                             {leadColumnVisibility.isVisible('companySize') ? (
-                              <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
+                              <td className="px-3 sm:px-4 py-2 text-[13.5px] text-slate-600">
                                 {lead.companySize || '—'}
                               </td>
                             ) : null}
                             {leadColumnVisibility.isVisible('location') ? (
-                              <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
+                              <td className="px-3 sm:px-4 py-2 text-[13.5px] text-slate-600">
                                 {formatLocationCell({
                                   location: lead.location,
                                   country: lead.country,
@@ -2555,25 +2553,25 @@ export default function RecruitmentAgencyDashboard() {
                               <td className="px-3 sm:px-4 py-2">
                                 {lead.website ? (
                                   <span
-                                    className="block max-w-[10rem] truncate text-xs text-slate-600"
+                                    className="block max-w-[10rem] truncate text-[13.5px] text-slate-600"
                                     title={lead.website}
                                   >
                                     {lead.website.replace(/^https?:\/\//i, '')}
                                   </span>
                                 ) : (
-                                  <span className="text-xs text-slate-400">—</span>
+                                  <span className="text-[13.5px] text-slate-400">—</span>
                                 )}
                               </td>
                             ) : null}
                             {leadColumnVisibility.isVisible('designation') ? (
-                              <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
+                              <td className="px-3 sm:px-4 py-2 text-[13.5px] text-slate-600">
                                 {lead.designation || lead.teamMemberDesignation || '—'}
                               </td>
                             ) : null}
                             {leadColumnVisibility.isVisible('needs') ? (
                               <td className="px-3 sm:px-4 py-2">
                                 <span
-                                  className="line-clamp-2 max-w-[12rem] text-xs text-slate-700"
+                                  className="line-clamp-2 max-w-[12rem] text-[13.5px] text-slate-700"
                                   title={lead.interestedNeeds || lead.servicesNeeded || undefined}
                                 >
                                   {lead.interestedNeeds || lead.servicesNeeded || '—'}
@@ -2581,17 +2579,17 @@ export default function RecruitmentAgencyDashboard() {
                               </td>
                             ) : null}
                             {leadColumnVisibility.isVisible('expectedValue') ? (
-                              <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
+                              <td className="px-3 sm:px-4 py-2 text-[13.5px] text-slate-600">
                                 {lead.expectedBusinessValue || '—'}
                               </td>
                             ) : null}
                             {leadColumnVisibility.isVisible('createdDate') ? (
-                              <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
+                              <td className="px-3 sm:px-4 py-2 text-[13.5px] text-slate-600">
                                 {lead.createdDate ? formatDateDMY(lead.createdDate) || lead.createdDate : '—'}
                               </td>
                             ) : null}
                             {leadColumnVisibility.isVisible('convertedClient') ? (
-                              <td className="px-3 sm:px-4 py-2 text-xs text-slate-600">
+                              <td className="px-3 sm:px-4 py-2 text-[13.5px] text-slate-600">
                                 {lead.convertedClientName || '—'}
                               </td>
                             ) : null}

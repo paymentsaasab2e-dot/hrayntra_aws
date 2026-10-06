@@ -99,7 +99,6 @@ export const JOB_TABLE_COLUMNS: TableColumnDef[] = [
   { id: 'client', label: 'Client' },
   { id: 'status', label: 'Status' },
   { id: 'pipeline', label: 'Pipeline', children: JOB_PIPELINE_STAGE_COLUMNS },
-  { id: 'details', label: 'Details' },
   extra('location', 'Location', LOCATION_DISPLAY_COLUMNS),
   extra('openings', 'Openings'),
   extra('owner', 'Recruiter'),

@@ -33,6 +33,7 @@ import type { AiWorkspaceBriefAlert } from '@/lib/apiAiWorkspaceBrief';
 import { WorkspaceAlertTableCell, WorkspaceAlertTableHeader } from '../../../components/ai/WorkspaceAlertTableCell';
 import { useDrawerPortalDropdownPosition } from '../../../components/drawers/drawerFormUi';
 import {
+  isSubmitToClientStageOption,
   SUBMIT_TO_CLIENT_STAGE_OPTION_LABEL,
   SUBMIT_TO_CLIENT_STAGE_OPTION_VALUE,
 } from '../../../lib/candidateSubmitToClient';
@@ -117,6 +118,10 @@ function CandidateStageMoveDropdown({
                         disabled={moving}
                         onClick={() => {
                           setOpen(false);
+                          if (isSubmitToClientStageOption(option.name) && onSubmitToClient) {
+                            onSubmitToClient();
+                            return;
+                          }
                           if (option.id === selectedId) return;
                           void onChangeStage(option.id);
                         }}
@@ -145,7 +150,9 @@ function CandidateStageMoveDropdown({
                       </button>
                     );
                   })}
-                  {showSubmitToClient && onSubmitToClient ? (
+                  {showSubmitToClient &&
+                  onSubmitToClient &&
+                  !options.some((o) => isSubmitToClientStageOption(o.name)) ? (
                     <>
                       <div className="my-0.5 border-t border-slate-100" />
                       <button
@@ -362,7 +369,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
           }`}
         >
           <thead className="sticky top-0 z-10">
-            <tr className="border-b border-indigo-100/60 bg-gradient-to-r from-slate-50 via-indigo-50/55 to-violet-50/40 text-[10px] font-bold uppercase tracking-[0.14em] text-indigo-900/50 backdrop-blur-md">
+            <tr className="border-b border-indigo-100/60 bg-gradient-to-r from-slate-50 via-indigo-50/55 to-violet-50/40 text-xs font-bold uppercase tracking-[0.06em] text-indigo-950/70 backdrop-blur-md">
               {show('select') ? (
                 <th className="w-10 px-3 py-3 first:pl-4 sm:px-4 sm:first:pl-5">
                   <input
@@ -448,13 +455,13 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                       <button
                         type="button"
                         onClick={() => onViewProfile?.(candidate)}
-                        className="text-left text-sm font-semibold text-slate-900 transition-colors hover:text-indigo-700"
+                        className="text-left text-sm font-medium text-slate-900 transition-colors hover:text-indigo-700"
                       >
                         {candidate.name}
                       </button>
                       <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
                         {candidate.isPhase1Candidate ? (
-                          <span className="rounded-md bg-violet-50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-violet-700 ring-1 ring-violet-100">
+                          <span className="rounded-md bg-violet-50 px-1.5 py-0.5 text-xs font-medium uppercase tracking-wide text-violet-700 ring-1 ring-violet-100">
                             Phase 1
                           </span>
                         ) : null}
@@ -467,17 +474,17 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                     {(candidate.matchScore ?? 0) > 0 ? (
                       <div className="flex flex-col items-center gap-1">
                         <span
-                          className={`inline-flex min-w-[2.85rem] items-center justify-center rounded-full px-2.5 py-1 text-xs font-bold tabular-nums shadow-sm ${scoreBadgeClass(candidate.matchScore ?? 0)}`}
+                          className={`inline-flex min-w-[2.85rem] items-center justify-center rounded-full px-2.5 py-1 text-xs font-medium tabular-nums shadow-sm ${scoreBadgeClass(candidate.matchScore ?? 0)}`}
                         >
                           {candidate.matchScore}%
                         </span>
-                        <span className="max-w-[5.5rem] truncate text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                        <span className="max-w-[5.5rem] truncate text-xs font-normal uppercase tracking-wide text-slate-400">
                           {candidate.matchScoreBand ||
                             displayMatchBand(candidate.matchScore ?? 0)}
                         </span>
                       </div>
                     ) : (
-                      <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                      <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-xs font-normal uppercase tracking-wide text-slate-400">
                         Not scored
                       </span>
                     )}
@@ -486,7 +493,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                 {show('roleCompany') ? (
                   <td className="px-3 py-3 sm:px-4 sm:py-3.5">
                     <div>
-                      <p className="max-w-[140px] truncate text-sm font-semibold text-slate-800">
+                      <p className="max-w-[140px] truncate text-sm font-medium text-slate-800">
                         {candidate.designation}
                       </p>
                       <p className="mt-0.5 max-w-[140px] truncate text-xs text-slate-500">
@@ -497,7 +504,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                 ) : null}
                 {show('experience') ? (
                   <td className="px-3 py-3 text-center sm:px-4 sm:py-3.5">
-                    <span className="inline-flex min-w-[2.25rem] items-center justify-center rounded-lg bg-slate-100/90 px-2 py-1 text-xs font-bold tabular-nums text-slate-700 ring-1 ring-slate-200/70">
+                    <span className="inline-flex min-w-[2.25rem] items-center justify-center rounded-lg bg-slate-100/90 px-2 py-1 text-xs font-medium tabular-nums text-slate-700 ring-1 ring-slate-200/70">
                       {candidate.experienceLabel ??
                         (() => {
                           const exp = Number(candidate.experience);
@@ -526,7 +533,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                   <td className="px-3 py-3 sm:px-4 sm:py-3.5">
                     <div className="inline-flex max-w-[150px] items-center gap-1.5 rounded-lg bg-indigo-50/70 px-2 py-1 text-indigo-800 ring-1 ring-indigo-100">
                       <Briefcase size={13} className="shrink-0 text-indigo-500" />
-                      <p className="truncate text-xs font-semibold">
+                      <p className="truncate text-xs font-medium">
                         {candidate.assignedJobs?.[0] || '—'}
                       </p>
                     </div>
@@ -559,7 +566,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                       />
                     ) : (
                       <span
-                        className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${getCandidateStageBadgeClasses(candidate.stage)}`}
+                        className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${getCandidateStageBadgeClasses(candidate.stage)}`}
                       >
                         {getCandidateStageLabel(candidate.stage)}
                       </span>
@@ -590,7 +597,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                 {show('hotlist') ? (
                   <td className="px-3 py-3 sm:px-4 sm:py-3.5">
                     {candidate.hotlist ? (
-                      <span className="inline-flex rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-700 ring-1 ring-rose-100">
+                      <span className="inline-flex rounded-full bg-rose-50 px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-rose-700 ring-1 ring-rose-100">
                         Yes
                       </span>
                     ) : (
@@ -600,7 +607,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                 ) : null}
                 {show('rating') ? (
                   <td className="px-3 py-3 text-center sm:px-4 sm:py-3.5">
-                    <span className="text-xs font-semibold tabular-nums text-slate-700">
+                    <span className="text-xs font-medium tabular-nums text-slate-700">
                       {candidate.rating != null && Number(candidate.rating) > 0
                         ? candidate.rating
                         : '—'}

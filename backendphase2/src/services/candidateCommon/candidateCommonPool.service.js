@@ -13,6 +13,7 @@ import { canViewAllAssignments, hasAnyPermission as hasAnyPermissionScope } from
 import { mergeOrgCompanyListScope } from '../orgListScope.service.js';
 import { normalizePortfolioLinksForCommon } from '../../utils/portfolioLinkFilter.util.js';
 import { getHqEnabledModules } from '../../modules/setting/recruitmentMode.service.js';
+import { matchCommonPoolMax } from '../../lib/queryBounds.js';
 
 function isTenantScopedRequest() {
   return Boolean(getActiveTenantDbName());
@@ -251,6 +252,9 @@ export function mapCandidateCommonRowToCandidate(row) {
 
   const mapped = {
     id,
+    personId: row.personId ?? null,
+    emailNormalized: row.emailNormalized ?? null,
+    phoneE164: row.phoneE164 ?? null,
     firstName: row.firstName ?? null,
     middleName: row.middleName ?? null,
     lastName: row.lastName ?? null,
@@ -311,7 +315,7 @@ export async function fetchCandidateCommonForMatchPipeline(req) {
   if (!commonPrisma || !isTenantScopedRequest()) return [];
   if (!(await tenantAllowsPhase1CommonPool())) return [];
 
-  const limit = Math.min(5000, Math.max(1, Number(process.env.MATCH_COMMON_POOL_MAX || 500) || 500));
+  const limit = matchCommonPoolMax();
 
   const rows = await commonPrisma.candidateCommon.findMany({
     where: { isVerified: true },
@@ -558,6 +562,21 @@ export async function fetchCandidateCommonByCandidateId(candidateId, options = {
   }
 
   return mapped;
+}
+
+/** Load one candidatecommon snapshot by stable personId. */
+export async function fetchCandidateCommonByPersonId(personId) {
+  const commonPrisma = getCandidateCommonPrismaClient();
+  if (!commonPrisma) return null;
+
+  const pid = String(personId || '').trim();
+  if (!pid) return null;
+
+  const row = await commonPrisma.candidateCommon.findFirst({
+    where: { personId: pid },
+  });
+  if (!row || row.mergedIntoPersonId) return null;
+  return mapCandidateCommonRowToCandidate(row);
 }
 
 /**

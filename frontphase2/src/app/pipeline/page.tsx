@@ -32,7 +32,8 @@ import { matchesQuickSearch, buildQuickSearchHaystack } from "../../lib/quickSea
 import { useRouter } from "next/navigation";
 import { ImageWithFallback, initialsFromDisplayName } from "../../components/ImageWithFallback";
 import { formatDateDMY } from "../../utils/dateDisplay";
-import AddCandidateDrawer from "../../components/candidates/AddCandidateDrawer";
+import nextDynamic from "next/dynamic";
+
 import { usePageAutoRefresh } from "../../hooks/usePageAutoRefresh";
 import { useWorkspaceEntityAlerts } from "../../hooks/useWorkspaceEntityAlerts";
 import { WorkspaceAlertTableCell, WorkspaceAlertTableHeader } from "../../components/ai/WorkspaceAlertTableCell";
@@ -64,6 +65,12 @@ import {
 import { resolveSubmitJobIdFromBackend } from "../../lib/candidateSubmitToClient";
 import { isValidObjectId } from "../../lib/mapCandidateProfile";
 import { getCandidateStageBadgeClasses } from "../../utils/candidateStage";
+
+const AddCandidateDrawer = nextDynamic(
+  () => import("../../components/candidates/AddCandidateDrawer"),
+  { ssr: false, loading: () => null }
+);
+
 
 function isOpenPipelineJob(job: BackendJob): boolean {
   const label = displayJobStatusFromBackend(job.status, job.statusLabel);

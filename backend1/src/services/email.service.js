@@ -6,7 +6,13 @@ const {
 } = require('../templates/jobRecommendationEmail.template');
 const { getEmailFromForTrigger } = require('../config/emailFromAddresses');
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+let resendClient = null;
+function getResendClient() {
+  const key = String(process.env.RESEND_API_KEY || '').trim();
+  if (!key) return null;
+  if (!resendClient) resendClient = new Resend(key);
+  return resendClient;
+}
 const SUPPORT_EMAIL = process.env.SUPPORT_EMAIL || 'support@hryantra.com';
 
 function formatInterviewDateTime(dateValue) {
@@ -61,6 +67,10 @@ async function sendOTPEmail(otp, recipientEmail, whatsappNumber) {
     });
 
     // Send email directly using Resend
+    const resend = getResendClient();
+    if (!resend) {
+      return { success: false, error: 'Email service not configured' };
+    }
     const { data, error } = await resend.emails.send({
       from: getEmailFromForTrigger('auth.otp_verification'),
       to: recipientEmail,
@@ -120,6 +130,10 @@ async function sendJobRecommendationEmail({
       year: new Date().getFullYear(),
     };
 
+    const resend = getResendClient();
+    if (!resend) {
+      return { success: false, error: 'Email service not configured' };
+    }
     const { data, error } = await resend.emails.send({
       from: getEmailFromForTrigger('job.recommendation'),
       to: recipientEmail,
@@ -214,6 +228,10 @@ async function sendInterviewStatusEmail({
       .filter(Boolean)
       .join('\n');
 
+    const resend = getResendClient();
+    if (!resend) {
+      return { success: false, error: 'Email service not configured' };
+    }
     const { data, error } = await resend.emails.send({
       from: getEmailFromForTrigger(reminder ? 'interview.reminder' : 'interview.scheduled'),
       to: recipientEmail,

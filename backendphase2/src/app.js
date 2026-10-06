@@ -117,7 +117,14 @@ app.use(
       });
       return;
     }
-    if (!origin || allowedOrigins.includes(origin)) {
+    let poyesoOrigin = false;
+    try {
+      const host = origin ? new URL(origin).hostname.toLowerCase() : '';
+      poyesoOrigin = host === 'poyeso.com' || host.endsWith('.poyeso.com');
+    } catch {
+      poyesoOrigin = false;
+    }
+    if (!origin || allowedOrigins.includes(origin) || poyesoOrigin) {
       callback(null, {
         origin: true,
         credentials: true,

@@ -12,9 +12,6 @@
 /.next/
 /out/
 
-# Generated SuperDoc editor files (scripts/copy-superdoc-assets.js)
-/public/superdoc
-
 # production
 /build
 

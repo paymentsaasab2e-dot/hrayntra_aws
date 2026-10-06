@@ -695,6 +695,7 @@ export async function fetchAssistantReportDataset(user, dataset, search, detailL
       );
       const rows = await prisma.lead.findMany({
         where,
+        take: MAX_ROWS,
         orderBy: { updatedAt: 'desc' },
         select: getSelectForEntity('leads', detailLevel),
       });
@@ -720,6 +721,7 @@ export async function fetchAssistantReportDataset(user, dataset, search, detailL
       const where = mergeScope(candidateScope(user), textOr(['firstName', 'lastName', 'email', 'currentTitle'], search));
       return prisma.candidate.findMany({
         where,
+        take: MAX_ROWS,
         orderBy: { updatedAt: 'desc' },
         select: getSelectForEntity('candidates', detailLevel),
       });

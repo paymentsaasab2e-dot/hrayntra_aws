@@ -5,6 +5,7 @@ const {
   buildProfileSnapshot,
 } = require('../utils/profileSnapshotForCommon.util');
 const { applyResumeJsonToCommonPayload } = require('../utils/resumeWorkNarrative.util');
+const { buildIdentityFields } = require('../lib/personIdentity');
 
 function isPlaceholderProfileEmail(email) {
   const value = String(email || '').trim().toLowerCase();
@@ -12,11 +13,11 @@ function isPlaceholderProfileEmail(email) {
 }
 
 function resolveProfileDisplayEmail(candidate) {
-  const profileEmail = String(candidate?.profile?.email || '').trim();
   const candidateEmail = String(candidate?.email || '').trim();
+  const profileEmail = String(candidate?.profile?.email || '').trim();
 
-  if (profileEmail && !isPlaceholderProfileEmail(profileEmail)) return profileEmail;
   if (candidateEmail && !isPlaceholderProfileEmail(candidateEmail)) return candidateEmail;
+  if (profileEmail && !isPlaceholderProfileEmail(profileEmail)) return profileEmail;
 
   const resumeJson = candidate?.resume?.resumeJson;
   if (resumeJson && typeof resumeJson === 'object') {
@@ -92,7 +93,7 @@ function collectSkillNamesFromSnapshot(snapshot) {
   return [...new Set(snapshot.skills.map((s) => String(s?.name || '').trim()).filter(Boolean))];
 }
 
-function buildCommonPayload(candidate, { lastLogin = false, forceVerified = false } = {}) {
+function buildCommonPayload(candidate, existingCommon = null, { lastLogin = false, forceVerified = false } = {}) {
   const profile = candidate.profile || null;
   const snapshot = buildProfileSnapshot(candidate);
   const fromProfile = profile ? splitFullName(profile.fullName) : { firstName: null, lastName: null };
@@ -189,6 +190,18 @@ function buildCommonPayload(candidate, { lastLogin = false, forceVerified = fals
   const enriched = applyResumeJsonToCommonPayload(candidate, payload, snapshot);
   enriched.payload.profileSnapshot = enriched.snapshot || snapshot;
 
+  const existingPersonId = candidate.personId || existingCommon?.personId || null;
+  const identity = buildIdentityFields({
+    email: enriched.payload.email,
+    phone: enriched.payload.phone,
+    existingPersonId,
+    resumeSha256: null,
+  });
+  enriched.payload.personId = identity.personId;
+  enriched.payload.emailNormalized = identity.emailNormalized;
+  enriched.payload.phoneE164 = identity.phoneE164;
+  enriched.payload.fingerprintKeys = identity.fingerprintKeys;
+
   return enriched.payload;
 }
 
@@ -199,18 +212,18 @@ async function loadCandidateForCommonSync(candidateId) {
   });
 }
 
-function isIncompletePortalShell(candidate, data) {
-  const first = String(candidate?.firstName || data?.firstName || '').trim();
-  const last = String(candidate?.lastName || data?.lastName || '').trim();
-  const hasName = Boolean(first || last);
-  const hasResume = Boolean(
-    String(data?.resumeUrl || candidate?.resume?.fileUrl || candidate?.resumeUrl || '').trim(),
-  );
-  const hasWork =
-    Array.isArray(data?.cvWorkExperienceEntries) && data.cvWorkExperienceEntries.length > 0;
-  const hasSkills = Array.isArray(data?.skills) && data.skills.length > 0;
-  // Email-only stubs (connectivity drop mid-upload) — do not pollute CRM until CV finishes.
-  return !hasName && !hasResume && !hasWork && !hasSkills;
+async function updateCandidateCommonInChunks(commonPrisma, where, data) {
+  const entries = Object.entries(data);
+  const CHUNK_SIZE = 25;
+  let result = null;
+  for (let i = 0; i < entries.length; i += CHUNK_SIZE) {
+    const chunkData = Object.fromEntries(entries.slice(i, i + CHUNK_SIZE));
+    result = await commonPrisma.candidateCommon.update({
+      where,
+      data: chunkData,
+    });
+  }
+  return result;
 }
 
 /**
@@ -230,19 +243,55 @@ async function syncCandidateToCommon(candidateId, options = {}) {
     const candidate = await loadCandidateForCommonSync(id);
     if (!candidate) return null;
 
-    const data = buildCommonPayload(candidate, options);
-    if (!options.forceShell && isIncompletePortalShell(candidate, data)) {
-      if (process.env.CANDIDATE_COMMON_SYNC_LOG === 'true') {
-        console.log(`[candidateCommon] skip incomplete shell ${id}`);
-      }
-      return null;
-    }
-    const { id: rowId, ...mutableFields } = data;
-    const row = await commonPrisma.candidateCommon.upsert({
+    const existingCommon = await commonPrisma.candidateCommon.findUnique({
       where: { candidateId: id },
-      create: { ...mutableFields, id: rowId, candidateId: id },
-      update: mutableFields,
     });
+
+    const data = buildCommonPayload(candidate, existingCommon, options);
+    const { id: rowId, ...mutableFields } = data;
+    let row;
+    if (existingCommon?.id) {
+      try {
+        row = await updateCandidateCommonInChunks(
+          commonPrisma,
+          { id: existingCommon.id },
+          mutableFields
+        );
+      } catch (updateErr) {
+        if (updateErr?.code === 'P2025') {
+          row = await commonPrisma.candidateCommon.create({
+            data: { ...mutableFields, id: rowId, candidateId: id },
+          });
+        } else {
+          throw updateErr;
+        }
+      }
+    } else {
+      try {
+        row = await commonPrisma.candidateCommon.create({
+          data: { ...mutableFields, id: rowId, candidateId: id },
+        });
+      } catch (createErr) {
+        if (createErr?.code === 'P2002') {
+          row = await updateCandidateCommonInChunks(
+            commonPrisma,
+            { candidateId: id },
+            mutableFields
+          );
+        } else {
+          throw createErr;
+        }
+      }
+    }
+
+    // If common sync minted a new personId and the portal row is still empty,
+    // write it back so the portal candidate owns its own identity.
+    if (!candidate.personId && data.personId) {
+      await prisma.candidate.update({
+        where: { id },
+        data: { personId: data.personId },
+      });
+    }
 
     if (process.env.CANDIDATE_COMMON_SYNC_LOG === 'true') {
       console.log(
@@ -300,5 +349,4 @@ module.exports = {
   syncCandidateCommonFromDashboard,
   buildCommonPayload,
   loadCandidateForCommonSync,
-  isIncompletePortalShell,
 };

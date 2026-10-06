@@ -9,6 +9,14 @@ try {
   process.exit(1);
 }
 
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[process] Unhandled Promise Rejection:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[process] Uncaught Exception:', err);
+});
+
 const express = require('express');
 const cors = require('cors');
 const http = require('http');
@@ -42,6 +50,7 @@ const publicEventsRoutes = require('./routes/public-events.routes');
 const publicCoursesRoutes = require('./routes/public-courses.routes');
 const tokenRoutes = require('./routes/token.routes');
 const { startInterviewReminderScheduler } = require('./services/interview-reminder.service');
+const { startIncompleteAccountCleanup } = require('./services/incomplete-cleanup.service');
 const { registerInterviewRoomSocketHandlers } = require('./realtime/interview-room.socket');
 
 const app = express();
@@ -82,6 +91,7 @@ const isOriginAllowed = (origin) => {
   try {
     const host = new URL(origin).hostname.toLowerCase();
     if (host === 'hryantra.com' || host.endsWith('.hryantra.com')) return true;
+    if (host === 'poyeso.com' || host.endsWith('.poyeso.com')) return true;
     // Local Next "Network" URL (phone / another PC on Wi‑Fi) talking to this API.
     if (process.env.NODE_ENV !== 'production' && isPrivateLanHostname(host)) {
       return true;
@@ -217,6 +227,7 @@ httpServer.listen(PORT, () => {
   console.log(`📱 Allowed frontend origins: ${allowedOrigins.join(', ')}`);
   console.log('🎥 Interview room signaling ready on Socket.IO');
   startInterviewReminderScheduler();
+  startIncompleteAccountCleanup();
 
   // P1-4: recover durable CV parse jobs left queued/stale after restart
   setTimeout(() => {

@@ -6,7 +6,7 @@ import { ArrowRight, ArrowUp, ClipboardPaste, FileText, Loader2, Lock, MessageSq
 import {
   apiCandidateAiChat,
   apiGenerateCandidateDetails,
-  apiParseCandidateResume,
+  apiParseCandidateResumeQueued,
   type ImportedProfileData,
   type LeadAiChatMessage,
 } from '@/lib/api';
@@ -202,7 +202,7 @@ export function CandidateAiChatDrawer({
     setError('');
     setStatus('');
     try {
-      const response = await apiParseCandidateResume(file);
+      const response = await apiParseCandidateResumeQueued(file);
       const data = response.data;
       if (!data) throw new Error('Parser did not return candidate details');
       onResumeParsed?.(data, file);

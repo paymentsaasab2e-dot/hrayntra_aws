@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import { env } from '../config/env.js';
 import { authMiddleware } from '../middleware/auth.middleware.js';
 import { addCandidateController } from '../controllers/addCandidate.controller.js';
+import { cvParseJobController } from '../controllers/cvParseJob.controller.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -100,6 +101,8 @@ router.use(authMiddleware);
 
 router.post('/candidates/create', addCandidateController.createCandidate);
 router.post('/candidates/parse-resume', resumeUpload.single('resume'), addCandidateController.parseResume);
+router.post('/cv/parse-jobs', resumeUpload.single('resume'), cvParseJobController.createParseJob);
+router.get('/cv/parse-jobs/:id', cvParseJobController.getParseJob);
 router.post(
   '/candidates/bulk-cv/process-file',
   resumeUpload.single('resume'),

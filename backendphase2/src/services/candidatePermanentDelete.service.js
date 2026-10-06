@@ -45,6 +45,7 @@ export async function permanentDeleteCandidateById(candidateId) {
     where: { id },
     select: {
       id: true,
+      personId: true,
       resume: true,
       resumeUrl: true,
       avatar: true,
@@ -105,8 +106,11 @@ export async function permanentDeleteCandidateById(candidateId) {
 
   await prisma.purgedCandidateRef.upsert({
     where: { candidateId: id },
-    create: { candidateId: id },
-    update: { purgedAt: new Date() },
+    create: { candidateId: id, personId: candidate?.personId || null },
+    update: {
+      purgedAt: new Date(),
+      ...(candidate?.personId ? { personId: candidate.personId } : {}),
+    },
   });
 
   console.log('[candidate] permanentDeleteCandidateById completed', {

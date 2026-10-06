@@ -13,6 +13,10 @@ function getEncryptionKey() {
     // If key is provided as a string, hash it to get 32 bytes
     return crypto.createHash('sha256').update(envKey).digest();
   }
+
+  if (process.env.NODE_TEST_CONTEXT) {
+    return crypto.createHash('sha256').update('w1-unit-test').digest();
+  }
   
   // For development: generate a key and log it so user can add to .env
   const generatedKey = crypto.randomBytes(32);

@@ -390,7 +390,7 @@ export function InterviewTable({
       <div className={hidePagination ? 'contents' : 'overflow-x-auto overflow-y-auto'}>
         <table className="w-max min-w-full border-collapse text-left text-sm">
           <thead className="sticky top-0 z-10">
-            <tr className="border-b border-indigo-100/50 bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 text-[9px] font-bold uppercase tracking-[0.12em] text-indigo-950/45 backdrop-blur-sm">
+            <tr className="border-b border-indigo-100/50 bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 text-xs font-bold uppercase tracking-[0.06em] text-indigo-950/70 backdrop-blur-sm">
               <th className="w-10 px-3 py-2 first:pl-4 sm:px-4">
                 <input
                   type="checkbox"
@@ -484,7 +484,7 @@ export function InterviewTable({
                   </td>
                   <td className="px-3 py-2.5 sm:px-4" onClick={(event) => event.stopPropagation()}>
                     <div className="flex items-center gap-2.5">
-                      <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-blue-100 text-[11px] font-semibold text-[#2563EB]">
+                      <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-medium text-[#2563EB]">
                         {primary.candidate.name
                           .split(' ')
                           .map((part) => part[0])
@@ -496,12 +496,12 @@ export function InterviewTable({
                           <button
                             type="button"
                             onClick={() => onViewCandidate(primary)}
-                            className="text-left text-[13px] font-semibold text-slate-900 transition-colors hover:text-indigo-700"
+                            className="text-left text-sm font-medium text-slate-900 transition-colors hover:text-indigo-700"
                           >
                             {primary.candidate.name}
                           </button>
                           {rounds.length > 1 ? (
-                            <span className="text-[11px] font-medium text-[#2563EB]">({rounds.length} rounds)</span>
+                            <span className="text-xs font-normal text-[#2563EB]">({rounds.length} rounds)</span>
                           ) : null}
                         </div>
                         <div className="truncate text-[11px] text-[#6B7280]">

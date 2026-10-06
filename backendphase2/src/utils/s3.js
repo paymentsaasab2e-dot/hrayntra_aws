@@ -19,12 +19,16 @@ export function ensureS3Configured() {
 export function getS3Client() {
   ensureS3Configured();
   if (!_client) {
+    const endpoint = String(process.env.AWS_S3_ENDPOINT || env.AWS_S3_ENDPOINT || '').trim();
     _client = new S3Client({
       region: env.AWS_REGION,
       credentials: {
         accessKeyId: env.AWS_ACCESS_KEY_ID,
         secretAccessKey: env.AWS_SECRET_ACCESS_KEY,
       },
+      ...(endpoint
+        ? { endpoint, forcePathStyle: true }
+        : {}),
     });
   }
   return _client;
@@ -264,14 +268,13 @@ export function isOurS3PdfUrl(urlString) {
   }
 }
 
-/** S3 files the client review may stream, including Word resumes saved as the HRYantra CV. */
-export function isOurS3ShareableDocumentUrl(urlString) {
+export function isOurS3ResumeDocumentUrl(urlString) {
   try {
     const u = new URL(urlString);
-    if (u.protocol !== 'https:') return false;
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return false;
     const parsed = parseOurS3Url(urlString);
     if (!parsed) return false;
-    if (/\.(pdf|png|jpe?g|gif|webp|txt|docx|doc)($|[?#])/i.test(u.pathname)) return true;
+    if (/\.(pdf|docx?|png|jpe?g|gif|webp|txt)($|[?#])/i.test(u.pathname)) return true;
     return isExtensionlessResumeStorageKey(parsed.key);
   } catch {
     return false;

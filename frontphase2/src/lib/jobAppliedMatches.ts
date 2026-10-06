@@ -107,12 +107,16 @@ export function resolveJobCandidateStageFromMatchRow(
   },
   existingStage?: string | null,
 ): string {
+  const existingTrimmed = String(existingStage || '').trim();
+  if (existingTrimmed && !isMatchWorkflowStatus(existingTrimmed)) {
+    return resolveJobCandidateDisplayStage(existingTrimmed);
+  }
+
   const displayStatus = String(match.status || '').trim();
   const crmStage = String(match.candidateStage || match.candidate?.stage || '').trim();
-  // Prefer the later of CRM / existing pipeline stage. Do not downgrade client-marked
-  // stages like "Joined" back to Applied just because Match.status is REVIEWED.
-  const later = pickLaterJobDrawerStage(existingStage, crmStage);
-  if (later) return later;
+  if (crmStage && !isMatchWorkflowStatus(crmStage)) {
+    return resolveJobCandidateDisplayStage(crmStage);
+  }
 
   const fromMatchEnum = mapApplicationStatusToCrmStage(displayStatus);
   if (fromMatchEnum && !isMatchWorkflowStatus(displayStatus)) {
@@ -123,7 +127,7 @@ export function resolveJobCandidateStageFromMatchRow(
     return resolveJobCandidateDisplayStage(displayStatus);
   }
 
-  return resolveJobCandidateDisplayStage(crmStage || existingStage || 'Applied');
+  return resolveJobCandidateDisplayStage(crmStage || existingTrimmed || 'Applied');
 }
 
 /** True when a match row represents a real job link (applied/manual), not AI score-only. */
@@ -443,6 +447,7 @@ export async function loadJobAppliedCandidates(
   options?: {
     runPipeline?: boolean;
     refresh?: boolean;
+    silent?: boolean;
     pipelineSeed?: JobCandidateItem[];
     fallbackRecruiter?: string;
   },
@@ -452,7 +457,7 @@ export async function loadJobAppliedCandidates(
     source: 'applied',
     limit: 500,
     ...(options?.runPipeline ? { runPipeline: '1' } : {}),
-    ...(options?.refresh ? { refresh: '1' } : {}),
+    ...(options?.runPipeline && options?.refresh ? { refresh: '1' } : {}),
   });
   const matchRows = unwrapMatchRows(response);
   const seed = options?.pipelineSeed ?? [];

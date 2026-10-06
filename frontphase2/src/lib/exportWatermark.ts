@@ -31,19 +31,6 @@ export const ORG_WATERMARK_CACHE_EVENT = 'ph2:org-export-watermark';
 /** Session cache of decoded logo PNG data-URLs keyed by imageUrl (avoids blank Excel embeds). */
 const ORG_WATERMARK_LOGO_DATA_KEY = 'orgExportWatermarkLogoData';
 
-/** Cache is per tenant so one company's stamp is never reused for another. */
-function watermarkTenantScope(): string {
-  return readTenantDbName() || 'none';
-}
-
-function orgWatermarkStorageKey(): string {
-  return `${ORG_WATERMARK_CACHE_KEY}:${watermarkTenantScope()}`;
-}
-
-function orgWatermarkLogoStorageKey(): string {
-  return `${ORG_WATERMARK_LOGO_DATA_KEY}:${watermarkTenantScope()}`;
-}
-
 export function normalizeExportWatermark(raw: unknown): ExportWatermarkSettings {
   const input = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
   const text = String(input.text || '').trim().slice(0, 120);
@@ -82,7 +69,7 @@ export function cacheWatermarkLogoDataUrl(imageUrl: string, dataUrl: string): vo
   if (!key || !value.startsWith('data:image/')) return;
   try {
     sessionStorage.setItem(
-      orgWatermarkLogoStorageKey(),
+      ORG_WATERMARK_LOGO_DATA_KEY,
       JSON.stringify({ imageUrl: key, dataUrl: value, at: Date.now() }),
     );
   } catch {
@@ -93,7 +80,7 @@ export function cacheWatermarkLogoDataUrl(imageUrl: string, dataUrl: string): vo
 function readCachedWatermarkLogoDataUrl(imageUrl: string): string {
   if (typeof window === 'undefined') return '';
   try {
-    const raw = sessionStorage.getItem(orgWatermarkLogoStorageKey());
+    const raw = sessionStorage.getItem(ORG_WATERMARK_LOGO_DATA_KEY);
     if (!raw) return '';
     const parsed = JSON.parse(raw) as { imageUrl?: string; dataUrl?: string };
     if (String(parsed?.imageUrl || '').trim() !== String(imageUrl || '').trim()) return '';
@@ -107,7 +94,7 @@ function readCachedWatermarkLogoDataUrl(imageUrl: string): string {
 export function readCachedOrgWatermark(): ExportWatermarkSettings {
   if (typeof window === 'undefined') return DEFAULT_EXPORT_WATERMARK;
   try {
-    const raw = localStorage.getItem(orgWatermarkStorageKey());
+    const raw = localStorage.getItem(ORG_WATERMARK_CACHE_KEY);
     if (!raw) return DEFAULT_EXPORT_WATERMARK;
     return normalizeExportWatermark(JSON.parse(raw));
   } catch {
@@ -121,7 +108,7 @@ export function writeCachedOrgWatermark(settings: ExportWatermarkSettings): void
     // Never persist large data-URLs in localStorage (quota). Logo lives in session cache.
     const forStorage = normalizeExportWatermark(settings);
     const { imageDataUrl: _drop, ...rest } = forStorage;
-    localStorage.setItem(orgWatermarkStorageKey(), JSON.stringify(rest));
+    localStorage.setItem(ORG_WATERMARK_CACHE_KEY, JSON.stringify(rest));
     if (forStorage.imageDataUrl && forStorage.imageUrl) {
       cacheWatermarkLogoDataUrl(forStorage.imageUrl, forStorage.imageDataUrl);
     } else if (forStorage.imageDataUrl) {
@@ -170,41 +157,11 @@ export function watermarkImageForFormat(
   return cfg.imageUrl || '';
 }
 
-/**
- * The saved logo URL often points at a host the settings page cannot open
- * (production API from localhost, or the reverse). Rebuild it on the API this page uses.
- */
-function rewriteExportWatermarkDisplayUrl(imageUrl: string): string {
-  if (typeof window === 'undefined') return imageUrl;
-  try {
-    const parsed = new URL(imageUrl, window.location.origin);
-    if (!parsed.pathname.includes('/export-watermarks/')) return imageUrl;
-    const filename = decodeURIComponent(parsed.pathname.split('/').filter(Boolean).pop() || '');
-    if (!filename) return imageUrl;
-    const tenant =
-      parsed.searchParams.get('tenantDbName') ||
-      parsed.searchParams.get('tenant') ||
-      readTenantDbName();
-    const qs = tenant ? `?tenantDbName=${encodeURIComponent(tenant)}` : '';
-    const filePath = `public/uploads/export-watermarks/${encodeURIComponent(filename)}${qs}`;
-    const host = window.location.hostname.toLowerCase();
-    if (host === 'localhost' || host === '127.0.0.1' || host.endsWith('.local')) {
-      return `http://127.0.0.1:5001/api/v1/${filePath}`;
-    }
-    return `/api/proxy/${filePath}`;
-  } catch {
-    return imageUrl;
-  }
-}
-
 /** Resolve a stored /uploads or absolute watermark image URL for fetch/display. */
 export function resolveWatermarkImageSrc(imageUrl: string): string {
   const trimmed = String(imageUrl || '').trim();
   if (!trimmed) return '';
   if (trimmed.startsWith('data:')) return trimmed;
-  if (trimmed.includes('/export-watermarks/')) {
-    return rewriteExportWatermarkDisplayUrl(trimmed);
-  }
 
   const tenant = readTenantDbName();
   const withTenant = (url: string): string => {
@@ -559,7 +516,7 @@ export async function applyOrgWatermarkToJsPdf(
         }
       }
     }
-    if (cfg.text && !image) {
+    if (cfg.text) {
       pdf.setTextColor(120, 120, 140);
       pdf.setFontSize(resolvePdfWatermarkFontSize(width));
       pdf.text(cfg.text, width / 2, height / 2, { angle: 35, align: 'center' });
@@ -629,14 +586,9 @@ export async function stampDownloadBlob(
     if (!cfg.applyToPdf) return blob;
     try {
       const { PDFDocument, StandardFonts, rgb, degrees } = await import('pdf-lib');
-      const raw = await blob.arrayBuffer();
-      const marker = new TextDecoder().decode(raw);
-      if (marker.includes('HryantraWm:stamped')) return blob;
-      if (marker.includes('pdf-lib') && !marker.includes('HryantraWm:clean')) return blob;
-      const pdfDoc = await PDFDocument.load(raw, {
+      const pdfDoc = await PDFDocument.load(await blob.arrayBuffer(), {
         ignoreEncryption: true,
       });
-      pdfDoc.setKeywords(['HryantraWm:stamped']);
       const pages = pdfDoc.getPages();
       if (!pages.length) return blob;
       const opacity = Math.min(0.5, Math.max(0.05, cfg.opacity));
@@ -689,7 +641,7 @@ export async function stampDownloadBlob(
             /* keep going — text may still stamp */
           }
         }
-        if (cfg.text && font && !embeddedImage) {
+        if (cfg.text && font) {
           try {
             const size = resolvePdfWatermarkFontSize(width);
             page.drawText(cfg.text, {
@@ -788,10 +740,10 @@ export async function stampExcelJsWorkbook(
   }
   const hasImage = Boolean(image?.dataUrl);
 
-  const textStamp = hasImage
-    ? ''
-    : preferredText
-      ? preferredText
+  const textStamp = preferredText
+    ? preferredText
+    : hasImage
+      ? ''
       : imageUrl
         ? 'Organization watermark'
         : cfg.enabled

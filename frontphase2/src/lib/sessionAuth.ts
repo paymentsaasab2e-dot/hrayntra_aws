@@ -3,16 +3,12 @@ import {
   apiGetMe,
   apiGetMyPermissions,
   buildApiUrl,
-  clearIsolatedAuthSession,
-  getAccessToken,
   getTenantDbName,
-  isIsolatedAuthSession,
   syncAuthCookie,
   syncOrgRecruitmentSummaryFromApi,
   syncTenantDbName,
 } from './api';
 import { clearAllEmployerPageCaches } from './employerPageCache';
-import { fetchClientPublicIp } from '../utils/clientPublicIp';
 
 export type ActiveSessionView = {
   sessionId?: string;
@@ -38,7 +34,7 @@ export function parseSessionIdFromToken(token: string | null): string | null {
 
 export function getStoredSessionId(): string | null {
   if (typeof window === 'undefined') return null;
-  return parseSessionIdFromToken(getAccessToken());
+  return parseSessionIdFromToken(localStorage.getItem('accessToken'));
 }
 
 export function persistAuthTokens(data: {
@@ -47,25 +43,19 @@ export function persistAuthTokens(data: {
   tenantDbName?: string;
 }) {
   if (typeof window === 'undefined') return;
-  const isolated = isIsolatedAuthSession();
-  const store = isolated ? sessionStorage : localStorage;
   if (data.accessToken) {
-    store.setItem('accessToken', data.accessToken);
-    if (!isolated) syncAuthCookie('accessToken', data.accessToken);
+    localStorage.setItem('accessToken', data.accessToken);
+    syncAuthCookie('accessToken', data.accessToken);
   }
   if (data.refreshToken) {
-    store.setItem('refreshToken', data.refreshToken);
-    if (!isolated) syncAuthCookie('refreshToken', data.refreshToken);
+    localStorage.setItem('refreshToken', data.refreshToken);
+    syncAuthCookie('refreshToken', data.refreshToken);
   }
   if (data.tenantDbName) syncTenantDbName(data.tenantDbName);
 }
 
 export function clearAuthStorage() {
   if (typeof window === 'undefined') return;
-  if (isIsolatedAuthSession()) {
-    clearIsolatedAuthSession();
-    return;
-  }
   clearAllEmployerPageCaches();
   [
     'accessToken',
@@ -139,7 +129,7 @@ export function isEmployerPublicAuthPath(pathname: string | null | undefined) {
 export async function endSessionOnServer() {
   if (typeof window === 'undefined') return;
   const sessionId = getStoredSessionId();
-  const token = getAccessToken();
+  const token = localStorage.getItem('accessToken');
   if (!token) return;
   try {
     const tenantDbName = getTenantDbName();
@@ -301,17 +291,14 @@ export type LoginDevicePayload = {
   macAddress: string;
   deviceId: string;
   userAgent: string;
-  clientPublicIp?: string;
 };
 
 export async function buildLoginDevicePayload(): Promise<LoginDevicePayload> {
   const macAddress = getMacAddress();
-  const clientPublicIp = await fetchClientPublicIp();
   return {
     macAddress,
     deviceId: macAddress,
     userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'Unknown',
-    clientPublicIp,
   };
 }
 
@@ -340,9 +327,9 @@ export function resolveStoredLoginId(storedUser?: Record<string, unknown> | null
 export function persistLastLoginId(loginId: string | null | undefined) {
   if (typeof window === 'undefined') return;
   const trimmed = String(loginId || '').trim();
-  if (!trimmed) return;
-  const store = isIsolatedAuthSession() ? sessionStorage : localStorage;
-  store.setItem('lastLoginId', trimmed);
+  if (trimmed) {
+    localStorage.setItem('lastLoginId', trimmed);
+  }
 }
 
 export function buildLoginIdentifierFields(identifier: string) {
@@ -361,8 +348,6 @@ export async function finalizeAuthAfterTokens(data: {
   requirePasswordReset?: boolean;
 }) {
   persistAuthTokens(data);
-
-  const store = isIsolatedAuthSession() ? sessionStorage : localStorage;
 
   const meRes = await apiGetMe();
   const permRes = await apiGetMyPermissions();
@@ -387,10 +372,10 @@ export async function finalizeAuthAfterTokens(data: {
 
   persistLastLoginId(userData.loginId);
 
-  store.setItem('currentUser', JSON.stringify(userData));
-  store.setItem('userPermissions', JSON.stringify(permissions));
+  localStorage.setItem('currentUser', JSON.stringify(userData));
+  localStorage.setItem('userPermissions', JSON.stringify(permissions));
   if (data.requirePasswordReset) {
-    store.setItem('requirePasswordReset', 'true');
+    localStorage.setItem('requirePasswordReset', 'true');
   }
 
   await syncOrgRecruitmentSummaryFromApi({ force: true });
@@ -419,16 +404,14 @@ export function parseAccessTokenPayload(token: string | null | undefined): Recor
 }
 
 export function isImpersonationAccessToken(token?: string | null): boolean {
-  const payload = parseAccessTokenPayload(
-    token ?? (typeof window !== 'undefined' ? getAccessToken() : null),
-  );
+  const payload = parseAccessTokenPayload(token ?? (typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null));
   return Boolean(payload?.tenantImpersonation || payload?.hqImpersonation);
 }
 
 /** HQ opened a tenant workspace, but is not already inside a nested team-member account. */
 export function isHqTenantSupportSession(): boolean {
   if (typeof window === 'undefined') return false;
-  const payload = parseAccessTokenPayload(getAccessToken());
+  const payload = parseAccessTokenPayload(localStorage.getItem('accessToken'));
   if (!payload) return false;
   if (payload.tenantImpersonation) return false;
   return Boolean(payload.hqImpersonation);

@@ -2,7 +2,6 @@ import { teamMemberService } from './teamMember.service.js';
 import { sendResponse, sendError } from '../../utils/response.js';
 import { assertCanViewMemberActivity } from '../../services/activityVisibility.service.js';
 import { isSuperAdminUser } from '../../utils/superAdminScope.js';
-import { resolveClientIp } from '../../utils/deviceFingerprint.js';
 
 export const teamMemberController = {
   async getAll(req, res) {
@@ -78,11 +77,7 @@ export const teamMemberController = {
 
   async resetPassword(req, res) {
     try {
-      const result = await teamMemberService.resetPassword(req.params.id, req.user, {
-        ipAddress: resolveClientIp(req, req.body) || '',
-        device: req.get('user-agent') || '',
-        source: 'team_reset',
-      });
+      const result = await teamMemberService.resetPassword(req.params.id, req.user);
       sendResponse(res, 200, result.message, {
         tempPassword: result.tempPassword,
         loginId: result.loginId,
@@ -102,11 +97,7 @@ export const teamMemberController = {
         return sendError(res, 404, 'Team member not found');
       }
       const newPassword = req.body?.newPassword;
-      const result = await teamMemberService.setPassword(req.params.id, newPassword, req.user, {
-        ipAddress: resolveClientIp(req, req.body) || '',
-        device: req.get('user-agent') || '',
-        source: 'team_set_password',
-      });
+      const result = await teamMemberService.setPassword(req.params.id, newPassword, req.user);
       sendResponse(res, 200, result.message, {
         loginId: result.loginId,
       });

@@ -1,6 +1,6 @@
 export function getCandidateStageLabel(stage?: string | null) {
   const normalized = (stage || '').trim().toLowerCase();
-  if (!normalized) return '—';
+  if (!normalized) return 'Unknown';
   if (normalized === 'new') return 'New';
   if (normalized === 'suggested') return 'Applied';
   if (normalized === 'shortlisted' || normalized === 'selected') return 'Shortlisted';
@@ -133,7 +133,7 @@ function matchPartialStageKey(key: string): string | null {
 
 export function getCandidateStageBadgeClasses(stage?: string | null) {
   const raw = (stage || '').trim();
-  if (!raw) return 'border-transparent bg-transparent text-slate-400 shadow-none';
+  if (!raw) return 'bg-slate-400 text-white border-slate-400';
 
   const key = normalizeStageKey(raw);
   if (STAGE_BADGE_CLASSES[key]) return STAGE_BADGE_CLASSES[key];

@@ -35,39 +35,6 @@ function parseWatermarkLogoRef(imageUrl = '') {
   }
 }
 
-async function embedWatermarkLogo(watermark) {
-  let imageDataUrl = '';
-  const ref = parseWatermarkLogoRef(watermark.imageUrl);
-  const activeTenant = String(getActiveTenantDbName() || '').trim();
-  const logoTenant = activeTenant || String(ref?.tenantDbName || '').trim();
-  const foreignLogo =
-    Boolean(activeTenant) &&
-    Boolean(ref?.tenantDbName) &&
-    String(ref.tenantDbName).trim() !== activeTenant;
-  if (ref?.filename && logoTenant && !foreignLogo) {
-    try {
-      const file = await loadPublicUpload({
-        subdir: 'export-watermarks',
-        filename: ref.filename,
-        tenantDbName: logoTenant,
-      });
-      if (file?.buffer?.length) {
-        const mime = mimeFromFilename(file.filename || ref.filename);
-        imageDataUrl = `data:${mime};base64,${Buffer.from(file.buffer).toString('base64')}`;
-      }
-    } catch (err) {
-      console.warn('[exportWatermark] logo embed failed:', err?.message || err);
-    }
-  }
-  return { ...watermark, imageDataUrl };
-}
-
-/** Settings page: include the uploaded logo even when the stamp is turned off. */
-export async function getExportWatermarkForSettings() {
-  const watermark = normalizeExportWatermark(await getExportWatermark());
-  return embedWatermarkLogo(watermark);
-}
-
 /**
  * Org export watermark for public client-review exports (no auth cookie).
  * Embeds logo as data URL when possible so Excel/PDF stamp works offline.
@@ -77,5 +44,30 @@ export async function getPublicClientReviewExportWatermark() {
   if (!watermark.enabled) {
     return { ...watermark, imageDataUrl: '' };
   }
-  return embedWatermarkLogo(watermark);
+
+  let imageDataUrl = '';
+  const ref = parseWatermarkLogoRef(watermark.imageUrl);
+  if (ref?.filename) {
+    try {
+      const file = await loadPublicUpload({
+        subdir: 'export-watermarks',
+        filename: ref.filename,
+        tenantDbName: ref.tenantDbName,
+      });
+      if (file?.buffer?.length) {
+        const mime = mimeFromFilename(file.filename || ref.filename);
+        imageDataUrl = `data:${mime};base64,${Buffer.from(file.buffer).toString('base64')}`;
+      }
+    } catch (err) {
+      console.warn(
+        '[exportWatermark] public review logo embed failed:',
+        err?.message || err,
+      );
+    }
+  }
+
+  return {
+    ...watermark,
+    imageDataUrl,
+  };
 }

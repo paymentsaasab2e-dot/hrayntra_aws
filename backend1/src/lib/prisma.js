@@ -2,10 +2,40 @@ const { PrismaClient } = require('@prisma/client');
 
 const globalForPrisma = global;
 
+function createTestPrismaStub() {
+  const models = new Map();
+  function modelStub() {
+    const bag = {};
+    return new Proxy(bag, {
+      get(target, property) {
+        if (typeof property === 'symbol') return undefined;
+        if (property in target) return target[property];
+        return async () => null;
+      },
+    });
+  }
+  return new Proxy(
+    {},
+    {
+      get(_target, property) {
+        if (property === '$connect' || property === '$disconnect') {
+          return async () => {};
+        }
+        if (typeof property === 'symbol') return undefined;
+        if (!models.has(property)) models.set(property, modelStub());
+        return models.get(property);
+      },
+    }
+  );
+}
+
+const useTestStub = Boolean(process.env.NODE_TEST_CONTEXT) && !process.env.DATABASE_URL;
+
 // Create Prisma client with connection retry configuration
-const prisma =
-  globalForPrisma.prisma ??
-  new PrismaClient({
+const prisma = useTestStub
+  ? createTestPrismaStub()
+  : globalForPrisma.prisma ??
+    new PrismaClient({
     // Reduce noisy logs in dev (connection issues can spam the terminal).
     log: process.env.NODE_ENV === 'development' ? ['warn'] : ['error'],
     datasources: {
@@ -108,7 +138,7 @@ async function retryQuery(queryFn, retries = 3, delay = 1000) {
 }
 
 // Test connection on startup (non-blocking)
-if (process.env.NODE_ENV === 'development') {
+if (process.env.NODE_ENV === 'development' && !process.env.NODE_TEST_CONTEXT) {
   testConnection().catch(console.error);
 }
 

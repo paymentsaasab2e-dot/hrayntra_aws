@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { apiGetMe, apiRefreshToken, BackendUser, getAccessToken, isIsolatedAuthSession } from '../lib/api';
+import { apiGetMe, apiRefreshToken, BackendUser, getAccessToken } from '../lib/api';
 
 function isAuthRequiredError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error || '');
@@ -17,8 +17,8 @@ export function useUser() {
       setLoading(true);
 
       let token = getAccessToken();
-      const store = isIsolatedAuthSession() ? sessionStorage : localStorage;
-      const refreshToken = typeof window !== 'undefined' ? store.getItem('refreshToken') : null;
+      const refreshToken =
+        typeof window !== 'undefined' ? localStorage.getItem('refreshToken') : null;
 
       // Global hosts (intelligence, sidenav) mount on login/public pages too —
       // never hit /users/me without credentials (avoids console auth errors).
@@ -39,17 +39,16 @@ export function useUser() {
       const response = await apiGetMe();
       if (response.success) {
         setUser(response.data);
-        const store = isIsolatedAuthSession() ? sessionStorage : localStorage;
-        const stored = store.getItem('currentUser');
+        const stored = localStorage.getItem('currentUser');
         if (stored) {
           try {
             const parsed = JSON.parse(stored);
-            store.setItem('currentUser', JSON.stringify({ ...parsed, ...response.data }));
+            localStorage.setItem('currentUser', JSON.stringify({ ...parsed, ...response.data }));
           } catch {
-            store.setItem('currentUser', JSON.stringify(response.data));
+            localStorage.setItem('currentUser', JSON.stringify(response.data));
           }
         } else {
-          store.setItem('currentUser', JSON.stringify(response.data));
+          localStorage.setItem('currentUser', JSON.stringify(response.data));
         }
       }
     } catch (error) {
@@ -64,8 +63,7 @@ export function useUser() {
 
   useEffect(() => {
     const token = getAccessToken();
-    const store = typeof window !== 'undefined' && isIsolatedAuthSession() ? sessionStorage : localStorage;
-    const stored = typeof window !== 'undefined' ? store.getItem('currentUser') : null;
+    const stored = typeof window !== 'undefined' ? localStorage.getItem('currentUser') : null;
 
     // Hydrate from cache only when a session token still exists.
     if (token && stored) {

@@ -51,7 +51,6 @@ router.post('/setup', hqSetupRateLimit, requireHqSetupAccess, hqController.setup
 
 router.post('/provision-tenant', authMiddleware, hqController.provisionTenant);
 router.get('/tenants', authMiddleware, hqController.listTenants);
-router.get('/tenants/access-logs', authMiddleware, hqController.listTenantAccessLogs);
 router.post('/tenants/impersonate', authMiddleware, hqController.createTenantImpersonationAccess);
 router.put('/tenants/plan', authMiddleware, hqController.assignPlan);
 router.put('/tenants/coins', authMiddleware, hqController.setTenantCoins);
@@ -121,16 +120,6 @@ router.post(
   authMiddleware,
   hqController.impersonateAccountSupportEmployee,
 );
-router.post(
-  '/account-support/repair-employee',
-  authMiddleware,
-  hqController.repairAccountSupportEmployee,
-);
-router.post(
-  '/account-support/provision-employee',
-  authMiddleware,
-  hqController.provisionAccountSupportEmployee,
-);
 
 router.get('/help-tickets', authMiddleware, hqController.listHelpTickets);
 router.get('/help-tickets/:id/messages', authMiddleware, hqController.listHelpTicketMessages);
@@ -181,11 +170,6 @@ router.post(
   hqController.syncTenantJobsToPhase1,
 );
 router.get('/candidates', authMiddleware, hqController.listAllCandidates);
-router.post(
-  '/candidates/complete-registration-email',
-  authMiddleware,
-  hqController.emailIncompleteCandidates,
-);
 router.get('/kyc-interviewers', authMiddleware, hqController.listKycInterviewers);
 router.post('/kyc-interviewers/:id/verify', authMiddleware, hqController.verifyKycInterviewer);
 router.post('/kyc-interviewers/:id/reject', authMiddleware, hqController.rejectKycInterviewer);

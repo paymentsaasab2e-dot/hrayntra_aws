@@ -260,7 +260,44 @@ if (defaultClient) {
   });
 }
 
+/** In-memory Prisma stand-in so `node --test` can stub model methods without Mongo. */
+function createTestPrismaStub() {
+  const models = new Map();
+  function modelStub() {
+    const bag = {};
+    return new Proxy(bag, {
+      get(target, property) {
+        if (typeof property === 'symbol') return undefined;
+        if (property in target) return target[property];
+        return async () => null;
+      },
+    });
+  }
+  return new Proxy(
+    {},
+    {
+      get(_target, property) {
+        if (property === '$connect' || property === '$disconnect') {
+          return async () => {};
+        }
+        if (property === '$transaction') {
+          return async (fn) => (typeof fn === 'function' ? fn(createTestPrismaStub()) : []);
+        }
+        if (typeof property === 'symbol') return undefined;
+        if (!models.has(property)) models.set(property, modelStub());
+        return models.get(property);
+      },
+    }
+  );
+}
+
+let testStubClient = null;
+
 function getDefaultClientInstance() {
+  if (allowImportWithoutDatabase) {
+    if (!testStubClient) testStubClient = createTestPrismaStub();
+    return testStubClient;
+  }
   if (!defaultDbUrl) {
     throw new Error('DATABASE_URL is not set in environment');
   }

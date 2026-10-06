@@ -37,7 +37,7 @@ import {
 import { SettingsPageHero } from './SettingsPageHero';
 
 const TABLE_HEAD_ROW =
-  'border-b border-indigo-100/50 bg-gradient-to-r from-slate-50/90 via-indigo-50/30 to-violet-50/20 text-[10px] font-bold uppercase tracking-wider text-slate-500';
+  'border-b border-indigo-100/50 bg-gradient-to-r from-slate-50/90 via-indigo-50/30 to-violet-50/20 text-xs font-bold uppercase tracking-[0.06em] text-slate-600';
 const TH = 'px-3 py-2.5 text-left first:pl-4 sm:px-4 sm:first:pl-6 sm:py-3 whitespace-nowrap';
 const TR = 'transition-colors hover:bg-indigo-50/40';
 

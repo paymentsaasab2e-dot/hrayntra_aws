@@ -1,6 +1,5 @@
 import { hqService } from './hq.service.js';
 import { sendResponse, sendError } from '../../utils/response.js';
-import { resolveClientIp } from '../../utils/deviceFingerprint.js';
 
 export const hqController = {
   async setupSuperAdmin(req, res) {
@@ -25,15 +24,6 @@ export const hqController = {
   async listTenants(req, res) {
     try {
       const result = await hqService.listTenants(req.user);
-      sendResponse(res, 200, 'OK', result);
-    } catch (error) {
-      sendError(res, 400, error.message, error);
-    }
-  },
-
-  async listTenantAccessLogs(req, res) {
-    try {
-      const result = await hqService.listTenantAccessLogs(req.query || {}, req.user);
       sendResponse(res, 200, 'OK', result);
     } catch (error) {
       sendError(res, 400, error.message, error);
@@ -625,22 +615,6 @@ export const hqController = {
     }
   },
 
-  async emailIncompleteCandidates(req, res) {
-    try {
-      const result = await hqService.emailIncompleteCandidates(req.user, req.body || {});
-      sendResponse(
-        res,
-        200,
-        result.sentCount
-          ? `Sent ${result.sentCount} registration email${result.sentCount === 1 ? '' : 's'}`
-          : 'No emails were sent',
-        result,
-      );
-    } catch (error) {
-      sendError(res, error.statusCode || 400, error.message, error);
-    }
-  },
-
   async listKycInterviewers(req, res) {
     try {
       const result = await hqService.listKycInterviewers(req.user);
@@ -1079,11 +1053,7 @@ export const hqController = {
 
   async regenerateAccountSupportPassword(req, res) {
     try {
-      const result = await hqService.regenerateAccountSupportPassword(req.body || {}, req.user, {
-        ipAddress: resolveClientIp(req, req.body) || '',
-        device: req.get('user-agent') || '',
-        source: 'hq_password_reset',
-      });
+      const result = await hqService.regenerateAccountSupportPassword(req.body || {}, req.user);
       sendResponse(
         res,
         200,
@@ -1110,24 +1080,6 @@ export const hqController = {
     try {
       const result = await hqService.impersonateAccountSupportEmployee(req.body || {}, req.user);
       sendResponse(res, 200, 'Candidate login link created', result);
-    } catch (error) {
-      sendError(res, error.statusCode || 400, error.message, error);
-    }
-  },
-
-  async repairAccountSupportEmployee(req, res) {
-    try {
-      const result = await hqService.repairAccountSupportEmployee(req.body || {}, req.user);
-      sendResponse(res, 200, result.message || 'Candidate repair applied', result);
-    } catch (error) {
-      sendError(res, error.statusCode || 400, error.message, error);
-    }
-  },
-
-  async provisionAccountSupportEmployee(req, res) {
-    try {
-      const result = await hqService.provisionAccountSupportEmployee(req.body || {}, req.user);
-      sendResponse(res, 200, result.message || 'Portal account ready', result);
     } catch (error) {
       sendError(res, error.statusCode || 400, error.message, error);
     }
