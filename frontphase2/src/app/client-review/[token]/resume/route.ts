@@ -114,7 +114,7 @@ export async function GET(
       }
     }
 
-    return new NextResponse(bytes, {
+    return new NextResponse(new Uint8Array(bytes), {
       status: upstream.status,
       headers: {
         'Content-Type': contentType,
