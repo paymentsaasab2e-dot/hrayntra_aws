@@ -59,7 +59,11 @@ import {
   sendInterviewPanelScheduledEmail,
 } from '../../services/emailService.js';
 import { buildSuperAdminOwnerScope, isSuperAdminUser } from '../../utils/superAdminScope.js';
-import { canViewAllAssignments, hasAnyPermission as hasAnyPermissionScope } from '../../utils/permissionScope.js';
+import {
+  canViewAllAssignments,
+  canViewAllJobs,
+  hasAnyPermission as hasAnyPermissionScope,
+} from '../../utils/permissionScope.js';
 import {
   applyOrgCompanyAssigneeWhere,
   getRequestOrgScope,
@@ -218,9 +222,14 @@ function resolveJobTitleFromCandidateRelations(candidate, jobId, jobsById) {
  * Falls back across assign / apply / pipeline / interview / match so Applied rows
  * are not left with "—" when stage is Applied but assignedJobs title lookup missed.
  */
-function resolveCandidateAssignedJobTitlesForList(candidate, jobsById, tenantJobIdSet = null) {
-  const primaryId = resolvePrimaryJobIdForList(candidate, tenantJobIdSet);
-  const linkedIds = collectCandidateLinkedJobIds(candidate);
+function resolveCandidateAssignedJobTitlesForList(
+  candidate,
+  jobsById,
+  tenantJobIdSet = null,
+  preferredJobIds = null,
+) {
+  const primaryId = resolvePrimaryJobIdForList(candidate, tenantJobIdSet, preferredJobIds);
+  const linkedIds = preferOwnedJobIds(collectCandidateLinkedJobIds(candidate), preferredJobIds);
   const orderedIds = [];
   if (primaryId) orderedIds.push(primaryId);
   for (const id of linkedIds) {
@@ -308,13 +317,26 @@ function candidateHasAnyJobLink(candidate) {
 /**
  * After tenant scoping, drop rows that only belonged to another tenant's pipeline.
  * Pure Phase 1 discovery (no job links anywhere) stays on All candidates via includeCommonPool.
+ * Tenant-DB rows with only foreign job ids are pollution — never keep them on All/My.
  */
 function shouldIncludeCandidateAfterTenantScope(original, scoped, options = {}) {
   const { includeCommonPool = false, inTenantDb = false } = options;
-  if (inTenantDb) return true;
   if (candidateHasRealJobLink(scoped, null)) return true;
+  // Had apply/assign/match links, but none belong to this tenant → other-tenant leak.
   if (candidateHasAnyJobLink(original)) return false;
-  return includeCommonPool;
+  // Pure discovery (no job links on the raw row).
+  if (includeCommonPool) return true;
+  // My / CRM-only: keep non-phase1 tenant rows (manually created, not yet assigned).
+  if (inTenantDb && !isPhase1CandidateSource(original?.source)) return true;
+  return false;
+}
+
+/** True when every job link on the row is outside this tenant (cross-tenant pollution). */
+function candidateHasOnlyForeignTenantJobLinks(candidate, tenantJobIdSet) {
+  if (!candidate || !tenantJobIdSet || tenantJobIdSet.size === 0) return false;
+  const linked = collectCandidateLinkedJobIds(candidate);
+  if (!linked.length) return false;
+  return !linked.some((id) => tenantJobIdSet.has(String(id || '').trim()));
 }
 
 function candidateHasRealJobLink(candidate, tenantJobIdSet = null) {
@@ -447,28 +469,75 @@ function isLikelyObjectId(value) {
   return /^[a-f\d]{24}$/i.test(String(value || '').trim());
 }
 
-/** Prefer the primary assigned job — same idea as FE resolveSubmitJobIdFromBackend. */
-function resolvePrimaryJobIdForList(candidate, tenantJobIdSet = null) {
+/**
+ * Prefer the primary assigned job — same idea as FE resolveSubmitJobIdFromBackend.
+ * When preferredJobIds is set (My candidates), pick a job the signed-in user owns first
+ * so Assigned Job does not show someone else's title while the row is only on My
+ * because of a different owned job.
+ */
+function resolvePrimaryJobIdForList(candidate, tenantJobIdSet = null, preferredJobIds = null) {
   const scoped = scopeCandidateForActiveTenant(candidate, tenantJobIdSet);
-  const assigned = (Array.isArray(scoped.assignedJobs) ? scoped.assignedJobs : [])
-    .map((id) => String(id || '').trim())
-    .find((id) => isLikelyObjectId(id));
+  const preferred = new Set(
+    (Array.isArray(preferredJobIds) ? preferredJobIds : [])
+      .map((id) => String(id || '').trim())
+      .filter((id) => isLikelyObjectId(id)),
+  );
+  const pick = (ids) => {
+    const normalized = (Array.isArray(ids) ? ids : [])
+      .map((id) => String(id || '').trim())
+      .filter((id) => isLikelyObjectId(id));
+    if (!normalized.length) return '';
+    if (preferred.size) {
+      const owned = normalized.find((id) => preferred.has(id));
+      if (owned) return owned;
+    }
+    return normalized[0] || '';
+  };
+
+  const assigned = pick(Array.isArray(scoped.assignedJobs) ? scoped.assignedJobs : []);
   if (assigned) return assigned;
 
-  const fromPipeline = (Array.isArray(scoped.pipelineEntries) ? scoped.pipelineEntries : [])
-    .map((row) => String(row?.jobId || '').trim())
-    .find((id) => isLikelyObjectId(id));
+  const fromPipeline = pick(
+    (Array.isArray(scoped.pipelineEntries) ? scoped.pipelineEntries : []).map((row) => row?.jobId),
+  );
   if (fromPipeline) return fromPipeline;
 
-  const fromApp = (Array.isArray(scoped.applications) ? scoped.applications : [])
-    .map((row) => String(row?.jobId || row?.job?.id || '').trim())
-    .find((id) => isLikelyObjectId(id));
+  const fromApp = pick(
+    (Array.isArray(scoped.applications) ? scoped.applications : []).map(
+      (row) => row?.jobId || row?.job?.id,
+    ),
+  );
   if (fromApp) return fromApp;
 
-  const fromMatch = (Array.isArray(scoped.matches) ? scoped.matches : [])
-    .map((row) => String(row?.jobId || row?.job?.id || '').trim())
-    .find((id) => isLikelyObjectId(id));
+  const fromMatch = pick(
+    (Array.isArray(scoped.matches) ? scoped.matches : []).map(
+      (row) => row?.jobId || row?.job?.id,
+    ),
+  );
   return fromMatch || '';
+}
+
+/** Stable order: jobs the user owns first, then the rest (My candidates Assigned Job). */
+function preferOwnedJobIds(jobIds, preferredJobIds) {
+  const preferred = new Set(
+    (Array.isArray(preferredJobIds) ? preferredJobIds : [])
+      .map((id) => String(id || '').trim())
+      .filter(Boolean),
+  );
+  const normalized = (Array.isArray(jobIds) ? jobIds : [])
+    .map((id) => String(id || '').trim())
+    .filter(Boolean);
+  if (!preferred.size || !normalized.length) return normalized;
+  const owned = [];
+  const other = [];
+  const seen = new Set();
+  for (const id of normalized) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    if (preferred.has(id)) owned.push(id);
+    else other.push(id);
+  }
+  return [...owned, ...other];
 }
 
 /** Pipeline stage for a specific job — same SoT as Job Details → Candidates. */
@@ -893,12 +962,10 @@ function candidateMatchesSearch(candidate, search) {
 
 function annotateCandidateListFlags(candidate, tenantJobIdSet = null) {
   const phase1 = isPhase1CandidateRecord(candidate);
-  const hasSnap = Boolean(
-    candidate?.extraData?.phase1ProfileSnapshot &&
-      typeof candidate.extraData.phase1ProfileSnapshot === 'object',
-  );
   const hasJob = candidateHasRealJobLink(candidate, tenantJobIdSet);
-  const discoveryOnly = (phase1 || hasSnap) && !hasJob;
+  // Discovery = Phase 1 source with no tenant job link. Do NOT treat a leftover
+  // phase1ProfileSnapshot on LinkedIn/Other CRM rows as Phase 1 (that made My/All tags disagree).
+  const discoveryOnly = phase1 && !hasJob;
   const placementStatus = resolveLatestPlacementStatusForList(candidate, tenantJobIdSet);
   const resolvedStage = resolveCandidateStageForList(candidate, tenantJobIdSet);
   const stageNew = ['new', ''].includes(String(resolvedStage || '').trim().toLowerCase());
@@ -906,11 +973,11 @@ function annotateCandidateListFlags(candidate, tenantJobIdSet = null) {
     ...candidate,
     stage: resolvedStage,
     placementStatus,
-    // Any Phase 1 source/snapshot must flag so the drawer uses Phase1DetailSections.
-    isPhase1Candidate: phase1 || hasSnap || discoveryOnly,
+    // List/table badge: source === phase1 only (consistent on All and My).
+    isPhase1Candidate: phase1,
     isNewCandidate: discoveryOnly || (phase1 && stageNew && !hasJob),
     isJobAppliedCandidate: hasJob && resolvedStage === 'Applied',
-    poolOrigin: discoveryOnly ? 'phase1_common' : phase1 || hasSnap ? 'phase1' : 'tenant',
+    poolOrigin: discoveryOnly ? 'phase1_common' : phase1 ? 'phase1' : 'tenant',
   };
 }
 
@@ -3884,6 +3951,30 @@ async function getMyJobIds(userId, { take } = {}) {
 }
 
 /**
+ * Job ids that define My candidates membership.
+ * Personal owners: jobs they created / are assigned on.
+ * View-all (tenant / Super Admin): every active tenant job so Applied / Assigned
+ * pipeline rows appear under My, not only Phase 1 discovery on All.
+ */
+async function resolveMineListJobIds(req, { canViewAll = false, tenantJobIdSet = null } = {}) {
+  const userId = req?.user?.id;
+  if (!userId) return [];
+  if (canViewAll) {
+    if (tenantJobIdSet && tenantJobIdSet.size > 0) {
+      return Array.from(tenantJobIdSet)
+        .map((id) => String(id || '').trim())
+        .filter(Boolean)
+        .slice(0, Math.max(resolveMineJobTake(), 500));
+    }
+    const visible = await getVisibleTenantJobIds(req, false, {
+      take: Math.max(resolveMineJobTake(), 500),
+    });
+    if (visible.length) return visible.map((id) => String(id));
+  }
+  return getMyJobIds(userId);
+}
+
+/**
  * My Candidates must stay fast. Large job windows + nested `some` on Candidate
  * starve Atlas (~300s). Keep a bounded window; raise via env only if needed.
  * CANDIDATE_MINE_JOB_TAKE=0 is ignored (force a cap) to avoid pool death.
@@ -3920,7 +4011,7 @@ async function prefetchMineLinkedCandidateIds(jobIds) {
     prisma.match
       .findMany({
         where: { jobId: { in: capped } },
-        select: { candidateId: true },
+        select: { candidateId: true, createdById: true, evaluation: true },
         take,
         orderBy: { createdAt: 'desc' },
       })
@@ -3950,9 +4041,13 @@ async function prefetchMineLinkedCandidateIds(jobIds) {
       })
       .catch(() => []),
   ]);
+  // AI score-only matches must not pull Phase 1 discovery into My candidates.
+  const crmMatches = (Array.isArray(matches) ? matches : []).filter((row) =>
+    matchRepresentsCrmJobLink(row),
+  );
   return [
     ...new Set(
-      [...apps, ...matches, ...pipes, ...interviews, ...placements]
+      [...apps, ...crmMatches, ...pipes, ...interviews, ...placements]
         .map((row) => String(row?.candidateId || '').trim())
         .filter(Boolean),
     ),
@@ -3961,6 +4056,8 @@ async function prefetchMineLinkedCandidateIds(jobIds) {
 
 /**
  * Candidates the user may see when mine=true.
+ * Includes: created/assigned to me, or applied/assigned to knownJobIds
+ * (personal jobs, or all tenant jobs when the caller has view-all).
  * NEVER use nested Candidate.applications/pipeline/interviews.some here —
  * those correlated scans hang the Mongo pool for ~5 minutes.
  */
@@ -4013,23 +4110,22 @@ function candidateMatchesMineScope(candidate, userId, myJobIds) {
   const hasJob = (id) => jobIdSet.has(String(id || '').trim());
 
   const assigned = Array.isArray(candidate.assignedJobs) ? candidate.assignedJobs : [];
-  const matchJobIds = Array.isArray(candidate.matchJobIds) ? candidate.matchJobIds : [];
   const applications = Array.isArray(candidate.applications) ? candidate.applications : [];
   const pipelineEntries = Array.isArray(candidate.pipelineEntries) ? candidate.pipelineEntries : [];
-  const matches = Array.isArray(candidate.matches) ? candidate.matches : [];
   const interviews = Array.isArray(candidate.interviews) ? candidate.interviews : [];
   const placements = Array.isArray(candidate.placements) ? candidate.placements : [];
+  // AI score-only matches must not count as applied/assigned for My.
+  const crmMatches = crmLinkedMatches(candidate);
   const linkedToMyJobs =
     jobIdSet.size > 0 &&
     (assigned.some(hasJob) ||
-      matchJobIds.some(hasJob) ||
       applications.some((row) => hasJob(row?.jobId)) ||
       pipelineEntries.some((row) => hasJob(row?.jobId)) ||
-      matches.some((row) => hasJob(row?.jobId || row?.job?.id)) ||
+      crmMatches.some((row) => hasJob(row?.jobId || row?.job?.id)) ||
       interviews.some((row) => hasJob(row?.jobId || row?.job?.id)) ||
       placements.some((row) => hasJob(row?.jobId)));
 
-  // Phase 1 with no link to this user's jobs belongs on All, even if they created the row.
+  // Phase 1 with no CRM link to this user's jobs belongs on All only.
   if (isPhase1CandidateSource(candidate.source)) return linkedToMyJobs;
 
   if (String(candidate.createdById || candidate.createdBy?.id || '') === uid) return true;
@@ -4628,12 +4724,13 @@ function mergeBoundedCandidateIndexes(sources, { loadCommonPool, tenantCandidate
   for (const row of sources.tenant || []) mergeLeanCandidateIndex(mergedById, row);
 
   let merged = Array.from(mergedById.values())
-    .filter((original) =>
-      shouldIncludeCandidateAfterTenantScope(original, original, {
+    .filter((original) => {
+      const scoped = scopeCandidateForActiveTenant(original, tenantJobIdSet);
+      return shouldIncludeCandidateAfterTenantScope(original, scoped, {
         includeCommonPool: loadCommonPool,
         inTenantDb: tenantCandidateIds.has(String(original.id)),
-      }),
-    )
+      });
+    })
     .filter((candidate) =>
       shouldShowOnCrmCandidatesList(candidate, { includeCommonPool: loadCommonPool }),
     )
@@ -5085,18 +5182,26 @@ export const candidateService = {
       req.query?.picker === '1' ||
       req.query?.picker === 'true' ||
       req.query?.picker === true;
-    // My candidates is tenant CRM + portal applicants only — never the full Phase 1 pool.
+    // My candidates is tenant CRM + applicants/assignees on accessible jobs — never the full Phase 1 pool.
     // Picker skips the common-pool decision and tenant job scan — those delayed the dropdown.
     const loadCommonPool = mine || pickerMode ? false : await resolveLoadCommonPool(req.query);
     const canViewAllCandidates =
       canViewAllAssignments(req) || hasAnyPermissionScope(req, ['view_all_candidates']);
-    let myJobIds = mine && req.user?.id ? await getMyJobIds(req.user.id) : [];
-    // Display scoping must use the full tenant job set. Using only myJobIds here
+    const canViewAllTenantJobs = canViewAllCandidates || canViewAllJobs(req);
+    // Display scoping must use the full tenant job set. Using only personal myJobIds here
     // wiped Assigned Job titles on My Candidates (jobs outside the mine cap → "—").
-    // myJobIds still drives which rows appear via buildMineCandidatesScope.
     const tenantJobIdSet =
       pickerMode || !isTenantScopedRequest() ? null : await getTenantJobIdSet();
     const livePortalMerge = isLivePortalListMergeEnabled();
+    // View-all users: My includes applied/assigned on any tenant job (not only personally owned).
+    // Recruiters without view-all: still limited to jobs they own / support.
+    let myJobIds =
+      mine && req.user?.id
+        ? await resolveMineListJobIds(req, {
+            canViewAll: canViewAllTenantJobs,
+            tenantJobIdSet,
+          })
+        : [];
 
     if (mine && !req.user?.id) {
       return formatPaginationResponse([], page, limit, 0);
@@ -5124,16 +5229,33 @@ export const candidateService = {
     // `not: true` matches false, null, and missing-field documents (legacy rows from before
     // the soft-delete column existed) without tripping Prisma's "Argument isDeleted is missing".
     andParts.push({ isDeleted: { not: true } });
+    // Drop Phase 1 rows whose only assignedJobs are other-tenant ids (cross-tenant pollution).
+    // Keep pure discovery (empty assignedJobs) for All+commonPool; My still gates via mine scope.
+    if (tenantJobIdSet && tenantJobIdSet.size > 0) {
+      const tenantJobIds = Array.from(tenantJobIdSet)
+        .map((id) => String(id || '').trim())
+        .filter(Boolean)
+        .slice(0, Math.max(resolveMineJobTake(), 500));
+      if (tenantJobIds.length) {
+        andParts.push({
+          OR: [
+            { assignedJobs: { isEmpty: true } },
+            { assignedJobs: { hasSome: tenantJobIds } },
+            { NOT: { source: 'phase1' } },
+          ],
+        });
+      }
+    }
     // Phase 1 discovery rows (no job link) appear on "All candidates" via includeCommonPool + candidatecommon merge.
-    // My uses buildMineCandidatesScope, which drops Phase 1 unless linked to the user's own jobs.
+    // My uses buildMineCandidatesScope: created/assigned to me, or applied/assigned to accessible jobs.
     if (!loadCommonPool && !mine) {
       andParts.push(buildCrmCandidatesListScopeClause());
     }
     const superAdminScope = buildSuperAdminOwnerScope(req, ['createdById', 'assignedToId']);
 
     // When mine=true, use the expanded "my candidates" scope only:
-    // - created by me
-    // - linked to jobs created by me (matches / pipeline / interviews)
+    // - created by me / assigned to me / participant
+    // - applied or assigned to jobs I can access (personal jobs, or all tenant jobs when view-all)
     // Do NOT also AND with the legacy super-admin owner scope, otherwise
     // candidates applied on my jobs but not directly assigned/created get excluded.
     if (mine && req.user?.id) {
@@ -5237,15 +5359,9 @@ export const candidateService = {
     };
 
     // My candidates: tenant CRM only (true skip/take).
-    // All candidates: tenant-only by default. Multi-source (common/portal) only when
-    // explicitly enabled — merge filters were wiping the table to 0 under load.
-    // Set CANDIDATE_LIST_COMMON_MERGE=1 to restore Phase1 common-pool merge on All.
-    const allowCommonMerge = (() => {
-      const raw = String(process.env.CANDIDATE_LIST_COMMON_MERGE || '').trim().toLowerCase();
-      return raw === '1' || raw === 'true' || raw === 'yes';
-    })();
-    const useMultiSourceMerge =
-      !mine && ((loadCommonPool && allowCommonMerge) || livePortalMerge);
+    // All candidates with Phase 1 enabled (loadCommonPool): always merge candidatecommon
+    // so every verified Phase 1 profile appears — not only rows already copied into the tenant DB.
+    const useMultiSourceMerge = !mine && (Boolean(loadCommonPool) || livePortalMerge);
 
     if (useMultiSourceMerge) {
       // Bounded k-way merge for All candidates (tenant + optional portal + common pool).
@@ -5396,6 +5512,17 @@ export const candidateService = {
       // Users still get rows; totals remain exact/cached for numbered UX.
       const sliceSkip = deepClamped ? Math.max(0, Math.min(skip, merged.length - limit)) : skip;
       const pageIndex = merged.slice(Math.max(0, sliceSkip), Math.max(0, sliceSkip) + limit);
+      // Keep footer in sync with post-dedupe rows when the merge window holds the full set
+      // (avoids "Showing 1-7 of 7" while the table only renders 6 after email collisions).
+      if (
+        !deepClamped &&
+        Array.isArray(merged) &&
+        merged.length > 0 &&
+        Number(mergedTotal) > merged.length &&
+        skip + limit >= merged.length
+      ) {
+        total = merged.length;
+      }
       if (deepClamped) {
         logCandidatePerf({
           deepPage: 1,
@@ -5483,6 +5610,17 @@ export const candidateService = {
       perfMarks.sourceCounts = `tenant-only mine=${mine ? '1' : '0'} filtered=${hasActiveListFilters ? 1 : 0}`;
       total = rowTotal;
       candidates = await attachPlacementsToCandidates(pageRows);
+    }
+
+    // Strip cross-tenant pollution: rows whose only job links belong to another tenant.
+    if (tenantJobIdSet && candidates.length) {
+      const before = candidates.length;
+      candidates = candidates.filter(
+        (row) => !candidateHasOnlyForeignTenantJobLinks(row, tenantJobIdSet),
+      );
+      if (candidates.length !== before && Number(total) > 0) {
+        total = Math.max(candidates.length, Number(total) - (before - candidates.length));
+      }
     }
 
     if (candidates.length) {
@@ -5621,20 +5759,29 @@ export const candidateService = {
       const linkedJobIdsAll = collectCandidateLinkedJobIds(candidate);
       // Prefer scoped links; if scope wiped everything (stale/deleted job ids) keep
       // unscoped links that still resolve to a Job title so Applied ≠ empty Assigned job.
-      const linkedJobIds =
+      const linkedJobIdsRaw =
         linkedJobIdsScoped.length > 0
           ? linkedJobIdsScoped
-          : linkedJobIdsAll.filter((id) => Boolean(resolveJobTitleFromCandidateRelations(candidate, id, jobsById)));
+          : linkedJobIdsAll.filter((id) =>
+              Boolean(resolveJobTitleFromCandidateRelations(candidate, id, jobsById)),
+            );
+      // My candidates: surface the job that made this row "mine" first (not an older foreign assign).
+      const preferredJobIdsForRow =
+        mine && Array.isArray(myJobIds) && myJobIds.length ? myJobIds : null;
+      const linkedJobIds = preferOwnedJobIds(linkedJobIdsRaw, preferredJobIdsForRow);
       const primaryId =
-        resolvePrimaryJobIdForList(scopedCandidate, tenantJobIdSet) ||
-        resolvePrimaryJobIdForList(candidate, tenantJobIdSet) ||
+        resolvePrimaryJobIdForList(scopedCandidate, tenantJobIdSet, preferredJobIdsForRow) ||
+        resolvePrimaryJobIdForList(candidate, tenantJobIdSet, preferredJobIdsForRow) ||
         linkedJobIds[0] ||
         '';
-      const assignedJobsForRow = explicitAssigned.length
-        ? explicitAssigned
-        : primaryId
-          ? [primaryId, ...linkedJobIds.filter((id) => id !== primaryId)]
-          : linkedJobIds;
+      const assignedJobsForRow = preferOwnedJobIds(
+        explicitAssigned.length
+          ? explicitAssigned
+          : primaryId
+            ? [primaryId, ...linkedJobIds.filter((id) => id !== primaryId)]
+            : linkedJobIds,
+        preferredJobIdsForRow,
+      );
       const scopedWithJobs = {
         ...scopedCandidate,
         assignedJobs: assignedJobsForRow,
@@ -5660,9 +5807,15 @@ export const candidateService = {
         scopedWithJobs,
         jobsById,
         tenantJobIdSet,
+        preferredJobIdsForRow,
       );
       if (!titles.length) {
-        titles = resolveCandidateAssignedJobTitlesForList(candidate, jobsById, tenantJobIdSet);
+        titles = resolveCandidateAssignedJobTitlesForList(
+          candidate,
+          jobsById,
+          tenantJobIdSet,
+          preferredJobIdsForRow,
+        );
       }
       return annotateCandidateListFlags(
         {
@@ -7719,9 +7872,19 @@ export const candidateService = {
       req.query?.mine === 'true' || req.query?.mine === '1' || req.query?.mine === true;
     const loadCommonPool = mine ? false : await resolveLoadCommonPool(req.query || {});
     const userId = req.user?.id;
-    let myJobIds = mine && userId ? await getMyJobIds(userId) : [];
+    const canViewAllTenantJobs =
+      canViewAllAssignments(req) ||
+      canViewAllJobs(req) ||
+      hasAnyPermissionScope(req, ['view_all_candidates']);
     // Same as getAll: mine row scope ≠ display job scope. Titles need full tenant jobs.
     const tenantJobIdSet = isTenantScopedRequest() ? await getTenantJobIdSet() : null;
+    let myJobIds =
+      mine && userId
+        ? await resolveMineListJobIds(req, {
+            canViewAll: canViewAllTenantJobs,
+            tenantJobIdSet,
+          })
+        : [];
 
     const emptyStats = {
       all: 0,

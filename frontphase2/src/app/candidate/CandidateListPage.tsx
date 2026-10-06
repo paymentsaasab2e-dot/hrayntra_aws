@@ -671,7 +671,7 @@ export function CandidateListPage() {
                     {loading || tableLoading
                       ? 'Loading candidates…'
                       : listTab === 'mine'
-                        ? `Showing ${totalEntries.toLocaleString()} candidate${totalEntries === 1 ? '' : 's'} you added or who applied to your jobs`
+                        ? `Showing ${totalEntries.toLocaleString()} candidate${totalEntries === 1 ? '' : 's'} you added, or applied / assigned to jobs you can access`
                         : phase1CommonPoolEnabled
                           ? `Showing ${totalEntries.toLocaleString()} candidate${totalEntries === 1 ? '' : 's'} — CRM + job portal + Phase 1 (candidatecommon)`
                           : `Showing ${totalEntries.toLocaleString()} candidate${totalEntries === 1 ? '' : 's'} — CRM + job portal`}

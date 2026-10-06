@@ -7,6 +7,7 @@ import {
 import {
   enrichBackendCandidateFromPhase1Snapshot,
   getPhase1ProfileSnapshot,
+  isPhase1ListBadge,
   PHASE1_CANDIDATE_TAG_LABEL,
   resolvePhase1PersonalInfo,
 } from './phase1ProfileSnapshot';
@@ -641,10 +642,7 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
     });
   }
 
-  const isPhase1Candidate =
-    Boolean((c as BackendCandidate).isPhase1Candidate) ||
-    String(c.source || '').trim().toLowerCase() === 'phase1' ||
-    Boolean(phase1Snap);
+  const isPhase1Candidate = isPhase1ListBadge(c);
   const poolOrigin = (c as BackendCandidate).poolOrigin ?? null;
 
   const fallbackTags = Array.from(

@@ -163,22 +163,15 @@ function pickHqNextFollowUp(row: HqLeadApiRow): string | undefined {
   return isValidFollowUpInstant(fallback) ? String(fallback) : undefined;
 }
 
-function LeadFollowUpTableCell({
-  lastFollowUp,
-  nextFollowUp,
-}: {
-  lastFollowUp: string;
-  nextFollowUp?: string;
-}) {
+/** Last Follow-up column only — never fall back to next scheduled follow-up. */
+function LeadFollowUpTableCell({ lastFollowUp }: { lastFollowUp: string }) {
   const last = splitDateTimeForDisplay(lastFollowUp);
-  const next = splitDateTimeForDisplay(nextFollowUp);
-  const target = last || next;
 
-  if (!target) {
+  if (!last) {
     return <span className="text-xs text-slate-400">—</span>;
   }
 
-  const formatted = target.time ? `${target.date} - ${target.time}` : target.date;
+  const formatted = last.time ? `${last.date} - ${last.time}` : last.date;
 
   return (
     <span className="whitespace-nowrap text-xs font-medium text-slate-700 tabular-nums">
@@ -1447,10 +1440,7 @@ export default function HqLeadsPage() {
                               <AssigneeAvatars lead={mapped} />
                             </td>
                             <td className="px-3 sm:px-4 py-2">
-                              <LeadFollowUpTableCell
-                                lastFollowUp={mapped.lastFollowUp}
-                                nextFollowUp={mapped.nextFollowUp}
-                              />
+                              <LeadFollowUpTableCell lastFollowUp={mapped.lastFollowUp} />
                             </td>
                             <td className="px-3 sm:px-4 py-2">
                               <div className="flex items-center justify-end gap-1">

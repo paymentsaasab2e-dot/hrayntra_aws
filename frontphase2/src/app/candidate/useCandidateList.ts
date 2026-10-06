@@ -153,7 +153,7 @@ import {
 import { normalizeCandidateSkillLabels } from '../../lib/normalizeCandidateSkills';
 import {
   enrichBackendCandidateFromPhase1Snapshot,
-  isPhase1PortalCandidate,
+  isPhase1ListBadge,
 } from '../../lib/phase1ProfileSnapshot';
 import {
   extractApiData,
@@ -364,7 +364,7 @@ function mapBackendCandidate(raw: BackendCandidate): Candidate {
     source: c.source || '',
     rating: c.rating ?? 0,
     pipelineJobId: resolveSubmitJobIdFromBackend(c),
-    isPhase1Candidate: isPhase1PortalCandidate(c),
+    isPhase1Candidate: isPhase1ListBadge(c),
     isNewCandidate: Boolean(c.isNewCandidate),
     isJobAppliedCandidate: c.isJobAppliedCandidate === true || candidateShowsAppliedTag(c),
     bulkCopyLabel: parseBulkCopyLabel(c.lastName || basicFullName),

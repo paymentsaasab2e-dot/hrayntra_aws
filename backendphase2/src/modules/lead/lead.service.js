@@ -2340,7 +2340,7 @@ export const leadService = {
 
   /**
    * Mark the currently scheduled follow-up / meet as done with a completion remark.
-   * Clears nextFollowUp, moves it to lastFollowUp, and removes the stored schedule.
+   * Clears nextFollowUp, sets lastFollowUp to completion time, and removes the stored schedule.
    */
   async completeFollowUp(id, data = {}) {
     const remarkText = String(data.remark || '').trim();
@@ -2380,7 +2380,7 @@ export const leadService = {
     const updated = await prisma.lead.update({
       where: { id },
       data: {
-        lastFollowUp: previousNext,
+        lastFollowUp: completedAt,
         nextFollowUp: null,
         otherDetails: clearedOtherDetails,
       },

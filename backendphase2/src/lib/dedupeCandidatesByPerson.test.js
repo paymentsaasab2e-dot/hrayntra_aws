@@ -15,12 +15,43 @@ describe('dedupeCandidatesByPerson', () => {
 
   it('two rows with the same email but null personId collapse to one', () => {
     const rows = [
-      { id: 'e1', personId: null, email: 'Jane@Example.COM' },
-      { id: 'e2', personId: null, email: 'jane@example.com' },
+      { id: 'e1', personId: null, firstName: 'Jane', lastName: 'Doe', email: 'Jane@Example.COM' },
+      { id: 'e2', personId: null, firstName: 'Jane', lastName: 'Doe', email: 'jane@example.com' },
     ];
     const result = dedupeCandidatesByPerson(rows);
     assert.equal(result.length, 1);
     assert.equal(result[0].id, 'e1');
+  });
+
+  it('same email with clearly different names keeps both people', () => {
+    const rows = [
+      {
+        id: 'rushabh',
+        personId: null,
+        firstName: 'rushabh',
+        lastName: 'Candidate',
+        email: 'shared@example.com',
+        source: 'phase1',
+        assignedJobs: ['job-1'],
+        stage: 'Applied',
+      },
+      {
+        id: 'himanshu',
+        personId: null,
+        firstName: 'Himanshu',
+        lastName: 'Ghode',
+        email: 'shared@example.com',
+        source: 'Other',
+        assignedJobs: ['job-1'],
+        stage: 'Applied',
+      },
+    ];
+    const result = dedupeCandidatesByPerson(rows);
+    assert.equal(result.length, 2);
+    assert.deepEqual(
+      result.map((r) => r.id).sort(),
+      ['himanshu', 'rushabh'],
+    );
   });
 
   it('two rows with different emails stay separate', () => {

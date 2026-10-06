@@ -73,12 +73,25 @@ export function isPhase1PortalCandidate(
   } | null
 ): boolean {
   if (!candidate) return false;
-  if (candidate.isPhase1Candidate) return true;
+  if (isPhase1ListBadge(candidate)) return true;
+  // Detail/drawer: allow Phase 1 profile sections when a real snapshot is present.
+  return Boolean(getPhase1ProfileSnapshot(candidate.extraData));
+}
+
+/** Table PHASE 1 chip — source/pool only, never leftover snapshots on LinkedIn/Other CRM rows. */
+export function isPhase1ListBadge(
+  candidate?: {
+    isPhase1Candidate?: boolean;
+    source?: string | null;
+    poolOrigin?: string | null;
+  } | null
+): boolean {
+  if (!candidate) return false;
   const src = String(candidate.source || '').trim().toLowerCase();
   if (src === 'phase1') return true;
   const origin = String(candidate.poolOrigin || '').trim().toLowerCase();
   if (origin === 'phase1' || origin === 'phase1_common') return true;
-  return Boolean(getPhase1ProfileSnapshot(candidate.extraData));
+  return candidate.isPhase1Candidate === true && (!src || src === 'phase1');
 }
 
 type ResumeSourceLike = {
