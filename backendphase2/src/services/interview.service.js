@@ -3289,6 +3289,13 @@ export const interviewService = {
   },
 
   async streamPublicClientReviewAsset(token, { kind = 'resume', fileId = '', matchId = '', source = '' } = {}) {
+    const access = await resolveClientReviewAccess(token);
+    const decoded = access?.decoded;
+    if (!decoded?.interviewId && !decoded?.matchId) {
+      throw new Error('Invalid or expired review link');
+    }
+    const tenantDbName = await resolveReviewTenant(decoded);
+
     const payload = await this.getPublicClientReview(token, { maskStorage: false });
     const detail = pickReviewDetailForAsset(payload, matchId);
     const tracker = normalizeClientTrackerOptions(detail?.trackerOptions);
@@ -3326,7 +3333,10 @@ export const interviewService = {
         const { stampPdfBufferWithExportWatermark } = await import(
           '../utils/stampPdfExportWatermark.js'
         );
-        const watermark = await getPublicClientReviewExportWatermark();
+        // Must run inside the review tenant — ALS from getPublicClientReview is gone after return.
+        const watermark = await runWithTenantContext(tenantDbName, () =>
+          getPublicClientReviewExportWatermark(),
+        );
         const stamped = await stampPdfBufferWithExportWatermark(loaded.buffer, watermark);
         const didStamp =
           stamped !== loaded.buffer &&
