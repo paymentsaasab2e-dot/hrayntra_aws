@@ -113,23 +113,15 @@ const LEADS_FILTER_SELECT =
   'h-9 shrink-0 rounded-lg border border-indigo-100/90 bg-white/95 px-2.5 py-1.5 text-xs font-medium text-slate-800 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-300 cursor-pointer hover:border-indigo-200/90 hover:bg-indigo-50/40';
 const LEADS_DYNAMIC_COLUMNS_STORAGE_KEY = 'leads.dynamicColumns';
 
-/** Last / next follow-up column: rendered in a single row (e.g. 30/09/2026 - 9:00 am). */
-function LeadFollowUpTableCell({
-  lastFollowUp,
-  nextFollowUp,
-}: {
-  lastFollowUp: string;
-  nextFollowUp?: string;
-}) {
+/** Last Follow-up column only — never fall back to next scheduled follow-up. */
+function LeadFollowUpTableCell({ lastFollowUp }: { lastFollowUp: string }) {
   const last = splitDateTimeForDisplay(lastFollowUp);
-  const next = splitDateTimeForDisplay(nextFollowUp);
-  const target = last || next;
 
-  if (!target) {
+  if (!last) {
     return <span className="text-xs text-slate-400">—</span>;
   }
 
-  const formatted = target.time ? `${target.date} - ${target.time}` : target.date;
+  const formatted = last.time ? `${last.date} - ${last.time}` : last.date;
 
   return (
     <span className="whitespace-nowrap text-sm font-normal text-slate-700 tabular-nums">
@@ -2506,10 +2498,7 @@ export default function RecruitmentAgencyDashboard() {
                             ) : null}
                             {leadColumnVisibility.isVisible('followUp') ? (
                               <td className="px-3 sm:px-4 py-2">
-                                <LeadFollowUpTableCell
-                                  lastFollowUp={lead.lastFollowUp}
-                                  nextFollowUp={lead.nextFollowUp}
-                                />
+                                <LeadFollowUpTableCell lastFollowUp={lead.lastFollowUp} />
                               </td>
                             ) : null}
                             {leadColumnVisibility.isVisible('type') ? (
