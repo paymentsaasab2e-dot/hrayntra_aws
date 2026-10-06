@@ -13,14 +13,11 @@ let warmReady = false;
 let warmTimer = 0;
 
 /**
- * Import the SuperDoc ESM build by file path.
- * Avoids `import('superdoc')` which Turbopack fails to resolve through pnpm symlinks.
+ * Load SuperDoc via the package entry (typed). Webpack/Turbopack resolveAlias
+ * maps `superdoc` → dist/superdoc.es.js when the pnpm symlink fails.
  */
 function importSuperDoc(): Promise<SuperDocModule> {
-  return import(
-    /* webpackChunkName: "superdoc-engine" */
-    '../../node_modules/superdoc/dist/superdoc.es.js'
-  ) as Promise<SuperDocModule>;
+  return import(/* webpackChunkName: "superdoc-engine" */ 'superdoc') as Promise<SuperDocModule>;
 }
 
 function scheduleEngineImport(): void {
