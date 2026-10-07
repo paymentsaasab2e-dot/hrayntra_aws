@@ -15,6 +15,8 @@ const tenantContext = new AsyncLocalStorage();
 const clientsByUrl = new Map();
 const clientsWithLogging = new WeakSet();
 const clientsWithWriteAudit = new WeakSet();
+const clientsWithOrphanHeal = new WeakSet();
+const clientsHealingOrphans = new WeakSet();
 
 /**
  * Harden MongoDB Atlas URLs for flaky networks:
@@ -192,6 +194,54 @@ function withQueryLogging(client) {
   return client;
 }
 
+/**
+ * Auto-heal Mongo orphan FKs that break required Prisma includes
+ * (e.g. Match.candidate null → "Inconsistent query result").
+ * Covers Job / Match / Interview / Placement / report queries app-wide.
+ */
+function installOrphanRelationHeal(client) {
+  if (!client || typeof client.$use !== 'function' || clientsWithOrphanHeal.has(client)) {
+    return;
+  }
+  clientsWithOrphanHeal.add(client);
+
+  client.$use(async (params, next) => {
+    try {
+      return await next(params);
+    } catch (error) {
+      const msg = String(error?.message || error || '');
+      const isOrphanRelation =
+        /Inconsistent query result/i.test(msg) &&
+        /is required to return data, got `null`/i.test(msg);
+      if (!isOrphanRelation) throw error;
+
+      const action = String(params?.action || '');
+      if (!action.startsWith('find')) throw error;
+      if (clientsHealingOrphans.has(client)) throw error;
+
+      clientsHealingOrphans.add(client);
+      try {
+        const {
+          pruneOrphanedCandidateLinks,
+          extractJobIdFromPrismaArgs,
+        } = await import('../utils/pruneOrphanedCandidateLinks.js');
+        const jobId = extractJobIdFromPrismaArgs(params);
+        await pruneOrphanedCandidateLinks(client, jobId ? { jobId } : {});
+        logger.warn({
+          evt: 'prisma_orphan_relation_healed',
+          model: params?.model,
+          action,
+          jobId: jobId || undefined,
+          message: msg.slice(0, 180),
+        });
+        return await next(params);
+      } finally {
+        clientsHealingOrphans.delete(client);
+      }
+    }
+  });
+}
+
 function createClientForUrl(url) {
   const client = new PrismaClient({
     datasources: {
@@ -199,6 +249,7 @@ function createClientForUrl(url) {
     },
     log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],
   });
+  installOrphanRelationHeal(client);
   installTenantPrismaWriteAudit(client);
   return withQueryLogging(client);
 }
