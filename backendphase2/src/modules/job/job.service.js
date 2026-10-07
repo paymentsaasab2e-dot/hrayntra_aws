@@ -39,6 +39,10 @@ import {
   scoreFieldRelevance,
 } from '../../utils/quickSearch.js';
 import {
+  isMissingRequiredCandidateError,
+  pruneOrphanedCandidateLinks,
+} from '../../utils/pruneOrphanedCandidateLinks.js';
+import {
   getDefaultPipelineTemplate,
   applyOrgPipelineTemplateToEmptyJobs,
   resolveJobStatusEnumFromLabel,
@@ -1671,74 +1675,89 @@ export const jobService = {
       }
     }
 
-    const job = await prisma.job.findFirst({
-      where,
-      include: {
-        client: true,
-        assignedTo: {
-          select: JOB_ASSIGNEE_SELECT,
-        },
-        createdBy: {
-          select: USER_BRIEF_SELECT,
-        },
-        manager: {
-          select: { id: true, name: true, email: true },
-        },
-        pipelineStages: {
-          include: {
-            entries: {
-              include: {
-                candidate: {
-                  select: { id: true, firstName: true, lastName: true, email: true, avatar: true },
-                },
+    const jobInclude = {
+      client: true,
+      assignedTo: {
+        select: JOB_ASSIGNEE_SELECT,
+      },
+      createdBy: {
+        select: USER_BRIEF_SELECT,
+      },
+      manager: {
+        select: { id: true, name: true, email: true },
+      },
+      pipelineStages: {
+        include: {
+          entries: {
+            include: {
+              candidate: {
+                select: { id: true, firstName: true, lastName: true, email: true, avatar: true },
               },
             },
           },
-          orderBy: { order: 'asc' },
         },
-        matches: {
-          include: {
-            candidate: true,
-          },
-        },
-        applications: {
-          include: {
-            candidate: {
-              select: {
-                id: true,
-                firstName: true,
-                lastName: true,
-                email: true,
-              },
-            },
-          },
-          orderBy: { appliedAt: 'desc' },
-        },
-        interviews: {
-          include: {
-            candidate: {
-              select: { id: true, firstName: true, lastName: true, email: true },
-            },
-          },
-        },
-        notes: {
-          include: {
-            createdBy: {
-              select: { id: true, name: true, email: true, avatar: true },
-            },
-          },
-          orderBy: { createdAt: 'desc' },
-        },
-        files: {
-          include: {
-            uploadedBy: {
-              select: { id: true, name: true, email: true },
-            },
-          },
-          orderBy: { createdAt: 'desc' },
+        orderBy: { order: 'asc' },
+      },
+      matches: {
+        include: {
+          candidate: true,
         },
       },
-    });
+      applications: {
+        include: {
+          candidate: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+            },
+          },
+        },
+        orderBy: { appliedAt: 'desc' },
+      },
+      interviews: {
+        include: {
+          candidate: {
+            select: { id: true, firstName: true, lastName: true, email: true },
+          },
+        },
+      },
+      notes: {
+        include: {
+          createdBy: {
+            select: { id: true, name: true, email: true, avatar: true },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      },
+      files: {
+        include: {
+          uploadedBy: {
+            select: { id: true, name: true, email: true },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      },
+    };
+
+    // Drop dangling candidate FKs before include — Mongo has no referential integrity.
+    await pruneOrphanedCandidateLinks(prisma, { jobId: id });
+
+    let job;
+    try {
+      job = await prisma.job.findFirst({
+        where,
+        include: jobInclude,
+      });
+    } catch (error) {
+      if (!isMissingRequiredCandidateError(error)) throw error;
+      await pruneOrphanedCandidateLinks(prisma, { jobId: id });
+      job = await prisma.job.findFirst({
+        where,
+        include: jobInclude,
+      });
+    }
 
     if (!job) return null;
 
@@ -1764,29 +1783,60 @@ export const jobService = {
     }
 
     const portalPrisma = getJobPortalPrismaClient();
-    const portalJob = await portalPrisma.job.findUnique({
-      where: { id },
-      include: {
-        matches: {
-          include: {
-            candidate: true,
-          },
-        },
-        applications: {
-          include: {
-            candidate: {
-              select: {
-                id: true,
-                firstName: true,
-                lastName: true,
-                email: true,
-              },
+    await pruneOrphanedCandidateLinks(portalPrisma, { jobId: id });
+
+    let portalJob;
+    try {
+      portalJob = await portalPrisma.job.findUnique({
+        where: { id },
+        include: {
+          matches: {
+            include: {
+              candidate: true,
             },
           },
-          orderBy: { appliedAt: 'desc' },
+          applications: {
+            include: {
+              candidate: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  email: true,
+                },
+              },
+            },
+            orderBy: { appliedAt: 'desc' },
+          },
         },
-      },
-    });
+      });
+    } catch (error) {
+      if (!isMissingRequiredCandidateError(error)) throw error;
+      await pruneOrphanedCandidateLinks(portalPrisma, { jobId: id });
+      portalJob = await portalPrisma.job.findUnique({
+        where: { id },
+        include: {
+          matches: {
+            include: {
+              candidate: true,
+            },
+          },
+          applications: {
+            include: {
+              candidate: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  email: true,
+                },
+              },
+            },
+            orderBy: { appliedAt: 'desc' },
+          },
+        },
+      });
+    }
 
     if (!portalJob?.matches?.length && !portalJob?.applications?.length) {
       const withAudit = await attachAuditMetaToEntity(baseWithApplied, ENTITY_TYPES.JOB);
@@ -2911,6 +2961,8 @@ export const jobService = {
     const jobTitle = String(job.title || '').trim();
     const defaultClientName = String(job.client?.companyName || '').trim() || 'Client';
 
+    await pruneOrphanedCandidateLinks(prisma, { jobId });
+
     const [activities, interviews, matches] = await Promise.all([
       prisma.activity.findMany({
         where: {
@@ -2945,6 +2997,7 @@ export const jobService = {
       prisma.match.findMany({
         where: { jobId },
         select: {
+          candidateId: true,
           candidate: {
             select: {
               id: true,
@@ -2956,6 +3009,25 @@ export const jobService = {
             },
           },
         },
+      }).catch(async (error) => {
+        if (!isMissingRequiredCandidateError(error)) throw error;
+        await pruneOrphanedCandidateLinks(prisma, { jobId });
+        return prisma.match.findMany({
+          where: { jobId },
+          select: {
+            candidateId: true,
+            candidate: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true,
+                avatar: true,
+                extraData: true,
+              },
+            },
+          },
+        });
       }),
     ]);
 
@@ -2972,8 +3044,12 @@ export const jobService = {
       });
     };
 
-    for (const match of matches) rememberCandidate(match.candidate);
-    for (const interview of interviews) rememberCandidate(interview.candidate);
+    for (const match of matches) {
+      if (match?.candidate) rememberCandidate(match.candidate);
+    }
+    for (const interview of interviews) {
+      if (interview?.candidate) rememberCandidate(interview.candidate);
+    }
 
     const missingIds = [
       ...new Set(activities.map((row) => String(row.entityId || '').trim()).filter(Boolean)),

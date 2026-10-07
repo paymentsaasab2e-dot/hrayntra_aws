@@ -28,6 +28,10 @@ import {
 import { AI_MATCH_AUTHOR_WHERE, MANUAL_MATCH_AUTHOR_WHERE } from './matchQueryHelpers.js';
 import { notifyMatchSubmittedToClient } from '../setting/alert-notify.helpers.js';
 import { moveCandidateToSubmittedToClient } from '../stage/candidateStage.service.js';
+import {
+  isMissingRequiredCandidateError,
+  pruneOrphanedCandidateLinks,
+} from '../../utils/pruneOrphanedCandidateLinks.js';
 import { isDeliverableEmail } from '../../utils/emailDeliverability.js';
 
 // Mirror of the interview drawer's purpose codes. Keeping the resolution
@@ -719,37 +723,58 @@ export const matchService = {
       }
     }
 
-    let [matches, total] = await Promise.all([
-      prisma.match.findMany({
-        where: mergedWhere,
-        skip,
-        take: limit,
-        include: {
-          candidate: {
-            select: MATCH_CANDIDATE_SELECT,
-          },
-          job: {
-            select: {
-              id: true,
-              title: true,
-              skills: true,
-              experienceRequired: true,
-              location: true,
-              status: true,
-              priority: true,
-              client: { select: { companyName: true } },
-            },
-          },
-          createdBy: {
-            select: { id: true, name: true },
+    if (jobId) {
+      await pruneOrphanedCandidateLinks(prisma, { jobId: String(jobId) });
+    }
+
+    const matchListArgs = {
+      where: mergedWhere,
+      skip,
+      take: limit,
+      include: {
+        candidate: {
+          select: MATCH_CANDIDATE_SELECT,
+        },
+        job: {
+          select: {
+            id: true,
+            title: true,
+            skills: true,
+            experienceRequired: true,
+            location: true,
+            status: true,
+            priority: true,
+            client: { select: { companyName: true } },
           },
         },
-        orderBy: { score: 'desc' },
-      }),
-      prisma.match.count({ where: mergedWhere }),
-    ]);
+        createdBy: {
+          select: { id: true, name: true },
+        },
+      },
+      orderBy: { score: 'desc' },
+    };
 
-    const activities = await getCandidateActivities([...new Set(matches.map((match) => match.candidate.id))]);
+    let matches;
+    let total;
+    try {
+      [matches, total] = await Promise.all([
+        prisma.match.findMany(matchListArgs),
+        prisma.match.count({ where: mergedWhere }),
+      ]);
+    } catch (error) {
+      if (!isMissingRequiredCandidateError(error)) throw error;
+      if (jobId) await pruneOrphanedCandidateLinks(prisma, { jobId: String(jobId) });
+      else await pruneOrphanedCandidateLinks(prisma);
+      [matches, total] = await Promise.all([
+        prisma.match.findMany(matchListArgs),
+        prisma.match.count({ where: mergedWhere }),
+      ]);
+    }
+
+    matches = (matches || []).filter((match) => match?.candidate?.id);
+    const activities = await getCandidateActivities([
+      ...new Set(matches.map((match) => match.candidate.id)),
+    ]);
     const activitiesByCandidateId = new Map();
     for (const activity of activities) {
       const candidateActivities = activitiesByCandidateId.get(activity.entityId) || [];

@@ -341,6 +341,8 @@ export function syncTenantDbName(value: string | null | undefined) {
       // Lazy imports avoid circular deps with intelligence / dialog modules.
       void import('../phase2-intelligence').then((m) => m.clearTenantIntelligenceCache?.());
       void import('../appDialog').then((m) => m.flushAppDialogs?.());
+      // Export watermarks are cached per browser — clear so tenant A logo never stamps tenant B exports.
+      void import('../exportWatermark').then((m) => m.clearOrgExportWatermarkCache?.());
     } catch {
       /* ignore */
     }

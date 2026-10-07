@@ -22,7 +22,7 @@ export async function GET(
 
     const bytes = Buffer.from(await upstream.arrayBuffer());
 
-    return new NextResponse(bytes, {
+    return new NextResponse(new Uint8Array(bytes), {
       status: upstream.status,
       headers: {
         'Content-Type': upstream.headers.get('content-type') || 'application/pdf',

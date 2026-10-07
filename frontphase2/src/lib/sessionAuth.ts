@@ -68,6 +68,30 @@ export function clearAuthStorage() {
     'orgRecruitmentMode',
     'orgBillingEnabled',
   ].forEach((key) => localStorage.removeItem(key));
+  // Drop tenant-scoped export watermark caches immediately (avoid async race on logout).
+  try {
+    const watermarkKeys: string[] = [];
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (key && (key === 'orgExportWatermark' || key.startsWith('orgExportWatermark:'))) {
+        watermarkKeys.push(key);
+      }
+    }
+    watermarkKeys.forEach((key) => localStorage.removeItem(key));
+    const logoKeys: string[] = [];
+    for (let i = 0; i < sessionStorage.length; i += 1) {
+      const key = sessionStorage.key(i);
+      if (
+        key &&
+        (key === 'orgExportWatermarkLogoData' || key.startsWith('orgExportWatermarkLogoData:'))
+      ) {
+        logoKeys.push(key);
+      }
+    }
+    logoKeys.forEach((key) => sessionStorage.removeItem(key));
+  } catch {
+    /* ignore */
+  }
   syncAuthCookie('accessToken', null);
   syncAuthCookie('refreshToken', null);
   syncTenantDbName(null);

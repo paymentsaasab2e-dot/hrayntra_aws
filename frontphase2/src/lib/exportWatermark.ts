@@ -31,6 +31,10 @@ export const ORG_WATERMARK_CACHE_EVENT = 'ph2:org-export-watermark';
 /** Session cache of decoded logo PNG data-URLs keyed by imageUrl (avoids blank Excel embeds). */
 const ORG_WATERMARK_LOGO_DATA_KEY = 'orgExportWatermarkLogoData';
 
+type CachedOrgWatermarkPayload = ExportWatermarkSettings & {
+  tenantDbName?: string;
+};
+
 export function normalizeExportWatermark(raw: unknown): ExportWatermarkSettings {
   const input = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
   const text = String(input.text || '').trim().slice(0, 120);
@@ -62,16 +66,79 @@ function readTenantDbName(): string {
   }
 }
 
+function tenantCacheScope(tenantDbName = readTenantDbName()): string {
+  const tenant = String(tenantDbName || '').trim();
+  // Keep public/anonymous caches isolated from employer tenant workspaces.
+  return tenant || 'anon';
+}
+
+function scopedStorageKey(base: string, tenantDbName = readTenantDbName()): string {
+  return `${base}:${tenantCacheScope(tenantDbName)}`;
+}
+
+function embeddedLogoCacheKey(tenantDbName = readTenantDbName()): string {
+  return `embedded-logo:${tenantCacheScope(tenantDbName)}`;
+}
+
+function removeMatchingStorageKeys(
+  storage: Storage,
+  predicate: (key: string) => boolean,
+): void {
+  const keys: string[] = [];
+  for (let i = 0; i < storage.length; i += 1) {
+    const key = storage.key(i);
+    if (key && predicate(key)) keys.push(key);
+  }
+  keys.forEach((key) => storage.removeItem(key));
+}
+
+/** Drop all tenant watermark caches (settings + decoded logos). */
+export function clearOrgExportWatermarkCache(options?: { tenantDbName?: string | null }): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const scopedTenant = options?.tenantDbName;
+    if (scopedTenant === undefined) {
+      removeMatchingStorageKeys(
+        localStorage,
+        (key) => key === ORG_WATERMARK_CACHE_KEY || key.startsWith(`${ORG_WATERMARK_CACHE_KEY}:`),
+      );
+      removeMatchingStorageKeys(
+        sessionStorage,
+        (key) =>
+          key === ORG_WATERMARK_LOGO_DATA_KEY || key.startsWith(`${ORG_WATERMARK_LOGO_DATA_KEY}:`),
+      );
+    } else {
+      const tenant = String(scopedTenant || '').trim();
+      localStorage.removeItem(scopedStorageKey(ORG_WATERMARK_CACHE_KEY, tenant));
+      sessionStorage.removeItem(scopedStorageKey(ORG_WATERMARK_LOGO_DATA_KEY, tenant));
+      // Also clear legacy unscoped keys that caused cross-tenant bleed.
+      localStorage.removeItem(ORG_WATERMARK_CACHE_KEY);
+      sessionStorage.removeItem(ORG_WATERMARK_LOGO_DATA_KEY);
+    }
+    window.dispatchEvent(new CustomEvent(ORG_WATERMARK_CACHE_EVENT));
+  } catch {
+    /* ignore */
+  }
+}
+
 export function cacheWatermarkLogoDataUrl(imageUrl: string, dataUrl: string): void {
   if (typeof window === 'undefined') return;
   const key = String(imageUrl || '').trim();
   const value = String(dataUrl || '').trim();
   if (!key || !value.startsWith('data:image/')) return;
+  const tenantDbName = readTenantDbName();
   try {
     sessionStorage.setItem(
-      ORG_WATERMARK_LOGO_DATA_KEY,
-      JSON.stringify({ imageUrl: key, dataUrl: value, at: Date.now() }),
+      scopedStorageKey(ORG_WATERMARK_LOGO_DATA_KEY, tenantDbName),
+      JSON.stringify({
+        imageUrl: key,
+        dataUrl: value,
+        tenantDbName: tenantCacheScope(tenantDbName),
+        at: Date.now(),
+      }),
     );
+    // Remove legacy unscoped logo cache so another tenant cannot reuse it.
+    sessionStorage.removeItem(ORG_WATERMARK_LOGO_DATA_KEY);
   } catch {
     /* quota — ignore */
   }
@@ -79,10 +146,22 @@ export function cacheWatermarkLogoDataUrl(imageUrl: string, dataUrl: string): vo
 
 function readCachedWatermarkLogoDataUrl(imageUrl: string): string {
   if (typeof window === 'undefined') return '';
+  const tenantDbName = readTenantDbName();
+  const expectedTenant = tenantCacheScope(tenantDbName);
   try {
-    const raw = sessionStorage.getItem(ORG_WATERMARK_LOGO_DATA_KEY);
+    const raw =
+      sessionStorage.getItem(scopedStorageKey(ORG_WATERMARK_LOGO_DATA_KEY, tenantDbName)) ||
+      // One-time legacy read: only accept if payload tenant matches current workspace.
+      sessionStorage.getItem(ORG_WATERMARK_LOGO_DATA_KEY);
     if (!raw) return '';
-    const parsed = JSON.parse(raw) as { imageUrl?: string; dataUrl?: string };
+    const parsed = JSON.parse(raw) as {
+      imageUrl?: string;
+      dataUrl?: string;
+      tenantDbName?: string;
+    };
+    const cachedTenant = String(parsed?.tenantDbName || '').trim();
+    if (cachedTenant && cachedTenant !== expectedTenant) return '';
+    if (!cachedTenant && expectedTenant !== 'anon') return '';
     if (String(parsed?.imageUrl || '').trim() !== String(imageUrl || '').trim()) return '';
     const dataUrl = String(parsed?.dataUrl || '').trim();
     return dataUrl.startsWith('data:image/') ? dataUrl : '';
@@ -93,10 +172,25 @@ function readCachedWatermarkLogoDataUrl(imageUrl: string): string {
 
 export function readCachedOrgWatermark(): ExportWatermarkSettings {
   if (typeof window === 'undefined') return DEFAULT_EXPORT_WATERMARK;
+  const tenantDbName = readTenantDbName();
+  const expectedTenant = tenantCacheScope(tenantDbName);
   try {
-    const raw = localStorage.getItem(ORG_WATERMARK_CACHE_KEY);
+    const scopedRaw = localStorage.getItem(scopedStorageKey(ORG_WATERMARK_CACHE_KEY, tenantDbName));
+    const legacyRaw = localStorage.getItem(ORG_WATERMARK_CACHE_KEY);
+    const raw = scopedRaw || legacyRaw;
     if (!raw) return DEFAULT_EXPORT_WATERMARK;
-    return normalizeExportWatermark(JSON.parse(raw));
+    const parsed = JSON.parse(raw) as CachedOrgWatermarkPayload;
+    const cachedTenant = String(parsed?.tenantDbName || '').trim();
+    // Never reuse another tenant's watermark (including old unscoped cache entries).
+    if (cachedTenant && cachedTenant !== expectedTenant) {
+      if (!scopedRaw && legacyRaw) localStorage.removeItem(ORG_WATERMARK_CACHE_KEY);
+      return DEFAULT_EXPORT_WATERMARK;
+    }
+    if (!cachedTenant && expectedTenant !== 'anon') {
+      if (!scopedRaw && legacyRaw) localStorage.removeItem(ORG_WATERMARK_CACHE_KEY);
+      return DEFAULT_EXPORT_WATERMARK;
+    }
+    return normalizeExportWatermark(parsed);
   } catch {
     return DEFAULT_EXPORT_WATERMARK;
   }
@@ -105,14 +199,24 @@ export function readCachedOrgWatermark(): ExportWatermarkSettings {
 export function writeCachedOrgWatermark(settings: ExportWatermarkSettings): void {
   if (typeof window === 'undefined') return;
   try {
+    const tenantDbName = readTenantDbName();
     // Never persist large data-URLs in localStorage (quota). Logo lives in session cache.
     const forStorage = normalizeExportWatermark(settings);
     const { imageDataUrl: _drop, ...rest } = forStorage;
-    localStorage.setItem(ORG_WATERMARK_CACHE_KEY, JSON.stringify(rest));
+    const payload: CachedOrgWatermarkPayload = {
+      ...rest,
+      tenantDbName: tenantCacheScope(tenantDbName),
+    };
+    localStorage.setItem(
+      scopedStorageKey(ORG_WATERMARK_CACHE_KEY, tenantDbName),
+      JSON.stringify(payload),
+    );
+    // Drop legacy global key so tenant A cannot bleed into tenant B.
+    localStorage.removeItem(ORG_WATERMARK_CACHE_KEY);
     if (forStorage.imageDataUrl && forStorage.imageUrl) {
       cacheWatermarkLogoDataUrl(forStorage.imageUrl, forStorage.imageDataUrl);
     } else if (forStorage.imageDataUrl) {
-      cacheWatermarkLogoDataUrl('embedded-logo', forStorage.imageDataUrl);
+      cacheWatermarkLogoDataUrl(embeddedLogoCacheKey(tenantDbName), forStorage.imageDataUrl);
     }
     window.dispatchEvent(new CustomEvent(ORG_WATERMARK_CACHE_EVENT));
   } catch {
@@ -152,7 +256,7 @@ export function watermarkImageForFormat(
   if (cfg.imageDataUrl?.startsWith('data:image/')) return cfg.imageDataUrl;
   const fromSession = cfg.imageUrl ? readCachedWatermarkLogoDataUrl(cfg.imageUrl) : '';
   if (fromSession) return fromSession;
-  const embedded = readCachedWatermarkLogoDataUrl('embedded-logo');
+  const embedded = readCachedWatermarkLogoDataUrl(embeddedLogoCacheKey());
   if (embedded) return embedded;
   return cfg.imageUrl || '';
 }
