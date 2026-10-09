@@ -1,7 +1,6 @@
 'use client';
 
 import React from 'react';
-import { DM_Sans } from 'next/font/google';
 import {
   AUTH_PANEL_BG,
   BRAND_BLUE,
@@ -10,12 +9,7 @@ import {
   authPageBackgroundStyle,
 } from './authMarketingTheme';
 import { AuthBrandLogo } from './AuthBrandLogo';
-
-const dmSans = DM_Sans({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
-  display: 'swap',
-});
+import { authDmSansClass } from '../../lib/authTypeFonts';
 
 type AuthMarketingShellProps = {
   title: string;
@@ -43,7 +37,7 @@ export function AuthMarketingShell({
 
   return (
     <div
-      className={`${dmSans.className} relative flex h-[100dvh] max-h-[100dvh] items-center justify-center overflow-hidden px-3 py-3 sm:px-5 sm:py-4`}
+      className={`${authDmSansClass} relative flex h-[100dvh] max-h-[100dvh] items-center justify-center overflow-hidden px-3 py-3 sm:px-5 sm:py-4`}
       style={authPageBackgroundStyle}
     >
       {loading && (
