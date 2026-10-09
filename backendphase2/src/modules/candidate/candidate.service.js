@@ -803,9 +803,11 @@ function classifyCandidateSearch(search) {
   if (digitsOnly.length >= 7 && digitsOnly.length === nonDigitStripped.replace(/\D/g, '').length) {
     return { kind: 'phone', term, normalized: digitsOnly };
   }
-  // Letters / name-like (including multi-word). Short tokens stay "name".
+  // Letters only: 1–2 tokens are treated as a person name. Skill/CV phrases
+  // ("React developers in Bengaluru") must not use the name-only index path.
   if (/^[\p{L}\p{M}\s.'.-]+$/u.test(term)) {
-    return { kind: 'name', term, normalized };
+    const tokenCount = normalized.split(/\s+/).filter(Boolean).length;
+    if (tokenCount <= 2) return { kind: 'name', term, normalized };
   }
   return { kind: 'general', term, normalized };
 }
@@ -887,20 +889,29 @@ function buildCandidateSearchWhereClause(search) {
     return { OR: nameOr };
   }
 
-  // General (mixed symbols): identity + role fields only — never cvSummary/notes in list search.
-  return {
-    OR: [
-      { nameNormalized: { contains: escapedNorm, mode: 'insensitive' } },
-      { firstName: { contains: escaped, mode: 'insensitive' } },
-      { lastName: { contains: escaped, mode: 'insensitive' } },
-      { email: { contains: escaped, mode: 'insensitive' } },
-      { phone: { contains: escaped, mode: 'insensitive' } },
-      { currentTitle: { contains: escaped, mode: 'insensitive' } },
-      { currentCompany: { contains: escaped, mode: 'insensitive' } },
-      { designation: { contains: escaped, mode: 'insensitive' } },
-      { skills: { hasSome: [classified.term] } },
-    ],
-  };
+  // Skill / CV phrases: every token must hit identity, role, skills, or CV text.
+  const tokens = classified.normalized.split(/\s+/).filter((token) => token.length >= 2);
+  const effectiveTokens = tokens.length ? tokens : [classified.normalized || classified.term];
+  const tokenClauses = effectiveTokens.map((token) => {
+    const escapedToken = escapePrismaRegex(token);
+    return {
+      OR: [
+        { nameNormalized: { contains: escapedToken, mode: 'insensitive' } },
+        { firstName: { contains: escapedToken, mode: 'insensitive' } },
+        { lastName: { contains: escapedToken, mode: 'insensitive' } },
+        { email: { contains: escapedToken, mode: 'insensitive' } },
+        { phone: { contains: escapedToken, mode: 'insensitive' } },
+        { currentTitle: { contains: escapedToken, mode: 'insensitive' } },
+        { currentCompany: { contains: escapedToken, mode: 'insensitive' } },
+        { designation: { contains: escapedToken, mode: 'insensitive' } },
+        { education: { contains: escapedToken, mode: 'insensitive' } },
+        { cvSummary: { contains: escapedToken, mode: 'insensitive' } },
+        { skills: { hasSome: [token] } },
+        { recruiterSkills: { hasSome: [token] } },
+      ],
+    };
+  });
+  return tokenClauses.length === 1 ? tokenClauses[0] : { AND: tokenClauses };
 }
 
 function flattenCandidateJsonForSearch(value) {

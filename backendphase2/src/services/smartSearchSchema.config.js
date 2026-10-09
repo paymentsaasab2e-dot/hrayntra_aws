@@ -7,6 +7,9 @@ export const SEARCH_STOP_WORDS = new Set([
   'a', 'an', 'the', 'and', 'or', 'with', 'from', 'in', 'on', 'at', 'to', 'for', 'of',
   'me', 'my', 'all', 'any', 'show', 'find', 'search', 'filter', 'get', 'list',
   'having', 'that', 'who', 'are', 'is', 'was', 'be',
+  'candidate', 'candidates', 'people', 'person', 'talent',
+  'relevant', 'matching', 'match', 'please',
+  'cv', 'cvs', 'resume', 'resumes', 'profile', 'profiles',
 ]);
 
 /** Prisma enum values from schema.prisma */
@@ -192,10 +195,15 @@ Put company names, locations, industries, director/team/KYC/agreement terms in s
       'phone',
       'currentTitle',
       'currentCompany',
+      'designation',
       'location',
       'city',
       'country',
       'preferredLocation',
+      'education',
+      'cvSummary',
+      'notes',
+      'recruiterNotes',
       'stage',
       'source',
       'recruiterStatus',
@@ -282,6 +290,15 @@ export function getEntitySchema(entity) {
   return SMART_SEARCH_ENTITY_SCHEMA[String(entity || '').trim().toLowerCase()] || null;
 }
 
+function searchTermVariants(term) {
+  const raw = String(term || '').trim();
+  if (!raw) return [];
+  const variants = [raw];
+  if (/s$/i.test(raw) && raw.length > 4) variants.push(raw.slice(0, -1));
+  else if (raw.length > 3 && !/s$/i.test(raw)) variants.push(`${raw}s`);
+  return [...new Set(variants)];
+}
+
 /** Build Prisma contains OR across schema text + array string fields. */
 export function buildSchemaTextSearchWhere(entityKey, search) {
   const schema = getEntitySchema(entityKey);
@@ -292,15 +309,18 @@ export function buildSchemaTextSearchWhere(entityKey, search) {
     .split(/\s+/)
     .map((term) => term.trim())
     .filter((term) => term.length >= 2 && !SEARCH_STOP_WORDS.has(term.toLowerCase()));
-  const effectiveTerms = terms.length > 0 ? terms : [trimmed];
+  // Prompt was only noise ("relevant CVs") — do not require those words in the row.
+  if (!terms.length) return null;
 
-  const termClauses = effectiveTerms.map((term) => {
+  const termClauses = terms.map((term) => {
     const orParts = [];
-    for (const field of schema.textSearchFields || []) {
-      orParts.push({ [field]: { contains: term, mode: 'insensitive' } });
-    }
-    for (const field of schema.arraySearchFields || []) {
-      orParts.push({ [field]: { hasSome: [term] } });
+    for (const variant of searchTermVariants(term)) {
+      for (const field of schema.textSearchFields || []) {
+        orParts.push({ [field]: { contains: variant, mode: 'insensitive' } });
+      }
+      for (const field of schema.arraySearchFields || []) {
+        orParts.push({ [field]: { hasSome: [variant] } });
+      }
     }
     return { OR: orParts };
   });

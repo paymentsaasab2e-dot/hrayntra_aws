@@ -1378,6 +1378,9 @@ export function useCandidateList() {
 
   const filteredCandidates = useMemo(() => {
     if (candidateSmartSearch.activeKeywords.length === 0) return candidates;
+    // IDs already came from tenant DB + CV fields. A second chip pass on list-row
+    // haystacks dropped people whose match lived in cvSummary / work history.
+    if (smartSearchCandidateIds.length > 0) return candidates;
     return candidates.filter((candidate) =>
       candidateMatchesSmartKeywordChips(
         {
@@ -1413,7 +1416,7 @@ export function useCandidateList() {
         candidateSmartSearch.activeKeywords,
       ),
     );
-  }, [candidates, candidateSmartSearch.activeKeywords]);
+  }, [candidates, candidateSmartSearch.activeKeywords, smartSearchCandidateIds]);
   const { alertsByEntityId: workspaceAlertsByEntityId } = useWorkspaceEntityAlerts(
     'CANDIDATE',
     filteredCandidates.map((candidate) => candidate.id),

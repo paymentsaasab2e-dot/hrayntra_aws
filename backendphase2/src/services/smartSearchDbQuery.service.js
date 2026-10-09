@@ -382,6 +382,9 @@ async function queryCandidateIds(filters, req) {
       lastName: true,
       email: true,
       currentTitle: true,
+      designation: true,
+      cvSummary: true,
+      education: true,
       skills: true,
       city: true,
       country: true,
@@ -400,8 +403,13 @@ async function queryCandidateIds(filters, req) {
       id: row.id,
       score: scoreFieldRelevance(searchText, {
         primary: `${row.firstName || ''} ${row.lastName || ''}`.trim() || row.email,
-        secondary: [row.email, row.currentTitle, ...(Array.isArray(row.skills) ? row.skills : [])],
-        tertiary: [row.city, row.country],
+        secondary: [
+          row.email,
+          row.currentTitle,
+          row.designation,
+          ...(Array.isArray(row.skills) ? row.skills : []),
+        ],
+        tertiary: [row.cvSummary, row.education, row.city, row.country],
       }),
       createdAt: row.createdAt,
     }))
