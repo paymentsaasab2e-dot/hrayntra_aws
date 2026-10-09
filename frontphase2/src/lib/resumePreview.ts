@@ -90,9 +90,23 @@ export function isPdfResume(resumeUrl?: string | null): boolean {
   return isExtensionlessResumeStoragePath(trimmed);
 }
 
+function isClientReviewResumeProxyUrl(resumeUrl?: string | null): boolean {
+  const href = String(resumeUrl || '');
+  return (
+    /\/client-review\/[^/]+\/resume(?:\?|$|\/)/i.test(href) ||
+    /\/interviews\/public\/review\/[^/]+\/resume(?:\?|$|\/)/i.test(href)
+  );
+}
+
 /** Which inline renderer to use in the candidate drawer Resume tab. */
 export function resolveResumePreviewKind(resumeUrl?: string | null): ResumePreviewMode {
   if (!String(resumeUrl || '').trim()) return 'none';
+  // Client-review Word links: use the resume proxy as PDF (Word/LibreOffice → PDF)
+  // so page width matches the candidate drawer / “Open in new tab” viewer.
+  // Built-in docx-preview stretches columns to 100% and looks wrong here.
+  if (isClientReviewResumeProxyUrl(resumeUrl) && isWordResume(resumeUrl)) {
+    return 'pdf';
+  }
   if (canPreviewResumeAsHtml(resumeUrl)) return 'html';
   if (isImageResume(resumeUrl)) return 'image';
   if (isTextResume(resumeUrl)) return 'text';
