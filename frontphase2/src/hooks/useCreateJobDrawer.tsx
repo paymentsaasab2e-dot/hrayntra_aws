@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { X, Check, Upload, Twitter, Facebook, User } from 'lucide-react';
-import { apiCreateJob, apiUpdateJob, apiGetJob, getJobPreScreenAssessments, apiGetClients, apiGetWorkspaceClient, apiGetClient, apiGetContacts, apiGenerateJobDescription, apiGenerateJobFromPrompt, apiProcessJobCreationPipeline, type JobCreationPipelineResult, apiUploadJobFile, filesApiUpload, apiPublishSocialJob, apiGetSocialStatus, apiConnectIntegration, apiDisconnectIntegration, apiGetJobApplyLink, apiListLinkedInPostTemplates, type SocialPublishingAccount, getTenantDbName, getCachedOrgRecruitmentMode, isOwnCompanyWorkspaceClient, type CreateJobData, type BackendClient, type BackendContact, type BackendUser } from '../lib/api';
+import { apiCreateJob, apiUpdateJob, apiGetJob, getJobPreScreenAssessments, apiGetWorkspaceClient, apiGetClient, apiGetContacts, apiGenerateJobDescription, apiGenerateJobFromPrompt, apiProcessJobCreationPipeline, type JobCreationPipelineResult, apiUploadJobFile, filesApiUpload, apiPublishSocialJob, apiGetSocialStatus, apiConnectIntegration, apiDisconnectIntegration, apiGetJobApplyLink, apiListLinkedInPostTemplates, type SocialPublishingAccount, getTenantDbName, getCachedOrgRecruitmentMode, isOwnCompanyWorkspaceClient, type CreateJobData, type BackendClient, type BackendContact, type BackendUser } from '../lib/api';
 import { getAllTeamMembersForAssign, getLineManagersForJobPicker, linkTeamRequestToJob, teamMembersToBackendUsers } from '../lib/api/teamApi';
 import { assigneeCompanyId, formatAssigneeDisplayName } from '../lib/assigneeDisplay';
 import { buildCandidatePortalApplyUrlPreview, replaceApplyUrlInSocialPostText, ensureApplyUrlInSocialPostText, buildLinkedInJobPost, buildTwitterJobPost, buildFacebookJobPost, type JobSocialPostInput } from '../lib/jobSocialPost';
@@ -17,7 +17,7 @@ import { useDrawerUnsavedGuard } from './useDrawerUnsavedGuard';
 import { normalizeJobSalaryCurrency, parseJobSalaryMoneyNumber, resolveJobSalaryCurrencySymbolForSave } from '../constants/jobSalary';
 import { getCachedOrgDefaultCurrency } from '../lib/api';
 import { loadJobVisibilityUserDefaults, visibilityDefaultsForNewJob, jobVisibilityDefaultsEqual } from '../lib/jobVisibilityUserDefaults';
-import { filterClientsForAddJob } from '../lib/recruitmentClients';
+import { fetchAllRecruitmentClientsForPicker, filterClientsForAddJob } from '../lib/recruitmentClients';
 import { dedupeByCompanyName } from '../lib/companyNameKey';
 import { normalizeExtractedJobTitle } from '../lib/normalizeExtractedJobTitle';
 import { getStoredTenantCompanyName, resolveAddJobWorkspaceLabel, resolveJobPostingCompanyChooser, useOrgWorkspace } from '../lib/org/useOrgWorkspace';
@@ -1383,22 +1383,7 @@ const loadClients = async () => {
         return;
       }
 
-      const extractClients = (response: Awaited<ReturnType<typeof apiGetClients>>): BackendClient[] => {
-        let backendClients: BackendClient[] = [];
-        if (response.data) {
-          if (Array.isArray(response.data)) {
-            backendClients = response.data;
-          } else if (response.data && Array.isArray(response.data.data)) {
-            backendClients = response.data.data;
-          } else if (response.data && 'items' in response.data && Array.isArray((response.data as any).items)) {
-            backendClients = (response.data as any).items;
-          }
-        }
-        return backendClients;
-      };
-
-      const recResponse = await apiGetClients({ recruitmentEnabled: true, page: 1, limit: 500 });
-      const backendClients = extractClients(recResponse);
+      const backendClients = await fetchAllRecruitmentClientsForPicker();
       const crmClients = backendClients.filter(
         (client: any) =>
           !isOwnCompanyWorkspaceClient(client) &&

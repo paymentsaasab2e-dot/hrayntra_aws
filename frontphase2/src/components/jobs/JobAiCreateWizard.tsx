@@ -32,7 +32,6 @@ import {
   apiCreateJob,
   apiGenerateJobFromPrompt,
   apiGetClient,
-  apiGetClients,
   apiGetContacts,
   apiGetJobApplyLink,
   apiGetSocialStatus,
@@ -54,7 +53,7 @@ import {
   apiGetTenantCompanyPage,
   type TenantCompanyPage,
 } from '@/lib/company-page-api';
-import { filterClientsForAddJob } from '@/lib/recruitmentClients';
+import { fetchAllRecruitmentClientsForPicker, filterClientsForAddJob } from '@/lib/recruitmentClients';
 import { dedupeByCompanyName } from '@/lib/companyNameKey';
 import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '@/lib/api/teamApi';
 import { RichTextEditor } from '@/components/RichTextEditor';
@@ -964,25 +963,14 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
   const loadClients = useCallback(async () => {
     setLoadingClients(true);
     try {
-      const [recRes, workspaceRes] = await Promise.all([
-        apiGetClients({ recruitmentEnabled: true, page: 1, limit: 500 }),
+      const [list, workspaceRes] = await Promise.all([
+        fetchAllRecruitmentClientsForPicker(),
         apiGetWorkspaceClient().catch(() => null),
       ]);
-      const unwrap = (res: Awaited<ReturnType<typeof apiGetClients>>) => {
-        const raw = res.data as unknown;
-        return Array.isArray(raw)
-          ? raw
-          : Array.isArray((raw as { data?: BackendClient[] })?.data)
-            ? (raw as { data: BackendClient[] }).data
-            : Array.isArray((raw as { items?: BackendClient[] })?.items)
-              ? (raw as { items: BackendClient[] }).items
-              : [];
-      };
-      let list = unwrap(recRes);
       const workspace =
         (workspaceRes as { data?: { workspaceClient?: BackendClient | null } } | null)?.data
           ?.workspaceClient || null;
-      const crmList = (list as BackendClient[]).filter(
+      const crmList = list.filter(
         (client) =>
           !isOwnCompanyWorkspaceClient(client) &&
           (!workspace?.id || client.id !== workspace.id),

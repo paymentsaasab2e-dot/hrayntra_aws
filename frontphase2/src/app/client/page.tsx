@@ -123,7 +123,9 @@ function getClientDynamicFieldValue(client: Client, label: string): string {
 function clientsForCurrentScope(list: Client[], recruitmentScope: boolean): Client[] {
   const rows = Array.isArray(list) ? list : [];
   if (recruitmentScope) {
-    return rows.filter((client) => Boolean(client.recruitmentEnabled || client.createdInRecruitment));
+    // API already scopes with recruitmentEnabled OR createdInRecruitment OR has-jobs.
+    // Re-filtering by flags drops job-linked / legacy rows before async backfill stamps them.
+    return rows;
   }
   const crmVisible = rows.filter((client) => !client.createdInRecruitment);
   // Never blank CRM Clients when records exist (legacy mixed flags).
@@ -1599,7 +1601,7 @@ export default function App() {
                 <PaginationAll
                   initialPage={currentPage}
                   totalPages={Math.max(1, Math.ceil(totalEntries / pageSize))}
-                  totalCount={sortedClients.length}
+                  totalCount={totalEntries}
                   pageSize={pageSize}
                   pageSizeOptions={[...TABLE_PAGE_SIZE_OPTIONS]}
                   onPageSizeChange={(n) => {
