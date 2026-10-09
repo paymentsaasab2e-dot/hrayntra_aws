@@ -31,28 +31,11 @@ function isPdfBuffer(bytes: Buffer): boolean {
   return bytes.length >= 5 && bytes.subarray(0, 5).toString('utf8').startsWith('%PDF');
 }
 
-/** Microsoft Word COM export only works on Windows hosts with Word installed. */
-function canConvertWordOnThisHost(): boolean {
-  return process.platform === 'win32';
-}
-
 function wantsRawBytes(req: NextRequest): boolean {
   const raw = String(req.nextUrl.searchParams.get('raw') || '')
     .trim()
     .toLowerCase();
   return raw === '1' || raw === 'true' || raw === 'yes';
-}
-
-function prefersHtmlPreview(req: NextRequest): boolean {
-  const accept = (req.headers.get('accept') || '').toLowerCase();
-  if (!accept || accept.includes('*/*')) {
-    // Browser navigation often sends */* or text/html first.
-    return accept.includes('text/html') || !accept.includes('application/pdf');
-  }
-  const htmlIdx = accept.indexOf('text/html');
-  const pdfIdx = accept.indexOf('application/pdf');
-  if (htmlIdx >= 0 && (pdfIdx < 0 || htmlIdx < pdfIdx)) return true;
-  return false;
 }
 
 function wordContentType(disposition: string, formatHint: string): string {
@@ -175,11 +158,8 @@ export async function GET(
     }
 
     if (wasWord && !isPdfBuffer(bytes)) {
-      // Linux / Docker production has no Microsoft Word — show an HTML preview like a PDF tab.
-      if (!canConvertWordOnThisHost() || prefersHtmlPreview(req)) {
-        return htmlPreviewResponse(req, 'Candidate resume');
-      }
-
+      // Prefer real PDF (browser PDF viewer, same as local Word export). Fall back to HTML only
+      // when neither Microsoft Word nor LibreOffice can convert on this host.
       try {
         const pdf = await convertWordResumeToPdf(new Uint8Array(bytes));
         bytes = Buffer.from(pdf);
@@ -188,7 +168,7 @@ export async function GET(
         disposition = /\.pdf/i.test(pdfName) ? pdfName : 'inline; filename="Resume.pdf"';
       } catch (conversionError) {
         console.warn(
-          '[client-review/resume] Word→PDF unavailable, falling back to HTML preview:',
+          '[client-review/resume] Word/LibreOffice→PDF unavailable, falling back to HTML preview:',
           conversionError instanceof Error ? conversionError.message : String(conversionError),
         );
         return htmlPreviewResponse(req, 'Candidate resume');

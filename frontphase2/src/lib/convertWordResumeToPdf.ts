@@ -1,13 +1,26 @@
 import { createHash } from 'node:crypto';
 import { editDocxTextBytes } from './editDocxText';
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { constants as fsConstants } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
+
+const LIBRE_OFFICE_CANDIDATES = [
+  process.env.LIBREOFFICE_PATH,
+  'soffice',
+  'libreoffice',
+  '/usr/bin/soffice',
+  '/usr/bin/libreoffice',
+  'C:\\Program Files\\LibreOffice\\program\\soffice.exe',
+  'C:\\Program Files (x86)\\LibreOffice\\program\\soffice.exe',
+].filter((value): value is string => Boolean(value && String(value).trim()));
+
+let resolvedLibreOfficePath: string | null | undefined;
 
 const cacheDir = path.join(tmpdir(), 'hryantra-word-pdf');
 const workerScriptPath = path.join(cacheDir, 'word-export-worker.ps1');
@@ -204,6 +217,9 @@ function enqueue<T>(task: () => Promise<T>): Promise<T> {
 }
 
 async function exportDocxWithWord(docxPath: string, pdfPath: string): Promise<void> {
+  if (process.platform !== 'win32') {
+    throw new Error('Microsoft Word COM export is only available on Windows');
+  }
   try {
     await ensureWordWorker();
     await exportWithRunningWord(docxPath, pdfPath);
@@ -240,6 +256,83 @@ try {
   } finally {
     await unlink(scriptPath).catch(() => undefined);
   }
+}
+
+async function resolveLibreOfficeBinary(): Promise<string | null> {
+  if (resolvedLibreOfficePath !== undefined) return resolvedLibreOfficePath;
+  for (const candidate of LIBRE_OFFICE_CANDIDATES) {
+    try {
+      if (path.isAbsolute(candidate)) {
+        await access(candidate, fsConstants.X_OK);
+        resolvedLibreOfficePath = candidate;
+        return candidate;
+      }
+      await execFileAsync(candidate, ['--version'], { timeout: 15000, windowsHide: true });
+      resolvedLibreOfficePath = candidate;
+      return candidate;
+    } catch {
+      /* try next */
+    }
+  }
+  resolvedLibreOfficePath = null;
+  return null;
+}
+
+/** Headless LibreOffice — used on Linux/Docker where Microsoft Word is unavailable. */
+async function exportDocxWithLibreOffice(docxPath: string, pdfPath: string): Promise<void> {
+  const soffice = await resolveLibreOfficeBinary();
+  if (!soffice) {
+    throw new Error('LibreOffice (soffice) is not installed');
+  }
+  const outDir = path.dirname(pdfPath);
+  await mkdir(outDir, { recursive: true });
+  await execFileAsync(
+    soffice,
+    [
+      '--headless',
+      '--nologo',
+      '--nofirststartwizard',
+      '--norestore',
+      '--convert-to',
+      'pdf',
+      '--outdir',
+      outDir,
+      docxPath,
+    ],
+    { timeout: 120000, windowsHide: true },
+  );
+  const produced = path.join(outDir, `${path.basename(docxPath, path.extname(docxPath))}.pdf`);
+  if (produced !== pdfPath) {
+    await rename(produced, pdfPath).catch(async () => {
+      const pdf = await readFile(produced);
+      await writeFile(pdfPath, pdf);
+      await unlink(produced).catch(() => undefined);
+    });
+  }
+  try {
+    await access(pdfPath, fsConstants.R_OK);
+  } catch {
+    throw new Error('LibreOffice did not produce a PDF');
+  }
+}
+
+async function exportDocxToPdfFile(docxPath: string, pdfPath: string): Promise<void> {
+  const errors: string[] = [];
+  if (process.platform === 'win32') {
+    try {
+      await exportDocxWithWord(docxPath, pdfPath);
+      return;
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : String(error));
+    }
+  }
+  try {
+    await exportDocxWithLibreOffice(docxPath, pdfPath);
+    return;
+  } catch (error) {
+    errors.push(error instanceof Error ? error.message : String(error));
+  }
+  throw new Error(errors.filter(Boolean).join(' | ') || 'No Word/LibreOffice converter available');
 }
 
 function urlPdfCachePath(sourceUrl: string): string {
@@ -312,10 +405,10 @@ export async function convertWordResumeToPdf(docxBytes: Uint8Array): Promise<Uin
       /* convert */
     }
     await writeFile(docxPath, docxBytes);
-    await exportDocxWithWord(docxPath, pdfPath);
+    await exportDocxToPdfFile(docxPath, pdfPath);
     const pdf = await readFile(pdfPath);
     if (pdf.byteLength < 1000) {
-      throw new Error('Word did not produce a PDF');
+      throw new Error('Word/LibreOffice did not produce a PDF');
     }
     return new Uint8Array(pdf);
   });
