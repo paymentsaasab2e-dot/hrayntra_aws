@@ -104,7 +104,6 @@ import {
   apiGetJobStatusCatalog,
   apiAppendJobStatus,
   apiRemoveJobStatus,
-  type BackendClient,
   type BackendJob,
   type BackendCandidate,
   type BackendUser,
