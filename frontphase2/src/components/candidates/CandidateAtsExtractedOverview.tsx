@@ -30,6 +30,11 @@ import type { ClientSectionVisibility } from '@/lib/clientPresentationSections';
 import { CandidateCareerPreferencesOverview } from './CandidateCareerPreferencesOverview';
 import { CandidateHiringOverview } from './CandidateHiringSection';
 import { buildCareerPreferencesViewModel, countCareerPreferencesFilled } from '@/lib/candidateCareerPreferencesModel';
+import {
+  isCandidateEditFieldVisible,
+  type CandidateEditFieldId,
+} from '@/lib/candidateEditFieldVisibility';
+import { useCandidateEditFieldVisibility } from '@/hooks/useCandidateEditFieldVisibility';
 
 type SectionKey = 'personal' | 'education' | 'work' | 'professional' | 'social' | 'summary';
 
@@ -459,6 +464,8 @@ export function CandidateAtsExtractedOverview({
 }: Props) {
   const model = useMemo(() => buildOverviewModel(candidate), [candidate]);
   const [open, setOpen] = useState<Record<SectionKey, boolean>>(DEFAULT_CLOSED_SECTIONS);
+  const fieldVisibility = useCandidateEditFieldVisibility();
+  const show = (id: CandidateEditFieldId) => isCandidateEditFieldVisible(fieldVisibility, id);
 
   useEffect(() => {
     setOpen(DEFAULT_CLOSED_SECTIONS);
@@ -568,26 +575,35 @@ export function CandidateAtsExtractedOverview({
         total={15}
       >
         <div className="grid gap-2 sm:grid-cols-2">
-          <FieldRow label="Name" value={p.name} optional={false} />
-          <FieldRow label="E-mail" value={p.email} />
-          <FieldRow label="Mobile No" value={p.phone} />
-          <FieldRow label="Age" value={p.age} />
-          <FieldRow label="Candidate Score" value={p.candidateScore} />
-          <FieldRow label="City & State" value={p.cityState} />
-          <FieldRow label="Current Address" value={p.address} />
-          <FieldRow label="Zip" value={p.zip} />
-          <FieldRow label="Candidate Image" value={p.image ? 'On file' : ''} href={p.image} />
-          <FieldRow label="Nationality" value={p.nationality} />
-          <FieldRow label="Current Company Website" value={p.companyWebsite} href={p.companyWebsite} />
-          <FieldRow label="Marital Status" value={p.maritalStatus} />
-          <FieldRow label="Birth Date" value={p.birthDate} />
-          <FieldRow label="Gender" value={(p as { gender?: string }).gender} />
-          <FieldRow label="Passport Number" value={p.passport} />
+          {show('fullName') ? <FieldRow label="Name" value={p.name} optional={false} /> : null}
+          {show('email') ? <FieldRow label="E-mail" value={p.email} /> : null}
+          {show('phone') ? <FieldRow label="Mobile No" value={p.phone} /> : null}
+          {show('age') ? <FieldRow label="Age" value={p.age} /> : null}
+          {show('candidateScore') ? <FieldRow label="Candidate Score" value={p.candidateScore} /> : null}
+          {show('city') || show('state') ? <FieldRow label="City & State" value={p.cityState} /> : null}
+          {show('location') ? <FieldRow label="Current Location" value={candidate.location} /> : null}
+          {show('address') ? <FieldRow label="Current Address" value={p.address} /> : null}
+          {show('zip') ? <FieldRow label="Zip" value={p.zip} /> : null}
+          {show('avatar') ? (
+            <FieldRow label="Candidate Image" value={p.image ? 'On file' : ''} href={p.image} />
+          ) : null}
+          {show('nationality') ? <FieldRow label="Nationality" value={p.nationality} /> : null}
+          {show('currentCompanyWebsite') ? (
+            <FieldRow label="Current Company Website" value={p.companyWebsite} href={p.companyWebsite} />
+          ) : null}
+          {show('maritalStatus') ? <FieldRow label="Marital Status" value={p.maritalStatus} /> : null}
+          {show('birthDate') ? <FieldRow label="Birth Date" value={p.birthDate} /> : null}
+          {show('gender') ? (
+            <FieldRow label="Gender" value={(p as { gender?: string }).gender} />
+          ) : null}
+          {show('passportNumber') ? <FieldRow label="Passport Number" value={p.passport} /> : null}
         </div>
       </SectionBlock>
       ) : null}
 
-      {hasAnyExtracted && isOverviewSectionVisible('education', sectionVisibility) ? (
+      {hasAnyExtracted &&
+      isOverviewSectionVisible('education', sectionVisibility) &&
+      (show('cvEducationEntries') || show('educationSummary') || show('educationCourses')) ? (
       <SectionBlock
         id="education"
         title="Education"
@@ -600,17 +616,21 @@ export function CandidateAtsExtractedOverview({
           edu.entries.length ? `${edu.entries.length} education ${edu.entries.length === 1 ? 'entry' : 'entries'}` : undefined
         }
       >
-        {edu.entries.length > 0 ? (
+        {show('cvEducationEntries') && edu.entries.length > 0 ? (
           <div className="space-y-2">
             {edu.entries.map((entry, index) => (
               <EducationEntryCard key={`edu-${index}`} entry={entry} index={index} />
             ))}
           </div>
-        ) : (
-          <FieldRow label="Qualification" value="" optional={false} />
-        )}
-        <FieldRow label="Education (summary text)" value={edu.summaryText} />
-        <FieldRow label="Courses" value={edu.courses} />
+        ) : null}
+        {show('educationSummary') ? (
+          <FieldRow
+            label="Qualification"
+            value={edu.summaryText || (edu.entries[0] ? display(edu.entries[0].qualification || edu.entries[0].degree) : '')}
+            optional={false}
+          />
+        ) : null}
+        {show('educationCourses') ? <FieldRow label="Courses" value={edu.courses} /> : null}
       </SectionBlock>
       ) : null}
 
@@ -631,7 +651,9 @@ export function CandidateAtsExtractedOverview({
       </SectionBlock>
       ) : null}
 
-      {hasAnyExtracted && isOverviewSectionVisible('work', sectionVisibility) ? (
+      {hasAnyExtracted &&
+      show('cvWorkExperienceEntries') &&
+      isOverviewSectionVisible('work', sectionVisibility) ? (
       <SectionBlock
         id="work"
         title="Work Experience"
@@ -656,7 +678,16 @@ export function CandidateAtsExtractedOverview({
       </SectionBlock>
       ) : null}
 
-      {hasAnyExtracted && isOverviewSectionVisible('social', sectionVisibility) ? (
+      {hasAnyExtracted &&
+      isOverviewSectionVisible('social', sectionVisibility) &&
+      (show('linkedIn') ||
+        show('twitter') ||
+        show('xing') ||
+        show('skypeId') ||
+        show('facebook') ||
+        show('stackOverflow') ||
+        show('website') ||
+        show('cvPortfolioLinks')) ? (
       <SectionBlock
         id="social"
         title="Social Network Information"
@@ -667,15 +698,19 @@ export function CandidateAtsExtractedOverview({
         total={8}
       >
         <div className="grid gap-2 sm:grid-cols-2">
-          <FieldRow label="LinkedIn" value={s.linkedIn} href={s.linkedIn} />
-          <FieldRow label="Twitter" value={s.twitter} href={s.twitter} />
-          <FieldRow label="Xing" value={s.xing} href={s.xing} />
-          <FieldRow label="Skype ID" value={s.skype} />
-          <FieldRow label="Facebook" value={s.facebook} href={s.facebook} />
-          <FieldRow label="Stack Overflow" value={s.stackOverflow} href={s.stackOverflow} />
-          <FieldRow label="Website" value={s.website} href={s.website} />
+          {show('linkedIn') ? <FieldRow label="LinkedIn" value={s.linkedIn} href={s.linkedIn} /> : null}
+          {show('twitter') ? <FieldRow label="Twitter" value={s.twitter} href={s.twitter} /> : null}
+          {show('xing') ? <FieldRow label="Xing" value={s.xing} href={s.xing} /> : null}
+          {show('skypeId') ? <FieldRow label="Skype ID" value={s.skype} /> : null}
+          {show('facebook') ? (
+            <FieldRow label="Facebook" value={s.facebook} href={s.facebook} />
+          ) : null}
+          {show('stackOverflow') ? (
+            <FieldRow label="Stack Overflow" value={s.stackOverflow} href={s.stackOverflow} />
+          ) : null}
+          {show('website') ? <FieldRow label="Website" value={s.website} href={s.website} /> : null}
         </div>
-        {s.links.length > 0 ? (
+        {show('cvPortfolioLinks') && s.links.length > 0 ? (
           <div className="rounded-xl border border-slate-200 bg-white p-3">
             <p className="text-[10px] font-bold uppercase text-slate-400">Portfolio / project links</p>
             <ul className="mt-2 space-y-1">
@@ -702,7 +737,15 @@ export function CandidateAtsExtractedOverview({
       </SectionBlock>
       ) : null}
 
-      {hasAnyExtracted && isOverviewSectionVisible('summary', sectionVisibility) ? (
+      {hasAnyExtracted &&
+      isOverviewSectionVisible('summary', sectionVisibility) &&
+      (show('cvSummary') ||
+        show('workHistoryText') ||
+        show('certifications') ||
+        show('honours') ||
+        show('skills') ||
+        show('projects') ||
+        show('hackathons')) ? (
       <SectionBlock
         id="summary"
         title="Summary & Additional"
@@ -712,40 +755,46 @@ export function CandidateAtsExtractedOverview({
         filled={summaryFilled}
         total={8}
       >
-        <FieldRow label="Summary" value={sum.summary} optional={false} />
-        {workCount > 0 ? (
-          <div className="rounded-xl border border-slate-200/80 bg-white px-3 py-2.5">
-            <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
-              Work History (optional)
-            </p>
-            <p className="mt-1 whitespace-pre-line text-sm text-slate-700">{sum.workHistory}</p>
-          </div>
-        ) : (
-          <FieldRow label="Work History" value={sum.workHistory} />
-        )}
-        <FieldRow label="Education" value={sum.educationText} />
-        <FieldRow label="Certificate" value={sum.certificates} />
-        <FieldRow label="Honours & Awards" value={sum.honours} />
-        <FieldRow label="Language & Proficiency" value={sum.languages} />
-        {sum.skills.length > 0 ? (
-          <div className="rounded-xl border border-slate-200 bg-white p-3">
-            <p className="text-[10px] font-bold uppercase text-slate-400">Skills</p>
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {sum.skills.map((skill) => (
-                <span
-                  key={skill}
-                  className="rounded-full border border-indigo-100 bg-indigo-50 px-2.5 py-0.5 text-xs font-medium text-indigo-800"
-                >
-                  {skill}
-                </span>
-              ))}
+        {show('cvSummary') ? <FieldRow label="Summary" value={sum.summary} optional={false} /> : null}
+        {show('workHistoryText') ? (
+          workCount > 0 && sum.workHistory ? (
+            <div className="rounded-xl border border-slate-200/80 bg-white px-3 py-2.5">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                Work History (optional)
+              </p>
+              <p className="mt-1 whitespace-pre-line text-sm text-slate-700">{sum.workHistory}</p>
             </div>
-          </div>
-        ) : (
-          <FieldRow label="Skills" value="" optional={false} />
-        )}
-        {sum.projects ? <FieldRow label="Projects (extra)" value={sum.projects} /> : null}
-        {sum.hackathons ? <FieldRow label="Hackathons (extra)" value={sum.hackathons} /> : null}
+          ) : (
+            <FieldRow label="Work History" value={sum.workHistory} />
+          )
+        ) : null}
+        {show('certifications') ? <FieldRow label="Certificate" value={sum.certificates} /> : null}
+        {show('honours') ? <FieldRow label="Honours & Awards" value={sum.honours} /> : null}
+        {show('skills') ? (
+          sum.skills.length > 0 ? (
+            <div className="rounded-xl border border-slate-200 bg-white p-3">
+              <p className="text-[10px] font-bold uppercase text-slate-400">Skills</p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {sum.skills.map((skill) => (
+                  <span
+                    key={skill}
+                    className="rounded-full border border-indigo-100 bg-indigo-50 px-2.5 py-0.5 text-xs font-medium text-indigo-800"
+                  >
+                    {skill}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <FieldRow label="Skills" value="" optional={false} />
+          )
+        ) : null}
+        {show('projects') && sum.projects ? (
+          <FieldRow label="Projects (extra)" value={sum.projects} />
+        ) : null}
+        {show('hackathons') && sum.hackathons ? (
+          <FieldRow label="Hackathons (extra)" value={sum.hackathons} />
+        ) : null}
       </SectionBlock>
       ) : null}
     </div>

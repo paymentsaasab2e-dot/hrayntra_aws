@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useCallback } from 'react';
-import { Eye, EyeOff, GitBranch, Coins, LayoutList } from 'lucide-react';
+import { Eye, EyeOff, GitBranch, Coins, LayoutList, UserRound } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   apiFetch,
@@ -11,12 +11,20 @@ import {
   apiSetOrgDefaultCurrency,
   apiGetClientPageFieldVisibility,
   apiSetClientPageFieldVisibility,
+  apiGetCandidateEditFieldVisibility,
+  apiSetCandidateEditFieldVisibility,
 } from '../../lib/api';
 import { usePermissions } from '../../hooks/usePermissions';
 import {
   DEFAULT_CLIENT_PAGE_FIELD_VISIBILITY,
   type ClientPageFieldVisibility,
 } from '../../lib/clientPageFieldVisibility';
+import {
+  CANDIDATE_EDIT_FIELD_GROUPS,
+  DEFAULT_CANDIDATE_EDIT_FIELD_VISIBILITY,
+  type CandidateEditFieldId,
+  type CandidateEditFieldVisibility,
+} from '../../lib/candidateEditFieldVisibility';
 import { SettingsPageHero, SettingsPanel } from './SettingsPageHero';
 import { CurrencySearchPicker } from '../CurrencySearchPicker';
 
@@ -54,6 +62,12 @@ export function RecruitmentWorkflowSettings() {
     ...DEFAULT_CLIENT_PAGE_FIELD_VISIBILITY,
   });
   const [savingClientPageFields, setSavingClientPageFields] = useState(false);
+  const [candidateEditFields, setCandidateEditFields] = useState<CandidateEditFieldVisibility>({
+    ...DEFAULT_CANDIDATE_EDIT_FIELD_VISIBILITY,
+  });
+  const [draftCandidateEditFields, setDraftCandidateEditFields] =
+    useState<CandidateEditFieldVisibility>({ ...DEFAULT_CANDIDATE_EDIT_FIELD_VISIBILITY });
+  const [savingCandidateEditFields, setSavingCandidateEditFields] = useState(false);
 
   const load = useCallback(async () => {
     if (!canManage) {
@@ -62,10 +76,11 @@ export function RecruitmentWorkflowSettings() {
     }
     setLoading(true);
     try {
-      const [tplRes, currencyRes, clientFieldsRes] = await Promise.all([
+      const [tplRes, currencyRes, clientFieldsRes, candidateFieldsRes] = await Promise.all([
         apiFetch<{ stages: TemplateStage[] }>('/settings/org/pipeline-template', { auth: true }),
         apiGetOrgDefaultCurrency(),
         apiGetClientPageFieldVisibility(),
+        apiGetCandidateEditFieldVisibility(),
       ]);
       const list = Array.isArray(tplRes.data?.stages) ? tplRes.data!.stages : [];
       setStages(
@@ -81,6 +96,11 @@ export function RecruitmentWorkflowSettings() {
       const fields = clientFieldsRes.data?.clientPageFieldVisibility ?? DEFAULT_CLIENT_PAGE_FIELD_VISIBILITY;
       setClientPageFields(fields);
       setDraftClientPageFields(fields);
+      const candidateFields =
+        candidateFieldsRes.data?.candidateEditFieldVisibility ??
+        DEFAULT_CANDIDATE_EDIT_FIELD_VISIBILITY;
+      setCandidateEditFields(candidateFields);
+      setDraftCandidateEditFields(candidateFields);
     } catch (e: any) {
       toast.error(e?.message || 'Failed to load recruitment settings');
     } finally {
@@ -112,6 +132,34 @@ export function RecruitmentWorkflowSettings() {
     draftClientPageFields.interestLevel !== clientPageFields.interestLevel ||
     draftClientPageFields.status !== clientPageFields.status ||
     draftClientPageFields.assignedTo !== clientPageFields.assignedTo;
+
+  const saveCandidateEditFields = async () => {
+    setSavingCandidateEditFields(true);
+    try {
+      const res = await apiSetCandidateEditFieldVisibility(draftCandidateEditFields);
+      const saved =
+        res.data?.candidateEditFieldVisibility ?? draftCandidateEditFields;
+      setCandidateEditFields(saved);
+      setDraftCandidateEditFields(saved);
+      await syncOrgRecruitmentSummaryFromApi({ force: true });
+      toast.success('Candidate edit fields saved — applies to all team members');
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to save candidate edit fields');
+    } finally {
+      setSavingCandidateEditFields(false);
+    }
+  };
+
+  const candidateEditFieldsDirty = (
+    Object.keys(DEFAULT_CANDIDATE_EDIT_FIELD_VISIBILITY) as CandidateEditFieldId[]
+  ).some((key) => draftCandidateEditFields[key] !== candidateEditFields[key]);
+
+  const toggleCandidateEditField = (key: CandidateEditFieldId) => {
+    setDraftCandidateEditFields((prev) => ({
+      ...prev,
+      [key]: !prev[key],
+    }));
+  };
 
   const saveTemplate = async () => {
     if (stages.length === 0) {
@@ -294,6 +342,74 @@ export function RecruitmentWorkflowSettings() {
             {applyingTemplate ? 'Applying…' : 'Apply to jobs without a pipeline'}
           </button>
         </div>
+      </SettingsPanel>
+
+      <SettingsPanel
+        title="Candidate edit fields"
+        description="One tenant-wide config for Edit Candidate and candidate Overview tabs. Defaults keep a short core set; enable extras only when your team needs them. Pipeline assignment (stage, status, job, recruiter) stays available."
+        icon={<UserRound className="h-4 w-4 text-indigo-600" />}
+        actions={
+          <button
+            type="button"
+            onClick={() => void saveCandidateEditFields()}
+            disabled={savingCandidateEditFields || !candidateEditFieldsDirty}
+            className="shrink-0 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-4 py-2 text-xs font-semibold text-white shadow-md shadow-indigo-500/25 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {savingCandidateEditFields ? 'Saving…' : 'Save candidate fields'}
+          </button>
+        }
+      >
+        <div className="space-y-6">
+          {CANDIDATE_EDIT_FIELD_GROUPS.map((group) => (
+            <div key={group.id}>
+              <div className="mb-3">
+                <p className="text-sm font-semibold text-slate-900">{group.title}</p>
+                {group.description ? (
+                  <p className="mt-0.5 text-xs text-slate-500">{group.description}</p>
+                ) : null}
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {group.fields.map((field) => {
+                  const visible = draftCandidateEditFields[field.id];
+                  return (
+                    <div
+                      key={field.id}
+                      className="flex flex-col justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50/60 p-4"
+                    >
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900">{field.label}</p>
+                        {field.defaultOn ? (
+                          <p className="mt-0.5 text-[11px] font-medium text-emerald-700">
+                            Default on
+                          </p>
+                        ) : (
+                          <p className="mt-0.5 text-[11px] text-slate-500">Default hidden</p>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => toggleCandidateEditField(field.id)}
+                        className={`inline-flex items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors ${
+                          visible
+                            ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                            : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
+                        }`}
+                      >
+                        {visible ? <Eye size={14} /> : <EyeOff size={14} />}
+                        {visible ? 'Visible' : 'Hidden'}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+        {candidateEditFieldsDirty ? (
+          <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-700">
+            You have unsaved changes to candidate edit field visibility.
+          </p>
+        ) : null}
       </SettingsPanel>
 
       <SettingsPanel

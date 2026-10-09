@@ -36,6 +36,12 @@ import {
   type SubmitToClientFieldVisibility,
 } from '@/lib/submitToClientFieldVisibility';
 import {
+  isCandidateEditFieldVisible,
+  isPhase1CandidateSectionVisible,
+  type CandidateEditFieldId,
+} from '@/lib/candidateEditFieldVisibility';
+import { useCandidateEditFieldVisibility } from '@/hooks/useCandidateEditFieldVisibility';
+import {
   phase1EditGridClass,
   phase1EditInputClass,
   phase1EditLabelClass,
@@ -205,8 +211,10 @@ function Phase1EditSection({
   onToggleClientVisibility?: (sectionId: Phase1ClientSectionId) => void;
 }) {
   const childList = React.Children.toArray(children).filter(Boolean);
+  // Profile Edit Candidate: omit sections the tenant settings hide.
+  if (!showClientVisibilityToggle && !clientVisible) return null;
   // Settings hid every field in this block — don't keep an empty shell in Submit to Client.
-  if (showClientVisibilityToggle && childList.length === 0) return null;
+  if (childList.length === 0) return null;
 
   const hidden = showClientVisibilityToggle && !clientVisible;
   return (
@@ -301,6 +309,8 @@ export function CandidatePhase1SubmitEditSections({
   clientFieldVisibility,
   onToggleClientSectionVisibility,
 }: Props) {
+  const orgFieldVisibility = useCandidateEditFieldVisibility();
+  const isClientSubmitMode = Boolean(showClientSectionVisibility);
   const [open, setOpen] = useState<Record<SectionId, boolean>>(
     showClientSectionVisibility ? DEFAULT_CLOSED_SECTIONS : DEFAULT_DRAWER_EDIT_OPEN,
   );
@@ -559,9 +569,20 @@ export function CandidatePhase1SubmitEditSections({
     return rows.map((row) => normalizeCertificationRecord(row as Record<string, unknown>));
   }, [snapshot.certifications, candidate]);
 
-  const sectionVisible = (id: SectionId) => clientSectionVisibility?.[id] !== false;
-  const showField = (id: SubmitToClientFieldId) =>
-    isSubmitToClientFieldVisible(clientFieldVisibility, id);
+  const sectionVisible = (id: SectionId) => {
+    if (clientSectionVisibility?.[id] === false) return false;
+    if (isClientSubmitMode) return true;
+    return isPhase1CandidateSectionVisible(id, orgFieldVisibility);
+  };
+  const showField = (id: SubmitToClientFieldId | CandidateEditFieldId) => {
+    if (isClientSubmitMode) {
+      return isSubmitToClientFieldVisible(clientFieldVisibility, id as SubmitToClientFieldId);
+    }
+    // phoneCode follows Phone visibility in tenant Edit Candidate settings.
+    const mapped: CandidateEditFieldId | string =
+      id === 'phoneCode' ? 'phone' : id === 'p1Resume' ? 'p1Resume' : id;
+    return isCandidateEditFieldVisible(orgFieldVisibility, mapped);
+  };
   const sectionToggleProps = {
     showClientVisibilityToggle: showClientSectionVisibility,
     onToggleClientVisibility: onToggleClientSectionVisibility,
@@ -581,7 +602,7 @@ export function CandidatePhase1SubmitEditSections({
 
       <Phase1EditSection
         id="personal"
-        title="Basic information"
+        title={isClientSubmitMode ? 'Basic information' : 'Personal Information'}
         icon={User}
         open={open.personal}
         onToggle={toggle}
@@ -590,30 +611,35 @@ export function CandidatePhase1SubmitEditSections({
       >
         <div className={phase1EditGridClass}>
           {showField('fullName') ? (
-            <EditField label="First name" value={str(pi.firstName)} onChange={(v) => patchPersonal({ firstName: v })} />
+            <EditField label="Name (First)" value={str(pi.firstName)} onChange={(v) => patchPersonal({ firstName: v })} />
           ) : null}
-          {showField('fullName') ? (
+          {isClientSubmitMode && showField('fullName') ? (
             <EditField label="Middle name" value={str(pi.middleName)} onChange={(v) => patchPersonal({ middleName: v })} />
           ) : null}
           {showField('fullName') ? (
-            <EditField label="Last name" value={str(pi.lastName)} onChange={(v) => patchPersonal({ lastName: v })} />
-          ) : null}
-          {showField('email') ? (
-            <EditField label="Email" value={str(pi.email)} onChange={(v) => patchPersonal({ email: v })} />
-          ) : null}
-          {showField('phoneCode') ? (
-            <EditField label="Phone code" value={str(pi.phoneCode)} onChange={(v) => patchPersonal({ phoneCode: v })} />
+            <EditField label="Name (Last)" value={str(pi.lastName)} onChange={(v) => patchPersonal({ lastName: v })} />
           ) : null}
           {showField('phone') ? (
-            <EditField label="Mobile" value={str(pi.phone)} onChange={(v) => patchPersonal({ phone: v })} />
+            <EditField label="Phone number" value={str(pi.phone)} onChange={(v) => patchPersonal({ phone: v })} />
           ) : null}
-          {showField('birthDate') ? (
-            <EditDateField
-              label="Date of birth"
-              value={str(pi.dob)}
-              max={birthDateMax}
-              outputIso
-              onChange={(v) => patchPersonal({ dob: v })}
+          {isClientSubmitMode && showField('phoneCode') ? (
+            <EditField label="Phone code" value={str(pi.phoneCode)} onChange={(v) => patchPersonal({ phoneCode: v })} />
+          ) : null}
+          {showField('email') ? (
+            <EditField label="E-mail" value={str(pi.email)} onChange={(v) => patchPersonal({ email: v })} />
+          ) : null}
+          {showField('location') ? (
+            <EditField
+              label="Current Location"
+              value={[str(pi.city), str(pi.country)].filter(Boolean).join(', ') || str((pi as { location?: string }).location)}
+              onChange={(v) => patchPersonal({ city: v, location: v } as Record<string, string>)}
+            />
+          ) : null}
+          {showField('age') ? (
+            <EditField
+              label="Age"
+              value={str((pi as { age?: string | number }).age)}
+              onChange={(v) => patchPersonal({ age: v } as Record<string, string>)}
             />
           ) : null}
           {showField('gender') ? (
@@ -624,8 +650,27 @@ export function CandidatePhase1SubmitEditSections({
               onChange={(v) => patchPersonal({ gender: v })}
             />
           ) : null}
+          {showField('maritalStatus') ? (
+            <EditField
+              label="Marital Status"
+              value={str((pi as { maritalStatus?: string }).maritalStatus)}
+              onChange={(v) => patchPersonal({ maritalStatus: v } as Record<string, string>)}
+            />
+          ) : null}
           {showField('nationality') ? (
             <EditField label="Nationality" value={str(pi.nationality)} onChange={(v) => patchPersonal({ nationality: v })} />
+          ) : null}
+          {showField('passportNumber') ? (
+            <EditField label="Passport number" value={str(pi.passportNumber)} onChange={(v) => patchPersonal({ passportNumber: v })} />
+          ) : null}
+          {showField('birthDate') ? (
+            <EditDateField
+              label="Date of birth"
+              value={str(pi.dob)}
+              max={birthDateMax}
+              outputIso
+              onChange={(v) => patchPersonal({ dob: v })}
+            />
           ) : null}
           {showField('city') ? (
             <EditField label="City" value={str(pi.city)} onChange={(v) => patchPersonal({ city: v })} />
@@ -638,9 +683,6 @@ export function CandidatePhase1SubmitEditSections({
           ) : null}
           {showField('employment') ? (
             <EditField label="Employment status" value={str(pi.employment)} onChange={(v) => patchPersonal({ employment: v })} />
-          ) : null}
-          {showField('passportNumber') ? (
-            <EditField label="Passport number" value={str(pi.passportNumber)} onChange={(v) => patchPersonal({ passportNumber: v })} />
           ) : null}
           {showField('linkedIn') ? (
             <EditField label="LinkedIn" value={str(pi.linkedinUrl)} onChange={(v) => patchPersonal({ linkedinUrl: v })} />
@@ -702,7 +744,7 @@ export function CandidatePhase1SubmitEditSections({
 
       <Phase1EditSection
         id="education"
-        title="Education"
+        title={isClientSubmitMode ? 'Education' : 'Qualification'}
         icon={GraduationCap}
         open={open.education}
         onToggle={toggle}
@@ -934,7 +976,7 @@ export function CandidatePhase1SubmitEditSections({
         />
       </Phase1EditSection>
 
-      <Phase1EditSection id="languages" title="Languages" icon={Languages} open={open.languages} onToggle={toggle} count={snapshot.languages?.length || 0} {...sectionToggleProps} clientVisible={sectionVisible('languages')}>
+      <Phase1EditSection id="languages" title={isClientSubmitMode ? 'Languages' : 'Language known'} icon={Languages} open={open.languages} onToggle={toggle} count={snapshot.languages?.length || 0} {...sectionToggleProps} clientVisible={sectionVisible('languages')}>
         <EditField
           label="Languages (one per line: name | proficiency)"
           value={(snapshot.languages || [])
@@ -1064,10 +1106,19 @@ export function CandidatePhase1SubmitEditSections({
         </button>
       </Phase1EditSection>
 
-      <Phase1EditSection id="careerPreferences" title="Career preferences" icon={Target} open={open.careerPreferences} onToggle={toggle} {...sectionToggleProps} clientVisible={sectionVisible('careerPreferences')}>
+      <Phase1EditSection
+        id="careerPreferences"
+        title={isClientSubmitMode ? 'Career preferences' : 'Professional Details'}
+        icon={Target}
+        open={open.careerPreferences}
+        onToggle={toggle}
+        {...sectionToggleProps}
+        clientVisible={sectionVisible('careerPreferences')}
+      >
         <CandidatePhase1CareerPreferencesEdit
           careerPreferences={snapshot.careerPreferences || null}
           onChange={(careerPreferences) => onChange({ ...snapshot, careerPreferences })}
+          fieldVisibility={isClientSubmitMode ? null : orgFieldVisibility}
         />
       </Phase1EditSection>
 

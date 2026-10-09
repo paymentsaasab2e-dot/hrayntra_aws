@@ -110,6 +110,7 @@ export type CareerPreferencesViewModel = {
     describeAvailability: string;
     noticePeriod: string;
   };
+  reasonForJobChange: string;
   resume: string;
 };
 
@@ -150,6 +151,14 @@ export function mergeCareerPreferencesRecord(
   }
   if (!String(merged.preferredCurrency ?? '').trim() && professional.expectedSalaryCurrency) {
     merged.preferredCurrency = professional.expectedSalaryCurrency;
+  }
+  if (!String(merged.reasonForJobChange ?? '').trim()) {
+    const fromRemarks =
+      display(professional.remarks) ||
+      display(extra.remarks) ||
+      display(candidate.cvNotes) ||
+      display((candidate as { notes?: string | null }).notes);
+    if (fromRemarks) merged.reasonForJobChange = fromRemarks;
   }
 
   return normalizeCareerPreferencesRecord(merged, candidate) || merged;
@@ -235,6 +244,10 @@ export function buildCareerPreferencesViewModel(
       describeAvailability: availabilityRaw.describeAvailability,
       noticePeriod: display(careerPrefs.noticePeriod) || candidate.noticePeriod || '',
     },
+    reasonForJobChange:
+      display(careerPrefs.reasonForJobChange) ||
+      display((careerPrefs as Record<string, unknown>).remarks) ||
+      '',
     resume: candidate.resumeUrl || '',
   };
 }
@@ -262,6 +275,7 @@ export function countCareerPreferencesFilled(model: CareerPreferencesViewModel):
     model.availability.earliestStartDate,
     model.availability.describeAvailability,
     model.availability.noticePeriod,
+    model.reasonForJobChange,
     model.resume,
   ];
   return values.filter((v) => display(v)).length;

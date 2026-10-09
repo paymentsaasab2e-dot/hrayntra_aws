@@ -1,6 +1,11 @@
 /* clients API */
 import { apiFetch, apiFetchFormData, buildTrashQuery } from './core';
 import { cacheClientPageFieldVisibility, normalizeClientPageFieldVisibility } from '../clientPageFieldVisibility';
+import {
+  cacheCandidateEditFieldVisibility,
+  normalizeCandidateEditFieldVisibility,
+  type CandidateEditFieldVisibility,
+} from '../candidateEditFieldVisibility';
 import { ORG_RECRUITMENT_CACHE_EVENT } from './org';
 import { dedupeCompanyNamedPayload } from '../companyNameKey';
 import type { InterviewClientReviewContext } from '../clientReviewTypes';
@@ -59,6 +64,32 @@ export async function apiSetClientPageFieldVisibility(fields: {
   });
   if (typeof window !== 'undefined' && res.data?.clientPageFieldVisibility) {
     cacheClientPageFieldVisibility(normalizeClientPageFieldVisibility(res.data.clientPageFieldVisibility));
+    window.dispatchEvent(new CustomEvent(ORG_RECRUITMENT_CACHE_EVENT));
+  }
+  return res;
+}
+
+export async function apiGetCandidateEditFieldVisibility() {
+  return apiFetch<{
+    candidateEditFieldVisibility: CandidateEditFieldVisibility;
+    defaults: CandidateEditFieldVisibility;
+  }>('/settings/org/candidate-edit-fields', { auth: true });
+}
+
+export async function apiSetCandidateEditFieldVisibility(
+  fields: Partial<CandidateEditFieldVisibility>,
+) {
+  const res = await apiFetch<{
+    candidateEditFieldVisibility: CandidateEditFieldVisibility;
+  }>('/settings/org/candidate-edit-fields', {
+    method: 'PUT',
+    auth: true,
+    body: { candidateEditFieldVisibility: fields },
+  });
+  if (typeof window !== 'undefined' && res.data?.candidateEditFieldVisibility) {
+    cacheCandidateEditFieldVisibility(
+      normalizeCandidateEditFieldVisibility(res.data.candidateEditFieldVisibility),
+    );
     window.dispatchEvent(new CustomEvent(ORG_RECRUITMENT_CACHE_EVENT));
   }
   return res;

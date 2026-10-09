@@ -2367,6 +2367,8 @@ export function useCandidateList() {
       assignedJob: candidate.assignedJobs[0] || '—',
       recruiter: candidate.owner,
       source: candidate.source,
+      isPhase1Candidate: Boolean((candidate as { isPhase1Candidate?: boolean }).isPhase1Candidate),
+      poolOrigin: (candidate as { poolOrigin?: string | null }).poolOrigin || null,
       availability: 'limited',
       summary: null,
       resumeUrl: null,

@@ -9,6 +9,11 @@ import {
   phase1EditLabelClass,
   phase1EditTextareaClass,
 } from '@/lib/phase1Typography';
+import {
+  isCandidateEditFieldVisible,
+  type CandidateEditFieldId,
+  type CandidateEditFieldVisibility,
+} from '@/lib/candidateEditFieldVisibility';
 import { CurrencySearchPicker } from '../CurrencySearchPicker';
 import { EditDateField } from './EditDateField';
 
@@ -57,6 +62,8 @@ function SectionHeading({ title }: { title: string }) {
 type Props = {
   careerPreferences?: Record<string, unknown> | null;
   onChange: (next: Record<string, unknown>) => void;
+  /** When set, gates fields by tenant Edit Candidate visibility. Null = show all (Submit to Client). */
+  fieldVisibility?: Partial<CandidateEditFieldVisibility> | null;
 };
 
 /** Keep in-progress text, including a trailing ";" the user has not finished yet. */
@@ -76,7 +83,11 @@ function editableScalar(primary: unknown, fallback?: unknown): string {
   return '';
 }
 
-export function CandidatePhase1CareerPreferencesEdit({ careerPreferences, onChange }: Props) {
+export function CandidatePhase1CareerPreferencesEdit({
+  careerPreferences,
+  onChange,
+  fieldVisibility = null,
+}: Props) {
   const prefs =
     careerPreferences && typeof careerPreferences === 'object' ? careerPreferences : {};
 
@@ -94,125 +105,226 @@ export function CandidatePhase1CareerPreferencesEdit({ careerPreferences, onChan
     });
   };
 
+  const gated = fieldVisibility != null;
+  const show = (id: CandidateEditFieldId) =>
+    !gated || isCandidateEditFieldVisible(fieldVisibility, id);
+
+  // Designation / organization are edited as dedicated form fields outside this block.
+  const showCurrentPackage =
+    show('location') ||
+    show('currentTitle') ||
+    show('currentCompany') ||
+    show('currentSalary') ||
+    show('currentBenefits') ||
+    show('careerCurrentCurrency') ||
+    show('careerCurrentSalaryType') ||
+    show('currentSalaryCurrency');
+  const showPreferredPackage =
+    show('expectedSalary') ||
+    show('expectedBenefits') ||
+    show('careerPreferredRoles') ||
+    show('careerPreferredCurrency') ||
+    show('careerPreferredSalaryType') ||
+    show('careerPreferredLocations') ||
+    show('careerWorkModes') ||
+    show('expectedSalaryCurrency');
+  const showRoleDomain =
+    show('careerPreferredIndustries') ||
+    show('careerFunctionalAreas') ||
+    show('careerJobTypes');
+  const showRelocationAvailability =
+    show('careerRelocation') ||
+    show('noticePeriod') ||
+    show('careerEarliestStart') ||
+    show('careerDescribeAvailability') ||
+    show('remarks');
+
+  if (
+    gated &&
+    !showCurrentPackage &&
+    !showPreferredPackage &&
+    !showRoleDomain &&
+    !showRelocationAvailability
+  ) {
+    return null;
+  }
+
   return (
     <div className={phase1EditGridClass}>
-      <SectionHeading title="Current package" />
-      <EditField
-        label="Current role"
-        value={editableScalar(prefs.currentRole)}
-        onChange={(v) => patch({ currentRole: v })}
-      />
-      <div>
-        <CurrencySearchPicker
-          compact
-          label="Current currency"
-          value={editableScalar(prefs.currentCurrency)}
-          onChange={(code) => patch({ currentCurrency: code })}
+      {showCurrentPackage ? <SectionHeading title="Current package" /> : null}
+      {show('careerCurrentCurrency') || show('currentSalaryCurrency') ? (
+        <div>
+          <CurrencySearchPicker
+            compact
+            label="Current currency"
+            value={editableScalar(prefs.currentCurrency)}
+            onChange={(code) => patch({ currentCurrency: code })}
+          />
+        </div>
+      ) : null}
+      {show('careerCurrentSalaryType') ? (
+        <EditField
+          label="Current salary type"
+          value={editableScalar(prefs.currentSalaryType)}
+          onChange={(v) => patch({ currentSalaryType: v })}
         />
-      </div>
-      <EditField
-        label="Current salary type"
-        value={editableScalar(prefs.currentSalaryType)}
-        onChange={(v) => patch({ currentSalaryType: v })}
-      />
-      <EditField
-        label="Current salary"
-        value={editableScalar(prefs.currentSalary)}
-        onChange={(v) => patch({ currentSalary: v })}
-      />
-      <EditField
-        label="Current location"
-        value={editableScalar(prefs.currentLocation)}
-        onChange={(v) => patch({ currentLocation: v })}
-      />
-      <EditField
-        label="Current benefits (; separated)"
-        value={editableListValue(prefs.currentBenefits)}
-        onChange={(v) => patch({ currentBenefits: v })}
-      />
-
-      <SectionHeading title="Preferred package" />
-      <EditField
-        label="Preferred roles (; separated)"
-        value={editableListValue(prefs.preferredRoles, prefs.preferredJobTitles)}
-        onChange={(v) => patch({ preferredRoles: v, preferredJobTitles: v })}
-      />
-      <div>
-        <CurrencySearchPicker
-          compact
-          label="Preferred currency"
-          value={editableScalar(prefs.preferredCurrency, prefs.salaryCurrency)}
-          onChange={(code) => patch({ preferredCurrency: code, salaryCurrency: code })}
+      ) : null}
+      {show('currentTitle') ? (
+        <EditField
+          label="Designation"
+          value={editableScalar(prefs.currentRole)}
+          onChange={(v) => patch({ currentRole: v })}
         />
-      </div>
-      <EditField
-        label="Preferred salary type"
-        value={editableScalar(prefs.preferredSalaryType, prefs.salaryFrequency)}
-        onChange={(v) => patch({ preferredSalaryType: v, salaryFrequency: v })}
-      />
-      <EditField
-        label="Preferred salary"
-        value={editableScalar(prefs.preferredSalary, prefs.salaryAmount)}
-        onChange={(v) => patch({ preferredSalary: v, salaryAmount: v })}
-      />
-      <EditField
-        label="Preferred locations (; separated)"
-        value={editableListValue(prefs.preferredLocations)}
-        onChange={(v) => patch({ preferredLocations: v })}
-      />
-      <EditField
-        label="Preferred work modes (; separated)"
-        value={editableListValue(prefs.workModes, prefs.preferredWorkMode)}
-        onChange={(v) => patch({ workModes: v })}
-        placeholder="Remote; On-site; Hybrid"
-      />
-      <EditField
-        label="Preferred benefits (; separated)"
-        value={editableListValue(prefs.preferredBenefits)}
-        onChange={(v) => patch({ preferredBenefits: v })}
-      />
+      ) : null}
+      {show('currentCompany') ? (
+        <EditField
+          label="Current Organization"
+          value={editableScalar(prefs.currentCompany, prefs.currentEmployer)}
+          onChange={(v) => patch({ currentCompany: v, currentEmployer: v })}
+        />
+      ) : null}
+      {show('currentSalary') ? (
+        <EditField
+          label="Current Salary"
+          value={editableScalar(prefs.currentSalary)}
+          onChange={(v) => patch({ currentSalary: v })}
+        />
+      ) : null}
+      {show('location') ? (
+        <EditField
+          label="Current Location"
+          value={editableScalar(prefs.currentLocation)}
+          onChange={(v) => patch({ currentLocation: v })}
+        />
+      ) : null}
+      {show('currentBenefits') ? (
+        <EditField
+          label="Current Benefits"
+          value={editableListValue(prefs.currentBenefits)}
+          onChange={(v) => patch({ currentBenefits: v })}
+        />
+      ) : null}
 
-      <SectionHeading title="Role & domain" />
-      <EditField
-        label="Preferred industries (; separated)"
-        value={editableListValue(prefs.preferredIndustries, prefs.preferredIndustry)}
-        onChange={(v) => patch({ preferredIndustries: v, preferredIndustry: v })}
-      />
-      <EditField
-        label="Functional areas (; separated)"
-        value={editableListValue(prefs.functionalAreas, prefs.functionalArea)}
-        onChange={(v) => patch({ functionalAreas: v, functionalArea: v })}
-      />
-      <EditField
-        label="Job types (; separated)"
-        value={editableListValue(prefs.jobTypes)}
-        onChange={(v) => patch({ jobTypes: v })}
-        placeholder="Full-time; Contract; Part-time"
-      />
+      {showPreferredPackage ? <SectionHeading title="Preferred package" /> : null}
+      {show('careerPreferredRoles') ? (
+        <EditField
+          label="Preferred roles (; separated)"
+          value={editableListValue(prefs.preferredRoles, prefs.preferredJobTitles)}
+          onChange={(v) => patch({ preferredRoles: v, preferredJobTitles: v })}
+        />
+      ) : null}
+      {show('careerPreferredCurrency') || show('expectedSalaryCurrency') ? (
+        <div>
+          <CurrencySearchPicker
+            compact
+            label="Preferred currency"
+            value={editableScalar(prefs.preferredCurrency, prefs.salaryCurrency)}
+            onChange={(code) => patch({ preferredCurrency: code, salaryCurrency: code })}
+          />
+        </div>
+      ) : null}
+      {show('careerPreferredSalaryType') ? (
+        <EditField
+          label="Preferred salary type"
+          value={editableScalar(prefs.preferredSalaryType, prefs.salaryFrequency)}
+          onChange={(v) => patch({ preferredSalaryType: v, salaryFrequency: v })}
+        />
+      ) : null}
+      {show('expectedSalary') ? (
+        <EditField
+          label="Expected Salary"
+          value={editableScalar(prefs.preferredSalary, prefs.salaryAmount)}
+          onChange={(v) => patch({ preferredSalary: v, salaryAmount: v })}
+        />
+      ) : null}
+      {show('careerPreferredLocations') ? (
+        <EditField
+          label="Preferred locations (; separated)"
+          value={editableListValue(prefs.preferredLocations)}
+          onChange={(v) => patch({ preferredLocations: v })}
+        />
+      ) : null}
+      {show('careerWorkModes') ? (
+        <EditField
+          label="Preferred work modes (; separated)"
+          value={editableListValue(prefs.workModes, prefs.preferredWorkMode)}
+          onChange={(v) => patch({ workModes: v })}
+          placeholder="Remote; On-site; Hybrid"
+        />
+      ) : null}
+      {show('expectedBenefits') ? (
+        <EditField
+          label="Expected Benefits"
+          value={editableListValue(prefs.preferredBenefits)}
+          onChange={(v) => patch({ preferredBenefits: v })}
+        />
+      ) : null}
 
-      <SectionHeading title="Relocation & availability" />
-      <EditField
-        label="Relocation preference"
-        value={editableScalar(prefs.relocationPreference)}
-        onChange={(v) => patch({ relocationPreference: v })}
-        placeholder="Open to Relocate"
-      />
-      <EditField
-        label="Notice period"
-        value={editableScalar(prefs.noticePeriod)}
-        onChange={(v) => patch({ noticePeriod: v })}
-      />
-      <EditDateField
-        label="Earliest start date"
-        value={earliestStartDate}
-        outputIso
-        onChange={(v) => patch({ earliestStartDate: v, availabilityToStart: v })}
-      />
-      <EditField
-        label="Describe availability"
-        value={describeAvailability}
-        onChange={(v) => patch({ describeAvailability: v })}
-      />
+      {showRoleDomain ? <SectionHeading title="Role & domain" /> : null}
+      {show('careerPreferredIndustries') ? (
+        <EditField
+          label="Preferred industries (; separated)"
+          value={editableListValue(prefs.preferredIndustries, prefs.preferredIndustry)}
+          onChange={(v) => patch({ preferredIndustries: v, preferredIndustry: v })}
+        />
+      ) : null}
+      {show('careerFunctionalAreas') ? (
+        <EditField
+          label="Functional areas (; separated)"
+          value={editableListValue(prefs.functionalAreas, prefs.functionalArea)}
+          onChange={(v) => patch({ functionalAreas: v, functionalArea: v })}
+        />
+      ) : null}
+      {show('careerJobTypes') ? (
+        <EditField
+          label="Job types (; separated)"
+          value={editableListValue(prefs.jobTypes)}
+          onChange={(v) => patch({ jobTypes: v })}
+          placeholder="Full-time; Contract; Part-time"
+        />
+      ) : null}
+
+      {showRelocationAvailability ? (
+        <SectionHeading title="Relocation & availability" />
+      ) : null}
+      {show('careerRelocation') ? (
+        <EditField
+          label="Relocation preference"
+          value={editableScalar(prefs.relocationPreference)}
+          onChange={(v) => patch({ relocationPreference: v })}
+          placeholder="Open to Relocate"
+        />
+      ) : null}
+      {show('noticePeriod') ? (
+        <EditField
+          label="Notice Period"
+          value={editableScalar(prefs.noticePeriod)}
+          onChange={(v) => patch({ noticePeriod: v })}
+        />
+      ) : null}
+      {show('careerEarliestStart') ? (
+        <EditDateField
+          label="Earliest start date"
+          value={earliestStartDate}
+          outputIso
+          onChange={(v) => patch({ earliestStartDate: v, availabilityToStart: v })}
+        />
+      ) : null}
+      {show('careerDescribeAvailability') ? (
+        <EditField
+          label="Describe availability"
+          value={describeAvailability}
+          onChange={(v) => patch({ describeAvailability: v })}
+        />
+      ) : null}
+      {show('remarks') ? (
+        <EditField
+          label="Reason for Current Job Change"
+          value={editableScalar(prefs.reasonForJobChange, prefs.remarks)}
+          onChange={(v) => patch({ reasonForJobChange: v, remarks: v })}
+          multiline
+        />
+      ) : null}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { Loader2 } from 'lucide-react';
 import { EntityWorkspaceAlertsPanel } from '../../ai/EntityWorkspaceAlertsPanel';
 import { isPhase1PortalCandidate } from '../../../lib/phase1ProfileSnapshot';
 import { CandidatePhase1DetailSections } from '../../candidates/CandidatePhase1DetailSections';
@@ -18,7 +19,19 @@ export function CandidateOverviewTab(props: any) {
     setShowAddToPipelineModal,
     showEditModal,
     startOverviewEdit,
+    loadingCandidateProfile = false,
   } = props;
+
+  // Wait for full profile hydrate so we don't flash ATS sections → Phase 1 sections
+  // when list stub lacks extraData.phase1ProfileSnapshot.
+  if (loadingCandidateProfile && !showEditModal) {
+    return (
+      <div className="flex min-h-[16rem] flex-col items-center justify-center gap-3 text-slate-500">
+        <Loader2 size={28} className="animate-spin text-blue-600" />
+        <p className="text-sm font-medium">Loading candidate details…</p>
+      </div>
+    );
+  }
 
   return (
 <div className="space-y-5">
