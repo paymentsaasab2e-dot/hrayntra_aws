@@ -965,7 +965,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
     setLoadingClients(true);
     try {
       const [recRes, workspaceRes] = await Promise.all([
-        apiGetClients({ recruitmentEnabled: true, page: 1, limit: 200 }),
+        apiGetClients({ recruitmentEnabled: true, page: 1, limit: 500 }),
         apiGetWorkspaceClient().catch(() => null),
       ]);
       const unwrap = (res: Awaited<ReturnType<typeof apiGetClients>>) => {

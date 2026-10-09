@@ -27,6 +27,7 @@ import { assertCanAssignCrm } from '../../services/crmAssignmentScope.service.js
 import { normalizeBusinessValue } from '../../utils/businessValue.js';
 import {
   applyMemberClientScope,
+  recruitmentClientMatchWhere,
   systemWorkspaceClientExclusionWhere,
 } from '../../services/clientMemberScope.service.js';
 import {
@@ -730,9 +731,11 @@ export const clientService = {
     const recruitmentMatch = [];
     if (recruitmentOnly) {
       const jobClientIds = await listClientIdsThatHaveJobs();
+      // Same pool as Recruitment Clients page + member scope: enabled OR created-in-recruitment
+      // (plus anyone who already has jobs, then backfill recruitmentEnabled).
       recruitmentMatch.push({
         OR: [
-          { recruitmentEnabled: { equals: true } },
+          ...recruitmentClientMatchWhere().OR,
           ...(jobClientIds.length ? [{ id: { in: jobClientIds } }] : []),
         ],
       });
