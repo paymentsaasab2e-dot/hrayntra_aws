@@ -174,17 +174,26 @@ function RecruitmentDashboardInner() {
     if (!visibleTabs.some((tab) => tab.id === category)) setCategory(visibleTabs[0].id);
   }, [category, visibleTabs]);
 
-  useEffect(() => {
-    const query =
+  const overviewQuery = useCallback(() => {
+    const base =
       category === 'mine' ? { ...filters, scope: 'self' as const, assignedTo: undefined } : filters;
-    const cached = readRecOverviewCache({ ...query, category } as Record<string, string | undefined | null>);
-    if (cached?.data) setOverview(normalizeRecruitmentOverview(cached.data));
+    return { ...base, section: category, category };
   }, [category, filters]);
 
+  useEffect(() => {
+    if (category === 'people') return;
+    const query = overviewQuery();
+    const cached = readRecOverviewCache(query as Record<string, string | undefined | null>);
+    if (cached?.data) setOverview(normalizeRecruitmentOverview(cached.data));
+  }, [category, overviewQuery]);
+
   const load = useCallback(async () => {
-    const query =
-      category === 'mine' ? { ...filters, scope: 'self' as const, assignedTo: undefined } : filters;
-    const cacheFilters = { ...query, category } as Record<string, string | undefined | null>;
+    if (category === 'people') {
+      setLoading(false);
+      return;
+    }
+    const query = overviewQuery();
+    const cacheFilters = query as Record<string, string | undefined | null>;
     const cached = readRecOverviewCache(cacheFilters);
     const silent = Boolean(cached?.data);
     if (!silent) setLoading(true);
@@ -199,31 +208,28 @@ function RecruitmentDashboardInner() {
     } finally {
       setLoading(false);
     }
-  }, [filters, category]);
+  }, [category, overviewQuery]);
 
   useEffect(() => {
     void load();
   }, [load, refreshKey]);
 
   useEffect(() => {
+    if (category === 'people') return undefined;
     const id = window.setInterval(() => {
-      const query =
-        category === 'mine' ? { ...filters, scope: 'self' as const, assignedTo: undefined } : filters;
+      const query = overviewQuery();
       // Always refresh live — do not skip when session cache is still "fresh".
       void apiRecruitmentDashboardOverview(query)
         .then((data) => {
           setOverview(data);
           if (data) {
-            writeRecOverviewCache(data as Record<string, unknown>, {
-              ...query,
-              category,
-            } as Record<string, string | undefined | null>);
+            writeRecOverviewCache(data as Record<string, unknown>, query as Record<string, string | undefined | null>);
           }
         })
         .catch(() => undefined);
     }, POLL_MS);
     return () => window.clearInterval(id);
-  }, [filters, category]);
+  }, [overviewQuery, category]);
 
   return (
     <div className={`${dashFontVars} ${crmTextFont} dash-ui space-y-5 antialiased`}>
@@ -291,12 +297,7 @@ function RecruitmentDashboardInner() {
 }
 
 function RecruitmentDashboardWithLayout() {
-  const { layout, setLayout, saveLayout, loading: layoutLoading } = useDashboardLayoutStore();
-  const [ready, setReady] = useState(false);
-
-  useEffect(() => {
-    if (!layoutLoading) setReady(true);
-  }, [layoutLoading]);
+  const { layout, setLayout, saveLayout } = useDashboardLayoutStore();
 
   const onHiddenChange = useCallback(
     (hiddenSections: string[]) => {
@@ -313,19 +314,6 @@ function RecruitmentDashboardWithLayout() {
     },
     [layout, setLayout, saveLayout],
   );
-
-  if (!ready) {
-    return (
-      <div className="space-y-4">
-        <div className="h-24 animate-pulse rounded-2xl bg-white" />
-        <div className="grid grid-cols-2 gap-3 xl:grid-cols-6">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="h-28 animate-pulse rounded-2xl bg-white" />
-          ))}
-        </div>
-      </div>
-    );
-  }
 
   return (
     <RecDashboardProvider
