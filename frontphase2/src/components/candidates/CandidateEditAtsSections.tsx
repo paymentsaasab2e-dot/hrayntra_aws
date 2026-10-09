@@ -533,7 +533,7 @@ export function buildExtraDataFromEditForm(
     str(editForm.remarks) ||
     str((editForm.careerPreferences || {}).reasonForJobChange) ||
     str((editForm.careerPreferences || {}).remarks);
-  const normalizedCareer = {
+  const normalizedCareer: Record<string, unknown> = {
     ...(normalizedCareerRaw || {}),
     ...(reasonForJobChange
       ? { reasonForJobChange, remarks: reasonForJobChange }
