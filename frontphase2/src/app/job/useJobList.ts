@@ -45,6 +45,7 @@ import {
   LOCATION_DISPLAY_COLUMN_PREFIX,
 } from '../../lib/tableColumns/moduleTableColumns';
 import { fetchAllPaginated, totalPagesFromPagination } from '../../lib/export/fetchAllPaginated';
+import { fetchAllRecruitmentClientsForPicker } from '../../lib/recruitmentClients';
 import { formatDateDMY, formatDateTimeDMY } from '../../utils/dateDisplay';
 import { extractAuditMeta } from '../../utils/auditMeta';
 import { TableAuditColumnHeader, TableAuditCell } from '../../components/table/TableAuditCell';
@@ -79,7 +80,6 @@ import {
   apiAddCandidateToPipeline,
   apiGetCandidate,
   apiGetCandidates,
-  apiGetClients,
   apiGetWorkspaceClient,
   apiGetMatches,
   apiGetJobs,
@@ -104,7 +104,6 @@ import {
   apiGetJobStatusCatalog,
   apiAppendJobStatus,
   apiRemoveJobStatus,
-  type BackendClient,
   type BackendJob,
   type BackendCandidate,
   type BackendUser,
@@ -1554,8 +1553,8 @@ export function useJobList() {
           return;
         }
 
-        const [clientsRes, members] = await Promise.all([
-          apiGetClients({ page: 1, limit: 500, recruitmentEnabled: true }),
+        const [clientsList, members] = await Promise.all([
+          fetchAllRecruitmentClientsForPicker(),
           (async () => {
             try {
               const assigned = await getAllTeamMembersForAssign(getActiveOrgUnitId() || undefined, 'Jobs');
@@ -1571,15 +1570,6 @@ export function useJobList() {
           })(),
         ]);
         if (cancelled) return;
-
-        const clientsPayload = (clientsRes as any)?.data;
-        const clientsList: BackendClient[] = Array.isArray(clientsPayload)
-          ? clientsPayload
-          : Array.isArray(clientsPayload?.data)
-            ? clientsPayload.data
-            : Array.isArray(clientsPayload?.items)
-              ? clientsPayload.items
-              : [];
 
         const usersList = teamMembersToBackendUsers(members);
 
