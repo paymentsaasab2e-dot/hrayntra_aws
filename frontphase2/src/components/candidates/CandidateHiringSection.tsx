@@ -7,6 +7,11 @@ import type { CandidateProfileDrawerData } from '../drawers/candidateProfileDraw
 import { DrawerSectionCard } from '../drawers/drawerFormUi';
 import type { CandidateEditFormState } from './CandidateEditAtsSections';
 import { formatIsoDateOnlyForDisplay } from '@/utils/dateDisplay';
+import {
+  isCandidateEditFieldVisible,
+  type CandidateEditFieldVisibility,
+} from '@/lib/candidateEditFieldVisibility';
+import { useCandidateEditFieldVisibility } from '@/hooks/useCandidateEditFieldVisibility';
 
 const CANDIDATE_STATUS_OPTIONS = ['NEW', 'ACTIVE', 'PLACED', 'INACTIVE', 'BLACKLISTED'];
 const CANDIDATE_STAGE_OPTIONS = [
@@ -60,6 +65,9 @@ type HiringOverviewProps = {
 
 export function CandidateHiringOverview({ candidate, onAssignJob }: HiringOverviewProps) {
   const [open, setOpen] = useState(false);
+  const fieldVisibility = useCandidateEditFieldVisibility();
+  const show = (id: keyof CandidateEditFieldVisibility) =>
+    isCandidateEditFieldVisible(fieldVisibility, id);
 
   useEffect(() => {
     setOpen(false);
@@ -84,15 +92,15 @@ export function CandidateHiringOverview({ candidate, onAssignJob }: HiringOvervi
     candidate.stage,
     candidate.status,
     candidate.recruiter,
-    candidate.source,
-    candidate.availability,
-    candidate.totalNoOfExperience,
+    show('hiringSource') ? candidate.source : '',
+    show('hiringAvailability') ? candidate.availability : '',
+    show('experience') ? candidate.totalNoOfExperience : '',
   ].filter((value) => display(value)).length;
 
   return (
     <DrawerSectionCard
       title="Hiring & assignment"
-      subtitle={`${filledCount}/7 fields set${assignedJob ? ` · ${assignedJob}` : ''}`}
+      subtitle={`${filledCount} fields set${assignedJob ? ` · ${assignedJob}` : ''}`}
       icon={Briefcase}
       accent="indigo"
       collapsible
@@ -123,14 +131,18 @@ export function CandidateHiringOverview({ candidate, onAssignJob }: HiringOvervi
         <OverviewField label="Pipeline stage" value={candidate.stage} />
         <OverviewField label="Status" value={candidate.status} />
         <OverviewField label="Assigned recruiter" value={candidate.recruiter} />
-        <OverviewField label="Source" value={candidate.source} />
-        <OverviewField label="Availability" value={candidate.availability} />
-        <OverviewField
-          label="Total No. of Experience"
-          value={
-            candidate.totalNoOfExperience != null ? String(candidate.totalNoOfExperience) : ''
-          }
-        />
+        {show('hiringSource') ? <OverviewField label="Source" value={candidate.source} /> : null}
+        {show('hiringAvailability') ? (
+          <OverviewField label="Availability" value={candidate.availability} />
+        ) : null}
+        {show('experience') ? (
+          <OverviewField
+            label="Total No. of Experience"
+            value={
+              candidate.totalNoOfExperience != null ? String(candidate.totalNoOfExperience) : ''
+            }
+          />
+        ) : null}
       </div>
       {pipelineSummary ? (
         <div className="rounded-xl border border-indigo-100 bg-slate-50/80 px-3 py-2.5">
@@ -204,9 +216,19 @@ type HiringEditProps = {
   onChange: <K extends keyof CandidateEditFormState>(field: K, value: CandidateEditFormState[K]) => void;
   recruiters: Array<{ id: string; name: string }>;
   jobs: Array<{ id: string; title: string; department?: string | null }>;
+  fieldVisibility?: Partial<CandidateEditFieldVisibility> | null;
 };
 
-export function CandidateHiringEditSection({ form, onChange, recruiters, jobs }: HiringEditProps) {
+export function CandidateHiringEditSection({
+  form,
+  onChange,
+  recruiters,
+  jobs,
+  fieldVisibility,
+}: HiringEditProps) {
+  const show = (id: keyof CandidateEditFieldVisibility) =>
+    isCandidateEditFieldVisible(fieldVisibility, id);
+
   return (
     <section className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50/80">
       <div className="flex items-center gap-2 border-b border-slate-200/80 bg-white/60 px-4 py-3">
@@ -216,7 +238,9 @@ export function CandidateHiringEditSection({ form, onChange, recruiters, jobs }:
         <h4 className="text-sm font-bold text-slate-900">Hiring &amp; assignment</h4>
       </div>
       <div className="grid grid-cols-1 gap-4 p-4 md:grid-cols-2">
-        <EditField label="Source" value={form.source} onChange={(v) => onChange('source', v)} />
+        {show('hiringSource') ? (
+          <EditField label="Source" value={form.source} onChange={(v) => onChange('source', v)} />
+        ) : null}
         <EditSelect
           label="Stage"
           value={form.stage}
@@ -256,24 +280,30 @@ export function CandidateHiringEditSection({ form, onChange, recruiters, jobs }:
           }}
           placeholder="Search and select a job"
         />
-        <EditSelect
-          label="Availability"
-          value={form.availability}
-          options={CANDIDATE_AVAILABILITY_OPTIONS.map((value) => ({ label: value, value }))}
-          onChange={(v) => onChange('availability', v)}
-        />
-        <EditSelect
-          label="Salary currency (default)"
-          value={form.salaryCurrency}
-          options={SALARY_CURRENCY_OPTIONS.map((value) => ({ label: value, value }))}
-          onChange={(v) => onChange('salaryCurrency', v)}
-        />
-        <EditField
-          label="Total No. of Experience"
-          value={form.experience}
-          onChange={(v) => onChange('experience', v)}
-          placeholder="e.g. 5"
-        />
+        {show('hiringAvailability') ? (
+          <EditSelect
+            label="Availability"
+            value={form.availability}
+            options={CANDIDATE_AVAILABILITY_OPTIONS.map((value) => ({ label: value, value }))}
+            onChange={(v) => onChange('availability', v)}
+          />
+        ) : null}
+        {show('hiringSalaryCurrency') ? (
+          <EditSelect
+            label="Salary currency (default)"
+            value={form.salaryCurrency}
+            options={SALARY_CURRENCY_OPTIONS.map((value) => ({ label: value, value }))}
+            onChange={(v) => onChange('salaryCurrency', v)}
+          />
+        ) : null}
+        {show('experience') ? (
+          <EditField
+            label="Total No. of Experience"
+            value={form.experience}
+            onChange={(v) => onChange('experience', v)}
+            placeholder="e.g. 5"
+          />
+        ) : null}
       </div>
     </section>
   );

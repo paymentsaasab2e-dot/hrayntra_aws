@@ -1,5 +1,9 @@
 /* org API */
 import { cacheClientPageFieldVisibility, normalizeClientPageFieldVisibility } from '../clientPageFieldVisibility';
+import {
+  cacheCandidateEditFieldVisibility,
+  normalizeCandidateEditFieldVisibility,
+} from '../candidateEditFieldVisibility';
 import { ORG_SUMMARY_CLIENT_TTL_MS, TENANT_COINS_CLIENT_TTL_MS, apiFetch, getAccessToken, getOrgSummaryInflight, setOrgSummaryInflight, getOrgSummaryLastAt, setOrgSummaryLastAt, getTenantCoinsCache, setTenantCoinsCache, getTenantCoinsInflight, setTenantCoinsInflight } from './core';
 import type { BillingSettingsSnapshot, CreatePlacementInvoicePayload } from '../../types/recruitmentInvoice';
 import type { AiCoinPack, HqAiFeature, HqTenantSubscriptionPlan, OrgPlanUsageCache, SubscriptionPaymentOrder, SubscriptionPlanOption } from './types';
@@ -100,6 +104,7 @@ export function applyOrgRecruitmentSummaryPayload(
           status?: boolean;
           assignedTo?: boolean;
         } | null;
+        candidateEditFieldVisibility?: Record<string, boolean> | null;
       }
     | null
     | undefined
@@ -157,6 +162,11 @@ export function applyOrgRecruitmentSummaryPayload(
   if (payload && Object.prototype.hasOwnProperty.call(payload, 'clientPageFieldVisibility')) {
     cacheClientPageFieldVisibility(
       normalizeClientPageFieldVisibility(payload.clientPageFieldVisibility),
+    );
+  }
+  if (payload && Object.prototype.hasOwnProperty.call(payload, 'candidateEditFieldVisibility')) {
+    cacheCandidateEditFieldVisibility(
+      normalizeCandidateEditFieldVisibility(payload.candidateEditFieldVisibility),
     );
   }
   if (
@@ -253,6 +263,7 @@ export async function syncOrgRecruitmentSummaryFromApi(options?: {
           status?: boolean;
           assignedTo?: boolean;
         };
+        candidateEditFieldVisibility?: Record<string, boolean>;
       }>('/settings/org/recruitment-summary', { auth: true });
       applyOrgRecruitmentSummaryPayload(res.data as Parameters<typeof applyOrgRecruitmentSummaryPayload>[0]);
       setOrgSummaryLastAt(Date.now());

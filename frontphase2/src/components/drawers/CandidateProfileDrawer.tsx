@@ -780,6 +780,7 @@ export function CandidateProfileDrawer({
             onChange={updateEditField}
             recruiters={recruiters}
             jobs={jobs}
+            fieldVisibility={undefined}
           />
         ) : null}
         {candidate ? (
@@ -1170,7 +1171,7 @@ export function CandidateProfileDrawer({
               </div>
 
               <div className={`flex-1 overflow-y-auto px-5 py-5 sm:px-6 ${DRAWER_FORM_SCROLL_BG}`}>
-                {activeTab === 'Overview'  && <CandidateOverviewTab candidate={candidate} candidateEditFormFooter={candidateEditFormFooter} candidateEditFormSections={candidateEditFormSections} editError={editError} onAddToPipeline={onAddToPipeline} onUpdateCandidate={onUpdateCandidate} overviewContentKey={overviewContentKey} setShowAddToPipelineModal={setShowAddToPipelineModal} showEditModal={showEditModal} startOverviewEdit={startOverviewEdit} />}
+                {activeTab === 'Overview'  && <CandidateOverviewTab candidate={candidate} candidateEditFormFooter={candidateEditFormFooter} candidateEditFormSections={candidateEditFormSections} editError={editError} onAddToPipeline={onAddToPipeline} onUpdateCandidate={onUpdateCandidate} overviewContentKey={overviewContentKey} setShowAddToPipelineModal={setShowAddToPipelineModal} showEditModal={showEditModal} startOverviewEdit={startOverviewEdit} loadingCandidateProfile={loadingCandidateProfile} />}
 
                 {activeTab === 'Client' && showClientTab && <CandidateClientTab clientReplies={clientReplies} clientSubmissions={clientSubmissions} latestClientReview={latestClientReview} uploadsBase={uploadsBase} />}
 

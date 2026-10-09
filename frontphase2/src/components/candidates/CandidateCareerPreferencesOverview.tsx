@@ -9,6 +9,12 @@ import {
   type CareerPreferencesViewModel,
 } from '@/lib/candidateCareerPreferencesModel';
 import { formatIsoDateOnlyForDisplay } from '@/utils/dateDisplay';
+import {
+  isCandidateEditFieldVisible,
+  type CandidateEditFieldId,
+  type CandidateEditFieldVisibility,
+} from '@/lib/candidateEditFieldVisibility';
+import { useCandidateEditFieldVisibility } from '@/hooks/useCandidateEditFieldVisibility';
 
 function display(value: unknown): string {
   if (value === undefined || value === null) return '';
@@ -86,51 +92,144 @@ function ResumeField({ resumeUrl }: { resumeUrl: string }) {
 export function CareerPreferencesCards({
   model,
   showResume = false,
+  fieldVisibility,
 }: {
   model: CareerPreferencesViewModel;
   showResume?: boolean;
+  fieldVisibility?: Partial<CandidateEditFieldVisibility> | null;
 }) {
+  const gated = fieldVisibility != null;
+  const show = (id: CandidateEditFieldId) =>
+    !gated || isCandidateEditFieldVisible(fieldVisibility, id);
+
+  const showCurrent =
+    show('currentTitle') ||
+    show('currentSalary') ||
+    show('currentBenefits') ||
+    show('location') ||
+    show('careerCurrentCurrency') ||
+    show('careerCurrentSalaryType') ||
+    show('currentSalaryCurrency');
+  const showPreferred =
+    show('expectedSalary') ||
+    show('expectedBenefits') ||
+    show('careerPreferredRoles') ||
+    show('careerPreferredCurrency') ||
+    show('careerPreferredSalaryType') ||
+    show('careerPreferredLocations') ||
+    show('careerWorkModes') ||
+    show('expectedSalaryCurrency');
+  const showRoleDomain =
+    show('careerPreferredIndustries') ||
+    show('careerFunctionalAreas') ||
+    show('careerJobTypes');
+  const showRelocation = show('careerRelocation');
+  const showAvailability =
+    show('experience') ||
+    show('noticePeriod') ||
+    show('careerEarliestStart') ||
+    show('careerDescribeAvailability');
+
   return (
     <div className="space-y-3">
       <div className="grid gap-3 lg:grid-cols-2">
-        <PreferenceCard title="Current Package">
-          <CompactField label="Current Role" value={model.currentPackage.role} />
-          <CompactField label="Currency" value={model.currentPackage.currency} />
-          <CompactField label="Salary Type" value={model.currentPackage.salaryType} />
-          <CompactField label="Current Salary" value={model.currentPackage.salary} />
-          <CompactField label="Current Location" value={model.currentPackage.location} />
-          <ChipField label="Benefits" items={model.currentPackage.benefits} />
-        </PreferenceCard>
+        {showCurrent ? (
+          <PreferenceCard title="Current Package">
+            {show('currentTitle') ? (
+              <CompactField label="Designation" value={model.currentPackage.role} />
+            ) : null}
+            {show('careerCurrentCurrency') || show('currentSalaryCurrency') ? (
+              <CompactField label="Currency" value={model.currentPackage.currency} />
+            ) : null}
+            {show('careerCurrentSalaryType') ? (
+              <CompactField label="Salary Type" value={model.currentPackage.salaryType} />
+            ) : null}
+            {show('currentSalary') ? (
+              <CompactField label="Current Salary" value={model.currentPackage.salary} />
+            ) : null}
+            {show('location') ? (
+              <CompactField label="Current Location" value={model.currentPackage.location} />
+            ) : null}
+            {show('currentBenefits') ? (
+              <ChipField label="Current Benefits" items={model.currentPackage.benefits} />
+            ) : null}
+          </PreferenceCard>
+        ) : null}
 
-        <PreferenceCard title="Preferred Package">
-          <ChipField label="Preferred Role" items={model.preferredPackage.roles} />
-          <CompactField label="Currency" value={model.preferredPackage.currency} />
-          <CompactField label="Salary Type" value={model.preferredPackage.salaryType} />
-          <CompactField label="Preferred Salary" value={model.preferredPackage.salary} />
-          <ChipField label="Preferred Locations" items={model.preferredPackage.locations} />
-          <ChipField label="Preferred Work Mode" items={model.preferredPackage.workModes} />
-          <ChipField label="Benefits" items={model.preferredPackage.benefits} />
-        </PreferenceCard>
+        {showPreferred ? (
+          <PreferenceCard title="Preferred Package">
+            {show('careerPreferredRoles') ? (
+              <ChipField label="Preferred Role" items={model.preferredPackage.roles} />
+            ) : null}
+            {show('careerPreferredCurrency') || show('expectedSalaryCurrency') ? (
+              <CompactField label="Currency" value={model.preferredPackage.currency} />
+            ) : null}
+            {show('careerPreferredSalaryType') ? (
+              <CompactField label="Salary Type" value={model.preferredPackage.salaryType} />
+            ) : null}
+            {show('expectedSalary') ? (
+              <CompactField label="Expected Salary" value={model.preferredPackage.salary} />
+            ) : null}
+            {show('careerPreferredLocations') ? (
+              <ChipField label="Preferred Locations" items={model.preferredPackage.locations} />
+            ) : null}
+            {show('careerWorkModes') ? (
+              <ChipField label="Preferred Work Mode" items={model.preferredPackage.workModes} />
+            ) : null}
+            {show('expectedBenefits') ? (
+              <ChipField label="Expected Benefits" items={model.preferredPackage.benefits} />
+            ) : null}
+          </PreferenceCard>
+        ) : null}
       </div>
 
-      <PreferenceCard title="Role & Domain">
-        <ChipField label="Preferred Industries" items={model.roleDomain.industries} />
-        <ChipField label="Functional Areas" items={model.roleDomain.functionalAreas} />
-        <ChipField label="Job Types" items={model.roleDomain.jobTypes} />
-      </PreferenceCard>
+      {showRoleDomain ? (
+        <PreferenceCard title="Role & Domain">
+          {show('careerPreferredIndustries') ? (
+            <ChipField label="Preferred Industries" items={model.roleDomain.industries} />
+          ) : null}
+          {show('careerFunctionalAreas') ? (
+            <ChipField label="Functional Areas" items={model.roleDomain.functionalAreas} />
+          ) : null}
+          {show('careerJobTypes') ? (
+            <ChipField label="Job Types" items={model.roleDomain.jobTypes} />
+          ) : null}
+        </PreferenceCard>
+      ) : null}
 
       <div className="grid gap-3 lg:grid-cols-2">
-        <PreferenceCard title="Relocation">
-          <CompactField label="Relocation Preference" value={model.availability.relocation} />
-        </PreferenceCard>
+        {showRelocation ? (
+          <PreferenceCard title="Relocation">
+            <CompactField label="Relocation Preference" value={model.availability.relocation} />
+          </PreferenceCard>
+        ) : null}
 
-        <PreferenceCard title="Availability">
-          <CompactField label="Experience" value={model.experienceLabel} />
-          <CompactField label="Earliest Start Date" value={model.availability.earliestStartDate} />
-          <CompactField label="Describe Availability" value={model.availability.describeAvailability} />
-          <CompactField label="Notice Period" value={model.availability.noticePeriod} />
-        </PreferenceCard>
+        {showAvailability ? (
+          <PreferenceCard title="Availability">
+            {show('experience') ? (
+              <CompactField label="Experience" value={model.experienceLabel} />
+            ) : null}
+            {show('careerEarliestStart') ? (
+              <CompactField label="Earliest Start Date" value={model.availability.earliestStartDate} />
+            ) : null}
+            {show('careerDescribeAvailability') ? (
+              <CompactField
+                label="Describe Availability"
+                value={model.availability.describeAvailability}
+              />
+            ) : null}
+            {show('noticePeriod') ? (
+              <CompactField label="Notice Period" value={model.availability.noticePeriod} />
+            ) : null}
+          </PreferenceCard>
+        ) : null}
       </div>
+
+      {show('remarks') ? (
+        <PreferenceCard title="Reason for Current Job Change">
+          <CompactField label="Reason for Current Job Change" value={model.reasonForJobChange} />
+        </PreferenceCard>
+      ) : null}
 
       {showResume ? (
         <PreferenceCard title="Resume">
@@ -160,6 +259,7 @@ export function CandidateCareerPreferencesOverview({
 }: Props) {
   const model = buildCareerPreferencesViewModel(candidate, careerPrefs);
   const filled = countCareerPreferencesFilled(model);
+  const fieldVisibility = useCandidateEditFieldVisibility();
 
   if (filled === 0 && !onEdit) {
     return <p className="text-sm italic text-slate-400">{emptyMessage}</p>;
@@ -184,7 +284,16 @@ export function CandidateCareerPreferencesOverview({
           </button>
         </div>
       ) : null}
-      <CareerPreferencesCards model={model} showResume={showResume} />
+      {candidate.currentCompany && isCandidateEditFieldVisible(fieldVisibility, 'currentCompany') ? (
+        <PreferenceCard title="Organization">
+          <CompactField label="Current Organization" value={candidate.currentCompany} />
+        </PreferenceCard>
+      ) : null}
+      <CareerPreferencesCards
+        model={model}
+        showResume={showResume}
+        fieldVisibility={fieldVisibility}
+      />
     </div>
   );
 }

@@ -9,6 +9,7 @@ const KEY_PIPELINE_TEMPLATE = 'defaultPipelineTemplate';
 const KEY_SUBSCRIPTION_PLAN = 'subscriptionPlan';
 const KEY_DEFAULT_CURRENCY = 'defaultCurrency';
 const KEY_CLIENT_PAGE_FIELDS = 'clientPageFieldVisibility';
+const KEY_CANDIDATE_EDIT_FIELDS = 'candidateEditFieldVisibility';
 
 /** Client list/drawer fields hidden by default until enabled in Recruitment workflow settings. */
 export const DEFAULT_CLIENT_PAGE_FIELD_VISIBILITY = {
@@ -16,6 +17,116 @@ export const DEFAULT_CLIENT_PAGE_FIELD_VISIBILITY = {
   status: false,
   assignedTo: false,
 };
+
+/** Core Edit Candidate fields on by default; extras off until enabled in Settings. */
+const CANDIDATE_EDIT_FIELD_KEYS = [
+  'fullName',
+  'phone',
+  'email',
+  'location',
+  'currentCompany',
+  'currentTitle',
+  'experience',
+  'currentSalary',
+  'currentBenefits',
+  'expectedSalary',
+  'expectedBenefits',
+  'noticePeriod',
+  'educationSummary',
+  'languageProficiency',
+  'age',
+  'gender',
+  'maritalStatus',
+  'nationality',
+  'passportNumber',
+  'remarks',
+  'avatar',
+  'candidateScore',
+  'city',
+  'state',
+  'country',
+  'address',
+  'zip',
+  'currentCompanyWebsite',
+  'birthDate',
+  'preferredLocation',
+  'cvEducationEntries',
+  'educationCourses',
+  'workHistoryText',
+  'extracurricular',
+  'volunteers',
+  'cvWorkExperienceEntries',
+  'linkedIn',
+  'twitter',
+  'xing',
+  'skypeId',
+  'facebook',
+  'stackOverflow',
+  'website',
+  'portfolio',
+  'cvPortfolioLinks',
+  'cvSummary',
+  'skills',
+  'honours',
+  'certifications',
+  'projects',
+  'hackathons',
+  'notes',
+  'currentSalaryCurrency',
+  'expectedSalaryCurrency',
+  'careerCurrentSalaryType',
+  'careerCurrentCurrency',
+  'careerPreferredRoles',
+  'careerPreferredCurrency',
+  'careerPreferredSalaryType',
+  'careerPreferredLocations',
+  'careerWorkModes',
+  'careerPreferredIndustries',
+  'careerFunctionalAreas',
+  'careerJobTypes',
+  'careerRelocation',
+  'careerEarliestStart',
+  'careerDescribeAvailability',
+  'hiringSource',
+  'hiringAvailability',
+  'hiringSalaryCurrency',
+  'employment',
+  'p1Internships',
+  'p1Gap',
+  'p1Academic',
+  'p1Exams',
+  'p1Accomplishments',
+  'p1Visa',
+  'p1Vaccination',
+  'p1Resume',
+];
+
+const DEFAULT_ON_CANDIDATE_EDIT_FIELDS = new Set([
+  'fullName',
+  'phone',
+  'email',
+  'location',
+  'currentCompany',
+  'currentTitle',
+  'experience',
+  'currentSalary',
+  'currentBenefits',
+  'expectedSalary',
+  'expectedBenefits',
+  'noticePeriod',
+  'educationSummary',
+  'languageProficiency',
+  'age',
+  'gender',
+  'maritalStatus',
+  'nationality',
+  'passportNumber',
+  'remarks',
+]);
+
+export const DEFAULT_CANDIDATE_EDIT_FIELD_VISIBILITY = Object.fromEntries(
+  CANDIDATE_EDIT_FIELD_KEYS.map((key) => [key, DEFAULT_ON_CANDIDATE_EDIT_FIELDS.has(key)]),
+);
 
 function normalizeClientPageFieldVisibility(raw) {
   if (!raw || typeof raw !== 'object') {
@@ -28,6 +139,17 @@ function normalizeClientPageFieldVisibility(raw) {
   };
 }
 
+export function normalizeCandidateEditFieldVisibility(raw) {
+  const base = { ...DEFAULT_CANDIDATE_EDIT_FIELD_VISIBILITY };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return base;
+  for (const key of CANDIDATE_EDIT_FIELD_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(raw, key)) {
+      base[key] = raw[key] === true;
+    }
+  }
+  return base;
+}
+
 export async function getClientPageFieldVisibility() {
   const row = await findOrgSettingRow(KEY_CLIENT_PAGE_FIELDS);
   return normalizeClientPageFieldVisibility(row?.value);
@@ -36,6 +158,17 @@ export async function getClientPageFieldVisibility() {
 export async function setClientPageFieldVisibility(fields) {
   const normalized = normalizeClientPageFieldVisibility(fields);
   await upsertOrgSettingJson(KEY_CLIENT_PAGE_FIELDS, normalized);
+  return normalized;
+}
+
+export async function getCandidateEditFieldVisibility() {
+  const row = await findOrgSettingRow(KEY_CANDIDATE_EDIT_FIELDS);
+  return normalizeCandidateEditFieldVisibility(row?.value);
+}
+
+export async function setCandidateEditFieldVisibility(fields) {
+  const normalized = normalizeCandidateEditFieldVisibility(fields);
+  await upsertOrgSettingJson(KEY_CANDIDATE_EDIT_FIELDS, normalized);
   return normalized;
 }
 

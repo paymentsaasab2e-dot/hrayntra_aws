@@ -64,6 +64,34 @@ export type Phase1ProfileSnapshot = {
 
 export const PHASE1_CANDIDATE_TAG_LABEL = 'Phase 1';
 
+function isSubstantialPhase1Snapshot(snap: Phase1ProfileSnapshot | null): boolean {
+  if (!snap) return false;
+  // ATS edits may write a careerPreferences-only stub into phase1ProfileSnapshot.
+  // That must not flip the Overview to Phase 1 layout (causes drawer flicker).
+  if (Array.isArray(snap.education) && snap.education.length > 0) return true;
+  if (Array.isArray(snap.workExperience) && snap.workExperience.length > 0) return true;
+  if (Array.isArray(snap.languages) && snap.languages.length > 0) return true;
+  if (Array.isArray(snap.skills) && snap.skills.length > 0) return true;
+  if (Array.isArray(snap.internships) && snap.internships.length > 0) return true;
+  if (Array.isArray(snap.projects) && snap.projects.length > 0) return true;
+  if (Array.isArray(snap.certifications) && snap.certifications.length > 0) return true;
+  if (Array.isArray(snap.gapExplanations) && snap.gapExplanations.length > 0) return true;
+  if (snap.personalInfo && typeof snap.personalInfo === 'object') {
+    const pi = snap.personalInfo;
+    if (
+      String(pi.firstName || '').trim() ||
+      String(pi.lastName || '').trim() ||
+      String(pi.email || '').trim() ||
+      String(pi.phone || '').trim()
+    ) {
+      return true;
+    }
+  }
+  if (String(snap.summaryText || '').trim()) return true;
+  if (String(snap._phase1SnapshotSavedAt || '').trim() && snap.personalInfo) return true;
+  return false;
+}
+
 export function isPhase1PortalCandidate(
   candidate?: {
     isPhase1Candidate?: boolean;
@@ -74,8 +102,8 @@ export function isPhase1PortalCandidate(
 ): boolean {
   if (!candidate) return false;
   if (isPhase1ListBadge(candidate)) return true;
-  // Detail/drawer: allow Phase 1 profile sections when a real snapshot is present.
-  return Boolean(getPhase1ProfileSnapshot(candidate.extraData));
+  // Detail/drawer: only when snapshot looks like a real Phase 1 portal profile.
+  return isSubstantialPhase1Snapshot(getPhase1ProfileSnapshot(candidate.extraData));
 }
 
 /** Table PHASE 1 chip — source/pool only, never leftover snapshots on LinkedIn/Other CRM rows. */

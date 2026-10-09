@@ -51,10 +51,6 @@ import {
   accomplishmentHasContent,
   normalizeAccomplishmentRecord,
 } from '@/lib/candidateAccomplishmentFields';
-import {
-  buildCareerPreferencesViewModel,
-  countCareerPreferencesFilled,
-} from '@/lib/candidateCareerPreferencesModel';
 import { extractVisaDisplayEntries } from '@/lib/candidateVisaWorkAuthorizationFields';
 import { hasVaccinationContent, normalizeVaccinationRecord } from '@/lib/candidateVaccinationFields';
 import {
@@ -81,6 +77,12 @@ import { buildFileHref } from '@/utils/cloudinaryUrls';
 import { collectDocumentUrls, displayNameFromFileUrl } from '@/utils/fileDisplay';
 import { DrawerSectionCard } from '../drawers/drawerFormUi';
 import type { LucideIcon } from 'lucide-react';
+import {
+  isPhase1CandidateSectionVisible,
+  phase1PersonalRowFieldId,
+  isCandidateEditFieldVisible,
+} from '@/lib/candidateEditFieldVisibility';
+import { useCandidateEditFieldVisibility } from '@/hooks/useCandidateEditFieldVisibility';
 
 type SectionId = Phase1ClientSectionId;
 
@@ -324,6 +326,7 @@ export function CandidatePhase1DetailSections({
     () => getPhase1ProfileSnapshot(candidate.extraData),
     [candidate.extraData],
   );
+  const fieldVisibility = useCandidateEditFieldVisibility();
 
   const [open, setOpen] = useState<Record<SectionId, boolean>>(DEFAULT_OPEN);
 
@@ -331,7 +334,14 @@ export function CandidatePhase1DetailSections({
     setOpen((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
-  const sectionVisible = (id: Phase1ClientSectionId) => sectionVisibility?.[id] !== false;
+  /** Client-review section toggles AND tenant Edit Candidate field settings. */
+  const sectionVisible = (id: Phase1ClientSectionId) => {
+    if (sectionVisibility?.[id] === false) return false;
+    // When used as client-review preview, sectionVisibility is fully supplied —
+    // skip org edit-field gating so Submit-to-Client stays independent.
+    if (sectionVisibility) return true;
+    return isPhase1CandidateSectionVisible(id, fieldVisibility);
+  };
 
   const skills = useMemo(() => resolvePhase1Skills(snap, candidate), [snap, candidate]);
   const languages = useMemo(() => resolvePhase1Languages(snap, candidate), [snap, candidate]);
@@ -403,12 +413,21 @@ export function CandidatePhase1DetailSections({
     const phoneParts = [pi.phoneCode, pi.phone].map((v) => display(v)).filter(Boolean);
     const phone = phoneParts.join(' ') || candidate.phone || '';
     const cityStateCountry = [pi.city, pi.country].map((v) => display(v)).filter(Boolean).join(', ');
-    return [
+    const age =
+      (pi as { age?: unknown }).age ??
+      (candidate as { age?: unknown }).age ??
+      '';
+    const maritalStatus =
+      (pi as { maritalStatus?: unknown }).maritalStatus ??
+      '';
+    const allRows = [
       { label: 'Full name', value: fullName },
       { label: 'Employment status', value: pi.employment },
       { label: 'Email', value: pi.email || candidate.email },
       { label: 'Phone', value: phone },
+      { label: 'Age', value: age },
       { label: 'Gender', value: pi.gender },
+      { label: 'Marital Status', value: maritalStatus },
       { label: 'Date of birth', value: pi.dob },
       { label: 'City', value: pi.city || candidate.cvCity },
       { label: 'Country', value: pi.country || candidate.cvCountry },
@@ -418,43 +437,21 @@ export function CandidatePhase1DetailSections({
       { label: 'Passport number', value: pi.passportNumber },
       { label: 'LinkedIn', value: pi.linkedinUrl || candidate.linkedIn },
     ];
-  }, [snap, candidate]);
+    // Client-review preview keeps all rows; profile overview respects tenant settings.
+    if (sectionVisibility) return allRows;
+    return allRows.filter((row) => {
+      const fieldId = phase1PersonalRowFieldId(row.label);
+      if (!fieldId) return false;
+      return isCandidateEditFieldVisible(fieldVisibility, fieldId);
+    });
+  }, [snap, candidate, sectionVisibility, fieldVisibility]);
 
   const summaryText = snap?.summaryText || candidate.cvSummary || candidate.summary || '';
-  const careerFilled = countCareerPreferencesFilled(
-    buildCareerPreferencesViewModel(candidate, careerPrefs),
-  );
-  const filledSectionKey = [
-    personInfoRows.some((row) => display(row.value)) ? 'personal' : '',
-    summaryText.trim() ? 'summary' : '',
-    workEntries.length ? 'work' : '',
-    internships.length ? 'internships' : '',
-    gapExplanations.length ? 'gap' : '',
-    eduEntries.length ? 'education' : '',
-    academicAchievements.length ? 'academic' : '',
-    competitiveExams.length ? 'exams' : '',
-    skills.length ? 'skills' : '',
-    languages.length ? 'languages' : '',
-    projects.length ? 'projects' : '',
-    portfolioLinks.length ? 'portfolio' : '',
-    certifications.length ? 'certifications' : '',
-    accomplishments.length ? 'accomplishments' : '',
-    careerFilled ? 'careerPreferences' : '',
-    visaEntries.length ? 'visa' : '',
-    hasVaccinationContent(vaccination) ? 'vaccination' : '',
-  ]
-    .filter(Boolean)
-    .join('|');
 
+  // Keep sections collapsed on open — avoids expand/collapse flicker as profile hydrates.
   useEffect(() => {
-    const filled = new Set(filledSectionKey.split('|').filter(Boolean));
-    setOpen(
-      Object.fromEntries(PHASE1_CLIENT_SECTION_IDS.map((id) => [id, filled.has(id)])) as Record<
-        SectionId,
-        boolean
-      >,
-    );
-  }, [candidate.id, filledSectionKey]);
+    setOpen(DEFAULT_OPEN);
+  }, [candidate.id]);
 
   const hasAnyOverviewData =
     Boolean(snap) ||

@@ -8,6 +8,12 @@ import {
   type SubmitToClientFieldId,
   type SubmitToClientFieldVisibility,
 } from '@/lib/submitToClientFieldVisibility';
+import {
+  isCandidateEditFieldVisible,
+  type CandidateEditFieldId,
+  type CandidateEditFieldVisibility,
+} from '@/lib/candidateEditFieldVisibility';
+import { useCandidateEditFieldVisibility } from '@/hooks/useCandidateEditFieldVisibility';
 import type { LucideIcon } from 'lucide-react';
 import type { UpdateCandidatePayload } from '@/lib/api';
 import {
@@ -21,13 +27,13 @@ import {
   resolvePhase1PersonalInfo,
 } from '../../lib/phase1ProfileSnapshot';
 import { CandidatePhotoUpload } from './AddCandidateFormSections';
-import { CandidateHiringEditSection } from './CandidateHiringSection';
 import { EditDateField } from './EditDateField';
 import { parseDMYToYMD } from '@/utils/formatLeadDateTime';
 import { getLocalDateInputMinToday } from '@/utils/dateInputConstraints';
 import { mergeCareerPreferencesRecord } from '@/lib/candidateCareerPreferencesModel';
 import { prepareCareerPreferencesForSave } from '@/lib/normalizeCareerPreferencesRecord';
 import { CandidatePhase1CareerPreferencesEdit } from './CandidatePhase1CareerPreferencesEdit';
+import { CandidateStreamlinedProfileEdit } from './CandidateStreamlinedProfileEdit';
 
 export type CandidateEditFormState = {
   firstName: string;
@@ -347,7 +353,13 @@ export function buildCandidateEditForm(candidate: CandidateProfileDrawerData): C
     passportNumber: str(personal.passportNumber),
     educationCourses:
       joinSemicolonList(educationPipe.courses) || joinSemicolonList(extra.courses),
-    remarks: candidate.cvNotes || str(professional.remarks) || str(extra.remarks) || '',
+    remarks:
+      str(careerPreferences.reasonForJobChange) ||
+      str(careerPreferences.remarks) ||
+      candidate.cvNotes ||
+      str(professional.remarks) ||
+      str(extra.remarks) ||
+      '',
     currentBenefits:
       str(professional.currentBenefits) ||
       (Array.isArray(careerPreferences.currentBenefits)
@@ -513,10 +525,20 @@ export function buildExtraDataFromEditForm(
       ? (prev.phase1ProfileSnapshot as Record<string, unknown>)
       : {};
 
-  const normalizedCareer = prepareCareerPreferencesForSave(editForm.careerPreferences || {}, {
+  const normalizedCareerRaw = prepareCareerPreferencesForSave(editForm.careerPreferences || {}, {
     currentTitle: editForm.currentTitle,
     designation: editForm.currentTitle,
   });
+  const reasonForJobChange =
+    str(editForm.remarks) ||
+    str((editForm.careerPreferences || {}).reasonForJobChange) ||
+    str((editForm.careerPreferences || {}).remarks);
+  const normalizedCareer: Record<string, unknown> = {
+    ...(normalizedCareerRaw || {}),
+    ...(reasonForJobChange
+      ? { reasonForJobChange, remarks: reasonForJobChange }
+      : {}),
+  };
 
   const currentBenefits =
     str(editForm.currentBenefits) ||
@@ -535,14 +557,21 @@ export function buildExtraDataFromEditForm(
     str(normalizedCareer?.preferredCurrency) ||
     str(normalizedCareer?.salaryCurrency);
 
+  // Only refresh an existing Phase 1 snapshot — never create a stub that flips
+  // ATS Overview into Phase 1 layout after save/reload.
+  const nextPhase1Snapshot =
+    prevSnap && Object.keys(prevSnap).length > 0
+      ? {
+          ...prevSnap,
+          careerPreferences: normalizedCareer,
+          _phase1SnapshotSavedAt: new Date().toISOString(),
+        }
+      : prev.phase1ProfileSnapshot;
+
   return {
     ...prev,
     careerPreferences: normalizedCareer,
-    phase1ProfileSnapshot: {
-      ...prevSnap,
-      careerPreferences: normalizedCareer,
-      _phase1SnapshotSavedAt: new Date().toISOString(),
-    },
+    ...(nextPhase1Snapshot ? { phase1ProfileSnapshot: nextPhase1Snapshot } : {}),
     pipeline: {
       personal: {
         age: parseOptionalNumber(editForm.age),
@@ -894,6 +923,8 @@ type Props = {
   clientSectionVisibility?: Partial<Record<ClientPresentationSectionId, boolean>>;
   onToggleClientSectionVisibility?: (sectionId: ClientPresentationSectionId) => void;
   clientFieldVisibility?: Partial<SubmitToClientFieldVisibility> | null;
+  /** Optional override (tests); otherwise loads tenant org setting. */
+  profileFieldVisibility?: Partial<CandidateEditFieldVisibility> | null;
   /** profile = full CRM edit; clientSubmit = client-facing sections only (Submit to Client drawer). */
   variant?: 'profile' | 'clientSubmit';
 };
@@ -910,14 +941,326 @@ export function CandidateEditAtsSections({
   clientSectionVisibility,
   onToggleClientSectionVisibility,
   clientFieldVisibility,
+  profileFieldVisibility: profileFieldVisibilityOverride,
   variant = 'profile',
 }: Props) {
+  const orgProfileFieldVisibility = useCandidateEditFieldVisibility();
+  const profileFieldVisibility = profileFieldVisibilityOverride ?? orgProfileFieldVisibility;
   const isClientSubmit = variant === 'clientSubmit';
   const sectionVisible = (id: ClientPresentationSectionId) => clientSectionVisibility?.[id] !== false;
-  const showField = (id: SubmitToClientFieldId | 'location' | 'portfolio') => {
-    if (!isClientSubmit || id === 'location' || id === 'portfolio') return true;
-    return isSubmitToClientFieldVisible(clientFieldVisibility, id);
+  const showField = (id: SubmitToClientFieldId | CandidateEditFieldId | 'location' | 'portfolio') => {
+    if (isClientSubmit) {
+      if (id === 'location' || id === 'portfolio') return true;
+      return isSubmitToClientFieldVisible(clientFieldVisibility, id as SubmitToClientFieldId);
+    }
+    return isCandidateEditFieldVisible(profileFieldVisibility, id);
   };
+  const hideEmptySections = true;
+  const showCareerExtrasBlock =
+    !isClientSubmit &&
+    (
+      [
+        'currentSalaryCurrency',
+        'expectedSalaryCurrency',
+        'careerCurrentSalaryType',
+        'careerCurrentCurrency',
+        'careerPreferredRoles',
+        'careerPreferredCurrency',
+        'careerPreferredSalaryType',
+        'careerPreferredLocations',
+        'careerWorkModes',
+        'careerPreferredIndustries',
+        'careerFunctionalAreas',
+        'careerJobTypes',
+        'careerRelocation',
+        'careerEarliestStart',
+        'careerDescribeAvailability',
+      ] as const
+    ).some((id) => showField(id));
+
+  // Profile edit: compact 3-section layout with only tenant-visible fields.
+  if (!isClientSubmit) {
+    const careerExtrasVisibility: Partial<CandidateEditFieldVisibility> = {
+      ...profileFieldVisibility,
+      // Core package fields already shown in the streamlined Professional section.
+      location: false,
+      currentSalary: false,
+      currentBenefits: false,
+      expectedSalary: false,
+      expectedBenefits: false,
+      noticePeriod: false,
+    };
+    const extrasNode = (
+      <>
+        <EditSection
+          sectionId="personal"
+          title="Additional personal fields"
+          icon={User}
+          hideWhenEmpty
+        >
+          {showField('candidateScore') ? (
+            <EditField
+              label="Candidate Score"
+              value={form.candidateScore}
+              onChange={(v) => onChange('candidateScore', v)}
+              type="number"
+            />
+          ) : null}
+          {showField('city') ? (
+            <EditField label="City" value={form.city} onChange={(v) => onChange('city', v)} />
+          ) : null}
+          {showField('state') ? (
+            <EditField label="State" value={form.state} onChange={(v) => onChange('state', v)} />
+          ) : null}
+          {showField('country') ? (
+            <EditField label="Country" value={form.country} onChange={(v) => onChange('country', v)} />
+          ) : null}
+          {showField('address') ? (
+            <div className="md:col-span-2">
+              <EditField label="Current Address" value={form.address} onChange={(v) => onChange('address', v)} />
+            </div>
+          ) : null}
+          {showField('zip') ? (
+            <EditField label="Zip" value={form.zip} onChange={(v) => onChange('zip', v)} />
+          ) : null}
+          {showField('currentCompanyWebsite') ? (
+            <EditField
+              label="Current Company Website"
+              value={form.currentCompanyWebsite}
+              onChange={(v) => onChange('currentCompanyWebsite', v)}
+            />
+          ) : null}
+          {showField('birthDate') ? (
+            <EditDateField
+              label="Birth Date"
+              variant="ats"
+              value={form.birthDate}
+              max={getLocalDateInputMinToday()}
+              outputIso
+              onChange={(v) => onChange('birthDate', v)}
+            />
+          ) : null}
+          {showField('preferredLocation') ? (
+            <EditField
+              label="Preferred Location"
+              value={form.preferredLocation}
+              onChange={(v) => onChange('preferredLocation', v)}
+            />
+          ) : null}
+        </EditSection>
+
+        {showCareerExtrasBlock ? (
+          <EditSection sectionId="professional" title="Additional career preferences" icon={Briefcase} hideWhenEmpty>
+            <div className="md:col-span-2 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+              <CandidatePhase1CareerPreferencesEdit
+                careerPreferences={form.careerPreferences || {}}
+                onChange={(careerPreferences) => onChange('careerPreferences', careerPreferences)}
+                fieldVisibility={careerExtrasVisibility}
+              />
+            </div>
+          </EditSection>
+        ) : null}
+
+        <EditSection sectionId="education" title="Additional education" icon={GraduationCap} hideWhenEmpty>
+          {showField('cvEducationEntries') ? (
+            <div className="md:col-span-2">
+              <EditTextarea
+                label="Education entries"
+                value={form.cvEducationEntries}
+                onChange={(v) => onChange('cvEducationEntries', v)}
+                rows={6}
+                helper="One line per entry: Qualification | Institute | Start Year | End Year | Grade"
+              />
+            </div>
+          ) : null}
+          {showField('educationCourses') ? (
+            <div className="md:col-span-2">
+              <EditTextarea
+                label="Courses"
+                value={form.educationCourses}
+                onChange={(v) => onChange('educationCourses', v)}
+                rows={2}
+                helper="Semicolon-separated"
+              />
+            </div>
+          ) : null}
+        </EditSection>
+
+        <EditSection sectionId="work" title="Work Experience" icon={Briefcase} hideWhenEmpty>
+          {showField('cvWorkExperienceEntries') ? (
+            <div className="md:col-span-2">
+              <EditTextarea
+                label="Work experience entries"
+                value={form.cvWorkExperienceEntries}
+                onChange={(v) => onChange('cvWorkExperienceEntries', v)}
+                rows={8}
+              />
+            </div>
+          ) : null}
+          {showField('workHistoryText') ? (
+            <div className="md:col-span-2">
+              <EditTextarea
+                label="Work history (narrative)"
+                value={form.workHistoryText}
+                onChange={(v) => onChange('workHistoryText', v)}
+                rows={4}
+              />
+            </div>
+          ) : null}
+        </EditSection>
+
+        <EditSection sectionId="social" title="Social & links" icon={Share2} hideWhenEmpty>
+          {showField('linkedIn') ? (
+            <EditField label="LinkedIn" value={form.linkedIn} onChange={(v) => onChange('linkedIn', v)} />
+          ) : null}
+          {showField('twitter') ? (
+            <EditField label="Twitter" value={form.twitter} onChange={(v) => onChange('twitter', v)} />
+          ) : null}
+          {showField('xing') ? (
+            <EditField label="Xing" value={form.xing} onChange={(v) => onChange('xing', v)} />
+          ) : null}
+          {showField('skypeId') ? (
+            <EditField label="Skype ID" value={form.skypeId} onChange={(v) => onChange('skypeId', v)} />
+          ) : null}
+          {showField('facebook') ? (
+            <EditField label="Facebook" value={form.facebook} onChange={(v) => onChange('facebook', v)} />
+          ) : null}
+          {showField('stackOverflow') ? (
+            <EditField
+              label="Stack Overflow"
+              value={form.stackOverflow}
+              onChange={(v) => onChange('stackOverflow', v)}
+            />
+          ) : null}
+          {showField('website') ? (
+            <EditField label="Website" value={form.website} onChange={(v) => onChange('website', v)} />
+          ) : null}
+          {showField('portfolio') ? (
+            <EditField label="Portfolio URL" value={form.portfolio} onChange={(v) => onChange('portfolio', v)} />
+          ) : null}
+          {showField('cvPortfolioLinks') ? (
+            <div className="md:col-span-2">
+              <EditTextarea
+                label="Portfolio / project links"
+                value={form.cvPortfolioLinks}
+                onChange={(v) => onChange('cvPortfolioLinks', v)}
+                rows={4}
+              />
+            </div>
+          ) : null}
+        </EditSection>
+
+        <EditSection sectionId="summary" title="Summary & additional" icon={Award} hideWhenEmpty>
+          {showField('cvSummary') ? (
+            <div className="md:col-span-2">
+              <EditTextarea
+                label="Summary"
+                value={form.cvSummary}
+                onChange={(v) => onChange('cvSummary', v)}
+                rows={4}
+              />
+            </div>
+          ) : null}
+          {showField('skills') ? (
+            <div className="md:col-span-2">
+              <EditTextarea
+                label="Skills"
+                value={form.skills}
+                onChange={(v) => onChange('skills', v)}
+                rows={3}
+                helper="Comma-separated"
+              />
+            </div>
+          ) : null}
+          {showField('honours') ? (
+            <div className="md:col-span-2">
+              <EditTextarea
+                label="Honours & awards"
+                value={form.honours}
+                onChange={(v) => onChange('honours', v)}
+                rows={3}
+              />
+            </div>
+          ) : null}
+          {showField('certifications') ? (
+            <div className="md:col-span-2">
+              <EditTextarea
+                label="Certifications"
+                value={form.certifications}
+                onChange={(v) => onChange('certifications', v)}
+                rows={3}
+              />
+            </div>
+          ) : null}
+          {showField('projects') ? (
+            <div className="md:col-span-2">
+              <EditTextarea
+                label="Projects"
+                value={form.projects}
+                onChange={(v) => onChange('projects', v)}
+                rows={3}
+              />
+            </div>
+          ) : null}
+          {showField('hackathons') ? (
+            <div className="md:col-span-2">
+              <EditTextarea
+                label="Hackathons"
+                value={form.hackathons}
+                onChange={(v) => onChange('hackathons', v)}
+                rows={2}
+              />
+            </div>
+          ) : null}
+          {showField('notes') ? (
+            <div className="md:col-span-2">
+              <EditTextarea
+                label="Internal notes"
+                value={form.notes}
+                onChange={(v) => onChange('notes', v)}
+                rows={4}
+              />
+            </div>
+          ) : null}
+          {showField('extracurricular') ? (
+            <div className="md:col-span-2">
+              <EditTextarea
+                label="Extracurricular"
+                value={form.extracurricular}
+                onChange={(v) => onChange('extracurricular', v)}
+                rows={2}
+              />
+            </div>
+          ) : null}
+          {showField('volunteers') ? (
+            <div className="md:col-span-2">
+              <EditTextarea
+                label="Volunteers"
+                value={form.volunteers}
+                onChange={(v) => onChange('volunteers', v)}
+                rows={2}
+              />
+            </div>
+          ) : null}
+        </EditSection>
+      </>
+    );
+
+    return (
+      <CandidateStreamlinedProfileEdit
+        form={form}
+        onChange={onChange}
+        recruiters={recruiters}
+        jobs={jobs}
+        fieldVisibility={profileFieldVisibility}
+        avatarPreview={avatarPreview}
+        onAvatarFile={onAvatarFile}
+        onAvatarRemove={onAvatarRemove}
+        extraFields={extrasNode}
+      />
+    );
+  }
+
   return (
     <div className="space-y-5">
       {showClientSectionVisibility ? (
@@ -925,7 +1268,7 @@ export function CandidateEditAtsSections({
           <p className="font-semibold">Client review visibility</p>
           <p className="mt-1 text-xs text-blue-800">
             Use the button on the right of each section header to show or hide that block on the client
-            review link. Individual fields follow Settings â†’ Public Visibility â†’ Submit to Client. Hidden
+            review link. Individual fields follow Settings → Public Visibility → Submit to Client. Hidden
             sections and fields are not sent to the client.
           </p>
         </div>
@@ -937,9 +1280,6 @@ export function CandidateEditAtsSections({
           onRemove={onAvatarRemove}
         />
       ) : null}
-      {!isClientSubmit ? (
-        <CandidateHiringEditSection form={form} onChange={onChange} recruiters={recruiters} jobs={jobs} />
-      ) : null}
       <EditSection
         sectionId="personal"
         title="Personal Information"
@@ -947,7 +1287,7 @@ export function CandidateEditAtsSections({
         showClientVisibilityToggle={showClientSectionVisibility}
         clientVisible={sectionVisible('personal')}
         onToggleClientVisibility={onToggleClientSectionVisibility}
-        hideWhenEmpty={isClientSubmit}
+        hideWhenEmpty={hideEmptySections}
       >
         {showField('fullName') ? (
           <EditField label="First Name" value={form.firstName} onChange={(v) => onChange('firstName', v)} />
@@ -981,7 +1321,7 @@ export function CandidateEditAtsSections({
           <EditField label="Country" value={form.country} onChange={(v) => onChange('country', v)} />
         ) : null}
         {showField('location') ? (
-          <EditField label="Location (display)" value={form.location} onChange={(v) => onChange('location', v)} />
+          <EditField label="Current Location" value={form.location} onChange={(v) => onChange('location', v)} />
         ) : null}
         {showField('address') ? (
           <div className="md:col-span-2">
@@ -1039,7 +1379,7 @@ export function CandidateEditAtsSections({
         showClientVisibilityToggle={showClientSectionVisibility}
         clientVisible={sectionVisible('education')}
         onToggleClientVisibility={onToggleClientSectionVisibility}
-        hideWhenEmpty={isClientSubmit}
+        hideWhenEmpty={hideEmptySections}
       >
         {showField('cvEducationEntries') ? (
           <div className="md:col-span-2">
@@ -1055,7 +1395,7 @@ export function CandidateEditAtsSections({
         {showField('educationSummary') ? (
           <div className="md:col-span-2">
             <EditTextarea
-              label="Education summary"
+              label="Qualification"
               value={form.educationSummary}
               onChange={(v) => {
                 onChange('educationSummary', v);
@@ -1085,25 +1425,38 @@ export function CandidateEditAtsSections({
         showClientVisibilityToggle={showClientSectionVisibility}
         clientVisible={sectionVisible('professional')}
         onToggleClientVisibility={onToggleClientSectionVisibility}
-        hideWhenEmpty={isClientSubmit}
+        hideWhenEmpty={hideEmptySections}
       >
         <div className="md:col-span-2 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
           <CandidatePhase1CareerPreferencesEdit
             careerPreferences={form.careerPreferences || {}}
             onChange={(careerPreferences) => onChange('careerPreferences', careerPreferences)}
+            fieldVisibility={null}
           />
         </div>
-        {showField('remarks') ? (
-          <div className="md:col-span-2">
-            <EditTextarea label="Remarks" value={form.remarks} onChange={(v) => onChange('remarks', v)} rows={3} />
-          </div>
+        {showField('currentTitle') ? (
+          <EditField
+            label="Designation"
+            value={form.currentTitle}
+            onChange={(v) => onChange('currentTitle', v)}
+          />
         ) : null}
         {showField('currentCompany') ? (
           <EditField
-            label="Current Employer"
+            label="Current Organization"
             value={form.currentCompany}
             onChange={(v) => onChange('currentCompany', v)}
           />
+        ) : null}
+        {showField('remarks') ? (
+          <div className="md:col-span-2">
+            <EditTextarea
+              label={isClientSubmit ? 'Remarks' : 'Reason for Current Job Change'}
+              value={form.remarks}
+              onChange={(v) => onChange('remarks', v)}
+              rows={3}
+            />
+          </div>
         ) : null}
         {showField('workHistoryText') ? (
           <div className="md:col-span-2">
@@ -1146,7 +1499,7 @@ export function CandidateEditAtsSections({
         showClientVisibilityToggle={showClientSectionVisibility}
         clientVisible={sectionVisible('work')}
         onToggleClientVisibility={onToggleClientSectionVisibility}
-        hideWhenEmpty={isClientSubmit}
+        hideWhenEmpty={hideEmptySections}
       >
         {showField('cvWorkExperienceEntries') ? (
           <div className="md:col-span-2">
@@ -1168,7 +1521,7 @@ export function CandidateEditAtsSections({
         showClientVisibilityToggle={showClientSectionVisibility}
         clientVisible={sectionVisible('social')}
         onToggleClientVisibility={onToggleClientSectionVisibility}
-        hideWhenEmpty={isClientSubmit}
+        hideWhenEmpty={hideEmptySections}
       >
         {showField('linkedIn') ? (
           <EditField label="LinkedIn" value={form.linkedIn} onChange={(v) => onChange('linkedIn', v)} />
@@ -1212,7 +1565,7 @@ export function CandidateEditAtsSections({
         showClientVisibilityToggle={showClientSectionVisibility}
         clientVisible={sectionVisible('summary')}
         onToggleClientVisibility={onToggleClientSectionVisibility}
-        hideWhenEmpty={isClientSubmit}
+        hideWhenEmpty={hideEmptySections}
       >
         {showField('cvSummary') ? (
           <div className="md:col-span-2">
@@ -1227,7 +1580,7 @@ export function CandidateEditAtsSections({
         {showField('languageProficiency') ? (
           <div className="md:col-span-2">
             <EditTextarea
-              label="Language & proficiency"
+              label="Language known"
               value={form.languageProficiency}
               onChange={(v) => onChange('languageProficiency', v)}
               rows={3}

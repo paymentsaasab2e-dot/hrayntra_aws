@@ -20,6 +20,12 @@ html {
   font-family: var(--font-crm-text), ui-sans-serif, system-ui, sans-serif;
 }
 
+/* Auth/login: avoid next/font/google (breaks Docker builds without Google access). */
+.auth-dm-sans-font {
+  font-family: "DM Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+}
+
 /* Tenant + HQ dashboards: system stacks for letters/signs and digits */
 .dash-ui {
   font-family: var(--font-crm-text), ui-sans-serif, system-ui, sans-serif;

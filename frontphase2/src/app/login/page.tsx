@@ -4,19 +4,13 @@ import React, { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Eye, EyeOff } from 'lucide-react';
-import { DM_Sans } from 'next/font/google';
 import { apiLogin, apiConsumeImpersonationToken, formatAuthErrorMessage, getAccessToken, syncTenantDbName } from '../../lib/api';
 import { buildLoginDevicePayload, clearIntentionalLogout, finalizeAuthAfterTokens } from '../../lib/sessionAuth';
 import { LoginSessionFlow } from '../../components/session/LoginSessionFlow';
 import { TrialExpiredLoginPrompt } from '../../components/trial/TrialExpiredLoginPrompt';
 import { AuthBrandLogo } from '../../components/auth/AuthBrandLogo';
 import type { ActiveSessionView } from '../../lib/sessionAuth';
-
-const dmSans = DM_Sans({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
-  display: 'swap',
-});
+import { authDmSansClass } from '../../lib/authTypeFonts';
 
 function resolveMarketingBase() {
   const fromEnv = process.env.NEXT_PUBLIC_MARKETING_SITE_URL?.trim().replace(/\/$/, '');
@@ -280,7 +274,7 @@ export default function LoginPage() {
 
   return (
     <div
-      className={`${dmSans.className} relative flex h-[100dvh] max-h-[100dvh] items-center justify-center overflow-hidden px-3 py-3 sm:px-5 sm:py-4`}
+      className={`${authDmSansClass} relative flex h-[100dvh] max-h-[100dvh] items-center justify-center overflow-hidden px-3 py-3 sm:px-5 sm:py-4`}
       style={{
         backgroundColor: '#FFFFFF',
         backgroundImage: `

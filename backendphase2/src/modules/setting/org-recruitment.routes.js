@@ -64,6 +64,9 @@ import {
   DEFAULT_CLIENT_PAGE_FIELD_VISIBILITY,
   getClientPageFieldVisibility,
   setClientPageFieldVisibility,
+  DEFAULT_CANDIDATE_EDIT_FIELD_VISIBILITY,
+  getCandidateEditFieldVisibility,
+  setCandidateEditFieldVisibility,
   getTableColumnVisibility,
   setTableColumnModuleVisibility,
   setTableColumnVisibility,
@@ -114,6 +117,14 @@ function summaryCacheKey(req) {
   return `${tenant}:${userId}`;
 }
 
+function clearRecruitmentSummaryCacheForTenant() {
+  const tenant = String(getActiveTenantDbName() || '').trim() || 'default';
+  const prefix = `${tenant}:`;
+  for (const key of summaryCacheByTenant.keys()) {
+    if (String(key).startsWith(prefix)) summaryCacheByTenant.delete(key);
+  }
+}
+
 async function buildRecruitmentSummary(req) {
   const tenantDbName = String(getActiveTenantDbName() || '').trim();
 
@@ -122,6 +133,7 @@ async function buildRecruitmentSummary(req) {
     subscriptionPlan,
     defaultCurrency,
     clientPageFieldVisibility,
+    candidateEditFieldVisibility,
     tenantModules,
     organizationNameRaw,
   ] = await Promise.all([
@@ -129,6 +141,7 @@ async function buildRecruitmentSummary(req) {
     getEffectiveSubscriptionPlan(),
     getDefaultCurrency(),
     getClientPageFieldVisibility(),
+    getCandidateEditFieldVisibility(),
     getHqEnabledModules(),
     getOrganizationName(),
   ]);
@@ -185,6 +198,7 @@ async function buildRecruitmentSummary(req) {
     defaultCurrency,
     supportedCurrencies: SUPPORTED_CURRENCIES,
     clientPageFieldVisibility,
+    candidateEditFieldVisibility,
     tenantPaused,
     tenantPausedAt,
     productLine: productLine || null,
@@ -507,6 +521,41 @@ router.put('/client-page-fields', requireAnyPermission(['manage_settings']), asy
     sendResponse(res, 200, 'Client page field visibility saved', { clientPageFieldVisibility });
   } catch (error) {
     sendError(res, 400, error.message || 'Failed to save client page field visibility', error);
+  }
+});
+
+/** Any authenticated tenant user — org-wide Edit Candidate field visibility. */
+router.get('/candidate-edit-fields/visibility', async (req, res) => {
+  try {
+    const candidateEditFieldVisibility = await getCandidateEditFieldVisibility();
+    sendResponse(res, 200, 'OK', { candidateEditFieldVisibility });
+  } catch (error) {
+    sendError(res, 500, error.message || 'Failed to load candidate edit fields', error);
+  }
+});
+
+router.get('/candidate-edit-fields', requireAnyPermission(['manage_settings']), async (req, res) => {
+  try {
+    const candidateEditFieldVisibility = await getCandidateEditFieldVisibility();
+    sendResponse(res, 200, 'OK', {
+      candidateEditFieldVisibility,
+      defaults: DEFAULT_CANDIDATE_EDIT_FIELD_VISIBILITY,
+    });
+  } catch (error) {
+    sendError(res, 500, error.message || 'Failed to load candidate edit field visibility', error);
+  }
+});
+
+router.put('/candidate-edit-fields', requireAnyPermission(['manage_settings']), async (req, res) => {
+  try {
+    const fields = req.body?.candidateEditFieldVisibility ?? req.body ?? {};
+    const candidateEditFieldVisibility = await setCandidateEditFieldVisibility(fields);
+    clearRecruitmentSummaryCacheForTenant();
+    sendResponse(res, 200, 'Candidate edit field visibility saved', {
+      candidateEditFieldVisibility,
+    });
+  } catch (error) {
+    sendError(res, 400, error.message || 'Failed to save candidate edit field visibility', error);
   }
 });
 
