@@ -5,6 +5,7 @@ import {
   stampPdfBufferWithExportWatermark,
   type ServerExportWatermark,
 } from '../../../../lib/stampPdfExportWatermark.server';
+import { buildDocxPreviewShellHtml } from '../../../../lib/resumePreviewShellHtml';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -28,6 +29,37 @@ function isWordDocumentResponse(bytes: Buffer, contentType: string, disposition:
 
 function isPdfBuffer(bytes: Buffer): boolean {
   return bytes.length >= 5 && bytes.subarray(0, 5).toString('utf8').startsWith('%PDF');
+}
+
+/** Microsoft Word COM export only works on Windows hosts with Word installed. */
+function canConvertWordOnThisHost(): boolean {
+  return process.platform === 'win32';
+}
+
+function wantsRawBytes(req: NextRequest): boolean {
+  const raw = String(req.nextUrl.searchParams.get('raw') || '')
+    .trim()
+    .toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'yes';
+}
+
+function prefersHtmlPreview(req: NextRequest): boolean {
+  const accept = (req.headers.get('accept') || '').toLowerCase();
+  if (!accept || accept.includes('*/*')) {
+    // Browser navigation often sends */* or text/html first.
+    return accept.includes('text/html') || !accept.includes('application/pdf');
+  }
+  const htmlIdx = accept.indexOf('text/html');
+  const pdfIdx = accept.indexOf('application/pdf');
+  if (htmlIdx >= 0 && (pdfIdx < 0 || htmlIdx < pdfIdx)) return true;
+  return false;
+}
+
+function wordContentType(disposition: string, formatHint: string): string {
+  if (formatHint === 'doc' || /\.doc\b/i.test(disposition)) {
+    return 'application/msword';
+  }
+  return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 }
 
 async function fetchPublicReviewWatermark(
@@ -57,6 +89,22 @@ async function fetchPublicReviewWatermark(
   }
 }
 
+function htmlPreviewResponse(req: NextRequest, title: string): NextResponse {
+  const bytesUrl = new URL(req.url);
+  bytesUrl.searchParams.set('raw', '1');
+  const html = buildDocxPreviewShellHtml({
+    docxBytesUrl: `${bytesUrl.pathname}${bytesUrl.search}`,
+    title: title || 'Resume',
+  });
+  return new NextResponse(html, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'private, max-age=60',
+    },
+  });
+}
+
 export async function GET(
   req: NextRequest,
   context: { params: Promise<{ token: string }> },
@@ -64,16 +112,20 @@ export async function GET(
   const { token } = await context.params;
   const matchId = req.nextUrl.searchParams.get('matchId') || '';
   const source = req.nextUrl.searchParams.get('source') || '';
+  const formatHint = String(req.nextUrl.searchParams.get('format') || '')
+    .trim()
+    .toLowerCase();
   const params = new URLSearchParams();
   if (matchId) params.set('matchId', matchId);
   if (source) params.set('source', source);
   const query = params.toString() ? `?${params.toString()}` : '';
   const target = `${backendApiBase(req)}/interviews/public/review/${encodeURIComponent(token)}/resume${query}`;
+  const rawMode = wantsRawBytes(req);
 
   try {
     const upstream = await fetch(target, {
       cache: 'no-store',
-      headers: { Accept: 'application/pdf,*/*' },
+      headers: { Accept: 'application/pdf,application/octet-stream,*/*' },
     });
 
     // Buffer instead of streaming — empty/aborted upstream bodies can crash Next on some hosts.
@@ -82,26 +134,70 @@ export async function GET(
     let disposition =
       upstream.headers.get('content-disposition') || 'inline; filename="Resume.pdf"';
 
-    const wasWord =
-      upstream.ok && isWordDocumentResponse(bytes, contentType, disposition);
+    if (!upstream.ok) {
+      const detail = bytes.toString('utf8').slice(0, 240).trim();
+      console.error('[client-review/resume] upstream HTTP error', {
+        target,
+        status: upstream.status,
+        detail,
+      });
+      return NextResponse.json(
+        {
+          success: false,
+          message: detail || `Unable to load resume (API ${upstream.status}).`,
+        },
+        { status: upstream.status === 404 ? 404 : 502 },
+      );
+    }
 
-    if (wasWord) {
-      const pdf = await convertWordResumeToPdf(new Uint8Array(bytes));
-      bytes = Buffer.from(pdf);
-      contentType = 'application/pdf';
-      const pdfName = disposition.replace(/\.docx?/gi, '.pdf');
-      disposition = /\.pdf/i.test(pdfName) ? pdfName : 'inline; filename="Resume.pdf"';
+    const wasWord =
+      isWordDocumentResponse(bytes, contentType, disposition) ||
+      formatHint === 'docx' ||
+      formatHint === 'doc';
+
+    // Raw bytes for docx-preview / Office Online — never run Word→PDF here.
+    if (rawMode) {
+      if (wasWord && !isPdfBuffer(bytes)) {
+        contentType = wordContentType(disposition, formatHint);
+        if (!/\.docx?\b/i.test(disposition)) {
+          disposition = `inline; filename="Resume.${formatHint === 'doc' ? 'doc' : 'docx'}"`;
+        }
+      }
+      return new NextResponse(new Uint8Array(bytes), {
+        status: 200,
+        headers: {
+          'Content-Type': contentType,
+          'Content-Disposition': disposition,
+          'Cache-Control': 'private, max-age=120',
+          'Content-Length': String(bytes.length),
+        },
+      });
+    }
+
+    if (wasWord && !isPdfBuffer(bytes)) {
+      // Linux / Docker production has no Microsoft Word — show an HTML preview like a PDF tab.
+      if (!canConvertWordOnThisHost() || prefersHtmlPreview(req)) {
+        return htmlPreviewResponse(req, 'Candidate resume');
+      }
+
+      try {
+        const pdf = await convertWordResumeToPdf(new Uint8Array(bytes));
+        bytes = Buffer.from(pdf);
+        contentType = 'application/pdf';
+        const pdfName = disposition.replace(/\.docx?/gi, '.pdf');
+        disposition = /\.pdf/i.test(pdfName) ? pdfName : 'inline; filename="Resume.pdf"';
+      } catch (conversionError) {
+        console.warn(
+          '[client-review/resume] Word→PDF unavailable, falling back to HTML preview:',
+          conversionError instanceof Error ? conversionError.message : String(conversionError),
+        );
+        return htmlPreviewResponse(req, 'Candidate resume');
+      }
     }
 
     // DOCX/DOC cannot be stamped upstream — stamp after Word→PDF conversion.
-    // Also stamp when query says format=docx (Word source) even if sniffing missed.
-    const formatHint = String(req.nextUrl.searchParams.get('format') || '')
-      .trim()
-      .toLowerCase();
     const needsClientStamp =
-      upstream.ok &&
-      isPdfBuffer(bytes) &&
-      (wasWord || formatHint === 'docx' || formatHint === 'doc');
+      isPdfBuffer(bytes) && (wasWord || formatHint === 'docx' || formatHint === 'doc');
 
     if (needsClientStamp) {
       const watermark = await fetchPublicReviewWatermark(req, token);
@@ -115,7 +211,7 @@ export async function GET(
     }
 
     return new NextResponse(new Uint8Array(bytes), {
-      status: upstream.status,
+      status: 200,
       headers: {
         'Content-Type': contentType,
         'Content-Disposition': disposition,
@@ -131,7 +227,8 @@ export async function GET(
     return NextResponse.json(
       {
         success: false,
-        message: 'Unable to load resume from the API. Check BACKEND_INTERNAL_URL on the frontend host.',
+        message:
+          'Unable to load resume from the API. Check BACKEND_INTERNAL_URL / NEXT_PUBLIC_API_URL on the frontend host.',
       },
       { status: 502 },
     );
