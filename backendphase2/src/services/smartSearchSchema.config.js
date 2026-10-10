@@ -188,34 +188,15 @@ Put company names, locations, industries, director/team/KYC/agreement terms in s
     map: 'candidates',
     matchingIdsField: 'matchingCandidateIds',
     textSearchFields: [
-      'firstName',
-      'lastName',
-      'nameNormalized',
-      'email',
-      'phone',
       'currentTitle',
-      'currentCompany',
       'designation',
-      'location',
-      'city',
-      'country',
-      'preferredLocation',
+      'currentCompany',
       'education',
       'cvSummary',
-      'notes',
-      'recruiterNotes',
-      'stage',
-      'source',
-      'recruiterStatus',
+      'city',
+      'location',
     ],
-    arraySearchFields: [
-      'skills',
-      'recruiterSkills',
-      'certifications',
-      'certificationsList',
-      'languages',
-      'recruiterLanguages',
-    ],
+    arraySearchFields: ['skills', 'recruiterSkills'],
     filterMap: {
       stage: { field: 'stage', type: 'stage' },
       status: { field: 'status', type: 'enum', enumKey: 'CandidateStatus' },
@@ -295,7 +276,7 @@ function searchTermVariants(term) {
   if (!raw) return [];
   const variants = [raw];
   if (/s$/i.test(raw) && raw.length > 4) variants.push(raw.slice(0, -1));
-  else if (raw.length > 3 && !/s$/i.test(raw)) variants.push(`${raw}s`);
+  else if (raw.length > 3 && raw.length <= 8 && !/s$/i.test(raw)) variants.push(`${raw}s`);
   return [...new Set(variants)];
 }
 

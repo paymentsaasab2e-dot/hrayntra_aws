@@ -896,16 +896,13 @@ function buildCandidateSearchWhereClause(search) {
     const escapedToken = escapePrismaRegex(token);
     return {
       OR: [
-        { nameNormalized: { contains: escapedToken, mode: 'insensitive' } },
-        { firstName: { contains: escapedToken, mode: 'insensitive' } },
-        { lastName: { contains: escapedToken, mode: 'insensitive' } },
-        { email: { contains: escapedToken, mode: 'insensitive' } },
-        { phone: { contains: escapedToken, mode: 'insensitive' } },
         { currentTitle: { contains: escapedToken, mode: 'insensitive' } },
         { currentCompany: { contains: escapedToken, mode: 'insensitive' } },
         { designation: { contains: escapedToken, mode: 'insensitive' } },
         { education: { contains: escapedToken, mode: 'insensitive' } },
         { cvSummary: { contains: escapedToken, mode: 'insensitive' } },
+        { city: { contains: escapedToken, mode: 'insensitive' } },
+        { location: { contains: escapedToken, mode: 'insensitive' } },
         { skills: { hasSome: [token] } },
         { recruiterSkills: { hasSome: [token] } },
       ],

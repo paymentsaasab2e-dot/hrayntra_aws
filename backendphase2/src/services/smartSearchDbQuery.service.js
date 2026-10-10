@@ -386,23 +386,24 @@ async function queryCandidateIds(filters, req) {
     return [];
   }
 
+  const candidateSearchSelect = {
+    id: true,
+    firstName: true,
+    lastName: true,
+    email: true,
+    currentTitle: true,
+    designation: true,
+    cvSummary: true,
+    education: true,
+    skills: true,
+    city: true,
+    country: true,
+    createdAt: true,
+  };
+  // No orderBy: regex + sort-all-matches is what made warehouse take ~2.5 minutes.
   const rows = await prisma.candidate.findMany({
     where: buildWhereFromAndParts(andParts),
-    select: {
-      id: true,
-      firstName: true,
-      lastName: true,
-      email: true,
-      currentTitle: true,
-      designation: true,
-      cvSummary: true,
-      education: true,
-      skills: true,
-      city: true,
-      country: true,
-      createdAt: true,
-    },
-    orderBy: { createdAt: 'desc' },
+    select: candidateSearchSelect,
     take: SMART_SEARCH_MAX_IDS_IN_RESPONSE,
   });
 

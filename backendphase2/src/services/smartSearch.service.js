@@ -7,6 +7,7 @@ import {
   buildEntityInstructionsFromSchema,
   getEntitySchema,
   SCHEMA_ENUMS,
+  SEARCH_STOP_WORDS,
 } from './smartSearchSchema.config.js';
 
 const SMART_SEARCH_ENTITIES = new Set([
@@ -152,6 +153,19 @@ function buildSummary(keywords, entity) {
   return `Found ${keywords.length} keyword${keywords.length === 1 ? '' : 's'} — showing matching ${entity}`;
 }
 
+/** Skill/title words like "warehouse" do not need an LLM parse — DB text search is enough. */
+function isSimpleCandidateSkillPrompt(entity, prompt) {
+  if (entity !== 'candidates') return false;
+  const text = String(prompt || '').trim();
+  if (!text || text.length > 60) return false;
+  if (/[:=]/.test(text)) return false;
+  if (!/^[\p{L}\p{M}0-9\s.&/+#-]+$/u.test(text)) return false;
+  const tokens = text.split(/\s+/).filter(Boolean);
+  if (tokens.length < 1 || tokens.length > 4) return false;
+  const meaningful = tokens.filter((token) => token.length >= 2 && !SEARCH_STOP_WORDS.has(token.toLowerCase()));
+  return meaningful.length >= 1;
+}
+
 /**
  * Smart search: small AI call parses prompt → filters; tenant DB query returns matching ids.
  */
@@ -171,13 +185,46 @@ export async function parseSmartSearchPrompt({ entity, prompt, context = {}, req
     };
   }
 
+  const entityConfig = ENTITY_TENANT_LOADERS[normalizedEntity];
+  if (isSimpleCandidateSkillPrompt(normalizedEntity, trimmedPrompt) && entityConfig && req) {
+    const started = Date.now();
+    const filters = ensureFiltersHaveSearchText(
+      normalizeFilters({ searchText: trimmedPrompt }),
+      [{ kind: 'text', value: trimmedPrompt, label: trimmedPrompt }],
+      trimmedPrompt,
+    );
+    const dbResult = await executeSmartSearchDbQuery(normalizedEntity, filters, req);
+    const matchCount = dbResult.matchCount;
+    const matchingIdsResult =
+      dbResult.matchingIdsField && dbResult.matchingIds.length > 0
+        ? { [dbResult.matchingIdsField]: dbResult.matchingIds }
+        : {};
+    console.info('[smart-search] simple skill parse', {
+      prompt: trimmedPrompt.slice(0, 40),
+      matchCount,
+      ms: Date.now() - started,
+    });
+    return {
+      keywords: [{ kind: 'text', value: trimmedPrompt, label: trimmedPrompt }],
+      filters,
+      ...matchingIdsResult,
+      matchCount,
+      useFiltersOnly: dbResult.useFiltersOnly,
+      summary:
+        matchCount > 0
+          ? `Matched ${matchCount} candidate${matchCount === 1 ? '' : 's'} from your database`
+          : 'No candidates matched — try adjusting your prompt',
+      source: 'db',
+      searchMode: 'ai_parse_db_query',
+    };
+  }
+
   if (!hasLlmProvider()) {
     throw new Error('No LLM provider configured (set OPENAI_API_KEY or MISTRAL_API_KEY)');
   }
 
   let mergedContext = context && typeof context === 'object' ? { ...context } : {};
 
-  const entityConfig = ENTITY_TENANT_LOADERS[normalizedEntity];
   const lightLoader = SMART_SEARCH_LIGHT_LOADERS[normalizedEntity];
   let lightContext = null;
 
