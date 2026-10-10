@@ -803,11 +803,11 @@ function classifyCandidateSearch(search) {
   if (digitsOnly.length >= 7 && digitsOnly.length === nonDigitStripped.replace(/\D/g, '').length) {
     return { kind: 'phone', term, normalized: digitsOnly };
   }
-  // Letters only: 1–2 tokens are treated as a person name. Skill/CV phrases
-  // ("React developers in Bengaluru") must not use the name-only index path.
+  // First+last (or first+middle+last) stay on the name index. A single token
+  // like "warehouse" / "React" must search title, skills, and CV text.
   if (/^[\p{L}\p{M}\s.'.-]+$/u.test(term)) {
     const tokenCount = normalized.split(/\s+/).filter(Boolean).length;
-    if (tokenCount <= 2) return { kind: 'name', term, normalized };
+    if (tokenCount >= 2 && tokenCount <= 3) return { kind: 'name', term, normalized };
   }
   return { kind: 'general', term, normalized };
 }

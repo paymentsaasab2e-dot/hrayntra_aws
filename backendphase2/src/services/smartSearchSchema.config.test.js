@@ -23,3 +23,15 @@ test('candidate smart-search matches skills and CV summary text', () => {
   const bengaluruOr = clauses[1].OR;
   assert.ok(bengaluruOr.some((part) => part.city?.contains === 'Bengaluru'));
 });
+
+test('single skill word warehouse searches CV and skills, not as noise', () => {
+  assert.equal(SEARCH_STOP_WORDS.has('warehouse'), false);
+  const where = buildSchemaTextSearchWhere('candidates', 'warehouse');
+  assert.ok(where);
+  const orParts = where.OR || [];
+  assert.ok(orParts.some((part) => part.cvSummary?.contains === 'warehouse'));
+  assert.ok(
+    orParts.some((part) => Array.isArray(part.skills?.hasSome) && part.skills.hasSome.includes('warehouse')),
+  );
+  assert.ok(orParts.some((part) => part.currentTitle?.contains === 'warehouse'));
+});

@@ -26,7 +26,7 @@ export function classifyCandidateSearchInput(search: string): {
   if (/^[\p{L}\p{M}\s.'.-]+$/u.test(term)) {
     const tokenCount = term.toLowerCase().replace(/\s+/g, ' ').trim().split(/\s+/).filter(Boolean)
       .length;
-    if (tokenCount <= 2) return { kind: 'name', term };
+    if (tokenCount >= 2 && tokenCount <= 3) return { kind: 'name', term };
   }
   return { kind: 'general', term };
 }

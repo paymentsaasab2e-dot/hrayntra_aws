@@ -1222,9 +1222,11 @@ export function useCandidateList() {
       const stageChip = parsed.keywords.find((chip) => chip.kind === 'stage');
       const statusChip = parsed.keywords.find((chip) => chip.kind === 'status');
       const jobChip = parsed.keywords.find((chip) => chip.kind === 'client');
+      const nextSearch = [parsed.searchText, parsed.source].filter(Boolean).join(' ').trim();
+      setDebouncedSearch(effectiveCandidateSearchQuery(nextSearch));
       setFilters((prev) => ({
         ...prev,
-        search: [parsed.searchText, parsed.source].filter(Boolean).join(' ').trim(),
+        search: nextSearch,
         status: parsed.status || statusChip?.value || '',
       }));
       setColumnFilters({

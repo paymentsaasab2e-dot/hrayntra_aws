@@ -132,6 +132,19 @@ function normalizeFilters(raw = {}) {
   return out;
 }
 
+/** If the model left searchText empty, keep the prompt words so DB search still runs. */
+function ensureFiltersHaveSearchText(filters, keywords, prompt) {
+  const current = String(filters?.searchText || '').trim();
+  if (current) return filters;
+  const fromKeywords = (Array.isArray(keywords) ? keywords : [])
+    .filter((chip) => chip && String(chip.kind || 'text') === 'text')
+    .map((chip) => String(chip.value || chip.label || '').trim())
+    .filter(Boolean)
+    .join(' ');
+  const searchText = fromKeywords || String(prompt || '').trim();
+  return { ...filters, searchText };
+}
+
 function buildSummary(keywords, entity) {
   if (!keywords.length) {
     return `No keywords detected — matching full prompt in ${entity}`;
@@ -265,6 +278,7 @@ export async function parseSmartSearchPrompt({ entity, prompt, context = {}, req
     const normalized = entityConfig.normalize(filters, keywords, lightContext || {});
     filters = normalizeFilters(normalized.filters);
     keywords = normalized.keywords.map(normalizeKeyword).filter(Boolean);
+    filters = ensureFiltersHaveSearchText(filters, keywords, trimmedPrompt);
 
     const dbResult = await executeSmartSearchDbQuery(normalizedEntity, filters, req);
     matchCount = dbResult.matchCount;
