@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useMemo, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import type { DrillDownPayload, RecruitmentDashboardFilters } from '@/lib/dashboard/api';
 
 export type RecSectionId = 'insights' | 'pipeline' | 'team' | 'alerts';
@@ -84,6 +84,14 @@ export function RecDashboardProvider({
   const [hidden, setHidden] = useState<string[]>(() => normalizeRecHiddenSections(initialHidden));
   const [refreshKey, setRefreshKey] = useState(0);
   const [drillDown, setDrillDown] = useState<DrillDownPayload | null>(null);
+  const hiddenKey = normalizeRecHiddenSections(initialHidden).join('|');
+
+  useEffect(() => {
+    setHidden((prev) => {
+      const next = hiddenKey ? hiddenKey.split('|') : [];
+      return prev.join('|') === next.join('|') ? prev : next;
+    });
+  }, [hiddenKey]);
 
   const value = useMemo<RecDashboardContextValue>(
     () => ({

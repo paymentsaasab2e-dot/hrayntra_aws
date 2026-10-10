@@ -17,10 +17,22 @@ export function isClientReviewFileHref(value: string): boolean {
   return /\/client-review\/[^/]+\/(resume|files)\b/i.test(String(value || ''));
 }
 
-export function clientReviewResumeHref(token: string, matchId?: string): string {
+export function clientReviewResumeHref(
+  token: string,
+  matchId?: string,
+  format?: string,
+): string {
   const base = `/client-review/${token}/resume`;
+  const params = new URLSearchParams();
   const id = String(matchId || '').trim();
-  return id ? `${base}?matchId=${encodeURIComponent(id)}` : base;
+  const ext = String(format || '')
+    .trim()
+    .replace(/^\./, '')
+    .toLowerCase();
+  if (id) params.set('matchId', id);
+  if (ext && ext !== 'pdf') params.set('format', ext);
+  const query = params.toString();
+  return query ? `${base}?${query}` : base;
 }
 
 export function clientReviewFileHref(token: string, fileId: string, matchId?: string): string {
@@ -29,9 +41,29 @@ export function clientReviewFileHref(token: string, fileId: string, matchId?: st
   return id ? `${base}?matchId=${encodeURIComponent(id)}` : base;
 }
 
+function detectResumeFormatHint(value: string): string {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  try {
+    const format = new URL(raw, 'https://local.invalid').searchParams.get('format');
+    if (format) return String(format).trim().toLowerCase();
+  } catch {
+    /* ignore */
+  }
+  const extMatch = raw.split('?')[0].match(/\.(docx?|pdf|png|jpe?g|txt)($|[?#])/i);
+  return extMatch ? extMatch[1].toLowerCase() : '';
+}
+
 function maskDetail(detail: ClientReviewData, token: string): ClientReviewData {
   const matchId = String(detail.matchId || detail.activeMatchId || '').trim();
-  const resumeHref = clientReviewResumeHref(token, matchId);
+  const originalUrl = String(
+    detail.sharedResumeUrl || detail.candidate?.resume || '',
+  );
+  const resumeHref = clientReviewResumeHref(
+    token,
+    matchId,
+    detectResumeFormatHint(originalUrl),
+  );
   const next: ClientReviewData = { ...detail };
 
   if (isClientStorageUrl(String(next.sharedResumeUrl || ''))) next.sharedResumeUrl = resumeHref;

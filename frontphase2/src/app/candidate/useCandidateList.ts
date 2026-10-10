@@ -1222,9 +1222,11 @@ export function useCandidateList() {
       const stageChip = parsed.keywords.find((chip) => chip.kind === 'stage');
       const statusChip = parsed.keywords.find((chip) => chip.kind === 'status');
       const jobChip = parsed.keywords.find((chip) => chip.kind === 'client');
+      const nextSearch = [parsed.searchText, parsed.source].filter(Boolean).join(' ').trim();
+      setDebouncedSearch(effectiveCandidateSearchQuery(nextSearch));
       setFilters((prev) => ({
         ...prev,
-        search: [parsed.searchText, parsed.source].filter(Boolean).join(' ').trim(),
+        search: nextSearch,
         status: parsed.status || statusChip?.value || '',
       }));
       setColumnFilters({
@@ -1242,6 +1244,8 @@ export function useCandidateList() {
     },
     onRemoveKeyword: (removed, remaining) => {
       setCurrentPage(1);
+      // IDs were for the previous prompt. Keep using them after chip edits would ignore name/role search.
+      setSmartSearchCandidateIds([]);
       if (removed.kind === 'stage') {
         setColumnFilters((prev) => ({ ...prev, stage: '' }));
       }
@@ -1284,6 +1288,18 @@ export function useCandidateList() {
     candidateSmartSearch.clearSmartSearch();
     setCurrentPage(1);
   }, [candidateSmartSearch]);
+
+  const handleSearchInputChange = useCallback(
+    (value: string) => {
+      setCurrentPage(1);
+      setFilters((prev) => ({ ...prev, search: value }));
+      if (smartSearchCandidateIds.length > 0 || candidateSmartSearch.activeKeywords.length > 0) {
+        setSmartSearchCandidateIds([]);
+        candidateSmartSearch.clearSmartSearch();
+      }
+    },
+    [candidateSmartSearch, smartSearchCandidateIds.length],
+  );
 
   const handleColumnFiltersChange = useCallback((next: CandidateTableColumnFilters) => {
     setCurrentPage(1);
@@ -1378,6 +1394,9 @@ export function useCandidateList() {
 
   const filteredCandidates = useMemo(() => {
     if (candidateSmartSearch.activeKeywords.length === 0) return candidates;
+    // IDs already came from tenant DB + CV fields. A second chip pass on list-row
+    // haystacks dropped people whose match lived in cvSummary / work history.
+    if (smartSearchCandidateIds.length > 0) return candidates;
     return candidates.filter((candidate) =>
       candidateMatchesSmartKeywordChips(
         {
@@ -1413,7 +1432,7 @@ export function useCandidateList() {
         candidateSmartSearch.activeKeywords,
       ),
     );
-  }, [candidates, candidateSmartSearch.activeKeywords]);
+  }, [candidates, candidateSmartSearch.activeKeywords, smartSearchCandidateIds]);
   const { alertsByEntityId: workspaceAlertsByEntityId } = useWorkspaceEntityAlerts(
     'CANDIDATE',
     filteredCandidates.map((candidate) => candidate.id),
@@ -2649,6 +2668,7 @@ export function useCandidateList() {
     candidateSmartSearch,
     hasToolbarFilters,
     handleClearToolbar,
+    handleSearchInputChange,
     handleColumnFiltersChange,
     filteredCandidates,
     workspaceAlertsByEntityId,

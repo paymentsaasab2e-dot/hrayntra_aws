@@ -79,6 +79,17 @@ function countByStatus(groups, keys) {
   }, 0);
 }
 
+function sumGroupCounts(groups) {
+  return (groups || []).reduce((sum, g) => {
+    const n = Number(g._count?._all ?? g._count ?? 0);
+    return sum + (Number.isFinite(n) ? n : 0);
+  }, 0);
+}
+
+function emptyList() {
+  return Promise.resolve([]);
+}
+
 function prettyLabel(value) {
   return String(value || '')
     .replace(/_/g, ' ')
@@ -174,6 +185,9 @@ export async function getRecruitmentOverview(req) {
       : range.key === 'last_7_days' || range.key === 'week' || range.key === 'this_week'
         ? 7
         : 14;
+
+  const section = String(q.section || q.category || 'insights').trim().toLowerCase();
+  const needRecordTables = section === 'pipeline' || section === 'team' || section === 'all';
 
   const jobOwnerFilter = assignedTo
     ? {
@@ -271,11 +285,32 @@ export async function getRecruitmentOverview(req) {
     entityType: { in: ['JOB', 'CANDIDATE', 'INTERVIEW', 'PLACEMENT'] },
     ...(assignedTo ? { performedById: assignedTo } : {}),
   };
-  try {
-    activityWhere = await appendEntityActivityVisibilityToWhere(activityWhere, viewerId);
-  } catch {
-    if (viewerId) activityWhere.performedById = viewerId;
+  if (needRecordTables) {
+    try {
+      activityWhere = await appendEntityActivityVisibilityToWhere(activityWhere, viewerId);
+    } catch {
+      if (viewerId) activityWhere.performedById = viewerId;
+    }
   }
+
+  const jobRowSelect = {
+    id: true,
+    title: true,
+    status: true,
+    openings: true,
+    department: true,
+    location: true,
+    priority: true,
+    hot: true,
+    noCandidates: true,
+    slaRisk: true,
+    postedDate: true,
+    createdAt: true,
+    updatedAt: true,
+    client: { select: { companyName: true } },
+    assignedTo: { select: { firstName: true, lastName: true, email: true } },
+    _count: { select: { matches: true, interviews: true, placements: true } },
+  };
 
   const [
     jobStatusGroups,
@@ -284,33 +319,14 @@ export async function getRecruitmentOverview(req) {
     placementStatusGroups,
     candidateSourceGroups,
     jobsByDepartment,
-    totalJobs,
-    openJobs,
-    draftJobs,
-    onHoldJobs,
-    closedJobs,
-    filledJobs,
     hotJobs,
     jobsNoCandidates,
     jobsSlaRisk,
-    totalCandidates,
-    newCandidates,
     newCandidatesToday,
     newCandidatesInPeriod,
-    activeCandidates,
-    placedCandidates,
-    inactiveCandidates,
     interviewsToday,
     interviewsUpcoming,
     interviewsOverdueFeedback,
-    totalInterviews,
-    completedInterviews,
-    cancelledInterviews,
-    totalPlacements,
-    offersSent,
-    offersAccepted,
-    joinedPlacements,
-    pendingPlacements,
     placementRevenueAgg,
     recentJobsCreated,
     teamUsers,
@@ -320,33 +336,29 @@ export async function getRecruitmentOverview(req) {
     placementRows,
     upcomingInterviewRows,
     recentActivities,
+    clientIdGroups,
+    recentCandidatesCreated,
+    overdueFeedbackRows,
+    emptyJobRows,
+    slaJobRows,
   ] = await Promise.all([
     prisma.job.groupBy({ by: ['status'], where: jobBase, _count: { _all: true } }).catch(() => []),
     prisma.candidate.groupBy({ by: ['status'], where: candidateBase, _count: { _all: true } }).catch(() => []),
     prisma.interview.groupBy({ by: ['status'], where: interviewBase, _count: { _all: true } }).catch(() => []),
     prisma.placement.groupBy({ by: ['status'], where: placementBase, _count: { _all: true } }).catch(() => []),
     prisma.candidate.groupBy({ by: ['source'], where: candidatePeriod, _count: { _all: true } }).catch(() => []),
-    prisma.job
-      .groupBy({ by: ['department'], where: { ...jobBase, status: 'OPEN' }, _count: { _all: true } })
-      .catch(() => []),
-    prisma.job.count({ where: jobBase }).catch(() => 0),
-    prisma.job.count({ where: { ...jobBase, status: 'OPEN' } }).catch(() => 0),
-    prisma.job.count({ where: { ...jobBase, status: 'DRAFT' } }).catch(() => 0),
-    prisma.job.count({ where: { ...jobBase, status: 'ON_HOLD' } }).catch(() => 0),
-    prisma.job.count({ where: { ...jobBase, status: { in: ['CLOSED', 'FILLED'] } } }).catch(() => 0),
-    prisma.job.count({ where: { ...jobBase, status: 'FILLED' } }).catch(() => 0),
+    needRecordTables
+      ? prisma.job
+          .groupBy({ by: ['department'], where: { ...jobBase, status: 'OPEN' }, _count: { _all: true } })
+          .catch(() => [])
+      : emptyList(),
     prisma.job.count({ where: { ...jobBase, hot: true, status: 'OPEN' } }).catch(() => 0),
     prisma.job.count({ where: { ...jobBase, status: 'OPEN', noCandidates: true } }).catch(() => 0),
     prisma.job.count({ where: { ...jobBase, status: 'OPEN', slaRisk: true } }).catch(() => 0),
-    prisma.candidate.count({ where: candidateBase }).catch(() => 0),
-    prisma.candidate.count({ where: { ...candidateBase, status: 'NEW' } }).catch(() => 0),
     prisma.candidate
       .count({ where: { ...candidateBase, createdAt: { gte: startOfToday, lte: endOfToday } } })
       .catch(() => 0),
     prisma.candidate.count({ where: candidatePeriod }).catch(() => 0),
-    prisma.candidate.count({ where: { ...candidateBase, status: 'ACTIVE' } }).catch(() => 0),
-    prisma.candidate.count({ where: { ...candidateBase, status: 'PLACED' } }).catch(() => 0),
-    prisma.candidate.count({ where: { ...candidateBase, status: 'INACTIVE' } }).catch(() => 0),
     prisma.interview
       .count({
         where: {
@@ -374,22 +386,6 @@ export async function getRecruitmentOverview(req) {
         },
       })
       .catch(() => 0),
-    prisma.interview.count({ where: interviewBase }).catch(() => 0),
-    prisma.interview
-      .count({ where: { ...interviewBase, status: { in: ['COMPLETED', 'FEEDBACK_SUBMITTED'] } } })
-      .catch(() => 0),
-    prisma.interview.count({ where: { ...interviewBase, status: 'CANCELLED' } }).catch(() => 0),
-    prisma.placement.count({ where: placementBase }).catch(() => 0),
-    prisma.placement.count({ where: { ...placementBase, status: 'OFFER_SENT' } }).catch(() => 0),
-    prisma.placement
-      .count({ where: { ...placementBase, status: { in: ['OFFER_ACCEPTED', 'JOINING_SCHEDULED', 'JOINED', 'ACTIVE', 'COMPLETED'] } } })
-      .catch(() => 0),
-    prisma.placement
-      .count({ where: { ...placementBase, status: { in: ['JOINED', 'ACTIVE', 'COMPLETED'] } } })
-      .catch(() => 0),
-    prisma.placement
-      .count({ where: { ...placementBase, status: { in: ['PENDING', 'OFFER_SENT', 'OFFER_ACCEPTED', 'JOINING_SCHEDULED'] } } })
-      .catch(() => 0),
     prisma.placement
       .aggregate({
         where: placementBase,
@@ -406,7 +402,7 @@ export async function getRecruitmentOverview(req) {
           },
         },
         select: { createdAt: true },
-        take: 800,
+        take: 400,
       })
       .catch(() => []),
     prisma.user
@@ -417,91 +413,82 @@ export async function getRecruitmentOverview(req) {
         orderBy: { firstName: 'asc' },
       })
       .catch(() => []),
-    prisma.job
-      .findMany({
-        where: jobBase,
-        take: 80,
-        orderBy: { updatedAt: 'desc' },
-        select: {
-          id: true,
-          title: true,
-          status: true,
-          openings: true,
-          department: true,
-          location: true,
-          priority: true,
-          hot: true,
-          noCandidates: true,
-          slaRisk: true,
-          postedDate: true,
-          createdAt: true,
-          updatedAt: true,
-          client: { select: { companyName: true } },
-          assignedTo: { select: { firstName: true, lastName: true, email: true } },
-          _count: { select: { matches: true, interviews: true, placements: true } },
-        },
-      })
-      .catch(() => []),
-    prisma.candidate
-      .findMany({
-        where: candidateBase,
-        take: 80,
-        orderBy: { updatedAt: 'desc' },
-        select: {
-          id: true,
-          firstName: true,
-          lastName: true,
-          email: true,
-          phone: true,
-          status: true,
-          source: true,
-          location: true,
-          currentTitle: true,
-          currentCompany: true,
-          experience: true,
-          experienceYears: true,
-          createdAt: true,
-          updatedAt: true,
-          assignedTo: { select: { firstName: true, lastName: true, email: true } },
-        },
-      })
-      .catch(() => []),
-    prisma.interview
-      .findMany({
-        where: interviewBase,
-        take: 80,
-        orderBy: { scheduledAt: 'desc' },
-        select: {
-          id: true,
-          status: true,
-          round: true,
-          scheduledAt: true,
-          createdAt: true,
-          candidate: { select: { firstName: true, lastName: true } },
-          job: { select: { title: true } },
-        },
-      })
-      .catch(() => []),
-    prisma.placement
-      .findMany({
-        where: placementBase,
-        take: 80,
-        orderBy: { updatedAt: 'desc' },
-        select: {
-          id: true,
-          status: true,
-          revenue: true,
-          placementFee: true,
-          offerDate: true,
-          joiningDate: true,
-          createdAt: true,
-          updatedAt: true,
-          candidate: { select: { firstName: true, lastName: true } },
-          client: { select: { companyName: true } },
-          job: { select: { title: true } },
-        },
-      })
-      .catch(() => []),
+    needRecordTables
+      ? prisma.job
+          .findMany({
+            where: jobBase,
+            take: 80,
+            orderBy: { updatedAt: 'desc' },
+            select: jobRowSelect,
+          })
+          .catch(() => [])
+      : emptyList(),
+    needRecordTables
+      ? prisma.candidate
+          .findMany({
+            where: candidateBase,
+            take: 80,
+            orderBy: { updatedAt: 'desc' },
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+              phone: true,
+              status: true,
+              source: true,
+              location: true,
+              currentTitle: true,
+              currentCompany: true,
+              experience: true,
+              experienceYears: true,
+              createdAt: true,
+              updatedAt: true,
+              assignedTo: { select: { firstName: true, lastName: true, email: true } },
+            },
+          })
+          .catch(() => [])
+      : emptyList(),
+    needRecordTables
+      ? prisma.interview
+          .findMany({
+            where: interviewBase,
+            take: 80,
+            orderBy: { scheduledAt: 'desc' },
+            select: {
+              id: true,
+              status: true,
+              round: true,
+              scheduledAt: true,
+              createdAt: true,
+              candidate: { select: { firstName: true, lastName: true } },
+              job: { select: { title: true } },
+            },
+          })
+          .catch(() => [])
+      : emptyList(),
+    needRecordTables
+      ? prisma.placement
+          .findMany({
+            where: placementBase,
+            take: 80,
+            orderBy: { updatedAt: 'desc' },
+            select: {
+              id: true,
+              status: true,
+              revenue: true,
+              placementFee: true,
+              offerDate: true,
+              joiningDate: true,
+              createdAt: true,
+              updatedAt: true,
+              candidate: { select: { firstName: true, lastName: true } },
+              client: { select: { companyName: true } },
+              job: { select: { title: true } },
+            },
+          })
+          .catch(() => [])
+      : emptyList(),
     prisma.interview
       .findMany({
         where: {
@@ -521,45 +508,27 @@ export async function getRecruitmentOverview(req) {
         },
       })
       .catch(() => []),
-    prisma.activity
-      .findMany({
-        where: activityWhere,
-        take: 20,
-        orderBy: { createdAt: 'desc' },
-        select: {
-          id: true,
-          action: true,
-          description: true,
-          category: true,
-          entityType: true,
-          createdAt: true,
-          performedBy: { select: { firstName: true, lastName: true, email: true } },
-        },
-      })
-      .catch(() => []),
-  ]);
-
-  const jobRowSelect = {
-    id: true,
-    title: true,
-    status: true,
-    openings: true,
-    department: true,
-    location: true,
-    priority: true,
-    hot: true,
-    noCandidates: true,
-    slaRisk: true,
-    postedDate: true,
-    createdAt: true,
-    updatedAt: true,
-    client: { select: { companyName: true } },
-    assignedTo: { select: { firstName: true, lastName: true, email: true } },
-    _count: { select: { matches: true, interviews: true, placements: true } },
-  };
-
-  const [clientIdGroups, recentCandidatesCreated, overdueFeedbackRows, emptyJobRows, slaJobRows] = await Promise.all([
-    prisma.job.groupBy({ by: ['clientId'], where: jobBase, _count: { _all: true } }).catch(() => []),
+    needRecordTables
+      ? prisma.activity
+          .findMany({
+            where: activityWhere,
+            take: 20,
+            orderBy: { createdAt: 'desc' },
+            select: {
+              id: true,
+              action: true,
+              description: true,
+              category: true,
+              entityType: true,
+              createdAt: true,
+              performedBy: { select: { firstName: true, lastName: true, email: true } },
+            },
+          })
+          .catch(() => [])
+      : emptyList(),
+    needRecordTables
+      ? prisma.job.groupBy({ by: ['clientId'], where: jobBase, _count: { _all: true } }).catch(() => [])
+      : emptyList(),
     prisma.candidate
       .findMany({
         where: {
@@ -567,7 +536,7 @@ export async function getRecruitmentOverview(req) {
           createdAt: { gte: sparkStart, ...(range.end ? { lte: range.end } : {}) },
         },
         select: { createdAt: true, source: true },
-        take: 800,
+        take: 400,
       })
       .catch(() => []),
     prisma.interview
@@ -606,6 +575,37 @@ export async function getRecruitmentOverview(req) {
         select: jobRowSelect,
       })
       .catch(() => []),
+  ]);
+
+  const totalJobs = sumGroupCounts(jobStatusGroups);
+  const openJobs = countByStatus(jobStatusGroups, ['OPEN']);
+  const draftJobs = countByStatus(jobStatusGroups, ['DRAFT']);
+  const onHoldJobs = countByStatus(jobStatusGroups, ['ON_HOLD', 'ONHOLD']);
+  const filledJobs = countByStatus(jobStatusGroups, ['FILLED']);
+  const closedJobs = countByStatus(jobStatusGroups, ['CLOSED', 'FILLED']);
+  const totalCandidates = sumGroupCounts(candidateStatusGroups);
+  const newCandidates = countByStatus(candidateStatusGroups, ['NEW']);
+  const activeCandidates = countByStatus(candidateStatusGroups, ['ACTIVE']);
+  const placedCandidates = countByStatus(candidateStatusGroups, ['PLACED']);
+  const inactiveCandidates = countByStatus(candidateStatusGroups, ['INACTIVE']);
+  const totalInterviews = sumGroupCounts(interviewStatusGroups);
+  const completedInterviews = countByStatus(interviewStatusGroups, ['COMPLETED', 'FEEDBACK_SUBMITTED']);
+  const cancelledInterviews = countByStatus(interviewStatusGroups, ['CANCELLED']);
+  const totalPlacements = sumGroupCounts(placementStatusGroups);
+  const offersSent = countByStatus(placementStatusGroups, ['OFFER_SENT']);
+  const offersAccepted = countByStatus(placementStatusGroups, [
+    'OFFER_ACCEPTED',
+    'JOINING_SCHEDULED',
+    'JOINED',
+    'ACTIVE',
+    'COMPLETED',
+  ]);
+  const joinedPlacements = countByStatus(placementStatusGroups, ['JOINED', 'ACTIVE', 'COMPLETED']);
+  const pendingPlacements = countByStatus(placementStatusGroups, [
+    'PENDING',
+    'OFFER_SENT',
+    'OFFER_ACCEPTED',
+    'JOINING_SCHEDULED',
   ]);
 
   const mergeById = (primary = [], extra = []) => {

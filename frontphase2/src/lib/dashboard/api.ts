@@ -569,6 +569,9 @@ export type RecruitmentDashboardFilters = {
   endDate?: string;
   scope?: 'self' | 'full';
   orgUnitId?: string;
+  /** insights skips pipeline record tables; pipeline/team load the full payload. */
+  section?: string;
+  category?: string;
 };
 
 export function normalizeRecruitmentOverview(raw: unknown): RecruitmentOverview | null {

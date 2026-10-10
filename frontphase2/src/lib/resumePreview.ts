@@ -44,11 +44,22 @@ export function isTextResume(resumeUrl?: string | null): boolean {
   return getResumeExtension(resumeUrl) === 'txt';
 }
 
-/** Path clearly references Word (even when the key also contains ".pdf" as text). */
+/** Path or `format=` query clearly references Word (client-review resumes use format=docx). */
 export function urlIndicatesWordResume(resumeUrl?: string | null): boolean {
-  const path = String(resumeUrl || '').split('?')[0].split('#')[0].toLowerCase();
+  const raw = String(resumeUrl || '').trim();
+  if (!raw) return false;
+  const path = raw.split('?')[0].split('#')[0].toLowerCase();
   if (/\.docx($|[?#/])/.test(path) || path.endsWith('.docx')) return true;
   if (/\.doc($|[?#/])/.test(path) && !/\.docx/.test(path)) return true;
+  try {
+    const query = raw.includes('?') ? new URL(raw, 'https://local.invalid').searchParams : null;
+    const format = String(query?.get('format') || '')
+      .trim()
+      .toLowerCase();
+    if (format === 'docx' || format === 'doc') return true;
+  } catch {
+    /* ignore */
+  }
   return false;
 }
 
@@ -79,9 +90,23 @@ export function isPdfResume(resumeUrl?: string | null): boolean {
   return isExtensionlessResumeStoragePath(trimmed);
 }
 
+function isClientReviewResumeProxyUrl(resumeUrl?: string | null): boolean {
+  const href = String(resumeUrl || '');
+  return (
+    /\/client-review\/[^/]+\/resume(?:\?|$|\/)/i.test(href) ||
+    /\/interviews\/public\/review\/[^/]+\/resume(?:\?|$|\/)/i.test(href)
+  );
+}
+
 /** Which inline renderer to use in the candidate drawer Resume tab. */
 export function resolveResumePreviewKind(resumeUrl?: string | null): ResumePreviewMode {
   if (!String(resumeUrl || '').trim()) return 'none';
+  // Client-review Word links: use the resume proxy as PDF (Word/LibreOffice → PDF)
+  // so page width matches the candidate drawer / “Open in new tab” viewer.
+  // Built-in docx-preview stretches columns to 100% and looks wrong here.
+  if (isClientReviewResumeProxyUrl(resumeUrl) && isWordResume(resumeUrl)) {
+    return 'pdf';
+  }
   if (canPreviewResumeAsHtml(resumeUrl)) return 'html';
   if (isImageResume(resumeUrl)) return 'image';
   if (isTextResume(resumeUrl)) return 'text';
@@ -172,6 +197,20 @@ export function buildResumeHtmlPreviewUrl(resumeUrl: string): string {
 /** Same-origin proxy for raw DOCX bytes (client-side docx-preview). */
 export function buildResumeDocxBytesUrl(resumeUrl: string): string {
   const base = normalizeResumeHref(resumeUrl.split('#')[0] || resumeUrl);
+  // Public client-review resume route already streams the file — ask for raw bytes
+  // so we do not run Microsoft Word→PDF (unavailable on Linux hosts).
+  if (
+    /\/client-review\/[^/]+\/resume(?:\?|$|\/)/i.test(base) ||
+    /\/interviews\/public\/review\/[^/]+\/resume(?:\?|$|\/)/i.test(base)
+  ) {
+    try {
+      const url = new URL(base, 'https://local.invalid');
+      url.searchParams.set('raw', '1');
+      return `${url.pathname}${url.search}`;
+    } catch {
+      return base.includes('?') ? `${base}&raw=1` : `${base}?raw=1`;
+    }
+  }
   const params = new URLSearchParams({ url: base });
   const ext = getResumeExtension(base);
   if (ext === 'docx' || ext === 'doc') params.set('format', ext);
@@ -225,6 +264,9 @@ export function buildOfficeOnlineEmbedUrl(docxFileUrl: string): string {
 export function canEmbedOfficeOnlineForResume(resumeUrl?: string | null): boolean {
   const href = normalizeResumeHref(String(resumeUrl || '').split('#')[0]);
   if (!href || !isWordResume(href)) return false;
+  // Tokenized client-review links: use built-in docx-preview (faster, no Office round-trip).
+  if (/\/client-review\/[^/]+\/resume(?:\?|$|\/)/i.test(href)) return false;
+  if (/\/interviews\/public\/review\/[^/]+\/resume(?:\?|$|\/)/i.test(href)) return false;
   if (/^https:\/\//i.test(href)) return true;
   const origin = getResumePreviewAppOrigin();
   return Boolean(origin && /^https:\/\//i.test(origin));

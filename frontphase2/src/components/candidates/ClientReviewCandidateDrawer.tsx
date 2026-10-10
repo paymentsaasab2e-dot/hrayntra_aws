@@ -271,7 +271,7 @@ export function ClientReviewCandidateDrawer({
           ) : null}
 
           {canOpenResume && !hasCvPreview && !showSaasaComposite ? (
-            <div className="min-h-0 flex-1 overflow-hidden rounded-2xl border border-indigo-100/80 bg-white shadow-[0_10px_30px_-18px_rgba(79,70,229,0.28)] ring-1 ring-indigo-500/5">
+            <div className="flex min-h-[70vh] min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-indigo-100/80 bg-slate-100 shadow-[0_10px_30px_-18px_rgba(79,70,229,0.28)] ring-1 ring-indigo-500/5">
               <ResumeInlinePreview
                 resumeUrl={sharedResumeUrl}
                 candidateName={displayName}

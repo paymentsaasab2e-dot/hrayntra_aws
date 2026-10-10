@@ -58,11 +58,13 @@ export function useSmartSearch<TParsed extends { keywords: SmartSearchKeywordChi
             matchingLeadIds?: string[];
             matchingJobIds?: string[];
             matchingClientIds?: string[];
+            matchingCandidateIds?: string[];
           };
           const matched =
             aiParsed.matchingLeadIds?.length ??
             aiParsed.matchingJobIds?.length ??
             aiParsed.matchingClientIds?.length ??
+            aiParsed.matchingCandidateIds?.length ??
             0;
           const tenantHint =
             usedAi && matched > 0
@@ -93,8 +95,9 @@ export function useSmartSearch<TParsed extends { keywords: SmartSearchKeywordChi
   );
 
   const handleApply = useCallback(() => {
+    if (applying) return;
     void applyPrompt(prompt);
-  }, [applyPrompt, prompt]);
+  }, [applyPrompt, prompt, applying]);
 
   const handleExample = useCallback(
     (query: string) => {

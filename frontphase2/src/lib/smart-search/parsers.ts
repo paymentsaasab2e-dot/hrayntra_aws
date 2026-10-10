@@ -16,6 +16,8 @@ import {
 const BASE_STOP_WORDS = new Set([
   'a', 'an', 'the', 'and', 'or', 'with', 'from', 'in', 'on', 'at', 'to', 'for', 'of', 'me', 'my', 'all', 'any',
   'show', 'find', 'search', 'filter', 'get', 'list', 'having', 'that', 'who', 'are', 'is', 'was', 'be',
+  'relevant', 'matching', 'match', 'please',
+  'cv', 'cvs', 'resume', 'resumes', 'profile', 'profiles',
 ]);
 
 function emptyParse(entityLabel: string): SmartSearchParseBase {
@@ -503,7 +505,14 @@ export function parseCandidatesSmartSearchPrompt(
 
   const keywords: SmartSearchKeywordChip[] = [];
   const consumed: string[] = [];
-  const stopWords = new Set([...BASE_STOP_WORDS, 'candidate', 'candidates']);
+  const stopWords = new Set([
+    ...BASE_STOP_WORDS,
+    'candidate',
+    'candidates',
+    'people',
+    'person',
+    'talent',
+  ]);
 
   const stageMatch = prompt.match(/\bstage\s*[:=]\s*([a-z]+)/i);
   const stageValue =

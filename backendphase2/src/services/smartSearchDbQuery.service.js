@@ -373,21 +373,37 @@ async function queryCandidateIds(filters, req) {
   const searchText = String(filters.searchText || '').trim();
   const searchFilter = buildSchemaTextSearchWhere('candidates', searchText);
   if (searchFilter) andParts.push(searchFilter);
+  const hasStructured =
+    Boolean(filters.ownerId && isValidObjectId(filters.ownerId)) ||
+    Boolean(String(filters.status || '').trim()) ||
+    Boolean(String(filters.stage || '').trim()) ||
+    Boolean(String(filters.company || '').trim()) ||
+    Boolean(String(filters.location || '').trim()) ||
+    Boolean(String(filters.jobId || '').trim()) ||
+    Boolean(String(filters.source || '').trim()) ||
+    Boolean(String(filters.experienceRange || '').trim());
+  if (!searchFilter && !hasStructured) {
+    return [];
+  }
 
+  const candidateSearchSelect = {
+    id: true,
+    firstName: true,
+    lastName: true,
+    email: true,
+    currentTitle: true,
+    designation: true,
+    cvSummary: true,
+    education: true,
+    skills: true,
+    city: true,
+    country: true,
+    createdAt: true,
+  };
+  // No orderBy: regex + sort-all-matches is what made warehouse take ~2.5 minutes.
   const rows = await prisma.candidate.findMany({
     where: buildWhereFromAndParts(andParts),
-    select: {
-      id: true,
-      firstName: true,
-      lastName: true,
-      email: true,
-      currentTitle: true,
-      skills: true,
-      city: true,
-      country: true,
-      createdAt: true,
-    },
-    orderBy: { createdAt: 'desc' },
+    select: candidateSearchSelect,
     take: SMART_SEARCH_MAX_IDS_IN_RESPONSE,
   });
 
@@ -400,8 +416,13 @@ async function queryCandidateIds(filters, req) {
       id: row.id,
       score: scoreFieldRelevance(searchText, {
         primary: `${row.firstName || ''} ${row.lastName || ''}`.trim() || row.email,
-        secondary: [row.email, row.currentTitle, ...(Array.isArray(row.skills) ? row.skills : [])],
-        tertiary: [row.city, row.country],
+        secondary: [
+          row.email,
+          row.currentTitle,
+          row.designation,
+          ...(Array.isArray(row.skills) ? row.skills : []),
+        ],
+        tertiary: [row.cvSummary, row.education, row.city, row.country],
       }),
       createdAt: row.createdAt,
     }))

@@ -407,6 +407,7 @@ export function CandidateListPage() {
     candidateSmartSearch,
     hasToolbarFilters,
     handleClearToolbar,
+    handleSearchInputChange,
     handleColumnFiltersChange,
     filteredCandidates,
     workspaceAlertsByEntityId,
@@ -689,10 +690,7 @@ export function CandidateListPage() {
                         type="text"
                         placeholder="Search name or email…"
                         value={filters.search}
-                        onChange={(e) => {
-                          setCurrentPage(1);
-                          setFilters((prev) => ({ ...prev, search: e.target.value }));
-                        }}
+                        onChange={(e) => handleSearchInputChange(e.target.value)}
                         className="h-9 w-full rounded-xl border border-indigo-100/90 bg-white/95 pl-10 pr-3 text-xs text-slate-800 shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)] placeholder:text-slate-400 transition-all focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
                       />
             </div>
@@ -883,12 +881,18 @@ export function CandidateListPage() {
                   onDeselect={() => setSelectedIds([])}
                 />
                     <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-                      {tableLoading ? (
+                      {tableLoading || candidateSmartSearch.applying ? (
                         <div
-                          className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-white/60 backdrop-blur-[1px]"
-                          aria-hidden
+                          className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-white/80 backdrop-blur-[1px]"
+                          role="status"
+                          aria-live="polite"
                         >
                           <RefreshCcw size={22} className="animate-spin text-indigo-500" strokeWidth={2.25} />
+                          <p className="text-sm font-medium text-indigo-800">
+                            {candidateSmartSearch.applying
+                              ? 'Searching candidates… please wait'
+                              : 'Loading candidates…'}
+                          </p>
                         </div>
                       ) : null}
                       <div className={PH2_TABLE_BODY_SCROLL_CLASS}>

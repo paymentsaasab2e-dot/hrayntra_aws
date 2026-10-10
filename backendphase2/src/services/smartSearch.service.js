@@ -7,6 +7,7 @@ import {
   buildEntityInstructionsFromSchema,
   getEntitySchema,
   SCHEMA_ENUMS,
+  SEARCH_STOP_WORDS,
 } from './smartSearchSchema.config.js';
 
 const SMART_SEARCH_ENTITIES = new Set([
@@ -132,11 +133,38 @@ function normalizeFilters(raw = {}) {
   return out;
 }
 
+/** If the model left searchText empty, keep the prompt words so DB search still runs. */
+function ensureFiltersHaveSearchText(filters, keywords, prompt) {
+  const current = String(filters?.searchText || '').trim();
+  if (current) return filters;
+  const fromKeywords = (Array.isArray(keywords) ? keywords : [])
+    .filter((chip) => chip && String(chip.kind || 'text') === 'text')
+    .map((chip) => String(chip.value || chip.label || '').trim())
+    .filter(Boolean)
+    .join(' ');
+  const searchText = fromKeywords || String(prompt || '').trim();
+  return { ...filters, searchText };
+}
+
 function buildSummary(keywords, entity) {
   if (!keywords.length) {
     return `No keywords detected — matching full prompt in ${entity}`;
   }
   return `Found ${keywords.length} keyword${keywords.length === 1 ? '' : 's'} — showing matching ${entity}`;
+}
+
+/** Skill/title words like "warehouse" do not need an LLM parse — DB text search is enough. */
+function isSimpleCandidateSkillPrompt(entity, prompt) {
+  if (entity !== 'candidates') return false;
+  const text = String(prompt || '').trim();
+  if (!text || text.length > 60) return false;
+  if (/[:=]/.test(text)) return false;
+  if (!/^[\p{L}\p{M}0-9\s.&/+#-]+$/u.test(text)) return false;
+  const tokens = text.split(/\s+/).filter(Boolean);
+  // One token only ("warehouse", "director"). Two+ tokens may be a person name.
+  if (tokens.length !== 1) return false;
+  const token = tokens[0];
+  return token.length >= 2 && !SEARCH_STOP_WORDS.has(token.toLowerCase());
 }
 
 /**
@@ -158,13 +186,46 @@ export async function parseSmartSearchPrompt({ entity, prompt, context = {}, req
     };
   }
 
+  const entityConfig = ENTITY_TENANT_LOADERS[normalizedEntity];
+  if (isSimpleCandidateSkillPrompt(normalizedEntity, trimmedPrompt) && entityConfig && req) {
+    const started = Date.now();
+    const filters = ensureFiltersHaveSearchText(
+      normalizeFilters({ searchText: trimmedPrompt }),
+      [{ kind: 'text', value: trimmedPrompt, label: trimmedPrompt }],
+      trimmedPrompt,
+    );
+    const dbResult = await executeSmartSearchDbQuery(normalizedEntity, filters, req);
+    const matchCount = dbResult.matchCount;
+    const matchingIdsResult =
+      dbResult.matchingIdsField && dbResult.matchingIds.length > 0
+        ? { [dbResult.matchingIdsField]: dbResult.matchingIds }
+        : {};
+    console.info('[smart-search] simple skill parse', {
+      prompt: trimmedPrompt.slice(0, 40),
+      matchCount,
+      ms: Date.now() - started,
+    });
+    return {
+      keywords: [{ kind: 'text', value: trimmedPrompt, label: trimmedPrompt }],
+      filters,
+      ...matchingIdsResult,
+      matchCount,
+      useFiltersOnly: dbResult.useFiltersOnly,
+      summary:
+        matchCount > 0
+          ? `Matched ${matchCount} candidate${matchCount === 1 ? '' : 's'} from your database`
+          : 'No candidates matched — try adjusting your prompt',
+      source: 'db',
+      searchMode: 'ai_parse_db_query',
+    };
+  }
+
   if (!hasLlmProvider()) {
     throw new Error('No LLM provider configured (set OPENAI_API_KEY or MISTRAL_API_KEY)');
   }
 
   let mergedContext = context && typeof context === 'object' ? { ...context } : {};
 
-  const entityConfig = ENTITY_TENANT_LOADERS[normalizedEntity];
   const lightLoader = SMART_SEARCH_LIGHT_LOADERS[normalizedEntity];
   let lightContext = null;
 
@@ -265,6 +326,7 @@ export async function parseSmartSearchPrompt({ entity, prompt, context = {}, req
     const normalized = entityConfig.normalize(filters, keywords, lightContext || {});
     filters = normalizeFilters(normalized.filters);
     keywords = normalized.keywords.map(normalizeKeyword).filter(Boolean);
+    filters = ensureFiltersHaveSearchText(filters, keywords, trimmedPrompt);
 
     const dbResult = await executeSmartSearchDbQuery(normalizedEntity, filters, req);
     matchCount = dbResult.matchCount;

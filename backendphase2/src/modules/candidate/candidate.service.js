@@ -803,9 +803,11 @@ function classifyCandidateSearch(search) {
   if (digitsOnly.length >= 7 && digitsOnly.length === nonDigitStripped.replace(/\D/g, '').length) {
     return { kind: 'phone', term, normalized: digitsOnly };
   }
-  // Letters / name-like (including multi-word). Short tokens stay "name".
+  // First+last (or first+middle+last) stay on the name index. A single token
+  // like "warehouse" / "React" must search title, skills, and CV text.
   if (/^[\p{L}\p{M}\s.'.-]+$/u.test(term)) {
-    return { kind: 'name', term, normalized };
+    const tokenCount = normalized.split(/\s+/).filter(Boolean).length;
+    if (tokenCount >= 2 && tokenCount <= 3) return { kind: 'name', term, normalized };
   }
   return { kind: 'general', term, normalized };
 }
@@ -887,20 +889,26 @@ function buildCandidateSearchWhereClause(search) {
     return { OR: nameOr };
   }
 
-  // General (mixed symbols): identity + role fields only — never cvSummary/notes in list search.
-  return {
-    OR: [
-      { nameNormalized: { contains: escapedNorm, mode: 'insensitive' } },
-      { firstName: { contains: escaped, mode: 'insensitive' } },
-      { lastName: { contains: escaped, mode: 'insensitive' } },
-      { email: { contains: escaped, mode: 'insensitive' } },
-      { phone: { contains: escaped, mode: 'insensitive' } },
-      { currentTitle: { contains: escaped, mode: 'insensitive' } },
-      { currentCompany: { contains: escaped, mode: 'insensitive' } },
-      { designation: { contains: escaped, mode: 'insensitive' } },
-      { skills: { hasSome: [classified.term] } },
-    ],
-  };
+  // Skill / CV phrases: every token must hit identity, role, skills, or CV text.
+  const tokens = classified.normalized.split(/\s+/).filter((token) => token.length >= 2);
+  const effectiveTokens = tokens.length ? tokens : [classified.normalized || classified.term];
+  const tokenClauses = effectiveTokens.map((token) => {
+    const escapedToken = escapePrismaRegex(token);
+    return {
+      OR: [
+        { currentTitle: { contains: escapedToken, mode: 'insensitive' } },
+        { currentCompany: { contains: escapedToken, mode: 'insensitive' } },
+        { designation: { contains: escapedToken, mode: 'insensitive' } },
+        { education: { contains: escapedToken, mode: 'insensitive' } },
+        { cvSummary: { contains: escapedToken, mode: 'insensitive' } },
+        { city: { contains: escapedToken, mode: 'insensitive' } },
+        { location: { contains: escapedToken, mode: 'insensitive' } },
+        { skills: { hasSome: [token] } },
+        { recruiterSkills: { hasSome: [token] } },
+      ],
+    };
+  });
+  return tokenClauses.length === 1 ? tokenClauses[0] : { AND: tokenClauses };
 }
 
 function flattenCandidateJsonForSearch(value) {
@@ -4734,7 +4742,8 @@ function mergeBoundedCandidateIndexes(sources, { loadCommonPool, tenantCandidate
     .filter((candidate) =>
       shouldShowOnCrmCandidatesList(candidate, { includeCommonPool: loadCommonPool }),
     )
-    .filter((candidate) => candidateMatchesSearch(candidate, search))
+    // Lean index rows only have name/email. Search already ran in SQL (skills/CV/title).
+    // Re-running candidateMatchesSearch here blanks the table (count 698, zero rows).
     .filter((candidate) => {
       // Lean index rows lack pipelineEntries/interviews. Stage SoT was already applied in
       // SQL (tenant/portal). Re-running resolveCandidateStageForList here falsely drops
@@ -5536,14 +5545,8 @@ export const candidateService = {
 
       // Safety net: never blank All Candidates when tenant CRM has rows
       // (merge/hydrate filters or common-pool timeouts must not wipe the table).
-      if (
-        !candidates.length &&
-        !String(search || '').trim() &&
-        !listFilters?.jobId &&
-        !listFilters?.stage &&
-        !listFilters?.company &&
-        !listFilters?.location
-      ) {
+      // Also covers filtered search: SQL already matched; empty merge must not hide them.
+      if (!candidates.length) {
         try {
           const [fallbackTotal, fallbackRows] = await Promise.all([
             prisma.candidate.count({ where }),
