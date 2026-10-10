@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { ArrowUp, Lock, Sparkles, X } from 'lucide-react';
+import { ArrowUp, Loader2, Lock, Sparkles, X } from 'lucide-react';
 import type { SmartSearchExample, SmartSearchKeywordChip } from '../../lib/smart-search/types';
 import { keywordChipClass } from '../../lib/smart-search/core';
 import { AiCoinLockBadge, useAiCoinGate } from '../coins/AiCoinGate';
@@ -95,37 +95,60 @@ export function SmartSearchPromptPanel({
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                handleApply();
+                if (!applying) handleApply();
               }
             }}
             rows={2}
+            disabled={applying}
+            aria-busy={applying}
             placeholder={
               placeholder ||
               `Describe the ${entityLabel} you want — status, client, recruiter, location…`
             }
-            className="min-h-[52px] w-full resize-none rounded-xl border border-violet-200/90 bg-white px-3 py-2 text-xs text-slate-800 placeholder:text-slate-400 focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-500/25"
+            className="min-h-[52px] w-full resize-none rounded-xl border border-violet-200/90 bg-white px-3 py-2 text-xs text-slate-800 placeholder:text-slate-400 focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-500/25 disabled:cursor-wait disabled:bg-violet-50/70 disabled:text-slate-600"
           />
         </div>
         <button
           type="button"
           onClick={handleApply}
           disabled={applying}
-          className={`relative mt-5 inline-flex h-9 min-w-[2.25rem] shrink-0 items-center justify-center rounded-full px-2 text-white disabled:cursor-wait disabled:opacity-60 ${
-            gate.locked ? 'bg-amber-600 hover:bg-amber-700' : 'bg-slate-900 hover:bg-slate-800'
-          }`}
-          aria-label="Apply smart search prompt"
+          className={`relative mt-5 inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-full text-white disabled:cursor-wait ${
+            applying ? 'min-w-[7.25rem] px-3' : 'min-w-[2.25rem] px-2'
+          } ${gate.locked ? 'bg-amber-600 hover:bg-amber-700' : 'bg-slate-900 hover:bg-slate-800'}`}
+          aria-label={applying ? 'Searching' : 'Apply smart search prompt'}
+          aria-busy={applying}
           title={
             applying
-              ? 'Parsing with AI…'
+              ? 'Searching…'
               : gate.locked
                 ? `Locked — needs ${gate.cost} coins`
                 : `Spend ${gate.cost} coins · Apply prompt (Enter)`
           }
         >
-          {gate.locked ? <Lock size={14} strokeWidth={2.25} /> : <ArrowUp size={16} strokeWidth={2.25} className={applying ? 'animate-pulse' : undefined} />}
+          {gate.locked ? (
+            <Lock size={14} strokeWidth={2.25} />
+          ) : applying ? (
+            <>
+              <Loader2 size={15} strokeWidth={2.35} className="animate-spin" />
+              <span className="text-[11px] font-semibold">Searching</span>
+            </>
+          ) : (
+            <ArrowUp size={16} strokeWidth={2.25} />
+          )}
           <AiCoinLockBadge featureId="ai.smart_search" className="absolute -right-1 -top-1" />
         </button>
       </div>
+
+      {applying ? (
+        <div
+          className="flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-2 text-xs font-medium text-violet-900"
+          role="status"
+          aria-live="polite"
+        >
+          <Loader2 size={14} strokeWidth={2.35} className="shrink-0 animate-spin text-violet-600" />
+          Searching {entityLabel}… matching CVs and filters. This can take a moment.
+        </div>
+      ) : null}
 
       <div className="rounded-lg border border-violet-100/80 bg-white/80 px-2.5 py-2">
         <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">Keywords found</p>
@@ -155,7 +178,8 @@ export function SmartSearchPromptPanel({
             key={example.label}
             type="button"
             onClick={() => onExampleClick(example.query)}
-            className="rounded-full border border-violet-200/90 bg-white px-2.5 py-1 text-[11px] font-medium text-violet-800 transition-colors hover:border-violet-300 hover:bg-violet-50"
+            disabled={applying}
+            className="rounded-full border border-violet-200/90 bg-white px-2.5 py-1 text-[11px] font-medium text-violet-800 transition-colors hover:border-violet-300 hover:bg-violet-50 disabled:cursor-wait disabled:opacity-50"
           >
             {example.label}
           </button>
