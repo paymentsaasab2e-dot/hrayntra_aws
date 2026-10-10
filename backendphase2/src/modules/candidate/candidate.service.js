@@ -4742,7 +4742,8 @@ function mergeBoundedCandidateIndexes(sources, { loadCommonPool, tenantCandidate
     .filter((candidate) =>
       shouldShowOnCrmCandidatesList(candidate, { includeCommonPool: loadCommonPool }),
     )
-    .filter((candidate) => candidateMatchesSearch(candidate, search))
+    // Lean index rows only have name/email. Search already ran in SQL (skills/CV/title).
+    // Re-running candidateMatchesSearch here blanks the table (count 698, zero rows).
     .filter((candidate) => {
       // Lean index rows lack pipelineEntries/interviews. Stage SoT was already applied in
       // SQL (tenant/portal). Re-running resolveCandidateStageForList here falsely drops
@@ -5544,14 +5545,8 @@ export const candidateService = {
 
       // Safety net: never blank All Candidates when tenant CRM has rows
       // (merge/hydrate filters or common-pool timeouts must not wipe the table).
-      if (
-        !candidates.length &&
-        !String(search || '').trim() &&
-        !listFilters?.jobId &&
-        !listFilters?.stage &&
-        !listFilters?.company &&
-        !listFilters?.location
-      ) {
+      // Also covers filtered search: SQL already matched; empty merge must not hide them.
+      if (!candidates.length) {
         try {
           const [fallbackTotal, fallbackRows] = await Promise.all([
             prisma.candidate.count({ where }),
