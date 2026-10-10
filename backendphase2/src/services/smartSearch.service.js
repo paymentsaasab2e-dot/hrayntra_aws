@@ -161,9 +161,10 @@ function isSimpleCandidateSkillPrompt(entity, prompt) {
   if (/[:=]/.test(text)) return false;
   if (!/^[\p{L}\p{M}0-9\s.&/+#-]+$/u.test(text)) return false;
   const tokens = text.split(/\s+/).filter(Boolean);
-  if (tokens.length < 1 || tokens.length > 4) return false;
-  const meaningful = tokens.filter((token) => token.length >= 2 && !SEARCH_STOP_WORDS.has(token.toLowerCase()));
-  return meaningful.length >= 1;
+  // One token only ("warehouse", "director"). Two+ tokens may be a person name.
+  if (tokens.length !== 1) return false;
+  const token = tokens[0];
+  return token.length >= 2 && !SEARCH_STOP_WORDS.has(token.toLowerCase());
 }
 
 /**

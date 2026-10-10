@@ -1244,6 +1244,8 @@ export function useCandidateList() {
     },
     onRemoveKeyword: (removed, remaining) => {
       setCurrentPage(1);
+      // IDs were for the previous prompt. Keep using them after chip edits would ignore name/role search.
+      setSmartSearchCandidateIds([]);
       if (removed.kind === 'stage') {
         setColumnFilters((prev) => ({ ...prev, stage: '' }));
       }
@@ -1286,6 +1288,18 @@ export function useCandidateList() {
     candidateSmartSearch.clearSmartSearch();
     setCurrentPage(1);
   }, [candidateSmartSearch]);
+
+  const handleSearchInputChange = useCallback(
+    (value: string) => {
+      setCurrentPage(1);
+      setFilters((prev) => ({ ...prev, search: value }));
+      if (smartSearchCandidateIds.length > 0 || candidateSmartSearch.activeKeywords.length > 0) {
+        setSmartSearchCandidateIds([]);
+        candidateSmartSearch.clearSmartSearch();
+      }
+    },
+    [candidateSmartSearch, smartSearchCandidateIds.length],
+  );
 
   const handleColumnFiltersChange = useCallback((next: CandidateTableColumnFilters) => {
     setCurrentPage(1);
@@ -2654,6 +2668,7 @@ export function useCandidateList() {
     candidateSmartSearch,
     hasToolbarFilters,
     handleClearToolbar,
+    handleSearchInputChange,
     handleColumnFiltersChange,
     filteredCandidates,
     workspaceAlertsByEntityId,
