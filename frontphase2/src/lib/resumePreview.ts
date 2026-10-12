@@ -101,11 +101,10 @@ function isClientReviewResumeProxyUrl(resumeUrl?: string | null): boolean {
 /** Which inline renderer to use in the candidate drawer Resume tab. */
 export function resolveResumePreviewKind(resumeUrl?: string | null): ResumePreviewMode {
   if (!String(resumeUrl || '').trim()) return 'none';
-  // Client-review Word links: use the resume proxy as PDF (Word/LibreOffice → PDF)
-  // so page width matches the candidate drawer / “Open in new tab” viewer.
-  // Built-in docx-preview stretches columns to 100% and looks wrong here.
+  // Client-review Word links: same ResumeWordFileViewer path as the Resume tab
+  // (Office Online / docx-preview). LibreOffice PDF reflows complex layouts.
   if (isClientReviewResumeProxyUrl(resumeUrl) && isWordResume(resumeUrl)) {
-    return 'pdf';
+    return 'html';
   }
   if (canPreviewResumeAsHtml(resumeUrl)) return 'html';
   if (isImageResume(resumeUrl)) return 'image';
@@ -123,11 +122,19 @@ export function buildResumePdfProxyUrl(sourceUrl: string): string {
   );
   if (!base) return '';
   if (base.startsWith('/api/pdf-proxy')) return base;
-  // Public client-review resume route already streams the file same-origin.
-  if (
-    /\/client-review\/[^/]+\/resume(?:\?|$|\/)/i.test(base) ||
-    /\/interviews\/public\/review\/[^/]+\/resume(?:\?|$|\/)/i.test(base)
-  ) {
+  // Client-review page URL → binary /resume/file (PDF or original).
+  if (/\/client-review\/[^/]+\/resume(?:\/file)?(?:\?|$)/i.test(base)) {
+    try {
+      const url = new URL(base, 'https://local.invalid');
+      if (!/\/resume\/file(?:\?|$)/i.test(url.pathname)) {
+        url.pathname = url.pathname.replace(/\/resume\/?$/i, '/resume/file');
+      }
+      return `${url.pathname}${url.search}`;
+    } catch {
+      return base.replace(/\/resume(\?|$)/i, '/resume/file$1');
+    }
+  }
+  if (/\/interviews\/public\/review\/[^/]+\/resume(?:\?|$|\/)/i.test(base)) {
     return base;
   }
   if (/^https?:\/\//i.test(base) && canPreviewResumeInline(base)) {
@@ -194,15 +201,24 @@ export function buildResumeHtmlPreviewUrl(resumeUrl: string): string {
   return `/api/resume-preview?${params.toString()}`;
 }
 
-/** Same-origin proxy for raw DOCX bytes (client-side docx-preview). */
+/** Same-origin proxy for raw DOCX bytes (client-side docx-preview / ResumeWordFileViewer). */
 export function buildResumeDocxBytesUrl(resumeUrl: string): string {
   const base = normalizeResumeHref(resumeUrl.split('#')[0] || resumeUrl);
-  // Public client-review resume route already streams the file — ask for raw bytes
-  // so we do not run Microsoft Word→PDF (unavailable on Linux hosts).
-  if (
-    /\/client-review\/[^/]+\/resume(?:\?|$|\/)/i.test(base) ||
-    /\/interviews\/public\/review\/[^/]+\/resume(?:\?|$|\/)/i.test(base)
-  ) {
+  // Client-review page URL → binary file route. Already-on-/file URLs pass through.
+  if (/\/client-review\/[^/]+\/resume(?:\/file)?(?:\?|$)/i.test(base)) {
+    try {
+      const url = new URL(base, 'https://local.invalid');
+      if (!/\/resume\/file(?:\?|$)/i.test(url.pathname)) {
+        url.pathname = url.pathname.replace(/\/resume\/?$/i, '/resume/file');
+      }
+      url.searchParams.delete('raw');
+      return `${url.pathname}${url.search}`;
+    } catch {
+      const withFile = base.replace(/\/resume(\?|$)/i, '/resume/file$1');
+      return withFile;
+    }
+  }
+  if (/\/interviews\/public\/review\/[^/]+\/resume(?:\?|$|\/)/i.test(base)) {
     try {
       const url = new URL(base, 'https://local.invalid');
       url.searchParams.set('raw', '1');
@@ -264,8 +280,14 @@ export function buildOfficeOnlineEmbedUrl(docxFileUrl: string): string {
 export function canEmbedOfficeOnlineForResume(resumeUrl?: string | null): boolean {
   const href = normalizeResumeHref(String(resumeUrl || '').split('#')[0]);
   if (!href || !isWordResume(href)) return false;
-  // Tokenized client-review links: use built-in docx-preview (faster, no Office round-trip).
-  if (/\/client-review\/[^/]+\/resume(?:\?|$|\/)/i.test(href)) return false;
+  // Binary file proxy is safe for Office Online (public HTTPS on testing/prod).
+  if (/\/client-review\/[^/]+\/resume\/file(?:\?|$)/i.test(href)) {
+    if (/^https:\/\//i.test(href)) return true;
+    const origin = getResumePreviewAppOrigin();
+    return Boolean(origin && /^https:\/\//i.test(origin));
+  }
+  // React page URL (not /file) — viewer builds /file itself.
+  if (/\/client-review\/[^/]+\/resume(?:\?|$)/i.test(href)) return false;
   if (/\/interviews\/public\/review\/[^/]+\/resume(?:\?|$|\/)/i.test(href)) return false;
   if (/^https:\/\//i.test(href)) return true;
   const origin = getResumePreviewAppOrigin();

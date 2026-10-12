@@ -4,7 +4,11 @@ import React from 'react';
 import { CreditCard, LogOut, Mail } from 'lucide-react';
 import { formatDateDMY } from '@/utils/dateDisplay';
 import type { CachedOrgSubscriptionPlan } from '@/lib/orgTrialPlan';
-import { clearTrialExpiredPlanSnapshot, getEmployersPurchaseUrl } from '@/lib/orgTrialPlan';
+import {
+  clearTrialExpiredPlanSnapshot,
+  getEmployersPurchaseUrl,
+  getEmployersTryFreeAccessUrl,
+} from '@/lib/orgTrialPlan';
 
 type TrialExpiredPurchaseModalProps = {
   open: boolean;
@@ -41,7 +45,7 @@ export function TrialExpiredPurchaseModal({ open, plan, onDismiss }: TrialExpire
           Your trial has ended
         </h2>
         <p className="mt-2 text-sm leading-relaxed text-slate-600">
-          Sign in again after choosing a plan. Your data is kept.
+          Kindly contact the HRyantra team for further access. Your data is kept.
         </p>
 
         {plan?.planStartDate || plan?.planEndDate ? (
@@ -61,23 +65,34 @@ export function TrialExpiredPurchaseModal({ open, plan, onDismiss }: TrialExpire
           </div>
         ) : null}
 
-        <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+        <div className="mt-6 flex flex-col gap-3">
           <a
-            href={purchaseUrl}
+            href={getEmployersTryFreeAccessUrl()}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-sky-600 to-indigo-600 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-sky-500/25 transition hover:brightness-105"
-          >
-            <CreditCard className="h-4 w-4" />
-            Purchase a plan
-          </a>
-          <a
-            href="mailto:support@hryantra.com?subject=HRYANTRA%20trial%20upgrade"
-            className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-sky-600 to-indigo-600 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-sky-500/25 transition hover:brightness-105"
           >
             <Mail className="h-4 w-4" />
-            Contact sales
+            Request access
           </a>
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <a
+              href={purchaseUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            >
+              <CreditCard className="h-4 w-4" />
+              Purchase a plan
+            </a>
+            <a
+              href="mailto:support@hryantra.com?subject=HRYANTRA%20trial%20upgrade"
+              className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            >
+              <Mail className="h-4 w-4" />
+              Contact sales
+            </a>
+          </div>
         </div>
 
         <button

@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { backendApiBase } from '../../../../lib/sessionTransferEmailProxy';
-import { convertWordResumeToPdf } from '../../../../lib/convertWordResumeToPdf';
+import { backendApiBase } from '../../../../../lib/sessionTransferEmailProxy';
+import { convertWordResumeToPdf } from '../../../../../lib/convertWordResumeToPdf';
 import {
   stampPdfBufferWithExportWatermark,
   type ServerExportWatermark,
-} from '../../../../lib/stampPdfExportWatermark.server';
-import { buildDocxPreviewShellHtml } from '../../../../lib/resumePreviewShellHtml';
+} from '../../../../../lib/stampPdfExportWatermark.server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -29,13 +28,6 @@ function isWordDocumentResponse(bytes: Buffer, contentType: string, disposition:
 
 function isPdfBuffer(bytes: Buffer): boolean {
   return bytes.length >= 5 && bytes.subarray(0, 5).toString('utf8').startsWith('%PDF');
-}
-
-function wantsRawBytes(req: NextRequest): boolean {
-  const raw = String(req.nextUrl.searchParams.get('raw') || '')
-    .trim()
-    .toLowerCase();
-  return raw === '1' || raw === 'true' || raw === 'yes';
 }
 
 function wordContentType(disposition: string, formatHint: string): string {
@@ -65,29 +57,17 @@ async function fetchPublicReviewWatermark(
     return watermark;
   } catch (error) {
     console.warn(
-      '[client-review/resume] watermark fetch failed:',
+      '[client-review/resume/file] watermark fetch failed:',
       error instanceof Error ? error.message : String(error),
     );
     return null;
   }
 }
 
-function htmlPreviewResponse(req: NextRequest, title: string): NextResponse {
-  const bytesUrl = new URL(req.url);
-  bytesUrl.searchParams.set('raw', '1');
-  const html = buildDocxPreviewShellHtml({
-    docxBytesUrl: `${bytesUrl.pathname}${bytesUrl.search}`,
-    title: title || 'Resume',
-  });
-  return new NextResponse(html, {
-    status: 200,
-    headers: {
-      'Content-Type': 'text/html; charset=utf-8',
-      'Cache-Control': 'private, max-age=60',
-    },
-  });
-}
-
+/**
+ * Binary proxy for the React resume page (ResumeWordFileViewer / PDF iframe).
+ * Default: original DOCX/PDF bytes. Optional `?as=pdf` runs LibreOffice/Word conversion.
+ */
 export async function GET(
   req: NextRequest,
   context: { params: Promise<{ token: string }> },
@@ -98,12 +78,19 @@ export async function GET(
   const formatHint = String(req.nextUrl.searchParams.get('format') || '')
     .trim()
     .toLowerCase();
+  const asPdf =
+    String(req.nextUrl.searchParams.get('as') || '')
+      .trim()
+      .toLowerCase() === 'pdf' ||
+    String(req.nextUrl.searchParams.get('renderer') || '')
+      .trim()
+      .toLowerCase() === 'libreoffice';
+
   const params = new URLSearchParams();
   if (matchId) params.set('matchId', matchId);
   if (source) params.set('source', source);
   const query = params.toString() ? `?${params.toString()}` : '';
   const target = `${backendApiBase(req)}/interviews/public/review/${encodeURIComponent(token)}/resume${query}`;
-  const rawMode = wantsRawBytes(req);
 
   try {
     const upstream = await fetch(target, {
@@ -111,7 +98,6 @@ export async function GET(
       headers: { Accept: 'application/pdf,application/octet-stream,*/*' },
     });
 
-    // Buffer instead of streaming — empty/aborted upstream bodies can crash Next on some hosts.
     let bytes: Buffer = Buffer.from(await upstream.arrayBuffer());
     let contentType = upstream.headers.get('content-type') || 'application/pdf';
     let disposition =
@@ -119,7 +105,7 @@ export async function GET(
 
     if (!upstream.ok) {
       const detail = bytes.toString('utf8').slice(0, 240).trim();
-      console.error('[client-review/resume] upstream HTTP error', {
+      console.error('[client-review/resume/file] upstream HTTP error', {
         target,
         status: upstream.status,
         detail,
@@ -138,13 +124,10 @@ export async function GET(
       formatHint === 'docx' ||
       formatHint === 'doc';
 
-    // Raw bytes for docx-preview / Office Online — never run Word→PDF here.
-    if (rawMode) {
-      if (wasWord && !isPdfBuffer(bytes)) {
-        contentType = wordContentType(disposition, formatHint);
-        if (!/\.docx?\b/i.test(disposition)) {
-          disposition = `inline; filename="Resume.${formatHint === 'doc' ? 'doc' : 'docx'}"`;
-        }
+    if (wasWord && !isPdfBuffer(bytes) && !asPdf) {
+      contentType = wordContentType(disposition, formatHint);
+      if (!/\.docx?\b/i.test(disposition)) {
+        disposition = `inline; filename="Resume.${formatHint === 'doc' ? 'doc' : 'docx'}"`;
       }
       return new NextResponse(new Uint8Array(bytes), {
         status: 200,
@@ -157,36 +140,32 @@ export async function GET(
       });
     }
 
-    if (wasWord && !isPdfBuffer(bytes)) {
-      // Prefer real PDF (browser PDF viewer, same as local Word export). Fall back to HTML only
-      // when neither Microsoft Word nor LibreOffice can convert on this host.
+    if (wasWord && !isPdfBuffer(bytes) && asPdf) {
       try {
         const pdf = await convertWordResumeToPdf(new Uint8Array(bytes));
         bytes = Buffer.from(pdf);
         contentType = 'application/pdf';
-        const pdfName = disposition.replace(/\.docx?/gi, '.pdf');
-        disposition = /\.pdf/i.test(pdfName) ? pdfName : 'inline; filename="Resume.pdf"';
+        disposition = 'inline; filename="Resume.pdf"';
       } catch (conversionError) {
         console.warn(
-          '[client-review/resume] Word/LibreOffice→PDF unavailable, falling back to HTML preview:',
+          '[client-review/resume/file] Word/LibreOffice→PDF failed:',
           conversionError instanceof Error ? conversionError.message : String(conversionError),
         );
-        return htmlPreviewResponse(req, 'Candidate resume');
+        return NextResponse.json(
+          { success: false, message: 'Unable to convert Word resume to PDF on this host.' },
+          { status: 502 },
+        );
       }
     }
 
-    // DOCX/DOC cannot be stamped upstream — stamp after Word→PDF conversion.
-    const needsClientStamp =
-      isPdfBuffer(bytes) && (wasWord || formatHint === 'docx' || formatHint === 'doc');
-
-    if (needsClientStamp) {
+    if (isPdfBuffer(bytes)) {
       const watermark = await fetchPublicReviewWatermark(req, token);
       if (watermark?.enabled) {
         bytes = Buffer.from(await stampPdfBufferWithExportWatermark(bytes, watermark));
-        contentType = 'application/pdf';
-        if (!/\.pdf/i.test(disposition)) {
-          disposition = 'inline; filename="Resume.pdf"';
-        }
+      }
+      contentType = 'application/pdf';
+      if (!/\.pdf/i.test(disposition)) {
+        disposition = 'inline; filename="Resume.pdf"';
       }
     }
 
@@ -200,7 +179,7 @@ export async function GET(
       },
     });
   } catch (error) {
-    console.error('[client-review/resume] upstream failed', {
+    console.error('[client-review/resume/file] upstream failed', {
       target,
       error: error instanceof Error ? error.message : String(error),
     });

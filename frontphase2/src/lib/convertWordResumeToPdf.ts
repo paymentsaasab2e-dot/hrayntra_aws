@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { editDocxTextBytes } from './editDocxText';
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { access, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, rename, rm, unlink, writeFile } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -278,7 +278,12 @@ async function resolveLibreOfficeBinary(): Promise<string | null> {
   return null;
 }
 
-/** Headless LibreOffice — used on Linux/Docker where Microsoft Word is unavailable. */
+/**
+ * Headless LibreOffice — used on Linux/Docker where Microsoft Word is unavailable.
+ * Uses writer_pdf_Export + a fresh UserInstallation profile.
+ * Layout still cannot match Word for floating text boxes / complex columns;
+ * install Carlito/Caladea/Liberation fonts in the image to reduce reflow.
+ */
 async function exportDocxWithLibreOffice(docxPath: string, pdfPath: string): Promise<void> {
   const soffice = await resolveLibreOfficeBinary();
   if (!soffice) {
@@ -286,21 +291,43 @@ async function exportDocxWithLibreOffice(docxPath: string, pdfPath: string): Pro
   }
   const outDir = path.dirname(pdfPath);
   await mkdir(outDir, { recursive: true });
-  await execFileAsync(
-    soffice,
-    [
-      '--headless',
-      '--nologo',
-      '--nofirststartwizard',
-      '--norestore',
-      '--convert-to',
-      'pdf',
-      '--outdir',
-      outDir,
-      docxPath,
-    ],
-    { timeout: 120000, windowsHide: true },
+  const profileDir = path.join(
+    cacheDir,
+    `lo-profile-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
   );
+  await mkdir(profileDir, { recursive: true });
+  // Embed fonts + keep empty pages so multi-column resumes do not collapse.
+  const filter =
+    'pdf:writer_pdf_Export:{"EmbedStandardFonts":{"type":"boolean","value":"true"},"IsSkipEmptyPages":{"type":"boolean","value":"false"}}';
+  try {
+    await execFileAsync(
+      soffice,
+      [
+        '--headless',
+        '--nologo',
+        '--nofirststartwizard',
+        '--norestore',
+        `--accept=socket,host=127.0.0.1,port=0;urp;`,
+        `-env:UserInstallation=file://${profileDir.replace(/\\/g, '/')}`,
+        '--convert-to',
+        filter,
+        '--outdir',
+        outDir,
+        docxPath,
+      ],
+      {
+        timeout: 180000,
+        windowsHide: true,
+        env: {
+          ...process.env,
+          HOME: profileDir,
+          SAL_USE_VCLPLUGIN: 'svp',
+        },
+      },
+    );
+  } finally {
+    await rm(profileDir, { recursive: true, force: true }).catch(() => undefined);
+  }
   const produced = path.join(outDir, `${path.basename(docxPath, path.extname(docxPath))}.pdf`);
   if (produced !== pdfPath) {
     await rename(produced, pdfPath).catch(async () => {
@@ -387,7 +414,8 @@ export async function convertWordResumeToPdf(docxBytes: Uint8Array): Promise<Uin
     return docxBytes;
   }
   const extension = sniffResumeBytes(docxBytes) === 'doc' ? 'doc' : 'docx';
-  const hash = createHash('sha256').update(docxBytes).digest('hex');
+  // Bump cache key when LibreOffice export flags / fonts change.
+  const hash = createHash('sha256').update('lo-export-v2\0').update(docxBytes).digest('hex');
   const pdfPath = path.join(cacheDir, `${hash}.pdf`);
   const docxPath = path.join(cacheDir, `${hash}.${extension}`);
   await mkdir(cacheDir, { recursive: true });

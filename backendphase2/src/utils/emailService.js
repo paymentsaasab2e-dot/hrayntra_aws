@@ -30,9 +30,30 @@ function assertResendDelivery(result, toEmail) {
 /**
  * Send credential invite email to a new team member
  */
-function tenantQuerySuffix(tenantDbName) {
+function tenantQuerySuffix(tenantDbName, { leadingAmpersand = true } = {}) {
   const t = tenantDbName && String(tenantDbName).trim();
-  return t ? `&tenantDbName=${encodeURIComponent(t)}` : '';
+  if (!t) return '';
+  const q = `tenantDbName=${encodeURIComponent(t)}`;
+  return leadingAmpersand ? `&${q}` : q;
+}
+
+/** Append tenantDbName to a Phase 2 login base URL (preserves existing query). */
+function withTenantOnLoginUrl(loginUrl, tenantDbName) {
+  const base = String(loginUrl || '').trim();
+  const tenant = String(tenantDbName || '').trim();
+  if (!base) return '';
+  if (!tenant) return base;
+  try {
+    const u = new URL(base);
+    if (!u.searchParams.get('tenantDbName')) {
+      u.searchParams.set('tenantDbName', tenant);
+    }
+    return u.toString();
+  } catch {
+    const sep = base.includes('?') ? '&' : '?';
+    if (/[?&]tenantDbName=/.test(base)) return base;
+    return `${base}${sep}tenantDbName=${encodeURIComponent(tenant)}`;
+  }
 }
 
 export async function sendCredentialInvite({
@@ -49,10 +70,9 @@ export async function sendCredentialInvite({
   const base = env.FRONTEND_URL;
   const tenantQ = tenantQuerySuffix(tenantDbName);
   const defaultLoginLink = `${base}/login?token=${inviteToken}${tenantQ}`;
-  const loginLink =
-    loginBaseUrl && String(loginBaseUrl).trim()
-      ? String(loginBaseUrl).trim()
-      : defaultLoginLink;
+  const loginLink = loginBaseUrl && String(loginBaseUrl).trim()
+    ? withTenantOnLoginUrl(String(loginBaseUrl).trim(), tenantDbName)
+    : defaultLoginLink;
   const resetPasswordLink = `${base}/reset-password${tenantQ ? `?${tenantQ.slice(1)}` : ''}`;
   const isTryFreeInvite = Boolean(trialDays || trialEndsAt);
   const passwordLabel = isTryFreeInvite ? 'Password' : 'Temporary Password';
@@ -60,7 +80,7 @@ export async function sendCredentialInvite({
     ? `<p style="font-size: 14px; color: #0f766e; margin: 0 0 16px 0;">
           Your try-free access lasts <strong>${trialDays || '—'} day(s)</strong>
           ${trialEndsAt ? ` and ends on <strong>${trialEndsAt}</strong>` : ''}.
-          Sign in at the Try it free page using the credentials below. This password is your final login password.
+          Sign in to the HRyantra employer workspace (Phase 2) using the credentials below. This password is your final login password.
         </p>`
     : '';
   const resetPasswordBlock = isTryFreeInvite
@@ -108,7 +128,7 @@ export async function sendCredentialInvite({
     </div>
     
     <div style="text-align: center; margin: 30px 0;">
-      <a href="${loginLink}" style="display: inline-block; background: #2563eb; color: white; text-decoration: none; padding: 12px 30px; border-radius: 6px; font-weight: 600; font-size: 16px;">Open Try it free / Login</a>
+      <a href="${loginLink}" style="display: inline-block; background: #2563eb; color: white; text-decoration: none; padding: 12px 30px; border-radius: 6px; font-weight: 600; font-size: 16px;">${isTryFreeInvite ? 'Open Phase 2 Login' : 'Open Login'}</a>
     </div>
     
     <p style="font-size: 13px; color: #374151; margin: 0 0 6px 0;">

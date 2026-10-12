@@ -347,6 +347,8 @@ async function syncEmployerTrialToPhase2(verified) {
     organizationName: verified.organizationName,
     organizationType: verified.organizationType || 'agency',
     outcome: verified.outcome || '',
+    trialDays: 5,
+    signupSource: 'landing_trial',
   });
 
   if (!result.ok) {
@@ -469,8 +471,7 @@ async function verifyDemoRequestOtp(req, res) {
 
     const isTrial = String(verified.requestKind || '').toLowerCase() === 'trial';
     const isPurchase = String(verified.requestKind || '').toLowerCase() === 'purchase';
-    // Public landing no longer auto-provisions trials — HQ grants try-free access.
-    // Treat legacy `trial` OTP submits as demo leads so HQ can grant credentials.
+
     if (isPurchase) {
       const purchaseMeta = parsePurchaseOutcome(verified.outcome);
       return res.json({
@@ -487,17 +488,69 @@ async function verifyDemoRequestOtp(req, res) {
       });
     }
 
+    // Auto-provision 5-day try-free workspace after OTP (Agency/Standalone + all modules).
+    if (isTrial) {
+      if (verified.trialProvisioned && verified.trialLoginId) {
+        return res.json({
+          success: true,
+          message: 'Your try-free workspace is ready. Sign in with the credentials we emailed you.',
+          data: {
+            requestId: verified.id,
+            email: verified.email,
+            requestKind: 'trial',
+            loginUrl: verified.trialLoginUrl || undefined,
+            loginId: verified.trialLoginId,
+            tenantDbName: verified.trialTenantDbName || undefined,
+            trialEndsAt: verified.trialEndsAt || undefined,
+            credentialEmailSent: true,
+          },
+        });
+      }
+
+      const provision = await syncEmployerTrialToPhase2(verified);
+      if (!provision) {
+        // Still land the lead in HQ so sales can follow up if provisioning failed.
+        await syncEmployerDemoToHq(verified).catch(() => null);
+        return res.status(502).json({
+          success: false,
+          message:
+            'Email verified, but we could not create your try-free workspace yet. Please try again or contact HRyantra.',
+        });
+      }
+
+      await persistEmployerDemoProvision(verified.id, {
+        tenantDbName: provision.tenantDbName,
+        loginId: provision.loginId,
+        loginUrl: provision.loginUrl,
+        planStartDate: provision.subscriptionPlan?.planStartDate || provision.trialStartsAt,
+        planEndDate: provision.subscriptionPlan?.planEndDate || provision.trialEndsAt,
+      });
+
+      return res.json({
+        success: true,
+        message: provision.credentialEmailSent
+          ? 'Email verified. Your 5-day try-free login was emailed to you.'
+          : 'Email verified. Your 5-day try-free workspace is ready.',
+        data: {
+          requestId: verified.id,
+          email: verified.email,
+          requestKind: 'trial',
+          ...buildProvisionResponse(verified.id, verified.email, provision),
+          trialEndsAt: provision.trialEndsAt || provision.subscriptionPlan?.planEndDate,
+          trialDays: provision.trialDays || 5,
+        },
+      });
+    }
+
     await syncEmployerDemoToHq(verified);
 
     return res.json({
       success: true,
-      message: isTrial
-        ? 'Email verified. HQ will review and grant try-free access when approved.'
-        : 'Email verified. Your demo request has been submitted.',
+      message: 'Email verified. Your demo request has been submitted.',
       data: {
         requestId: verified.id,
         email: verified.email,
-        requestKind: isTrial ? 'demo' : verified.requestKind || 'demo',
+        requestKind: verified.requestKind || 'demo',
         awaitingHqGrant: true,
       },
     });
