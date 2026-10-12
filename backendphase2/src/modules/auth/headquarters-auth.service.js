@@ -69,22 +69,87 @@ function getSharedTenantDbName() {
   return configured || 'shared01';
 }
 
-async function findReusableTenantDbName(collection) {
-  const row = await collection
-    .find(
-      { tenantDbName: { $exists: true, $ne: '' } },
-      { projection: { tenantDbName: 1, updatedAt: 1, createdAt: 1 } }
-    )
-    .sort({ updatedAt: -1, createdAt: -1, _id: -1 })
-    .limit(1)
-    .toArray();
+/**
+ * HQ / platform DBs that must never host try-free or customer tenants.
+ * COLLECTION_LIMIT_REUSE previously picked the newest tenant (often adm01) and
+ * dumped trial users into the HQ admin workspace.
+ */
+const RESERVED_PLATFORM_TENANT_DB_NAMES = new Set([
+  'adm01',
+  'template',
+  'headquarters',
+  'jobportal',
+  'candidatecommon',
+  'admin',
+  'local',
+  'config',
+]);
 
-  return normalizeLookupValue(row?.[0]?.tenantDbName);
+export function isReservedPlatformTenantDbName(tenantDbName) {
+  const name = normalizeLookupValue(tenantDbName).toLowerCase();
+  if (!name) return true;
+  if (RESERVED_PLATFORM_TENANT_DB_NAMES.has(name)) return true;
+  // HQ operator prefixes commonly used for platform DBs
+  if (name === 'hq01' || name === 'plat01' || name === 'ops01') return true;
+  return false;
+}
+
+/**
+ * When Atlas hits the 500-collection cap, reclaim an existing DB that already
+ * has the tenant schema and has zero HQ owners — never steal adm01 / live tenants.
+ */
+async function findOrphanTenantDbName(workspaceCollection) {
+  const client = await getHeadquartersClient();
+  if (!client || !workspaceCollection) return '';
+
+  const owned = new Set();
+  const ownerRows = await workspaceCollection
+    .find(
+      { tenantDbName: { $exists: true, $ne: '' }, isDeleted: { $ne: true } },
+      { projection: { tenantDbName: 1 } },
+    )
+    .toArray();
+  for (const row of ownerRows) {
+    const name = normalizeLookupValue(row?.tenantDbName).toLowerCase();
+    if (name) owned.add(name);
+  }
+
+  let databases = [];
+  try {
+    const listed = await client.db().admin().listDatabases({ nameOnly: true });
+    databases = listed?.databases || [];
+  } catch {
+    return '';
+  }
+
+  const schemaCollections = await getSchemaCollectionNames();
+  const minSchema = Math.max(10, Math.floor(schemaCollections.length * 0.5));
+  const requiredNames = new Set(['users', 'user_credentials']);
+
+  for (const row of databases) {
+    const name = normalizeLookupValue(row?.name);
+    if (!name || isReservedPlatformTenantDbName(name)) continue;
+    if (owned.has(name.toLowerCase())) continue;
+    try {
+      const colls = await client.db(name).listCollections({}, { nameOnly: true }).toArray();
+      const collNameSet = new Set(colls.map((c) => String(c.name || '')));
+      const hasAuthCollections = [...requiredNames].every((n) => collNameSet.has(n));
+      if (colls.length >= minSchema && hasAuthCollections) {
+        return name;
+      }
+    } catch {
+      /* skip unreadable DB */
+    }
+  }
+  return '';
 }
 
 async function resolveProvisioningTenant(collection, normalizedEmail) {
   try {
     const tenantDbName = await getNextTenantDatabaseName(collection, normalizedEmail);
+    if (isReservedPlatformTenantDbName(tenantDbName)) {
+      throw new Error(`Refusing to provision onto reserved platform tenant "${tenantDbName}"`);
+    }
     const tenantDatabaseUrl = buildTenantDatabaseUrl(tenantDbName);
     await ensureTenantSchema(tenantDbName);
     return {
@@ -97,22 +162,29 @@ async function resolveProvisioningTenant(collection, normalizedEmail) {
       throw error;
     }
 
-    const reusableTenantDbName = await findReusableTenantDbName(collection);
-    if (reusableTenantDbName) {
+    // Prefer reclaiming an unused DB that already has collections (no new Atlas collections).
+    const orphanTenantDbName = await findOrphanTenantDbName(collection);
+    if (orphanTenantDbName && !isReservedPlatformTenantDbName(orphanTenantDbName)) {
       return {
-        tenantDbName: reusableTenantDbName,
-        tenantDatabaseUrl: buildTenantDatabaseUrl(reusableTenantDbName),
-        provisioningMode: 'COLLECTION_LIMIT_REUSE',
+        tenantDbName: orphanTenantDbName,
+        tenantDatabaseUrl: buildTenantDatabaseUrl(orphanTenantDbName),
+        provisioningMode: 'ORPHAN_RECLAIM',
       };
     }
 
+    // Never reuse an existing customer/HQ DB (that is what put trials into adm01).
     const sharedTenantDbName = getSharedTenantDbName();
+    if (isReservedPlatformTenantDbName(sharedTenantDbName)) {
+      throw new Error(
+        'MongoDB Atlas collection limit reached (500/500). SHARED_TENANT_DB_NAME is reserved; set a non-platform sandbox name.'
+      );
+    }
     try {
       await ensureTenantSchema(sharedTenantDbName);
     } catch (sharedSchemaError) {
       if (isCollectionLimitError(sharedSchemaError)) {
         throw new Error(
-          'MongoDB Atlas collection limit reached (500/500). No reusable tenant found for fallback provisioning.'
+          'MongoDB Atlas collection limit reached (500/500). Cannot create a dedicated or shared trial workspace.'
         );
       }
       throw sharedSchemaError;
@@ -537,6 +609,14 @@ export const headquartersAuthService = {
     };
 
     const { insertedId } = await collection.insertOne(newDocument);
+
+    // Directory mapping so Phase 2 /login without ?tenantDbName= still resolves the workspace.
+    await this.upsertTenantUserDirectoryEntry({
+      email: normalizedEmail,
+      loginId: normalizedLoginId,
+      tenantDbName,
+    });
+
     return normalizeHeadquartersUser({
       ...newDocument,
       _id: insertedId,
@@ -826,6 +906,70 @@ export const headquartersAuthService = {
       isDeleted: { $ne: true },
     });
     return normalizeHeadquartersUser(doc);
+  },
+
+  /**
+   * Move a workspace user off a reserved platform DB (e.g. adm01) onto a
+   * dedicated or shared trial tenant. Used when COLLECTION_LIMIT_REUSE wrongly
+   * parked try-free accounts inside the HQ admin workspace.
+   */
+  async rehomeWorkspaceUserOffPlatformTenant(email) {
+    const collection = await getCollection();
+    const normalizedEmail = normalizeEmail(email);
+    if (!collection || !normalizedEmail) {
+      throw new Error('Email is required to rehome tenant');
+    }
+
+    const existing = await collection.findOne({
+      email: normalizedEmail,
+      isDeleted: { $ne: true },
+    });
+    if (!existing) {
+      throw new Error('Workspace user not found');
+    }
+
+    const previousTenant = normalizeLookupValue(existing.tenantDbName);
+    if (!isReservedPlatformTenantDbName(previousTenant)) {
+      return normalizeHeadquartersUser(existing);
+    }
+
+    const provisioning = await resolveProvisioningTenant(collection, normalizedEmail);
+    if (isReservedPlatformTenantDbName(provisioning.tenantDbName)) {
+      throw new Error(
+        `Cannot rehome ${normalizedEmail}: provisioning still resolved to reserved tenant "${provisioning.tenantDbName}"`,
+      );
+    }
+    if (provisioning.tenantDbName === previousTenant) {
+      throw new Error(
+        `Cannot rehome ${normalizedEmail}: still mapped to platform tenant "${previousTenant}"`,
+      );
+    }
+
+    const now = new Date();
+    await collection.updateOne(
+      { _id: existing._id },
+      {
+        $set: {
+          tenantDbName: provisioning.tenantDbName,
+          companyId: provisioning.tenantDbName,
+          tenantDatabaseUrl: provisioning.tenantDatabaseUrl,
+          tenantProvisioningMode: provisioning.provisioningMode,
+          updatedAt: now,
+        },
+      },
+    );
+
+    await this.upsertTenantUserDirectoryEntry({
+      email: normalizedEmail,
+      loginId: existing.loginId,
+      tenantDbName: provisioning.tenantDbName,
+    });
+
+    const updated = await collection.findOne({ _id: existing._id });
+    console.info(
+      `[headquarters] rehomed ${normalizedEmail} from ${previousTenant} → ${provisioning.tenantDbName} (${provisioning.provisioningMode})`,
+    );
+    return normalizeHeadquartersUser(updated);
   },
 
   async updateWorkspacePasswordForEmail(email, password) {
@@ -1225,21 +1369,47 @@ export const headquartersAuthService = {
    */
   async findTenantDbNameForUser(identifier) {
     try {
-      const collection = await getTenantUserDirectoryCollection();
-      if (!collection) return '';
       const normalized = normalizeLookupValue(identifier);
       if (!normalized) return '';
       const normalizedEmail = normalizeEmail(identifier);
+      const normalizedLogin = normalized.toLowerCase();
 
-      const filters = [];
-      if (normalizedEmail) filters.push({ email: normalizedEmail });
-      filters.push({ loginId: normalized });
+      const directory = await getTenantUserDirectoryCollection();
+      if (directory) {
+        const filters = [];
+        if (normalizedEmail) filters.push({ email: normalizedEmail });
+        filters.push({ loginId: normalized });
+        filters.push({ loginId: normalizedLogin });
 
-      const document = await collection.findOne({
-        $or: filters,
-        isDeleted: { $ne: true },
-      });
-      return normalizeLookupValue(document?.tenantDbName);
+        const document = await directory.findOne({
+          $or: filters,
+          isDeleted: { $ne: true },
+        });
+        const fromDir = normalizeLookupValue(document?.tenantDbName);
+        if (fromDir) return fromDir;
+      }
+
+      // Fallback: HQ workspace users (covers try-free tenants created before directory upsert).
+      const workspace = await getCollection();
+      if (workspace) {
+        const or = [{ loginId: normalized }, { loginId: normalizedLogin }];
+        if (normalizedEmail) or.push({ email: normalizedEmail });
+        const hqUser = await workspace.findOne({
+          $or: or,
+          isDeleted: { $ne: true },
+        });
+        const fromHq = normalizeLookupValue(hqUser?.tenantDbName);
+        if (fromHq) {
+          await this.upsertTenantUserDirectoryEntry({
+            email: hqUser.email || normalizedEmail,
+            loginId: hqUser.loginId || normalized,
+            tenantDbName: fromHq,
+          });
+          return fromHq;
+        }
+      }
+
+      return '';
     } catch (error) {
       return '';
     }

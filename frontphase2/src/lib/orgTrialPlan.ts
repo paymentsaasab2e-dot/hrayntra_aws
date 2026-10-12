@@ -70,6 +70,16 @@ export function getEmployersPurchaseUrl(): string {
   return 'https://www.hryantra.com/en/employers';
 }
 
+/** After trial expiry — request further access (lands as HQ CRM lead). */
+export function getEmployersTryFreeAccessUrl(): string {
+  const base = getEmployersPurchaseUrl().replace(/\/en\/employers\/?$/i, '/en/employers/try-free');
+  if (/\/try-free\/?$/i.test(base)) return base;
+  if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
+    return 'http://localhost:3000/en/employers/try-free';
+  }
+  return 'https://www.hryantra.com/en/employers/try-free';
+}
+
 export function persistTrialExpiredPlan(plan: CachedOrgSubscriptionPlan | null) {
   if (typeof window === 'undefined' || !plan) return;
   sessionStorage.setItem(TRIAL_EXPIRED_PLAN_SESSION_KEY, JSON.stringify(plan));

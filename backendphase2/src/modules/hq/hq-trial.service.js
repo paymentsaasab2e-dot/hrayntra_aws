@@ -16,6 +16,7 @@ import {
   todayPlanStartDate,
   toTrialAssignablePlan,
 } from './hq-packages.config.js';
+import { isReservedPlatformTenantDbName } from '../auth/headquarters-auth.service.js';
 
 function normalizeEmail(email) {
   return String(email || '').trim().toLowerCase();
@@ -40,18 +41,28 @@ function buildTrialLoginId(email, fullName) {
   return `${base}_${suffix}@trial`;
 }
 
-function resolveTryFreeLoginUrl() {
-  const keys = ['MARKETING_SITE_URL', 'JOB_PORTAL_FRONTEND_URL', 'LANDING_SITE_URL', 'PUBLIC_MARKETING_URL'];
-  for (const key of keys) {
-    const v = process.env[key];
-    if (v != null && String(v).trim()) {
-      return `${String(v).trim().replace(/\/+$/, '')}/en/employers/try-free`;
-    }
-  }
+/** Phase 2 employer login base (not the marketing try-free page). */
+function resolveTryFreeLoginBaseUrl() {
+  const base = String(resolvePublicFrontendUrl() || '').trim().replace(/\/+$/, '');
+  if (base) return `${base}/login`;
   if (process.env.NODE_ENV === 'production') {
-    return 'https://hryantra.com/en/employers/try-free';
+    return 'https://employers.hryantra.com/login';
   }
-  return 'http://localhost:3000/en/employers/try-free';
+  return 'http://localhost:3001/login';
+}
+
+/** Phase 2 login with tenantDbName so /login can route to the correct workspace. */
+function resolveTryFreeLoginUrl(tenantDbName) {
+  const base = resolveTryFreeLoginBaseUrl();
+  const tenant = String(tenantDbName || '').trim();
+  if (!tenant) return base;
+  try {
+    const u = new URL(base);
+    u.searchParams.set('tenantDbName', tenant);
+    return u.toString();
+  } catch {
+    return `${base}?tenantDbName=${encodeURIComponent(tenant)}`;
+  }
 }
 
 function normalizeTrialDays(raw) {
@@ -145,21 +156,37 @@ export const hqTrialService = {
     const name = String(demo?.fullName || '').trim();
     const email = normalizeEmail(demo?.email);
     const organizationName = String(demo?.organizationName || '').trim();
-    const trialDays = normalizeTrialDays(options.trialDays ?? demo?.trialDays);
+    const trialDays = normalizeTrialDays(options.trialDays ?? demo?.trialDays ?? 5);
     const note = String(options.note || '').trim();
     const skipLeadSync = Boolean(options.skipLeadSync);
+    const signupSource = String(options.signupSource || demo?.signupSource || 'landing_trial')
+      .trim() || 'landing_trial';
     const notifyEmails = Array.isArray(options.notifyEmails)
       ? [...new Set(options.notifyEmails.map((item) => normalizeEmail(item)).filter((item) => item && item !== email))]
       : [];
-    const tryFreeUrl = resolveTryFreeLoginUrl();
 
     if (!name || !email || !organizationName) {
       throw new Error('Trial request is missing name, email, or organization');
     }
 
     const existingTenants = await headquartersAuthService.listTenants();
-    const existing = existingTenants.find((t) => normalizeEmail(t.email) === email);
+    let existing = existingTenants.find((t) => normalizeEmail(t.email) === email);
     if (existing?.tenantDbName) {
+      // Repair bad COLLECTION_LIMIT_REUSE that parked trials inside HQ adm01 / platform DBs.
+      if (isReservedPlatformTenantDbName(existing.tenantDbName)) {
+        try {
+          existing = await headquartersAuthService.rehomeWorkspaceUserOffPlatformTenant(email);
+        } catch (rehomeErr) {
+          console.warn('[hq-trial] failed to rehome trial off platform tenant:', rehomeErr?.message || rehomeErr);
+          throw new Error(
+            `Your try-free account was incorrectly linked to the platform workspace (${existing.tenantDbName}). ` +
+              `Please contact HRyantra support to reset your trial tenant.`,
+          );
+        }
+      }
+
+      const tenantDbName = existing.tenantDbName;
+      const tryFreeUrl = resolveTryFreeLoginUrl(tenantDbName);
       // Re-grant / extend trial window for an existing tenant and re-email credentials
       const subscriptionPlan = await resolveStarterTrialPlan(trialDays);
       const loginId = existing.loginId || email;
@@ -173,7 +200,17 @@ export const hqTrialService = {
           employerDemoRequestId: requestId || existing.subscriptionPlan?.employerDemoRequestId || null,
         });
         await headquartersAuthService.updateWorkspacePasswordForEmail(email, password);
-        await runWithTenantContext(existing.tenantDbName, async () => {
+        // Ensure local SUPER_ADMIN + credentials exist in the (possibly new) tenant DB.
+        const mapped = await authService.provisionHeadquartersMappedTenant({
+          ...existing,
+          password,
+          tenantDbName,
+        });
+        await authService.finalizeHeadquartersTenantWorkspace(
+          { ...existing, password, tenantDbName },
+          mapped,
+        );
+        await runWithTenantContext(tenantDbName, async () => {
           await setSubscriptionPlan(subscriptionPlan);
           const hashedPassword = await bcrypt.hash(password, 12);
           let user = await prisma.user.findUnique({
@@ -227,7 +264,7 @@ export const hqTrialService = {
           tempPassword: password,
           roleName: `Try-free access (${trialDays} days)`,
           inviteToken: password,
-          tenantDbName: existing.tenantDbName,
+          tenantDbName,
           loginBaseUrl: tryFreeUrl,
           trialDays,
           trialEndsAt: subscriptionPlan?.planEndDate || null,
@@ -244,14 +281,14 @@ export const hqTrialService = {
         password,
         trialDays,
         trialEndsAt: subscriptionPlan?.planEndDate || null,
-        tenantDbName: existing.tenantDbName,
+        tenantDbName,
         tryFreeUrl,
       });
 
       await markDemoRequestProvisioned(requestId, {
         requestKind: 'trial',
         trialProvisioned: true,
-        trialTenantDbName: existing.tenantDbName,
+        trialTenantDbName: tenantDbName,
         trialLoginId: loginId,
         trialDays,
         trialStartsAt: subscriptionPlan?.planStartDate || null,
@@ -263,7 +300,7 @@ export const hqTrialService = {
 
       return {
         alreadyProvisioned: true,
-        tenantDbName: existing.tenantDbName,
+        tenantDbName,
         loginId,
         loginUrl: tryFreeUrl,
         trialEndsAt: subscriptionPlan?.planEndDate || null,
@@ -292,7 +329,7 @@ export const hqTrialService = {
       loginId,
       organizationType,
       organizationName,
-      signupSource: 'hq_grant_trial',
+      signupSource,
       subscriptionPlan: {
         ...subscriptionPlan,
         employerDemoRequestId: requestId || null,
@@ -301,6 +338,7 @@ export const hqTrialService = {
 
     const localUser = await authService.provisionHeadquartersMappedTenant(hqUser);
     await authService.finalizeHeadquartersTenantWorkspace(hqUser, localUser);
+    const tryFreeUrl = resolveTryFreeLoginUrl(hqUser.tenantDbName);
 
     if (subscriptionPlan) {
       try {
@@ -345,9 +383,12 @@ export const hqTrialService = {
       try {
         await hqLeadsService.createLeadFromEmployerDemoRequest({
           ...demo,
+          requestKind: 'trial',
           outcome:
             note ||
-            `${trialDays}-day try-free access — granted by HQ`,
+            (signupSource === 'hq_grant_trial'
+              ? `${trialDays}-day try-free access — granted by HQ`
+              : `${trialDays}-day try-free access — auto from landing`),
         });
       } catch (leadErr) {
         console.warn('[hq-trial] HQ lead sync failed:', leadErr?.message || leadErr);
@@ -391,7 +432,10 @@ export const hqTrialService = {
       err.statusCode = 400;
       throw err;
     }
-    return this.provisionEmployerTrialRequest(demoPayloadFromDoc(doc), options);
+    return this.provisionEmployerTrialRequest(demoPayloadFromDoc(doc), {
+      ...options,
+      signupSource: options.signupSource || 'hq_grant_trial',
+    });
   },
 
   async grantTrialFromLead(leadId, options = {}, reqUser) {
@@ -433,6 +477,7 @@ export const hqTrialService = {
       note: options.note,
       skipLeadSync: true,
       notifyEmails,
+      signupSource: 'hq_grant_trial',
     });
 
     const updated = await hqLeadsService.markTrialGranted(leadId, {

@@ -384,8 +384,8 @@ function buildEmployerDemoLeadFields(demo) {
 
   let stage = 'new';
   if (isPurchase) stage = 'demo';
+  else if (isTrial) stage = 'trial';
   else if (requestKind === 'demo' || (slot?.date && slot?.time)) stage = 'demo';
-  else if (isTrial) stage = 'new';
 
   const nextFollowUpAt =
     scheduledAt ||

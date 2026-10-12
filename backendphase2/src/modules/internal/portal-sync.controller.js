@@ -127,7 +127,14 @@ export async function postSyncEmployerDemoVerified(req, res) {
 
 export async function postProvisionEmployerTrial(req, res) {
   try {
-    const result = await hqTrialService.provisionEmployerTrialRequest(req.body || {});
+    const body = req.body || {};
+    const result = await hqTrialService.provisionEmployerTrialRequest(body, {
+      trialDays: body.trialDays ?? 5,
+      signupSource: body.signupSource || 'landing_trial',
+      note: body.note,
+      skipLeadSync: body.skipLeadSync,
+      notifyEmails: body.notifyEmails,
+    });
     return res.json({
       success: true,
       message: result.alreadyProvisioned

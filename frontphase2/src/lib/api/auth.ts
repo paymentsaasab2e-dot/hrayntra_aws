@@ -190,13 +190,15 @@ export async function apiLogin(
       syncTenantDbName(null);
     }
   }
+  // Synthetic IDs like user_ab12@trial / name@saasa are loginIds, not emails.
+  const looksLikeEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
   let res: ApiResponse<AuthPayload>;
   try {
     res = await apiFetch<AuthPayload>('/auth/login', {
       method: 'POST',
       body: {
-        email: email.includes('@') ? email : undefined,
-        loginId: email.includes('@') ? undefined : email,
+        email: looksLikeEmail ? email : undefined,
+        loginId: looksLikeEmail ? undefined : email,
         password,
         deviceId: devicePayload?.deviceId,
         macAddress: devicePayload?.macAddress || devicePayload?.deviceId,

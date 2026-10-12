@@ -24,9 +24,19 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3001
-# Headless LibreOffice converts client-review DOCX resumes to PDF (same PDF viewer UX as local Word).
+# Headless LibreOffice converts DOCX→PDF when Microsoft Word is unavailable.
+# Metric-compatible fonts (Carlito≈Calibri, Caladea≈Cambria, Liberation≈Arial/Times)
+# are required or multi-column resumes reflow badly.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends libreoffice-writer-nogui fonts-dejavu-core \
+  && apt-get install -y --no-install-recommends \
+    libreoffice-writer-nogui \
+    fontconfig \
+    fonts-dejavu-core \
+    fonts-liberation \
+    fonts-liberation2 \
+    fonts-crosextra-carlito \
+    fonts-crosextra-caladea \
+  && fc-cache -f \
   && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /app/package.json ./
 COPY --from=builder /app/public ./public
