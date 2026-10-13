@@ -315,8 +315,11 @@ export function useJobCandidatesTab(options: UseJobCandidatesTabOptions) {
   const wasOnCandidatesTabRef = useRef(false);
   const prevAiTabJobIdRef = useRef<string | null>(null);
   const prevOnAiTabRef = useRef(false);
+  /** Blocks event-driven refresh while a local stage/list mutation is settling. */
+  const suppressCandidatesChangedRefreshRef = useRef(0);
 
   useEffect(() => {
+    displayJobCandidatesRef.current = seed;
     setDisplayJobCandidates(seed);
     const hasScores = seed.some((row) => parseJobCandidateScore(row.score) > 0);
     setShowMatchScores(hasScores);
@@ -662,16 +665,26 @@ export function useJobCandidatesTab(options: UseJobCandidatesTabOptions) {
         setDisplayJobCandidates(updated);
         options.onJobCandidatesChange?.(updated);
 
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('jobportal:candidates-changed'));
+        // Prevent event listeners from racing a stale refresh over this optimistic update.
+        suppressCandidatesChangedRefreshRef.current += 1;
+        try {
+          await refreshAppliedJobCandidates({
+            runPipeline: false,
+            refresh: false,
+            silent: true,
+            seedOverride: updated,
+          });
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('jobportal:candidates-changed'));
+          }
+        } finally {
+          window.setTimeout(() => {
+            suppressCandidatesChangedRefreshRef.current = Math.max(
+              0,
+              suppressCandidatesChangedRefreshRef.current - 1,
+            );
+          }, 750);
         }
-
-        await refreshAppliedJobCandidates({
-          runPipeline: false,
-          refresh: false,
-          silent: true,
-          seedOverride: updated,
-        });
         toast.success(`Stage updated to ${nextStage}`);
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : 'Failed to update candidate stage';
@@ -1033,7 +1046,13 @@ export function useJobCandidatesTab(options: UseJobCandidatesTabOptions) {
   useEffect(() => {
     if (!options.isOpen || !jobId) return;
     const onCandidatesChanged = () => {
-      void refreshAppliedJobCandidates();
+      if (suppressCandidatesChangedRefreshRef.current > 0) return;
+      void refreshAppliedJobCandidates({
+        runPipeline: false,
+        refresh: false,
+        silent: true,
+        seedOverride: displayJobCandidatesRef.current,
+      });
     };
     window.addEventListener('jobportal:candidates-changed', onCandidatesChanged);
     return () => window.removeEventListener('jobportal:candidates-changed', onCandidatesChanged);

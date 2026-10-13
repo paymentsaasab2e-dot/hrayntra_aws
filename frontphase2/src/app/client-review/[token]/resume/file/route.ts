@@ -85,12 +85,22 @@ export async function GET(
     String(req.nextUrl.searchParams.get('renderer') || '')
       .trim()
       .toLowerCase() === 'libreoffice';
+  const forceDownload =
+    String(req.nextUrl.searchParams.get('download') || '')
+      .trim()
+      .toLowerCase() === '1' ||
+    String(req.nextUrl.searchParams.get('download') || '')
+      .trim()
+      .toLowerCase() === 'true';
 
   const params = new URLSearchParams();
   if (matchId) params.set('matchId', matchId);
   if (source) params.set('source', source);
   const query = params.toString() ? `?${params.toString()}` : '';
   const target = `${backendApiBase(req)}/interviews/public/review/${encodeURIComponent(token)}/resume${query}`;
+
+  const withDisposition = (filename: string, inline: boolean) =>
+    `${inline && !forceDownload ? 'inline' : 'attachment'}; filename="${filename}"`;
 
   try {
     const upstream = await fetch(target, {
@@ -126,9 +136,8 @@ export async function GET(
 
     if (wasWord && !isPdfBuffer(bytes) && !asPdf) {
       contentType = wordContentType(disposition, formatHint);
-      if (!/\.docx?\b/i.test(disposition)) {
-        disposition = `inline; filename="Resume.${formatHint === 'doc' ? 'doc' : 'docx'}"`;
-      }
+      const ext = formatHint === 'doc' ? 'doc' : 'docx';
+      disposition = withDisposition(`Resume.${ext}`, true);
       return new NextResponse(new Uint8Array(bytes), {
         status: 200,
         headers: {
@@ -145,7 +154,7 @@ export async function GET(
         const pdf = await convertWordResumeToPdf(new Uint8Array(bytes));
         bytes = Buffer.from(pdf);
         contentType = 'application/pdf';
-        disposition = 'inline; filename="Resume.pdf"';
+        disposition = withDisposition('Resume.pdf', true);
       } catch (conversionError) {
         console.warn(
           '[client-review/resume/file] Word/LibreOffice→PDF failed:',
@@ -164,9 +173,7 @@ export async function GET(
         bytes = Buffer.from(await stampPdfBufferWithExportWatermark(bytes, watermark));
       }
       contentType = 'application/pdf';
-      if (!/\.pdf/i.test(disposition)) {
-        disposition = 'inline; filename="Resume.pdf"';
-      }
+      disposition = withDisposition('Resume.pdf', true);
     }
 
     return new NextResponse(new Uint8Array(bytes), {

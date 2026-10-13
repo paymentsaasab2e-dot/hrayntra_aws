@@ -30,7 +30,6 @@ import { ActivityTab } from './tabs/Activity';
 import { NotesTab } from './tabs/Notes';
 import { ChatTab } from './tabs/Chat';
 
-import { formatDateDMY } from '../../utils/dateDisplay';
 
 import { AssessmentsTab } from './tabs/Assessments';
 
@@ -575,30 +574,13 @@ const pipelineStageCountCards = useMemo(() => {
             <div className="min-w-0 flex-1">
               {job ? (
                 <>
-                  <h2
-                    id="job-detail-modal-title"
-                    className="truncate text-lg font-bold tracking-tight text-slate-900 sm:text-xl"
-                  >
-                    {job.title}
-                  </h2>
-                  <div className="mt-2 flex min-w-0 flex-nowrap items-center gap-2 overflow-x-auto text-sm text-slate-600 [scrollbar-width:thin]">
-                    <span className="inline-flex shrink-0 items-center gap-1.5">
-                      <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100">
-                        <Briefcase size={12} />
-                      </span>
-                      {job.client}
-                    </span>
-                    <span className="inline-flex shrink-0 items-center gap-1.5">
-                      <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-violet-50 text-violet-600 ring-1 ring-violet-100">
-                        <MapPin size={12} />
-                      </span>
-                      {job.location}
-                    </span>
-                    {job.employmentType && (
-                      <span className="shrink-0 rounded-full border border-slate-200/90 bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-slate-600 shadow-sm">
-                        {job.employmentType}
-                      </span>
-                    )}
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <h2
+                      id="job-detail-modal-title"
+                      className="min-w-0 truncate text-lg font-bold tracking-tight text-slate-900 sm:text-xl"
+                    >
+                      {job.title}
+                    </h2>
                     {!showStatusChange ? (
                       <button
                         type="button"
@@ -609,41 +591,41 @@ const pipelineStageCountCards = useMemo(() => {
                         {localJobStatus || job.status}
                       </button>
                     ) : (
-                      <div className="flex min-w-[12rem] shrink-0 items-center gap-2">
-                          <JobDrawerStatusDropdown
-                            value={localJobStatus || job.status}
-                            options={drawerStatusOptions}
-                            deleting={deletingJobStatus || updatingJobStatus}
-                            onSelect={(status) => {
-                              void applyJobStatusChange(status);
-                            }}
-                            onDelete={(status) => {
-                              void deleteJobStatusOption(status);
-                            }}
-                          />
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setShowAddJobStatusInput((prev) => !prev);
-                              setNewJobStatusValue('');
-                            }}
-                            className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-700 hover:text-indigo-800"
-                          >
-                            <Plus className="h-3.5 w-3.5" />
-                            Add status
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setShowStatusChange(false);
-                              setShowAddJobStatusInput(false);
-                              setNewJobStatusValue('');
-                              setLocalJobStatus(job.status);
-                            }}
-                            className="text-[11px] font-semibold text-slate-500 hover:text-slate-700"
-                          >
-                            Cancel
-                          </button>
+                      <div className="flex min-w-[12rem] shrink-0 flex-wrap items-center gap-2">
+                        <JobDrawerStatusDropdown
+                          value={localJobStatus || job.status}
+                          options={drawerStatusOptions}
+                          deleting={deletingJobStatus || updatingJobStatus}
+                          onSelect={(status) => {
+                            void applyJobStatusChange(status);
+                          }}
+                          onDelete={(status) => {
+                            void deleteJobStatusOption(status);
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowAddJobStatusInput((prev) => !prev);
+                            setNewJobStatusValue('');
+                          }}
+                          className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-700 hover:text-indigo-800"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          Add status
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowStatusChange(false);
+                            setShowAddJobStatusInput(false);
+                            setNewJobStatusValue('');
+                            setLocalJobStatus(job.status);
+                          }}
+                          className="text-[11px] font-semibold text-slate-500 hover:text-slate-700"
+                        >
+                          Cancel
+                        </button>
                         {showAddJobStatusInput ? (
                           <>
                             <input
@@ -665,6 +647,25 @@ const pipelineStageCountCards = useMemo(() => {
                         ) : null}
                       </div>
                     )}
+                  </div>
+                  <div className="mt-2 flex min-w-0 flex-nowrap items-center gap-2 overflow-x-auto text-sm text-slate-600 [scrollbar-width:thin]">
+                    <span className="inline-flex shrink-0 items-center gap-1.5">
+                      <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100">
+                        <Briefcase size={12} />
+                      </span>
+                      {job.client}
+                    </span>
+                    <span className="inline-flex shrink-0 items-center gap-1.5">
+                      <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-violet-50 text-violet-600 ring-1 ring-violet-100">
+                        <MapPin size={12} />
+                      </span>
+                      {job.location}
+                    </span>
+                    {job.employmentType && (
+                      <span className="shrink-0 rounded-full border border-slate-200/90 bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-slate-600 shadow-sm">
+                        {job.employmentType}
+                      </span>
+                    )}
                     {job.jobLocationType && (
                       <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[11px] font-semibold text-indigo-700">
                         <UserCheck size={12} />
@@ -680,70 +681,66 @@ const pipelineStageCountCards = useMemo(() => {
                       </span>
                       ) : null;
                     })()}
-                    <span className="shrink-0 rounded-full border border-slate-200/90 bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-slate-600 shadow-sm">
-                      {formatDateDMY(job.postedDate ?? job.createdDate) || '—'}
-                    </span>
                   </div>
                 </>
               ) : (
                 <h2 className="text-lg font-bold text-slate-900">Job Details</h2>
               )}
             </div>
-            <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5 sm:gap-2">
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
               {job && onEdit ? (
                 <button
                   type="button"
                   onClick={() => onEdit(job)}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-100 bg-white/90 px-2.5 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-800 sm:px-3"
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-indigo-100 bg-white/90 text-slate-700 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-800"
                   title="Edit Job"
+                  aria-label="Edit Job"
                 >
-                  <Pencil size={14} />
-                  <span className="hidden sm:inline">Edit Job</span>
+                  <Pencil size={16} />
                 </button>
               ) : null}
               {job?.status === 'Draft' && onPublish ? (
                 <button
                   type="button"
                   onClick={() => onPublish(job)}
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-2.5 py-2 text-xs font-semibold text-white shadow-sm transition hover:brightness-110 sm:px-3"
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-sm transition hover:brightness-110"
                   title="Publish Job"
+                  aria-label="Publish Job"
                 >
-                  <Send size={14} />
-                  <span className="hidden sm:inline">Publish</span>
+                  <Send size={16} />
                 </button>
               ) : null}
               {job && onClone ? (
                 <button
                   type="button"
                   onClick={() => onClone(job)}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-100 bg-white/90 px-2.5 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-800 sm:px-3"
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-indigo-100 bg-white/90 text-slate-700 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-800"
                   title="Clone Job"
+                  aria-label="Clone Job"
                 >
-                  <Copy size={14} />
-                  <span className="hidden sm:inline">Clone Job</span>
+                  <Copy size={16} />
                 </button>
               ) : null}
               {job && onCloseJob ? (
                 <button
                   type="button"
                   onClick={() => onCloseJob(job)}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-2.5 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-100 sm:px-3"
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-rose-200 bg-rose-50 text-rose-700 transition hover:bg-rose-100"
                   title="Close Job"
+                  aria-label="Close Job"
                 >
-                  <Archive size={14} />
-                  <span className="hidden sm:inline">Close Job</span>
+                  <Archive size={16} />
                 </button>
               ) : null}
               {showHeaderSubmitToClient ? (
                 <button
                   type="button"
                   onClick={openSubmitCandidatePicker}
-                  className="inline-flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-800 shadow-sm transition hover:bg-indigo-100"
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-800 shadow-sm transition hover:bg-indigo-100"
                   aria-label="Submit to Client"
                   title="Choose a candidate and submit to the client"
                 >
                   <Send size={16} strokeWidth={2.25} />
-                  <span className="hidden md:inline">Submit to Client</span>
                 </button>
               ) : null}
               {job?.id ? (
@@ -858,19 +855,21 @@ const pipelineStageCountCards = useMemo(() => {
                 <button
                   type="button"
                   onClick={() => setActiveTab('analytics')}
-                  className="inline-flex items-center gap-2 rounded-xl border border-indigo-100 bg-white/90 px-3 py-2 text-xs font-semibold text-indigo-700 shadow-sm transition hover:bg-indigo-50"
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-indigo-100 bg-white/90 text-indigo-700 shadow-sm transition hover:bg-indigo-50"
                   aria-label="View analytics"
+                  title="Analytics"
                 >
-                  <BarChart2 size={16} /> Analytics
+                  <BarChart2 size={16} />
                 </button>
               )}
               <button
                 type="button"
                 onClick={() => void requestJobDrawerClose()}
-                className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-indigo-50 hover:text-indigo-700"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 transition-colors hover:bg-indigo-50 hover:text-indigo-700"
                 aria-label="Close"
+                title="Close"
               >
-                <X size={20} />
+                <X size={18} />
               </button>
             </div>
           </div>
@@ -914,7 +913,7 @@ const pipelineStageCountCards = useMemo(() => {
 
               {activeTab === 'client'  && <ClientTab clientRemarkCandidates={clientRemarkCandidates} clientRemarksClientName={clientRemarksClientName} clientRemarksError={clientRemarksError} displayJobCandidates={displayJobCandidates} job={job} loadingClientRemarks={loadingClientRemarks} mapJobCandidateToTableRow={mapJobCandidateToTableRow} onViewCandidateProfile={onViewCandidateProfile} />}
 
-              {activeTab === 'pipeline'  && <PipelineTab PIPELINE_SYSTEM_ROLE_OPTIONS={PIPELINE_SYSTEM_ROLE_OPTIONS} draggedStageId={draggedStageId} handleAddStage={handleAddStage} handlePipelineReorder={handlePipelineReorder} handleRemoveStage={handleRemoveStage} handleStageNameChange={handleStageNameChange} handleStageSlaChange={handleStageSlaChange} handleStageSystemRoleChange={handleStageSystemRoleChange} isDefaultPipelineStage={isDefaultPipelineStage} job={job} notifyPipelineChange={notifyPipelineChange} onSavePipelineStages={onSavePipelineStages} pipelineConfigLocked={pipelineConfigLocked} pipelineDirty={pipelineDirty} pipelineStageCountCards={pipelineStageCountCards} pipelineStages={pipelineStages} pipelineValidationError={pipelineValidationError} setDraggedStageId={setDraggedStageId} setJobPipelineCustomized={setJobPipelineCustomized} setPipelineDirty={setPipelineDirty} setPipelineStages={setPipelineStages} setPipelineValidationError={setPipelineValidationError} />}
+              {activeTab === 'pipeline'  && <PipelineTab PIPELINE_SYSTEM_ROLE_OPTIONS={PIPELINE_SYSTEM_ROLE_OPTIONS} draggedStageId={draggedStageId} handleAddStage={handleAddStage} handlePipelineReorder={handlePipelineReorder} handleRemoveStage={handleRemoveStage} handleStageNameChange={handleStageNameChange} handleStageSlaChange={handleStageSlaChange} handleStageSystemRoleChange={handleStageSystemRoleChange} isDefaultPipelineStage={isDefaultPipelineStage} job={job} notifyPipelineChange={notifyPipelineChange} onSavePipelineStages={onSavePipelineStages} pipelineConfigLocked={pipelineConfigLocked} pipelineDirty={pipelineDirty} pipelineStages={pipelineStages} pipelineValidationError={pipelineValidationError} setDraggedStageId={setDraggedStageId} setJobPipelineCustomized={setJobPipelineCustomized} setPipelineDirty={setPipelineDirty} setPipelineStages={setPipelineStages} setPipelineValidationError={setPipelineValidationError} />}
               {activeTab === 'analytics'  && <AnalyticsTab job={job} />}
               {activeTab === 'assignment'  && <AssignmentTab applyAssignmentMemberIds={applyAssignmentMemberIds} assignable={assignable} assignmentContacts={assignmentContacts} assignmentCurrentUserId={assignmentCurrentUserId} assignmentDirty={assignmentDirty} assignmentHiringManagerId={assignmentHiringManagerId} assignmentHiringManagerName={assignmentHiringManagerName} assignmentManagerId={assignmentManagerId} assignmentManagerUsers={assignmentManagerUsers} assignmentMemberIds={assignmentMemberIds} assignmentRecruiterMenuPosition={assignmentRecruiterMenuPosition} assignmentRecruiterMenuRef={assignmentRecruiterMenuRef} assignmentRecruiterOpen={assignmentRecruiterOpen} assignmentRecruiterTriggerRef={assignmentRecruiterTriggerRef} closeAssignmentRecruiterMenu={closeAssignmentRecruiterMenu} filteredAssignmentRecruiters={filteredAssignmentRecruiters} job={job} loadingAssignmentMeta={loadingAssignmentMeta} loadingAssignmentRecruiters={loadingAssignmentRecruiters} needsAssignmentManagerFirst={needsAssignmentManagerFirst} needsAssignmentOrganizationFirst={needsAssignmentOrganizationFirst} saveAssignment={saveAssignment} savingAssignment={savingAssignment} selectAssignmentManager={selectAssignmentManager} selectedAssignmentAssignees={selectedAssignmentAssignees} setAssignmentDirty={setAssignmentDirty} setAssignmentHiringManagerId={setAssignmentHiringManagerId} setAssignmentHiringManagerName={setAssignmentHiringManagerName} setAssignmentManagerId={setAssignmentManagerId} setAssignmentMemberIds={setAssignmentMemberIds} setAssignmentRecruiterOpen={setAssignmentRecruiterOpen} />}
               {activeTab === 'interviews'  && <InterviewsTab candidateNameFromInterview={candidateNameFromInterview} filteredJobInterviews={filteredJobInterviews} formatInterviewListStatus={formatInterviewListStatus} formatInterviewTypeLabel={formatInterviewTypeLabel} interviewListStatusBadgeClass={interviewListStatusBadgeClass} jobInterviewAllCandidateCount={jobInterviewAllCandidateCount} jobInterviewCountsByRound={jobInterviewCountsByRound} jobInterviewRoundById={jobInterviewRoundById} jobInterviewRoundNumbers={jobInterviewRoundNumbers} jobInterviews={jobInterviews} loadingJobInterviews={loadingJobInterviews} onScheduleInterview={onScheduleInterview} openScheduleInterviewCandidatePicker={openScheduleInterviewCandidatePicker} panelNamesFromInterview={panelNamesFromInterview} selectedInterviewRound={selectedInterviewRound} setJobInterviewDetailOpen={setJobInterviewDetailOpen} setSelectedInterviewRound={setSelectedInterviewRound} setSelectedJobInterview={setSelectedJobInterview} />}

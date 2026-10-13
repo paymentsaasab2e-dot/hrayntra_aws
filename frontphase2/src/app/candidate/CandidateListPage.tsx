@@ -687,10 +687,15 @@ export function CandidateListPage() {
                         strokeWidth={2.25}
                       />
                       <input
-                        type="text"
+                        type="search"
                         placeholder="Search name or email…"
                         value={filters.search}
                         onChange={(e) => handleSearchInputChange(e.target.value)}
+                        spellCheck={false}
+                        autoCorrect="off"
+                        autoCapitalize="off"
+                        data-writing-assist="off"
+                        data-enable-grammarly="false"
                         className="h-9 w-full rounded-xl border border-indigo-100/90 bg-white/95 pl-10 pr-3 text-xs text-slate-800 shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)] placeholder:text-slate-400 transition-all focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
                       />
             </div>
