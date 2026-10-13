@@ -26,7 +26,6 @@ export interface PipelineTabProps {
   "onSavePipelineStages": ((stages: JobPipelineStage[]) => void) | undefined;
   "pipelineConfigLocked": boolean;
   "pipelineDirty": boolean;
-  "pipelineStageCountCards": Array<{ id: string; name: string; count: number; }>;
   "pipelineStages": Array<JobPipelineStage>;
   "pipelineValidationError": string;
   "setDraggedStageId": (value: import("react").SetStateAction<string | null>) => void;

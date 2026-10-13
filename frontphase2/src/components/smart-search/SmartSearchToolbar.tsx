@@ -80,40 +80,41 @@ export function SmartSearchPromptPanel({
     onApply();
   };
 
+  const hasPrompt = Boolean(prompt.trim());
+  const showKeywordChips = hasPrompt && previewKeywords.length > 0;
+
   return (
-    <div className="space-y-2 border-b border-indigo-100/50 bg-gradient-to-r from-violet-50/50 via-white to-indigo-50/30 px-3 py-2.5 sm:px-4">
+    <div className="space-y-1.5 border-b border-indigo-100/50 bg-gradient-to-r from-violet-50/40 via-white to-indigo-50/20 px-3 py-1.5 sm:px-4">
       <AiCoinLockBanner featureId="ai.smart_search" />
-      <div className="flex items-start gap-2">
-        <div className="min-w-0 flex-1">
-          <label htmlFor="smart-search-prompt" className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-violet-700/80">
-            Search prompt
-          </label>
-          <textarea
-            id="smart-search-prompt"
-            value={prompt}
-            onChange={(e) => onPromptChange(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                if (!applying) handleApply();
-              }
-            }}
-            rows={2}
-            disabled={applying}
-            aria-busy={applying}
-            placeholder={
-              placeholder ||
-              `Describe the ${entityLabel} you want — status, client, recruiter, location…`
+      <div className="flex items-center gap-2">
+        <label htmlFor="smart-search-prompt" className="sr-only">
+          Search prompt
+        </label>
+        <input
+          id="smart-search-prompt"
+          type="text"
+          value={prompt}
+          onChange={(e) => onPromptChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              if (!applying) handleApply();
             }
-            className="min-h-[52px] w-full resize-none rounded-xl border border-violet-200/90 bg-white px-3 py-2 text-xs text-slate-800 placeholder:text-slate-400 focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-500/25 disabled:cursor-wait disabled:bg-violet-50/70 disabled:text-slate-600"
-          />
-        </div>
+          }}
+          disabled={applying}
+          aria-busy={applying}
+          placeholder={
+            placeholder ||
+            `Describe the ${entityLabel} you want — status, client, recruiter, location…`
+          }
+          className="h-11 min-w-0 flex-1 rounded-xl border border-violet-200/90 bg-white px-3 text-sm text-slate-800 placeholder:text-slate-400 focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-500/25 disabled:cursor-wait disabled:bg-violet-50/70 disabled:text-slate-600"
+        />
         <button
           type="button"
           onClick={handleApply}
           disabled={applying}
-          className={`relative mt-5 inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-full text-white disabled:cursor-wait ${
-            applying ? 'min-w-[7.25rem] px-3' : 'min-w-[2.25rem] px-2'
+          className={`relative inline-flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-full text-white disabled:cursor-wait ${
+            applying ? 'min-w-[6.5rem] px-2.5' : 'w-11 px-0'
           } ${gate.locked ? 'bg-amber-600 hover:bg-amber-700' : 'bg-slate-900 hover:bg-slate-800'}`}
           aria-label={applying ? 'Searching' : 'Apply smart search prompt'}
           aria-busy={applying}
@@ -129,11 +130,11 @@ export function SmartSearchPromptPanel({
             <Lock size={14} strokeWidth={2.25} />
           ) : applying ? (
             <>
-              <Loader2 size={15} strokeWidth={2.35} className="animate-spin" />
+              <Loader2 size={14} strokeWidth={2.35} className="animate-spin" />
               <span className="text-[11px] font-semibold">Searching</span>
             </>
           ) : (
-            <ArrowUp size={16} strokeWidth={2.25} />
+            <ArrowUp size={15} strokeWidth={2.25} />
           )}
           <AiCoinLockBadge featureId="ai.smart_search" className="absolute -right-1 -top-1" />
         </button>
@@ -141,49 +142,48 @@ export function SmartSearchPromptPanel({
 
       {applying ? (
         <div
-          className="flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-2 text-xs font-medium text-violet-900"
+          className="flex items-center gap-1.5 rounded-md border border-violet-200 bg-violet-50 px-2 py-1 text-[11px] font-medium text-violet-900"
           role="status"
           aria-live="polite"
         >
-          <Loader2 size={14} strokeWidth={2.35} className="shrink-0 animate-spin text-violet-600" />
-          Searching {entityLabel}… matching CVs and filters. This can take a moment.
+          <Loader2 size={12} strokeWidth={2.35} className="shrink-0 animate-spin text-violet-600" />
+          Searching {entityLabel}…
         </div>
       ) : null}
 
-      <div className="rounded-lg border border-violet-100/80 bg-white/80 px-2.5 py-2">
-        <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">Keywords found</p>
-        {prompt.trim() ? (
-          previewKeywords.length > 0 ? (
-            <div className="flex flex-wrap gap-1.5">
-              {previewKeywords.map((keyword) => (
-                <span
-                  key={keyword.id}
-                  className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${keywordChipClass(keyword.kind)}`}
-                >
-                  {keyword.label}
-                </span>
-              ))}
-            </div>
-          ) : (
-            <p className="text-xs text-slate-600">No keywords detected — matching full prompt text.</p>
-          )
+      <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:thin]">
+        {showKeywordChips ? (
+          <>
+            <span className="shrink-0 text-[9px] font-bold uppercase tracking-wider text-slate-400">
+              Keywords
+            </span>
+            {previewKeywords.map((keyword) => (
+              <span
+                key={keyword.id}
+                className={`inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${keywordChipClass(keyword.kind)}`}
+              >
+                {keyword.label}
+              </span>
+            ))}
+          </>
         ) : (
-          <p className="text-xs text-slate-500">Type a prompt — keywords appear here, then press Enter.</p>
+          <>
+            <span className="shrink-0 text-[9px] font-bold uppercase tracking-wider text-slate-400">
+              Try
+            </span>
+            {examples.map((example) => (
+              <button
+                key={example.label}
+                type="button"
+                onClick={() => onExampleClick(example.query)}
+                disabled={applying}
+                className="inline-flex shrink-0 rounded-full border border-violet-200/90 bg-white px-2 py-0.5 text-[10px] font-medium text-violet-800 transition-colors hover:border-violet-300 hover:bg-violet-50 disabled:cursor-wait disabled:opacity-50"
+              >
+                {example.label}
+              </button>
+            ))}
+          </>
         )}
-      </div>
-
-      <div className="flex flex-wrap gap-1.5">
-        {examples.map((example) => (
-          <button
-            key={example.label}
-            type="button"
-            onClick={() => onExampleClick(example.query)}
-            disabled={applying}
-            className="rounded-full border border-violet-200/90 bg-white px-2.5 py-1 text-[11px] font-medium text-violet-800 transition-colors hover:border-violet-300 hover:bg-violet-50 disabled:cursor-wait disabled:opacity-50"
-          >
-            {example.label}
-          </button>
-        ))}
       </div>
     </div>
   );

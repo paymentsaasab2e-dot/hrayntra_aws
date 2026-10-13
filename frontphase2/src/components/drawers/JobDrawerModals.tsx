@@ -352,15 +352,15 @@ export function JobDrawerModals(props: JobDrawerModalsProps) {
               invalidateEmployerCandidatesCache();
 
               await onAddToPipeline(payload);
-              if (typeof window !== 'undefined') {
-                window.dispatchEvent(new CustomEvent('jobportal:candidates-changed'));
-              }
               await refreshAppliedJobCandidates({
                 runPipeline: false,
                 refresh: false,
                 silent: true,
                 seedOverride: updatedList,
               });
+              if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('jobportal:candidates-changed'));
+              }
               setMoveStageModalOpen(false);
               setMoveStageCandidate(null);
             }
@@ -380,15 +380,15 @@ export function JobDrawerModals(props: JobDrawerModalsProps) {
               invalidateEmployerCandidatesCache();
 
               await onRemoveFromPipeline(payload);
-              if (typeof window !== 'undefined') {
-                window.dispatchEvent(new CustomEvent('jobportal:candidates-changed'));
-              }
               await refreshAppliedJobCandidates({
                 runPipeline: false,
                 refresh: false,
                 silent: true,
                 seedOverride: updatedList,
               });
+              if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('jobportal:candidates-changed'));
+              }
               setMoveStageModalOpen(false);
               setMoveStageCandidate(null);
             }

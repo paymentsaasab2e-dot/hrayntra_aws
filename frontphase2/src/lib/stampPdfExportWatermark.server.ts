@@ -43,8 +43,25 @@ export async function stampPdfBufferWithExportWatermark(
     const opacity = Math.min(0.5, Math.max(0.05, Number(cfg.opacity) || 0.18));
     let embeddedImage: Awaited<ReturnType<typeof pdfDoc.embedPng>> | null = null;
 
-    const dataUrl = imageDataUrl.startsWith('data:image/') ? imageDataUrl : '';
-    if (dataUrl) {
+    let dataUrl = imageDataUrl.startsWith('data:image/') ? imageDataUrl : '';
+    if (!dataUrl && /^https?:\/\//i.test(imageUrl)) {
+      try {
+        const logoRes = await fetch(imageUrl, { cache: 'no-store' });
+        if (logoRes.ok) {
+          const logoBytes = Buffer.from(await logoRes.arrayBuffer());
+          const contentType = String(logoRes.headers.get('content-type') || '').toLowerCase();
+          const isPng =
+            contentType.includes('png') ||
+            (logoBytes[0] === 0x89 && logoBytes[1] === 0x50);
+          embeddedImage = isPng
+            ? await pdfDoc.embedPng(logoBytes)
+            : await pdfDoc.embedJpg(logoBytes);
+        }
+      } catch (err) {
+        console.warn('[stampPdf.server] logo URL fetch failed:', err);
+      }
+    }
+    if (!embeddedImage && dataUrl) {
       try {
         const base64 = dataUrl.split(',')[1] || '';
         const bytes = Buffer.from(base64, 'base64');

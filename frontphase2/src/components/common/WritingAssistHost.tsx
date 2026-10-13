@@ -27,11 +27,28 @@ function skipByName(el: HTMLElement) {
   );
 }
 
+/** Filter / table search boxes — never show capitalization or grammar tips there. */
+function isSearchField(el: HTMLElement) {
+  // Smart-search prompt textareas stay assistable (full sentences). Filter inputs do not.
+  if (el instanceof HTMLTextAreaElement) return false;
+  if (el instanceof HTMLInputElement && String(el.type || '').toLowerCase() === 'search') {
+    return true;
+  }
+  const role = String(el.getAttribute('role') || '').toLowerCase();
+  if (role === 'searchbox') return true;
+  if (el.closest('[role="search"]')) return true;
+  const blob = `${el.getAttribute('name') || ''} ${el.id || ''} ${el.getAttribute('placeholder') || ''} ${
+    el.getAttribute('aria-label') || ''
+  }`.toLowerCase();
+  return /\bsearch\b|\bfilter\b|typeahead|quick.?find/.test(blob);
+}
+
 function isAssistableInput(el: Element): el is FieldEl {
   if (!isFieldEl(el)) return false;
   if (el.disabled || el.readOnly) return false;
   if (el.dataset.writingAssist === 'off') return false;
   if (skipByName(el)) return false;
+  if (isSearchField(el)) return false;
 
   const ac = String(el.getAttribute('autocomplete') || '').toLowerCase();
   if (
@@ -55,7 +72,8 @@ function isAssistableInput(el: Element): el is FieldEl {
   if (el instanceof HTMLTextAreaElement) return true;
 
   const type = String(el.type || 'text').toLowerCase();
-  return type === 'text' || type === 'search' || type === 'url' || type === '';
+  // Exclude type=search — filter bars should not get grammar popovers.
+  return type === 'text' || type === 'url' || type === '';
 }
 
 function closestAssistable(target: EventTarget | null): AssistEl | null {
@@ -66,7 +84,13 @@ function closestAssistable(target: EventTarget | null): AssistEl | null {
   if (isAssistableInput(target)) return target;
 
   const ce = target.closest('[contenteditable="true"], [contenteditable=""]') as HTMLElement | null;
-  if (ce && ce.isContentEditable && ce.dataset.writingAssist !== 'off' && !skipByName(ce)) {
+  if (
+    ce &&
+    ce.isContentEditable &&
+    ce.dataset.writingAssist !== 'off' &&
+    !skipByName(ce) &&
+    !isSearchField(ce)
+  ) {
     return ce;
   }
   return null;

@@ -23,7 +23,6 @@ export function PipelineTab(props: PipelineTabProps) {
     onSavePipelineStages,
     pipelineConfigLocked,
     pipelineDirty,
-    pipelineStageCountCards,
     pipelineStages,
     pipelineValidationError,
     setDraggedStageId,
@@ -35,24 +34,6 @@ export function PipelineTab(props: PipelineTabProps) {
 
   return (
 <div className="space-y-5">
-                  <DrawerSectionCard
-                    title="Stage Counts"
-                    subtitle="Candidates per pipeline stage"
-                    icon={GitBranch}
-                    accent="emerald"
-                  >
-                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
-                      {pipelineStageCountCards.map((stage: any) => (
-                        <div key={stage.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-center">
-                          <p className="truncate text-[10px] font-bold uppercase text-slate-400" title={stage.name}>
-                            {stage.name}
-                          </p>
-                          <p className="mt-1 text-xl font-bold text-slate-900">{stage.count}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </DrawerSectionCard>
-
                   <DrawerSectionCard
                     title="Pipeline Configuration"
                     subtitle={

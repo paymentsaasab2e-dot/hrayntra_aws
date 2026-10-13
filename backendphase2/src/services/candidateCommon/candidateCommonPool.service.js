@@ -350,12 +350,55 @@ function rowHasTenantJobLink(row, allowed) {
   return false;
 }
 
+const TENANT_JOB_ID_SET_TTL_MS = Math.min(
+  60_000,
+  Math.max(5_000, Number(process.env.CANDIDATE_TENANT_JOB_IDS_TTL_MS || 20_000) || 20_000),
+);
+const tenantJobIdSetCache = new Map(); // tenantDb -> { at, value: Set<string> }
+const tenantJobIdSetInflight = new Map(); // tenantDb -> Promise<Set<string>>
+
 async function getAllTenantJobIdSet() {
-  const jobs = await prisma.job.findMany({
-    where: { isDeleted: { not: true } },
-    select: { id: true },
+  const tenantKey = getActiveTenantDbName() || '__default__';
+  const cached = tenantJobIdSetCache.get(tenantKey);
+  if (cached && Date.now() - cached.at < TENANT_JOB_ID_SET_TTL_MS) {
+    return cached.value;
+  }
+  const inflight = tenantJobIdSetInflight.get(tenantKey);
+  if (inflight) return inflight;
+
+  const loadPromise = (async () => {
+    const jobs = await prisma.job.findMany({
+      where: { isDeleted: { not: true } },
+      select: { id: true },
+    });
+    const value = new Set(jobs.map((job) => String(job.id)));
+    tenantJobIdSetCache.set(tenantKey, { at: Date.now(), value });
+    return value;
+  })().finally(() => {
+    tenantJobIdSetInflight.delete(tenantKey);
   });
-  return new Set(jobs.map((job) => String(job.id)));
+
+  tenantJobIdSetInflight.set(tenantKey, loadPromise);
+  return loadPromise;
+}
+
+/** Short TTL + in-flight coalesce so parallel CRM page warms share one common-pool query. */
+const COMMON_LIST_INDEX_TTL_MS = Math.min(
+  60_000,
+  Math.max(3_000, Number(process.env.CANDIDATE_COMMON_INDEX_TTL_MS || 15_000) || 15_000),
+);
+const commonListIndexCache = new Map(); // key -> { at, rows }
+const commonListIndexInflight = new Map(); // key -> Promise<rows>
+
+function roundCommonIndexTake(limit, envMax, searchActive) {
+  if (searchActive) return Math.min(envMax, Math.max(1, limit));
+  // Empty browse: bucket so page=1/2/3 warm requests reuse the same fetch.
+  const bucketFloor = Math.min(
+    envMax,
+    Math.max(500, Number(process.env.CANDIDATES_COMMON_INDEX_BUCKET || 500) || 500),
+  );
+  const stepped = Math.ceil(Math.max(limit, bucketFloor) / 150) * 150;
+  return Math.min(envMax, Math.max(bucketFloor, stepped));
 }
 
 /**
@@ -371,84 +414,108 @@ export async function fetchCandidateCommonListIndex(req, options = {}) {
     10000,
     Math.max(1, Number(process.env.CANDIDATES_COMMON_POOL_MAX || 5000) || 5000),
   );
-  const limit = Number.isFinite(Number(options.take)) && Number(options.take) > 0
+  const requestedLimit = Number.isFinite(Number(options.take)) && Number(options.take) > 0
     ? Math.min(envMax, Number(options.take))
     : envMax;
-
-  const where = { isVerified: true };
   const search = String(options.search || req?.query?.search || '').trim();
-  if (search) {
-    // Mirror tenant classifier — avoid scanning unrelated snapshot fields.
-    const looksLikeId = /^[a-fA-F0-9]{24}$/.test(search);
-    const looksLikeEmail = search.includes('@');
-    const digitsOnly = search.replace(/\D/g, '');
-    const looksLikePhone =
-      digitsOnly.length >= 7 &&
-      digitsOnly.length === search.replace(/[\s()+.-]/g, '').replace(/\D/g, '').length;
-    if (looksLikeId) {
-      where.OR = [{ candidateId: search }, { id: search }];
-    } else if (looksLikeEmail) {
-      where.email = { contains: search, mode: 'insensitive' };
-    } else if (looksLikePhone) {
-      where.OR = [
-        { phone: { contains: search, mode: 'insensitive' } },
-        { phone: { contains: digitsOnly, mode: 'insensitive' } },
-      ];
-    } else {
-      where.OR = [
-        { firstName: { contains: search, mode: 'insensitive' } },
-        { lastName: { contains: search, mode: 'insensitive' } },
-        { email: { contains: search, mode: 'insensitive' } },
-      ];
-    }
+  const searchActive = Boolean(search);
+  const fetchLimit = roundCommonIndexTake(requestedLimit, envMax, searchActive);
+  const tenantKey = getActiveTenantDbName() || '__global__';
+  const cacheKey = `${tenantKey}|${search.toLowerCase()}|${fetchLimit}`;
+
+  const cached = commonListIndexCache.get(cacheKey);
+  if (cached && Date.now() - cached.at < COMMON_LIST_INDEX_TTL_MS) {
+    return cached.rows.slice(0, requestedLimit);
   }
 
-  const rows = await commonPrisma.candidateCommon.findMany({
-    where,
-    orderBy: [{ updatedAt: 'desc' }, { syncedAt: 'desc' }],
-    take: limit,
-    select: {
-      id: true,
-      candidateId: true,
-      firstName: true,
-      lastName: true,
-      email: true,
-      assignedJobs: true,
-      matchJobIds: true,
-      source: true,
-      syncedAt: true,
-      updatedAt: true,
-    },
+  const inflight = commonListIndexInflight.get(cacheKey);
+  if (inflight) {
+    const rows = await inflight;
+    return rows.slice(0, requestedLimit);
+  }
+
+  const loadPromise = (async () => {
+    const where = { isVerified: true };
+    if (searchActive) {
+      // Mirror tenant classifier — avoid scanning unrelated snapshot fields.
+      const looksLikeId = /^[a-fA-F0-9]{24}$/.test(search);
+      const looksLikeEmail = search.includes('@');
+      const digitsOnly = search.replace(/\D/g, '');
+      const looksLikePhone =
+        digitsOnly.length >= 7 &&
+        digitsOnly.length === search.replace(/[\s()+.-]/g, '').replace(/\D/g, '').length;
+      if (looksLikeId) {
+        where.OR = [{ candidateId: search }, { id: search }];
+      } else if (looksLikeEmail) {
+        where.email = { contains: search, mode: 'insensitive' };
+      } else if (looksLikePhone) {
+        where.OR = [
+          { phone: { contains: search, mode: 'insensitive' } },
+          { phone: { contains: digitsOnly, mode: 'insensitive' } },
+        ];
+      } else {
+        where.OR = [
+          { firstName: { contains: search, mode: 'insensitive' } },
+          { lastName: { contains: search, mode: 'insensitive' } },
+          { email: { contains: search, mode: 'insensitive' } },
+        ];
+      }
+    }
+
+    const rows = await commonPrisma.candidateCommon.findMany({
+      where,
+      orderBy: [{ updatedAt: 'desc' }, { syncedAt: 'desc' }],
+      take: fetchLimit,
+      select: {
+        id: true,
+        candidateId: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        assignedJobs: true,
+        matchJobIds: true,
+        source: true,
+        syncedAt: true,
+        updatedAt: true,
+      },
+    });
+
+    let mapped = rows
+      .map((row) => {
+        const id = String(row.candidateId || row.id || '').trim();
+        if (!id) return null;
+        return {
+          id,
+          firstName: row.firstName,
+          lastName: row.lastName,
+          email: row.email,
+          assignedJobs: Array.isArray(row.assignedJobs) ? row.assignedJobs : [],
+          matchJobIds: Array.isArray(row.matchJobIds) ? row.matchJobIds : [],
+          source: row.source || 'phase1',
+          updatedAt: row.updatedAt || row.syncedAt,
+          createdAt: row.syncedAt || row.updatedAt,
+        };
+      })
+      .filter(Boolean);
+
+    if (isTenantScopedRequest()) {
+      const allowed = await getAllTenantJobIdSet();
+      mapped = mapped.filter((row) => {
+        if (!candidateHasAnyJobLink(row)) return true;
+        if (!allowed.size) return false;
+        return rowHasTenantJobLink(row, allowed);
+      });
+    }
+
+    commonListIndexCache.set(cacheKey, { at: Date.now(), rows: mapped });
+    return mapped;
+  })().finally(() => {
+    commonListIndexInflight.delete(cacheKey);
   });
 
-  let mapped = rows
-    .map((row) => {
-      const id = String(row.candidateId || row.id || '').trim();
-      if (!id) return null;
-      return {
-        id,
-        firstName: row.firstName,
-        lastName: row.lastName,
-        email: row.email,
-        assignedJobs: Array.isArray(row.assignedJobs) ? row.assignedJobs : [],
-        matchJobIds: Array.isArray(row.matchJobIds) ? row.matchJobIds : [],
-        source: row.source || 'phase1',
-        updatedAt: row.updatedAt || row.syncedAt,
-        createdAt: row.syncedAt || row.updatedAt,
-      };
-    })
-    .filter(Boolean);
-
-  if (isTenantScopedRequest()) {
-    const allowed = await getAllTenantJobIdSet();
-    mapped = mapped.filter((row) => {
-      if (!candidateHasAnyJobLink(row)) return true;
-      if (!allowed.size) return false;
-      return rowHasTenantJobLink(row, allowed);
-    });
-  }
-
-  return mapped;
+  commonListIndexInflight.set(cacheKey, loadPromise);
+  const mapped = await loadPromise;
+  return mapped.slice(0, requestedLimit);
 }
 
 export async function fetchCandidateCommonForCandidatesList(req, options = {}) {

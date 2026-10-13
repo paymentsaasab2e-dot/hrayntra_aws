@@ -864,6 +864,8 @@ export function useCandidateList() {
         matchingCandidateIds: smartSearchCandidateIds,
       };
 
+      const includeCommonPool =
+        activeListTab === 'all' && shouldIncludePhase1CommonPool();
       const useWarmParallel =
         !smartSearchCandidateIds?.length &&
         activePage === 1 &&
@@ -897,12 +899,13 @@ export function useCandidateList() {
       };
 
       if (useWarmParallel) {
-        // 2–3 parallel batches (~75 each). Paint UI page 1 as soon as batch 1 returns;
-        // remaining batches warm page cache for instant next/prev.
+        // With Phase 1 common pool: fetch page 1 first (avoids stampedes that timeout
+        // commonQuery), then warm neighbor pages sequentially so they hit the backend cache.
+        // Without common pool: keep 2–3 parallel warm batches.
         const batchSize = CANDIDATE_WARM_BATCH_SIZE;
-        const batchCount = CANDIDATE_WARM_PARALLEL_BATCHES;
-        const batchPromises = Array.from({ length: batchCount }, (_, idx) => {
-          const apiPage = idx + 1;
+        const batchCount = includeCommonPool ? 1 : CANDIDATE_WARM_PARALLEL_BATCHES;
+
+        const fetchWarmBatch = (apiPage: number) => {
           const queryParams = buildCandidatesListApiParams({
             page: apiPage,
             limit: batchSize,
@@ -919,8 +922,6 @@ export function useCandidateList() {
               const total = extractCandidatesPaginationTotal(payload as any, mapped.length);
               return { apiPage, mapped, backendCandidates, total };
             })
-            // Always attach a handler so abort of sibling batches never becomes an
-            // unhandled rejection (Next.js Runtime ApiRequestError overlay).
             .catch((err: unknown) => {
               const kind = (err as { kind?: string } | null)?.kind;
               const name = (err as { name?: string } | null)?.name;
@@ -933,7 +934,11 @@ export function useCandidateList() {
               }
               throw err;
             });
-        });
+        };
+
+        const batchPromises = Array.from({ length: batchCount }, (_, idx) =>
+          fetchWarmBatch(idx + 1),
+        );
 
         const settled = await Promise.allSettled(batchPromises);
         if (requestId !== loadCandidatesRequestIdRef.current) return;
@@ -993,6 +998,32 @@ export function useCandidateList() {
             search: debouncedSearch || '',
             filterSig: candidatesFilterSig,
           });
+        }
+
+        if (includeCommonPool && CANDIDATE_WARM_PARALLEL_BATCHES > 1) {
+          void (async () => {
+            for (let apiPage = 2; apiPage <= CANDIDATE_WARM_PARALLEL_BATCHES; apiPage += 1) {
+              if (prefetchGen !== candidatePrefetchGenRef.current) return;
+              if (abortController.signal.aborted) return;
+              try {
+                const warm = await fetchWarmBatch(apiPage);
+                if (!warm) continue;
+                if (prefetchGen !== candidatePrefetchGenRef.current) return;
+                cacheCandidateUiPagesFromBatch({
+                  mapped: warm.mapped,
+                  total: warm.total || first.total,
+                  apiPage: warm.apiPage,
+                  batchSize,
+                  pageSize,
+                  tab: activeListTab,
+                  search: debouncedSearch || '',
+                  filterSig: candidatesFilterSig,
+                });
+              } catch {
+                // Warm is best-effort; page navigation will fetch on demand.
+              }
+            }
+          })();
         }
         return;
       }

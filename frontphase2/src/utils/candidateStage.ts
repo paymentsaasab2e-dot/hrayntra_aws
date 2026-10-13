@@ -70,7 +70,7 @@ const STAGE_BADGE_CLASSES: Record<string, string> = {
   replacement_required: 'bg-violet-500 text-white border-violet-500',
   no_show: 'bg-red-500 text-white border-red-500',
   hired: 'bg-emerald-600 text-white border-emerald-600',
-  joined: 'bg-lime-600 text-white border-lime-600',
+  joined: 'bg-teal-700 text-white border-teal-700',
   rejected: 'bg-red-500 text-white border-red-500',
   withdrawn: 'bg-rose-500 text-white border-rose-500',
   on_hold: 'bg-slate-500 text-white border-slate-500',
@@ -124,7 +124,8 @@ function matchPartialStageKey(key: string): string | null {
   if (key.includes('replacement') && key.includes('required')) return STAGE_BADGE_CLASSES.replacement_required;
   if (key.includes('no') && key.includes('show')) return STAGE_BADGE_CLASSES.no_show;
   if (key.includes('offer')) return STAGE_BADGE_CLASSES.offer;
-  if (key.includes('hire') || key.includes('joined')) return STAGE_BADGE_CLASSES.hired;
+  if (key.includes('joined')) return STAGE_BADGE_CLASSES.joined;
+  if (key.includes('hire') || key.includes('placed')) return STAGE_BADGE_CLASSES.hired;
   if (key.includes('reject')) return STAGE_BADGE_CLASSES.rejected;
   if (key.includes('withdraw')) return STAGE_BADGE_CLASSES.withdrawn;
   if (key.includes('hold')) return STAGE_BADGE_CLASSES.on_hold;

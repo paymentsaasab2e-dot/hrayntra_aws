@@ -7,13 +7,17 @@ function escapeHtml(value: string): string {
 export type OfficeOnlineWatermarkOverlay = {
   enabled?: boolean;
   text?: string;
+  /** Logo as data URL or absolute https URL (public client-review). */
+  imageDataUrl?: string;
+  imageUrl?: string;
   opacity?: number;
   color?: string;
 };
 
 /**
  * Full-page Microsoft Office Online embed — closest to Word layout on Linux
- * (LibreOffice reflows multi-column resumes). Optional CSS watermark overlay.
+ * (LibreOffice reflows multi-column resumes). Optional CSS watermark overlay
+ * (text and/or logo) painted above the Office iframe.
  */
 export function buildOfficeOnlineResumeShellHtml(options: {
   docxPublicUrl: string;
@@ -26,11 +30,22 @@ export function buildOfficeOnlineResumeShellHtml(options: {
     options.docxPublicUrl,
   )}`;
   const wm = options.watermark && options.watermark.enabled !== false ? options.watermark : null;
-  const wmText = escapeHtml(String(wm?.text || 'HRYANTRA').trim() || 'HRYANTRA');
-  const wmOpacity = Math.min(0.35, Math.max(0.06, Number(wm?.opacity) || 0.14));
+  const wmTextRaw = String(wm?.text || '').trim();
+  const wmLogoRaw = String(wm?.imageDataUrl || wm?.imageUrl || '').trim();
+  const hasWm = Boolean(wm && (wmTextRaw || wmLogoRaw));
+  const wmText = escapeHtml(wmTextRaw);
+  const wmLogo = escapeHtml(wmLogoRaw);
+  const wmOpacity = Math.min(0.4, Math.max(0.08, Number(wm?.opacity) || 0.18));
   const wmColor = escapeHtml(String(wm?.color || '#94a3b8'));
   const fallback = options.fallbackPreviewUrl
     ? escapeHtml(options.fallbackPreviewUrl)
+    : '';
+
+  const wmInner = hasWm
+    ? `<div class="wm-inner">
+        ${wmLogo ? `<img class="wm-logo" src="${wmLogo}" alt="" />` : ''}
+        ${wmText ? `<span class="wm-text">${wmText}</span>` : ''}
+      </div>`
     : '';
 
   return `<!doctype html>
@@ -64,28 +79,39 @@ export function buildOfficeOnlineResumeShellHtml(options: {
         pointer-events: none;
         position: absolute;
         inset: 0;
-        z-index: 2;
+        z-index: 20;
         overflow: hidden;
       }
-      .wm span {
+      .wm-inner {
         position: absolute;
         left: 50%;
         top: 50%;
         transform: translate(-50%, -50%) rotate(-32deg);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+        opacity: ${wmOpacity};
+        user-select: none;
+      }
+      .wm-logo {
+        max-width: min(60vw, 280px);
+        max-height: 112px;
+        object-fit: contain;
+      }
+      .wm-text {
         white-space: nowrap;
         font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-        font-size: clamp(48px, 12vw, 96px);
+        font-size: clamp(2rem, 10vw, 5.5rem);
         font-weight: 800;
         letter-spacing: 0.08em;
         color: ${wmColor};
-        opacity: ${wmOpacity};
-        user-select: none;
       }
       .fallback {
         position: absolute;
         right: 12px;
         bottom: 12px;
-        z-index: 3;
+        z-index: 30;
         font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
         font-size: 12px;
       }
@@ -107,11 +133,7 @@ export function buildOfficeOnlineResumeShellHtml(options: {
         src="${escapeHtml(embedSrc)}"
         allowfullscreen
       ></iframe>
-      ${
-        wm
-          ? `<div class="wm" aria-hidden="true"><span>${wmText}</span></div>`
-          : ''
-      }
+      ${hasWm ? `<div class="wm" aria-hidden="true">${wmInner}</div>` : ''}
       ${
         fallback
           ? `<div class="fallback"><a href="${fallback}">Open PDF preview</a></div>`

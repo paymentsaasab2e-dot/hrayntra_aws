@@ -5,6 +5,7 @@ import {
   stampPdfBufferWithExportWatermark,
   type ServerExportWatermark,
 } from '../../../../../lib/stampPdfExportWatermark.server';
+import { buildOfficeOnlineResumeShellHtml } from '../../../../../lib/officeOnlineResumeShellHtml';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -37,6 +38,26 @@ function wordContentType(disposition: string, formatHint: string): string {
   return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 }
 
+function publicRequestOrigin(req: NextRequest): string {
+  const forwarded =
+    req.headers.get('x-forwarded-proto')?.split(',')[0]?.trim() ||
+    req.nextUrl.protocol.replace(/:$/, '') ||
+    'https';
+  const host =
+    req.headers.get('x-forwarded-host')?.split(',')[0]?.trim() ||
+    req.headers.get('host') ||
+    req.nextUrl.host;
+  return `${forwarded}://${host}`.replace(/\/$/, '');
+}
+
+function watermarkHasVisibleContent(watermark: ServerExportWatermark | null): boolean {
+  if (!watermark?.enabled) return false;
+  const text = String(watermark.text || '').trim();
+  const dataUrl = String(watermark.imageDataUrl || '').trim();
+  const imageUrl = String(watermark.imageUrl || '').trim();
+  return Boolean(text || dataUrl.startsWith('data:image/') || imageUrl);
+}
+
 async function fetchPublicReviewWatermark(
   req: NextRequest,
   token: string,
@@ -66,7 +87,9 @@ async function fetchPublicReviewWatermark(
 
 /**
  * Binary proxy for the React resume page (ResumeWordFileViewer / PDF iframe).
- * Default: original DOCX/PDF bytes. Optional `?as=pdf` runs LibreOffice/Word conversion.
+ * - Default: original DOCX/PDF bytes (Office Online fetches DOCX).
+ * - `?view=office`: HTML shell with Office Online + tenant watermark overlay.
+ * - `?as=pdf` / `?download=1`: LibreOffice/Word → PDF, then stamp watermark.
  */
 export async function GET(
   req: NextRequest,
@@ -78,6 +101,10 @@ export async function GET(
   const formatHint = String(req.nextUrl.searchParams.get('format') || '')
     .trim()
     .toLowerCase();
+  const viewOffice =
+    String(req.nextUrl.searchParams.get('view') || '')
+      .trim()
+      .toLowerCase() === 'office';
   const asPdf =
     String(req.nextUrl.searchParams.get('as') || '')
       .trim()
@@ -85,12 +112,62 @@ export async function GET(
     String(req.nextUrl.searchParams.get('renderer') || '')
       .trim()
       .toLowerCase() === 'libreoffice';
+  const forceDownload =
+    String(req.nextUrl.searchParams.get('download') || '')
+      .trim()
+      .toLowerCase() === '1' ||
+    String(req.nextUrl.searchParams.get('download') || '')
+      .trim()
+      .toLowerCase() === 'true';
+
+  // Downloads must always go through PDF + stamp (never raw Word without watermark).
+  const wantStampedPdf = asPdf || forceDownload;
 
   const params = new URLSearchParams();
   if (matchId) params.set('matchId', matchId);
   if (source) params.set('source', source);
   const query = params.toString() ? `?${params.toString()}` : '';
   const target = `${backendApiBase(req)}/interviews/public/review/${encodeURIComponent(token)}/resume${query}`;
+
+  const withDisposition = (filename: string, inline: boolean) =>
+    `${inline && !forceDownload ? 'inline' : 'attachment'}; filename="${filename}"`;
+
+  // Watermarked Word Online shell (preview) — Office fetches raw DOCX via the same path without view=.
+  if (viewOffice && !wantStampedPdf) {
+    const watermark = await fetchPublicReviewWatermark(req, token);
+    const origin = publicRequestOrigin(req);
+    const docxQs = new URLSearchParams();
+    if (matchId) docxQs.set('matchId', matchId);
+    if (source) docxQs.set('source', source);
+    if (formatHint) docxQs.set('format', formatHint);
+    const docxPublicUrl = `${origin}/client-review/${encodeURIComponent(token)}/resume/file${
+      docxQs.toString() ? `?${docxQs.toString()}` : ''
+    }`;
+    const pdfQs = new URLSearchParams(docxQs);
+    pdfQs.set('as', 'pdf');
+    const fallbackPreviewUrl = `${origin}/client-review/${encodeURIComponent(token)}/resume/file?${pdfQs.toString()}`;
+    const html = buildOfficeOnlineResumeShellHtml({
+      docxPublicUrl,
+      title: 'Candidate resume',
+      watermark: watermarkHasVisibleContent(watermark)
+        ? {
+            enabled: true,
+            text: watermark?.text,
+            imageDataUrl: watermark?.imageDataUrl,
+            imageUrl: watermark?.imageUrl,
+            opacity: watermark?.opacity,
+          }
+        : null,
+      fallbackPreviewUrl,
+    });
+    return new NextResponse(html, {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'private, max-age=60',
+      },
+    });
+  }
 
   try {
     const upstream = await fetch(target, {
@@ -124,11 +201,11 @@ export async function GET(
       formatHint === 'docx' ||
       formatHint === 'doc';
 
-    if (wasWord && !isPdfBuffer(bytes) && !asPdf) {
+    // Raw Word bytes for Office Online (no download / no PDF conversion).
+    if (wasWord && !isPdfBuffer(bytes) && !wantStampedPdf) {
       contentType = wordContentType(disposition, formatHint);
-      if (!/\.docx?\b/i.test(disposition)) {
-        disposition = `inline; filename="Resume.${formatHint === 'doc' ? 'doc' : 'docx'}"`;
-      }
+      const ext = formatHint === 'doc' ? 'doc' : 'docx';
+      disposition = withDisposition(`Resume.${ext}`, true);
       return new NextResponse(new Uint8Array(bytes), {
         status: 200,
         headers: {
@@ -140,12 +217,12 @@ export async function GET(
       });
     }
 
-    if (wasWord && !isPdfBuffer(bytes) && asPdf) {
+    if (wasWord && !isPdfBuffer(bytes) && wantStampedPdf) {
       try {
         const pdf = await convertWordResumeToPdf(new Uint8Array(bytes));
         bytes = Buffer.from(pdf);
         contentType = 'application/pdf';
-        disposition = 'inline; filename="Resume.pdf"';
+        disposition = withDisposition('Resume.pdf', true);
       } catch (conversionError) {
         console.warn(
           '[client-review/resume/file] Word/LibreOffice→PDF failed:',
@@ -160,13 +237,11 @@ export async function GET(
 
     if (isPdfBuffer(bytes)) {
       const watermark = await fetchPublicReviewWatermark(req, token);
-      if (watermark?.enabled) {
+      if (watermarkHasVisibleContent(watermark)) {
         bytes = Buffer.from(await stampPdfBufferWithExportWatermark(bytes, watermark));
       }
       contentType = 'application/pdf';
-      if (!/\.pdf/i.test(disposition)) {
-        disposition = 'inline; filename="Resume.pdf"';
-      }
+      disposition = withDisposition('Resume.pdf', true);
     }
 
     return new NextResponse(new Uint8Array(bytes), {
