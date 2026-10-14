@@ -1,7 +1,7 @@
 // AUTO-SPLIT from page.tsx — moved code, no behavior change.
 'use client';
 
-import React, { useState, useMemo, useEffect, useCallback, useRef, Suspense } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef, Suspense, startTransition } from 'react';
 import { CandidateTable, Candidate } from './components/CandidateTable';
 import {
   CandidateTableFilters,
@@ -520,6 +520,7 @@ export function useCandidateList() {
   const loadCandidatesRequestIdRef = useRef(0);
   const loadCandidatesAbortRef = useRef<AbortController | null>(null);
   const candidatePrefetchGenRef = useRef(0);
+  const smartSearchApplyingRef = useRef(false);
   const [loadingCandidateProfile, setLoadingCandidateProfile] = useState(false);
   const [availableDrawerTags, setAvailableDrawerTags] = useState<CandidateTagItem[]>([]);
   const [pipelineJobs, setPipelineJobs] = useState<CandidatePipelineJobOption[]>([]);
@@ -856,7 +857,7 @@ export function useCandidateList() {
         if (isFirstLoad) {
           setLoading(true);
           setError(null);
-        } else {
+        } else if (!hasLoadedCandidatesOnceRef.current) {
           setTableLoading(true);
         }
       }
@@ -1233,6 +1234,7 @@ export function useCandidateList() {
     events: ['jobportal:candidates-changed', 'jobportal:jobs-changed'],
     intervalMs: 45_000,
     shouldSkip: () =>
+      smartSearchApplyingRef.current ||
       isCandidatesListCacheFresh(
         readCandidatesListCache(
           listTab,
@@ -1351,6 +1353,7 @@ export function useCandidateList() {
     },
     examples: CANDIDATES_SMART_SEARCH_EXAMPLES,
   });
+  smartSearchApplyingRef.current = candidateSmartSearch.applying;
 
   useEffect(() => {
     if (!smartSearchSessionReady) return;
@@ -1385,13 +1388,15 @@ export function useCandidateList() {
 
   const handleSearchInputChange = useCallback(
     (value: string) => {
-      setCurrentPage(1);
-      setFilters((prev) => ({ ...prev, search: value }));
-      if (smartSearchCandidateIds.length > 0 || candidateSmartSearch.activeKeywords.length > 0) {
-        setSmartSearchCandidateIds([]);
-        clearCandidateSmartSearchSession();
-        candidateSmartSearch.clearSmartSearch();
-      }
+      startTransition(() => {
+        setCurrentPage(1);
+        setFilters((prev) => ({ ...prev, search: value }));
+        if (smartSearchCandidateIds.length > 0 || candidateSmartSearch.activeKeywords.length > 0) {
+          setSmartSearchCandidateIds([]);
+          clearCandidateSmartSearchSession();
+          candidateSmartSearch.clearSmartSearch();
+        }
+      });
     },
     [candidateSmartSearch, smartSearchCandidateIds.length],
   );

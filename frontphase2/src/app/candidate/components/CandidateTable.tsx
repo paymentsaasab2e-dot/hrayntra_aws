@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { SHOW_TABLE_ROW_EDIT_ICON } from '../../../constants/tableUi';
 import {
@@ -310,7 +310,7 @@ interface CandidateTableProps {
   isColumnVisible?: (columnId: string) => boolean;
 }
 
-export const CandidateTable: React.FC<CandidateTableProps> = ({
+export const CandidateTable: React.FC<CandidateTableProps> = React.memo(({
   candidates,
   selectedIds,
   onToggleSelect,
@@ -338,6 +338,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
   compact = false,
   isColumnVisible = () => true,
 }) => {
+  const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const allSelected = candidates.length > 0 && selectedIds.length === candidates.length;
   const showAiAlertColumn = Boolean(
     workspaceAlertsByEntityId &&
@@ -415,7 +416,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                 className={`group transition-colors duration-150 hover:bg-indigo-50/50 ${
                   onViewProfile ? 'cursor-pointer' : ''
                 } ${
-                  selectedIds.includes(candidate.id)
+                  selectedIdSet.has(candidate.id)
                     ? 'bg-indigo-50/80 shadow-[inset_3px_0_0_0_rgb(99,102,241)]'
                     : 'even:bg-slate-50/40'
                 }`}
@@ -427,7 +428,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                   >
                     <input
                       type="checkbox"
-                      checked={selectedIds.includes(candidate.id)}
+                      checked={selectedIdSet.has(candidate.id)}
                       onChange={() => onToggleSelect(candidate.id)}
                       className="h-4 w-4 cursor-pointer rounded border-indigo-200 text-indigo-600 focus:ring-indigo-500/30"
                     />
@@ -810,4 +811,4 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
       </div>
     </div>
   );
-};
+});
