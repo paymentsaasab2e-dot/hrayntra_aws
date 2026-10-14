@@ -78,6 +78,10 @@ export function buildCandidatesListApiParams(filters: {
       page: filters.page,
       limit: filters.limit,
       ...(filters.mine ? { mine: true } : {}),
+      ...(filters.includeCommonPool === true ||
+      (filters.includeCommonPool !== false && shouldIncludePhase1CommonPool())
+        ? { includeCommonPool: true }
+        : {}),
     };
   }
   const params: Record<string, string | number | boolean> = {
