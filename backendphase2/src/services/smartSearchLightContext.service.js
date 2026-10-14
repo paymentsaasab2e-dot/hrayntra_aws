@@ -3,7 +3,6 @@ import { buildLeadsListScopeWhere } from './smartSearchLeadContext.service.js';
 import {
   buildJobsListScopeWhere,
   buildClientsListScopeWhere,
-  buildCandidateListScopeWhere,
   buildInterviewsListScopeWhere,
   uniqueNonEmpty,
 } from './smartSearchTenantContext.service.js';
@@ -170,47 +169,40 @@ export async function loadClientsSmartSearchLightContext(req) {
 }
 
 export async function loadCandidatesSmartSearchLightContext(req) {
-  const where = await buildCandidateListScopeWhere(req);
   const tenantDbName = getActiveTenantDbName() || String(req?.user?.tenantDbName || '').trim();
-  const totalCandidates = await prisma.candidate.count({ where });
-
-  const [stages, assigneeRows, jobLinkRows] = await Promise.all([
-    distinctValues('candidate', 'stage', where),
-    prisma.candidate.findMany({
-      where: { ...where, assignedToId: { not: null } },
-      distinct: ['assignedToId'],
-      select: { assignedToId: true },
+  // Do not count / scan 18k candidates here — that blocked the AI parse.
+  // Jobs + recruiters are only used after AI, to map names → ids.
+  const [jobs, recruiters] = await Promise.all([
+    prisma.job.findMany({
+      where: { isDeleted: { not: true } },
+      select: { id: true, title: true },
+      orderBy: { updatedAt: 'desc' },
       take: OPTION_LIMIT,
     }),
-    prisma.candidate.findMany({
-      where: { ...where, assignedJobs: { isEmpty: false } },
-      select: { assignedJobs: true },
-      take: 50,
+    prisma.user.findMany({
+      select: { id: true, name: true, email: true },
+      orderBy: { name: 'asc' },
+      take: OPTION_LIMIT,
     }),
   ]);
-
-  const jobIds = new Set();
-  for (const row of jobLinkRows) {
-    for (const id of row.assignedJobs || []) if (id) jobIds.add(id);
-  }
-  const jobs = jobIds.size
-    ? await prisma.job.findMany({
-        where: { id: { in: [...jobIds].slice(0, OPTION_LIMIT) } },
-        select: { id: true, title: true },
-        take: OPTION_LIMIT,
-      })
-    : [];
-  const recruiters = await loadRecruiterOptions(assigneeRows.map((row) => row.assignedToId));
-  const statusStages = await distinctValues('candidate', 'status', where);
 
   const schema = getEntitySchema('candidates');
   return {
     tenantDbName,
-    totalCandidates,
     searchMode: 'ai_parse_db_query',
     prismaModel: schema?.prismaModel,
     schemaEnums: { CandidateStatus: SCHEMA_ENUMS.CandidateStatus },
-    stages: uniqueNonEmpty([...stages, ...statusStages]),
+    stages: [
+      'new',
+      'applied',
+      'shortlist',
+      'screening',
+      'interviewing',
+      'offered',
+      'hired',
+      'rejected',
+    ],
+    statuses: SCHEMA_ENUMS.CandidateStatus || [],
     jobs: jobs.map((job) => ({ id: job.id, name: job.title })),
     recruiters,
   };
