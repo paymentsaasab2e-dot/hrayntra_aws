@@ -188,6 +188,8 @@ Put company names, locations, industries, director/team/KYC/agreement terms in s
     map: 'candidates',
     matchingIdsField: 'matchingCandidateIds',
     textSearchFields: [
+      'firstName',
+      'lastName',
       'currentTitle',
       'designation',
       'currentCompany',

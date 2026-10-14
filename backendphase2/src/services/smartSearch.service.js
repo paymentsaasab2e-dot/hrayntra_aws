@@ -153,18 +153,41 @@ function buildSummary(keywords, entity) {
   return `Found ${keywords.length} keyword${keywords.length === 1 ? '' : 's'} — showing matching ${entity}`;
 }
 
-/** Skill/title words like "warehouse" do not need an LLM parse — DB text search is enough. */
+/** True when the prompt is only skill/city/name words — no LLM needed. */
 function isSimpleCandidateSkillPrompt(entity, prompt) {
   if (entity !== 'candidates') return false;
   const text = String(prompt || '').trim();
-  if (!text || text.length > 60) return false;
+  if (!text || text.length > 80) return false;
   if (/[:=]/.test(text)) return false;
+  // Full sentences still need AI: assigned to X, interviewing, stage, years, etc.
+  if (
+    /\b(assigned|assign|interviewing|interviewer|recruiter|stage|applied|offered|hired|rejected|notice|salary|years?)\b/i.test(
+      text,
+    )
+  ) {
+    return false;
+  }
   if (!/^[\p{L}\p{M}0-9\s.&/+#-]+$/u.test(text)) return false;
   const tokens = text.split(/\s+/).filter(Boolean);
-  // One token only ("warehouse", "director"). Two+ tokens may be a person name.
-  if (tokens.length !== 1) return false;
-  const token = tokens[0];
-  return token.length >= 2 && !SEARCH_STOP_WORDS.has(token.toLowerCase());
+  if (tokens.length < 1 || tokens.length > 4) return false;
+  const meaningful = tokens.filter((token) => token.length >= 2 && !SEARCH_STOP_WORDS.has(token.toLowerCase()));
+  return meaningful.length >= 1;
+}
+
+function simpleCandidateKeywordChips(prompt) {
+  const tokens = String(prompt || '')
+    .trim()
+    .split(/\s+/)
+    .filter((token) => token.length >= 2 && !SEARCH_STOP_WORDS.has(token.toLowerCase()));
+  const seen = new Set();
+  const chips = [];
+  for (const token of tokens) {
+    const key = token.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    chips.push({ kind: 'text', value: token, label: token });
+  }
+  return chips.length ? chips : [{ kind: 'text', value: String(prompt || '').trim(), label: String(prompt || '').trim() }];
 }
 
 /**
@@ -189,9 +212,10 @@ export async function parseSmartSearchPrompt({ entity, prompt, context = {}, req
   const entityConfig = ENTITY_TENANT_LOADERS[normalizedEntity];
   if (isSimpleCandidateSkillPrompt(normalizedEntity, trimmedPrompt) && entityConfig && req) {
     const started = Date.now();
+    const keywords = simpleCandidateKeywordChips(trimmedPrompt);
     const filters = ensureFiltersHaveSearchText(
       normalizeFilters({ searchText: trimmedPrompt }),
-      [{ kind: 'text', value: trimmedPrompt, label: trimmedPrompt }],
+      keywords,
       trimmedPrompt,
     );
     const dbResult = await executeSmartSearchDbQuery(normalizedEntity, filters, req);
@@ -206,7 +230,7 @@ export async function parseSmartSearchPrompt({ entity, prompt, context = {}, req
       ms: Date.now() - started,
     });
     return {
-      keywords: [{ kind: 'text', value: trimmedPrompt, label: trimmedPrompt }],
+      keywords,
       filters,
       ...matchingIdsResult,
       matchCount,
