@@ -812,6 +812,12 @@ function classifyCandidateSearch(search) {
   return { kind: 'general', term, normalized };
 }
 
+/** Keyword/CV search cannot use updatedAt sort — regex + sort-all is a multi-minute COLLSCAN. */
+function candidateListFindOrderBy(search) {
+  if (classifyCandidateSearch(search).kind === 'general') return null;
+  return [{ updatedAt: 'desc' }, { createdAt: 'desc' }];
+}
+
 function buildCandidateSearchWhereClause(search) {
   const classified = classifyCandidateSearch(search);
   if (classified.kind === 'empty') return null;
@@ -5415,11 +5421,12 @@ export const candidateService = {
         return value;
       });
 
+      const tenantListOrderBy = candidateListFindOrderBy(search);
       const tenantPromise = prisma.candidate
         .findMany({
           where,
           select: candidateListIndexSelect,
-          orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+          ...(tenantListOrderBy ? { orderBy: tenantListOrderBy } : {}),
           take: K,
         })
         .then((rows) => {
@@ -5553,7 +5560,7 @@ export const candidateService = {
             prisma.candidate.findMany({
               where,
               include: candidateListInclude,
-              orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+              ...(candidateListFindOrderBy(search) ? { orderBy: candidateListFindOrderBy(search) } : {}),
               skip,
               take: limit,
             }),
@@ -5593,7 +5600,9 @@ export const candidateService = {
         prisma.candidate.findMany({
           where,
           select: { id: true },
-          orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+          ...(candidateListFindOrderBy(search)
+            ? { orderBy: candidateListFindOrderBy(search) }
+            : {}),
           skip,
           take: limit,
         }),

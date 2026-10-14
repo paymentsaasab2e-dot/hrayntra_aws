@@ -868,6 +868,7 @@ export function useCandidateList() {
         activeListTab === 'all' && shouldIncludePhase1CommonPool();
       const useWarmParallel =
         !smartSearchCandidateIds?.length &&
+        !debouncedSearch &&
         activePage === 1 &&
         pageSize <= CANDIDATE_WARM_BATCH_SIZE;
 
@@ -1053,7 +1054,7 @@ export function useCandidateList() {
       const total = extractCandidatesPaginationTotal(payload as any, mapped.length);
       paintPage(mapped, backendCandidates, total);
 
-      if (!smartSearchCandidateIds?.length) {
+      if (!smartSearchCandidateIds?.length && !debouncedSearch) {
         const neighbors = [activePage - 1, activePage + 1].filter((p) => p >= 1);
         void Promise.allSettled(
           neighbors.map((p) => {
