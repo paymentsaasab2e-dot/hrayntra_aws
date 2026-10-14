@@ -31,18 +31,6 @@ function tenantKey(): string {
   return `${PREFIX}${tenant}`;
 }
 
-function signature(filters: SessionFilters): string {
-  return [
-    String(filters.search || '').trim(),
-    String(filters.status || '').trim(),
-    String(filters.company || '').trim(),
-    String(filters.location || '').trim(),
-    String(filters.jobId || '').trim(),
-    String(filters.stage || '').trim(),
-    String(filters.experienceRange || '').trim(),
-  ].join('\0');
-}
-
 function isObjectId(value: unknown): value is string {
   return typeof value === 'string' && /^[a-fA-F0-9]{24}$/.test(value);
 }
@@ -90,7 +78,7 @@ export function clearCandidateSmartSearchSession(): void {
 }
 
 export function readCandidateSmartSearchSession(
-  filters: SessionFilters,
+  _filters?: Partial<SessionFilters>,
 ): CandidateSmartSearchSession | null {
   if (typeof window === 'undefined') return null;
   try {
@@ -99,7 +87,6 @@ export function readCandidateSmartSearchSession(
     const parsed = JSON.parse(raw) as CandidateSmartSearchSession;
     const ids = Array.isArray(parsed?.ids) ? parsed.ids.filter(isObjectId).slice(0, 500) : [];
     if (!ids.length) return null;
-    if (signature(parsed) !== signature(filters)) return null;
     return {
       ids,
       keywords: Array.isArray(parsed.keywords) ? parsed.keywords.filter(isKeyword) : [],

@@ -468,18 +468,12 @@ export function useCandidateList() {
   const restoredSmartKeywordsRef = useRef<CandidateSmartSearchSession | null>(null);
 
   useEffect(() => {
-    const restored = readCandidateSmartSearchSession({
-      search: searchParams.get('search') || '',
-      status: searchParams.get('status') || '',
-      ...readColumnFiltersFromSearchParams(searchParams),
-    });
+    const restored = readCandidateSmartSearchSession();
     if (restored?.ids.length) {
       restoredSmartKeywordsRef.current = restored;
       setSmartSearchCandidateIds(restored.ids);
     }
     setSmartSearchSessionReady(true);
-    // Restore once on mount so hard refresh uses ?ids= instead of a 100s regex list.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const candidateColumnVisibility = usePersistedColumnVisibility(
     'candidates.visibleColumns',
@@ -502,11 +496,12 @@ export function useCandidateList() {
     () => effectiveCandidateSearchQuery(searchParams.get('search') || ''),
   );
   useEffect(() => {
+    if (smartSearchCandidateIds.length > 0) return;
     const timer = window.setTimeout(() => {
       setDebouncedSearch(effectiveCandidateSearchQuery(filters.search));
     }, 350);
     return () => window.clearTimeout(timer);
-  }, [filters.search]);
+  }, [filters.search, smartSearchCandidateIds.length]);
 
   useEffect(() => {
     const syncPhase1Access = () => {
@@ -887,20 +882,8 @@ export function useCandidateList() {
         matchingCandidateIds: smartSearchCandidateIds,
       };
 
-      const staleSmartCombo =
-        !(smartSearchCandidateIds && smartSearchCandidateIds.length) &&
-        Boolean(listFilterBits.search) &&
-        Boolean(listFilterBits.location) &&
-        Boolean(listFilterBits.jobId || listFilterBits.stage);
-      if (staleSmartCombo) {
-        delete listFilterBits.search;
-        listFilterBits.includeCommonPool = false;
-      }
-
       const includeCommonPool =
-        staleSmartCombo
-          ? false
-          : activeListTab === 'all' && shouldIncludePhase1CommonPool();
+        activeListTab === 'all' && shouldIncludePhase1CommonPool();
       const useWarmParallel =
         !smartSearchCandidateIds?.length &&
         !debouncedSearch &&
@@ -913,20 +896,27 @@ export function useCandidateList() {
         total: number,
       ) => {
         if (requestId !== loadCandidatesRequestIdRef.current) return;
-        setCandidates(mapped);
+        const idSet = new Set(smartSearchCandidateIds || []);
+        const pinned =
+          idSet.size > 0 ? mapped.filter((row) => idSet.has(String(row.id))) : mapped;
+        const pinnedBackend =
+          idSet.size > 0
+            ? backendRows.filter((row) => idSet.has(String(row.id || (row as { _id?: string })._id || '')))
+            : backendRows;
+        setCandidates(pinned);
         hasLoadedCandidatesOnceRef.current = true;
-        setTotalEntries(total);
+        setTotalEntries(idSet.size > 0 ? pinned.length : total);
         writeCandidatesListCache({
           tab: activeListTab,
           page: activePage,
           pageSize,
           search: debouncedSearch || '',
           filterSig: candidatesFilterSig,
-          totalEntries: total,
-          candidates: mapped,
+          totalEntries: idSet.size > 0 ? pinned.length : total,
+          candidates: pinned,
         });
         setLocationFilterOptions((prev) =>
-          buildLocationFilterOptions(mapped, backendRows, prev),
+          buildLocationFilterOptions(pinned, pinnedBackend, prev),
         );
         if (!silent) {
           setLoading(false);
@@ -1218,7 +1208,11 @@ export function useCandidateList() {
       candidatesFilterSig,
     );
     const cachedRows = cached?.data?.candidates;
-    if (Array.isArray(cachedRows) && cachedRows.length > 0) {
+    const canUseCache =
+      !smartSearchCandidateIds.length &&
+      Array.isArray(cachedRows) &&
+      cachedRows.length > 0;
+    if (canUseCache) {
       setCandidates(cachedRows as Candidate[]);
       if (typeof cached?.data?.totalEntries === 'number') {
         setTotalEntries(cached.data.totalEntries);
@@ -1226,8 +1220,8 @@ export function useCandidateList() {
       setLoading(false);
       setTableLoading(false);
     }
-    void loadCandidates({ silent: Boolean(cachedRows?.length) });
-  }, [loadCandidates, smartSearchSessionReady]);
+    void loadCandidates({ silent: canUseCache });
+  }, [loadCandidates, smartSearchSessionReady, smartSearchCandidateIds.length]);
 
   // Reusable auto-refresh: polls while visible, refreshes on tab focus and on
   // candidate / job-pipeline change events.
@@ -1494,10 +1488,11 @@ export function useCandidateList() {
   }, []);
 
   const filteredCandidates = useMemo(() => {
+    if (smartSearchCandidateIds.length > 0) {
+      const allow = new Set(smartSearchCandidateIds);
+      return candidates.filter((candidate) => allow.has(String(candidate.id)));
+    }
     if (candidateSmartSearch.activeKeywords.length === 0) return candidates;
-    // IDs already came from tenant DB + CV fields. A second chip pass on list-row
-    // haystacks dropped people whose match lived in cvSummary / work history.
-    if (smartSearchCandidateIds.length > 0) return candidates;
     return candidates.filter((candidate) =>
       candidateMatchesSmartKeywordChips(
         {
