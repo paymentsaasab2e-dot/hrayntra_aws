@@ -2,7 +2,10 @@ import { chatCompletionWithFallback, hasLlmProvider } from './llmChatFallback.se
 import { env } from '../config/env.js';
 import { ENTITY_TENANT_LOADERS } from './smartSearchTenantContext.service.js';
 import { SMART_SEARCH_LIGHT_LOADERS } from './smartSearchLightContext.service.js';
-import { executeSmartSearchDbQuery } from './smartSearchDbQuery.service.js';
+import {
+  executeSmartSearchDbQuery,
+  warmupCandidateSmartSearchTextIndex,
+} from './smartSearchDbQuery.service.js';
 import { buildEntityInstructionsFromSchema } from './smartSearchSchema.config.js';
 
 const SMART_SEARCH_ENTITIES = new Set([
@@ -176,6 +179,9 @@ export async function parseSmartSearchPrompt({ entity, prompt, context = {}, req
   const lightLoader = SMART_SEARCH_LIGHT_LOADERS[normalizedEntity];
   const instructions = ENTITY_INSTRUCTIONS[normalizedEntity];
   const started = Date.now();
+  if (normalizedEntity === 'candidates') {
+    warmupCandidateSmartSearchTextIndex();
+  }
 
   const lightPromise =
     lightLoader && req

@@ -27,6 +27,39 @@ export const SMART_SEARCH_MAX_IDS_IN_RESPONSE = 500;
 const CANDIDATE_COLLECTION = 'candidates';
 const CANDIDATE_TEXT_INDEX = 'candidates_smart_search_text';
 const textIndexReadyByDb = new Map();
+const textIndexBuildByDb = new Map();
+
+const CANDIDATE_TEXT_INDEX_SPEC = {
+  name: CANDIDATE_TEXT_INDEX,
+  key: {
+    firstName: 'text',
+    lastName: 'text',
+    currentTitle: 'text',
+    designation: 'text',
+    currentCompany: 'text',
+    skills: 'text',
+    recruiterSkills: 'text',
+    cvSummary: 'text',
+    city: 'text',
+    location: 'text',
+    preferredLocation: 'text',
+    education: 'text',
+  },
+  default_language: 'english',
+  weights: {
+    skills: 10,
+    recruiterSkills: 8,
+    currentTitle: 8,
+    designation: 7,
+    firstName: 6,
+    lastName: 6,
+    city: 6,
+    location: 6,
+    cvSummary: 4,
+    education: 3,
+    currentCompany: 3,
+  },
+};
 
 function mongoDocId(value) {
   if (!value) return '';
@@ -43,58 +76,51 @@ function searchTermsFromText(value) {
     .filter((term) => term.length >= 2 && !SEARCH_STOP_WORDS.has(term.toLowerCase()));
 }
 
-async function ensureCandidateSmartSearchTextIndex() {
+function kickCandidateSmartSearchTextIndex() {
   const dbKey = getActiveTenantDbName() || '_default';
-  if (textIndexReadyByDb.has(dbKey)) return textIndexReadyByDb.get(dbKey);
-  try {
-    await prisma.$runCommandRaw({
+  if (textIndexReadyByDb.get(dbKey) === true) return Promise.resolve(true);
+  if (textIndexBuildByDb.has(dbKey)) return textIndexBuildByDb.get(dbKey);
+  const pending = prisma
+    .$runCommandRaw({
       createIndexes: CANDIDATE_COLLECTION,
-      indexes: [
-        {
-          name: CANDIDATE_TEXT_INDEX,
-          key: {
-            firstName: 'text',
-            lastName: 'text',
-            currentTitle: 'text',
-            designation: 'text',
-            currentCompany: 'text',
-            skills: 'text',
-            recruiterSkills: 'text',
-            cvSummary: 'text',
-            city: 'text',
-            location: 'text',
-            preferredLocation: 'text',
-            education: 'text',
-          },
-          default_language: 'english',
-          weights: {
-            skills: 10,
-            recruiterSkills: 8,
-            currentTitle: 8,
-            designation: 7,
-            firstName: 6,
-            lastName: 6,
-            city: 6,
-            location: 6,
-            cvSummary: 4,
-            education: 3,
-            currentCompany: 3,
-          },
-        },
-      ],
-    });
-    textIndexReadyByDb.set(dbKey, true);
-    return true;
-  } catch (err) {
-    const msg = String(err?.message || err);
-    if (/already exists|IndexOptionsConflict|IndexKeySpecsConflict/i.test(msg)) {
+      indexes: [CANDIDATE_TEXT_INDEX_SPEC],
+    })
+    .then(() => {
       textIndexReadyByDb.set(dbKey, true);
       return true;
-    }
-    console.warn('[smart-search] text index skipped:', msg.split('\n')[0]);
-    textIndexReadyByDb.set(dbKey, false);
-    return false;
+    })
+    .catch((err) => {
+      const msg = String(err?.message || err);
+      if (/already exists|IndexOptionsConflict|IndexKeySpecsConflict/i.test(msg)) {
+        textIndexReadyByDb.set(dbKey, true);
+        return true;
+      }
+      console.warn('[smart-search] text index skipped:', msg.split('\n')[0]);
+      textIndexReadyByDb.set(dbKey, false);
+      return false;
+    })
+    .finally(() => {
+      textIndexBuildByDb.delete(dbKey);
+    });
+  textIndexBuildByDb.set(dbKey, pending);
+  return pending;
+}
+
+/** Fire-and-forget: never block a search on createIndexes. */
+export function warmupCandidateSmartSearchTextIndex() {
+  try {
+    void kickCandidateSmartSearchTextIndex();
+  } catch {
+    /* tenant prisma not ready */
   }
+}
+
+async function ensureCandidateSmartSearchTextIndex() {
+  const dbKey = getActiveTenantDbName() || '_default';
+  if (textIndexReadyByDb.get(dbKey) === true) return true;
+  if (textIndexReadyByDb.get(dbKey) === false) return false;
+  void kickCandidateSmartSearchTextIndex();
+  return true;
 }
 
 function candidateRowHaystack(row) {

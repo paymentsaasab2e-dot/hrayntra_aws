@@ -18,6 +18,7 @@ import {
   mapCandidateCommonRowToCandidate,
   applyProfileSnapshotFields,
 } from '../../services/candidateCommon/candidateCommonPool.service.js';
+import { warmupCandidateSmartSearchTextIndex } from '../../services/smartSearchDbQuery.service.js';
 import {
   PIPELINE_STAGES,
   mapStageNameToPipelineBucket,
@@ -5181,6 +5182,7 @@ export const candidateService = {
   },
 
   async getAll(req) {
+    warmupCandidateSmartSearchTextIndex();
     const pagination = getPaginationParams(req);
     // Prefer batches ≤100 for list UX; allow larger for export via env override.
     const page = pagination.page;
