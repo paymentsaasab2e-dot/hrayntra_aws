@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { SHOW_TABLE_ROW_EDIT_ICON } from '../../../constants/tableUi';
 import {
@@ -346,6 +346,29 @@ export const CandidateTable: React.FC<CandidateTableProps> = React.memo(({
   );
   const show = isColumnVisible;
   const { format: formatLocationCell } = useFormatTableLocationCell();
+  const tableRef = useRef<HTMLTableElement>(null);
+
+  useLayoutEffect(() => {
+    if (!compact) return;
+    const table = tableRef.current;
+    if (!table) return;
+    const scroller =
+      (table.closest('.ph2-table-body-scroll') as HTMLElement | null) ||
+      table.parentElement;
+    if (!scroller) return;
+    const TARGET_VISIBLE_ROWS = 10;
+    const apply = () => {
+      const theadH = table.querySelector('thead')?.getBoundingClientRect().height || 28;
+      const available = scroller.clientHeight - theadH;
+      if (available < 120) return;
+      const rowH = Math.max(28, Math.min(42, Math.floor(available / TARGET_VISIBLE_ROWS)));
+      table.style.setProperty('--candidate-row-h', `${rowH}px`);
+    };
+    apply();
+    const observer = new ResizeObserver(apply);
+    observer.observe(scroller);
+    return () => observer.disconnect();
+  }, [compact, candidates.length]);
 
   return (
     <div
@@ -363,9 +386,10 @@ export const CandidateTable: React.FC<CandidateTableProps> = React.memo(({
         }
       >
         <table
+          ref={tableRef}
           className={`w-max min-w-full border-collapse text-left ${
             compact
-              ? '[&_th]:!px-2 [&_th]:!py-1 [&_td]:!px-2 [&_td]:!py-1 [&_th]:first:!pl-3 [&_td]:first:!pl-3'
+              ? '[&_th]:!px-2 [&_th]:!py-1 [&_td]:!px-2 [&_td]:!py-0 [&_td]:overflow-hidden [&_th]:first:!pl-3 [&_td]:first:!pl-3 [&_tr]:h-[var(--candidate-row-h,2.25rem)]'
               : ''
           }`}
         >

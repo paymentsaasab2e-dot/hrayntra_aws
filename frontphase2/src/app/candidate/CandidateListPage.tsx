@@ -672,7 +672,7 @@ export function CandidateListPage() {
                       : `${totalEntries.toLocaleString()} candidates`}
                   </p>
                 </div>
-                <div className={`${PH2_TOOLBAR_ROW_CLASS} !p-1.5 sm:!p-2`}>
+                <div className={`${PH2_TOOLBAR_ROW_CLASS} !flex-nowrap !p-1.5 sm:!p-2`}>
                   <div className={PH2_TOOLBAR_FILTERS_CLASS}>
                     <div className="relative w-44 shrink-0 sm:w-52">
                       <Search
