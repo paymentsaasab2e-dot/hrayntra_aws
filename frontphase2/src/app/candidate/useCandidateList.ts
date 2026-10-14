@@ -186,7 +186,7 @@ type CandidateListTab = 'all' | 'mine';
 const CANDIDATE_LOCATION_COUNTRY_OPTIONS = getCscCountryOptions().map((row) => row.label);
 
 export const CANDIDATE_TABLE_TAB_CLASS =
-  'px-4 py-3 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap';
+  'px-3 py-2 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap';
 
 const CANDIDATE_STAGE_API_MAP: Record<string, string> = {
   new: 'New',

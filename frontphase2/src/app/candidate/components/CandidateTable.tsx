@@ -365,7 +365,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = React.memo(({
         <table
           className={`w-max min-w-full border-collapse text-left ${
             compact
-              ? '[&_th]:!px-2 [&_th]:!py-1.5 [&_td]:!px-2 [&_td]:!py-1.5 [&_th]:first:!pl-3 [&_td]:first:!pl-3'
+              ? '[&_th]:!px-2 [&_th]:!py-1 [&_td]:!px-2 [&_td]:!py-1 [&_th]:first:!pl-3 [&_td]:first:!pl-3'
               : ''
           }`}
         >
@@ -456,17 +456,15 @@ export const CandidateTable: React.FC<CandidateTableProps> = React.memo(({
                       <button
                         type="button"
                         onClick={() => onViewProfile?.(candidate)}
-                        className="text-left text-sm font-medium text-slate-900 transition-colors hover:text-indigo-700"
+                        className="inline-flex max-w-full items-center gap-1.5 text-left text-sm font-medium text-slate-900 transition-colors hover:text-indigo-700"
                       >
-                        {candidate.name}
-                      </button>
-                      <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                        <span className="truncate">{candidate.name}</span>
                         {candidate.isPhase1Candidate ? (
-                          <span className="rounded-md bg-violet-50 px-1.5 py-0.5 text-xs font-medium uppercase tracking-wide text-violet-700 ring-1 ring-violet-100">
+                          <span className="shrink-0 rounded-md bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-violet-700 ring-1 ring-violet-100">
                             Phase 1
                           </span>
                         ) : null}
-                      </div>
+                      </button>
                     </div>
                   </div>
                 </td>

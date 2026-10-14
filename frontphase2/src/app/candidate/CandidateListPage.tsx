@@ -449,7 +449,7 @@ export function CandidateListPage() {
       <Toaster position="top-right" richColors style={{ top: '5rem' }} />
       <div className="ph2-page-shell flex h-[calc(100dvh-3.5rem)] w-full flex-col overflow-hidden text-slate-900">
         <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-          <header className="flex min-h-[4.5rem] shrink-0 flex-wrap items-center justify-between gap-3 border-b border-indigo-100/50 bg-white/80 px-4 py-3 shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)] backdrop-blur-md sm:px-6">
+          <header className="flex min-h-0 shrink-0 flex-nowrap items-center justify-between gap-2 overflow-x-auto border-b border-indigo-100/50 bg-white/80 px-3 py-2 shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)] backdrop-blur-md sm:px-5">
             <div className="flex items-center gap-2.5 sm:gap-3">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-500 via-blue-600 to-indigo-600 text-white shadow-lg shadow-indigo-500/30 ring-1 ring-white/20">
                 <Users className="h-5 w-5" strokeWidth={2.2} />
@@ -460,7 +460,7 @@ export function CandidateListPage() {
                 </h1>
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-nowrap items-center gap-1.5">
               <button
                 type="button"
                 onClick={() => {
@@ -635,11 +635,11 @@ export function CandidateListPage() {
             </div>
           </header>
 
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-2 py-2 sm:px-4 sm:py-3 lg:px-5">
             <div className="mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col overflow-hidden">
 
               <div className={PH2_TABLE_CARD_CLASS}>
-                <div className="flex shrink-0 items-center gap-1 border-b border-indigo-100/80 bg-gradient-to-r from-indigo-50/90 via-white to-slate-50/80 px-4 sm:px-5">
+                <div className="flex shrink-0 items-center gap-2 border-b border-indigo-100/80 bg-gradient-to-r from-indigo-50/90 via-white to-slate-50/80 px-3 sm:px-4">
                   {phase1CommonPoolEnabled ? (
                     <button
                       type="button"
@@ -666,19 +666,13 @@ export function CandidateListPage() {
                   >
                     My candidates
                   </button>
-                </div>
-                <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-indigo-100/50 px-4 py-2 sm:px-5">
-                  <p className="text-xs text-slate-500">
+                  <p className="ml-auto truncate py-2 pr-1 text-[11px] text-slate-500">
                     {loading || tableLoading
-                      ? 'Loading candidates…'
-                      : listTab === 'mine'
-                        ? `Showing ${totalEntries.toLocaleString()} candidate${totalEntries === 1 ? '' : 's'} you added, or applied / assigned to jobs you can access`
-                        : phase1CommonPoolEnabled
-                          ? `Showing ${totalEntries.toLocaleString()} candidate${totalEntries === 1 ? '' : 's'} — CRM + job portal + Phase 1 (candidatecommon)`
-                          : `Showing ${totalEntries.toLocaleString()} candidate${totalEntries === 1 ? '' : 's'} — CRM + job portal`}
+                      ? 'Loading…'
+                      : `${totalEntries.toLocaleString()} candidates`}
                   </p>
                 </div>
-                <div className={PH2_TOOLBAR_ROW_CLASS}>
+                <div className={`${PH2_TOOLBAR_ROW_CLASS} !p-1.5 sm:!p-2`}>
                   <div className={PH2_TOOLBAR_FILTERS_CLASS}>
                     <div className="relative w-44 shrink-0 sm:w-52">
                       <Search
@@ -943,10 +937,11 @@ export function CandidateListPage() {
                   submittingToClientCandidateId={submitClientRowId}
                   workspaceAlertsByEntityId={workspaceAlertsByEntityId}
                   fillScrollParent
+                  compact
                 />
                       </div>
                     </div>
-                    <div className={PH2_TABLE_CARD_FOOTER_CLASS}>
+                    <div className={`${PH2_TABLE_CARD_FOOTER_CLASS} !py-1.5`}>
                   <PaginationAll
                     initialPage={currentPage}
                     totalPages={Math.max(1, Math.ceil(totalEntries / pageSize))}
