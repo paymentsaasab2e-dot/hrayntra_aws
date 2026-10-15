@@ -238,6 +238,7 @@ export type HqDemoRequestApiRow = {
   fullName: string;
   email: string;
   organizationName: string;
+  organizationType?: string;
   countryCode: string;
   dialCode: string;
   phoneNumber: string;
@@ -334,6 +335,19 @@ export type HqLeadApiRow = {
   employerDemoRequestId?: string | null;
   preferredDemoDate?: string | null;
   preferredDemoTime?: string | null;
+  organizationType?: string | null;
+  companySize?: string | null;
+  formFullName?: string | null;
+  trialProvisioned?: boolean;
+  trialDays?: number | null;
+  trialStartsAt?: string | null;
+  trialEndsAt?: string | null;
+  trialLoginId?: string | null;
+  trialLoginUrl?: string | null;
+  trialTenantDbName?: string | null;
+  trialEmail?: string | null;
+  trialGrantedAt?: string | null;
+  trialEndedAt?: string | null;
 };
 
 export type HqLeadFollowUp = {
@@ -407,6 +421,29 @@ export type HqCompanyApiRow = {
   tenantDbName?: string | null;
   tenantAdminEmail?: string | null;
   tenantProvisionedAt?: string | null;
+  /** pending_approval = Create user submitted; approved = tenant live; rejected = returned */
+  provisionStatus?: 'pending_approval' | 'approved' | 'rejected' | null;
+  provisionDraft?: {
+    organizationName?: string | null;
+    name?: string | null;
+    email?: string | null;
+    loginId?: string | null;
+    hasPassword?: boolean;
+    organizationType?: 'agency' | 'standalone';
+    productLine?: 'crm' | 'recruitment';
+    enabledModules?: string[];
+    phase1CommonPoolEnabled?: boolean;
+    billingCycle?: 'monthly' | 'annual';
+    planStartDate?: string | null;
+    planEndDate?: string | null;
+    planName?: string | null;
+    customPrice?: string | null;
+    maxUsers?: string | null;
+    maxJobs?: string | null;
+    coins?: string | null;
+  } | null;
+  provisionDraftSubmittedAt?: string | null;
+  provisionApprovedAt?: string | null;
 };
 
 export type HqCompanyStats = {

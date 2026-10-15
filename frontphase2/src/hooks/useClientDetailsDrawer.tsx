@@ -103,6 +103,9 @@ export function useClientDetailsDrawer(props: ClientDetailsDrawerProps) {
   createClientOverride,
   updateClientOverride,
   onCreateTenant,
+  onApproveTenant,
+  approveTenantLoading = false,
+  onResendForApproval,
   stackClassName: _stackClassName = 'z-50',
 } = props;
 
@@ -3287,14 +3290,41 @@ const drawerTree = (
                           <Edit2 size={18} />
                         </button>
                       )}
+                      {isHqOverrideMode &&
+                      onApproveTenant &&
+                      client?.id &&
+                      !overviewEditMode ? (
+                        <button
+                          type="button"
+                          onClick={() => onApproveTenant(client.id)}
+                          disabled={approveTenantLoading}
+                          className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
+                          title="Approve Create user and provision tenant login"
+                        >
+                          {approveTenantLoading ? 'Approving…' : 'Approve'}
+                        </button>
+                      ) : null}
+                      {isHqOverrideMode &&
+                      onResendForApproval &&
+                      client?.id &&
+                      !overviewEditMode ? (
+                        <button
+                          type="button"
+                          onClick={() => onResendForApproval(client.id)}
+                          className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm font-semibold text-amber-900 hover:bg-amber-100"
+                          title="Resubmit Create user for approval"
+                        >
+                          Resend for approval
+                        </button>
+                      ) : null}
                       {isHqOverrideMode && onCreateTenant && client?.id && !overviewEditMode ? (
                         <button
                           type="button"
                           onClick={() => onCreateTenant(client.id)}
                           className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-sm font-semibold text-indigo-700 hover:bg-indigo-100"
-                          title="Create tenant"
+                          title="Create user"
                         >
-                          Create tenant
+                          Create user
                         </button>
                       ) : null}
                       {activeTab === 'overview' && overviewEditMode && (

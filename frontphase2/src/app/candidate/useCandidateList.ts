@@ -153,6 +153,7 @@ import {
 } from '../../components/layout/Ph2ModulePageLayout';
 import {
   candidateShowsAppliedTag,
+  resolveCandidateAssignedJobEntries,
   resolveCandidateAssignedJobTitles,
   resolveCandidateListStage,
 } from '../../lib/candidateListMapping';
@@ -338,7 +339,11 @@ function mapBackendCandidate(raw: BackendCandidate): Candidate {
   const c = enrichBackendCandidateFromPhase1Snapshot(raw);
   const name = resolveCandidateDisplayName(c, { alreadyEnriched: true });
   const basicFullName = `${c.firstName ?? ''} ${c.lastName ?? ''}`.trim();
-  const assignedJobsFromAssignedTitles = resolveCandidateAssignedJobTitles(c);
+  const assignedJobEntries = resolveCandidateAssignedJobEntries(c);
+  const assignedJobsFromAssignedTitles =
+    assignedJobEntries.map((row) => row.title).filter(Boolean).length > 0
+      ? assignedJobEntries.map((row) => row.title)
+      : resolveCandidateAssignedJobTitles(c);
   const workEntries = collectCandidateWorkEntries(c);
   // Never fall back to raw API experience — it can be ISO codes (e.g. 27001) or calendar years.
   const experienceYears = resolveCandidateExperienceYears(c) ?? 0;
@@ -356,6 +361,7 @@ function mapBackendCandidate(raw: BackendCandidate): Candidate {
     city: c.city || undefined,
     country: c.country || undefined,
     assignedJobs: assignedJobsFromAssignedTitles,
+    assignedJobItems: assignedJobEntries,
     stage: resolveCandidateListStage(c),
     owner: c.assignedTo?.name || 'Unassigned',
     lastActivity: (c.updatedAt || c.createdAt)

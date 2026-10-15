@@ -386,7 +386,7 @@ async function syncEmployerPaidToPhase2(verified, paymentReference) {
 
 async function syncEmployerDemoToHq(verified) {
   const result = await postPhase2Internal('sync-employer-demo-verified', {
-    requestId: verified.id,
+    requestId: verified.id || verified.requestId,
     fullName: verified.fullName,
     email: verified.email,
     countryCode: verified.countryCode,
@@ -400,6 +400,14 @@ async function syncEmployerDemoToHq(verified) {
     emailVerified:
       Boolean(verified.emailVerifiedAt) ||
       String(verified.otpStatus || '').toUpperCase() === 'VERIFIED',
+    trialProvisioned: Boolean(verified.trialProvisioned),
+    trialLoginId: verified.trialLoginId || undefined,
+    trialTenantDbName: verified.trialTenantDbName || undefined,
+    trialDays: verified.trialDays ?? undefined,
+    trialStartsAt: verified.trialStartsAt || undefined,
+    trialEndsAt: verified.trialEndsAt || undefined,
+    trialLoginUrl: verified.trialLoginUrl || undefined,
+    trialEmail: verified.email || undefined,
   });
 
   if (!result.ok) {
@@ -491,6 +499,18 @@ async function verifyDemoRequestOtp(req, res) {
     // Auto-provision 5-day try-free workspace after OTP (Agency/Standalone + all modules).
     if (isTrial) {
       if (verified.trialProvisioned && verified.trialLoginId) {
+        // Keep HQ CRM lead in sync with the form person + trial access status.
+        await syncEmployerDemoToHq({
+          ...verified,
+          requestKind: 'trial',
+          trialProvisioned: true,
+          trialLoginId: verified.trialLoginId,
+          trialTenantDbName: verified.trialTenantDbName,
+          trialDays: verified.trialDays,
+          trialStartsAt: verified.trialStartsAt,
+          trialEndsAt: verified.trialEndsAt,
+          trialLoginUrl: verified.trialLoginUrl,
+        }).catch(() => null);
         return res.json({
           success: true,
           message: 'Your try-free workspace is ready. Sign in with the credentials we emailed you.',

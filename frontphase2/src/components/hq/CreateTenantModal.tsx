@@ -781,6 +781,9 @@ type CreateTenantModalProps = {
   isLoading: boolean;
   /** Prefill / lock to a specific company when opened from Companies. */
   lockCompany?: boolean;
+  title?: string;
+  subtitle?: string;
+  submitLabel?: string;
 };
 
 export function CreateTenantModal({
@@ -791,6 +794,9 @@ export function CreateTenantModal({
   onSubmit,
   isLoading,
   lockCompany = false,
+  title = 'Create user',
+  subtitle = 'From an HQ company (Lead → Client → Company) or create manually. Assign pricing later on Users / Plans.',
+  submitLabel = 'Create user',
 }: CreateTenantModalProps) {
   const [companies, setCompanies] = useState<HqCompanyApiRow[]>([]);
   const [companiesLoading, setCompaniesLoading] = useState(false);
@@ -855,12 +861,9 @@ export function CreateTenantModal({
         <div className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-100 px-5 py-4 sm:px-6">
           <div>
             <h2 id="create-tenant-title" className="text-xl font-bold text-slate-900">
-              Create user
+              {title}
             </h2>
-            <p className="mt-1 text-sm text-slate-500">
-              From an HQ company (Lead → Client → Company) or create manually. Assign pricing later
-              on Users / Plans.
-            </p>
+            <p className="mt-1 text-sm text-slate-500">{subtitle}</p>
           </div>
           <button
             type="button"
@@ -894,7 +897,7 @@ export function CreateTenantModal({
               disabled={isLoading || !canSubmit}
               loading={isLoading}
             >
-              Create user
+              {submitLabel}
             </HqPrimaryButton>
           </div>
         </form>

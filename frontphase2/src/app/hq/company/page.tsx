@@ -43,10 +43,13 @@ import {
   type HqCompanyStatus,
 } from './hqCompaniesData';
 import {
+  apiHqApproveCompanyTenant,
   apiHqCreateCompany,
   apiHqDeleteCompany,
   apiHqListCompanies,
   apiHqProvisionTenant,
+  apiHqRejectCompanyProvisionDraft,
+  apiHqSaveCompanyProvisionDraft,
   apiHqUpdateCompany,
   type HqCompanyApiRow,
   type HqCompanyStats,
@@ -117,6 +120,7 @@ export default function HqCompanyPage() {
   const [provisionData, setProvisionData] = useState<ProvisionTenantFormData>(emptyProvisionTenantForm());
   const [provisionLoading, setProvisionLoading] = useState(false);
   const [lockCompanyForTenant, setLockCompanyForTenant] = useState(false);
+  const [approveLoadingId, setApproveLoadingId] = useState<string | null>(null);
 
   const loadCompanies = useCallback(async () => {
     setLoading(true);
@@ -224,10 +228,81 @@ export default function HqCompanyPage() {
       toast.error(`Company already linked to tenant ${company.tenantDbName}`);
       return;
     }
-    setProvisionData(provisionFormFromCompany(company));
+    const draft = company.provisionDraft;
+    if (draft) {
+      const line: ProvisionTenantFormData['productLine'] =
+        draft.productLine === 'recruitment' ? 'recruitment' : 'crm';
+      setProvisionData(
+        emptyProvisionTenantForm({
+          source: 'company',
+          companyId: company.id,
+          organizationName: draft.organizationName || company.name || '',
+          name: draft.name || company.directorName || company.contact || '',
+          email: draft.email || company.email || '',
+          loginId: draft.loginId || '',
+          password: '',
+          organizationType: draft.organizationType || 'agency',
+          productLine: line,
+          ...(draft.enabledModules?.length ? { enabledModules: draft.enabledModules } : {}),
+          phase1CommonPoolEnabled: draft.phase1CommonPoolEnabled !== false,
+          planName: (draft.planName as ProvisionTenantFormData['planName']) || 'Starter',
+          billingCycle: draft.billingCycle === 'annual' ? 'annual' : 'monthly',
+          ...(draft.planStartDate ? { planStartDate: draft.planStartDate } : {}),
+          ...(draft.planEndDate ? { planEndDate: draft.planEndDate } : {}),
+          ...(draft.maxUsers ? { maxUsers: draft.maxUsers } : {}),
+          ...(draft.maxJobs ? { maxJobs: draft.maxJobs } : {}),
+          ...(draft.customPrice ? { customPrice: draft.customPrice } : {}),
+          ...(draft.coins ? { coins: draft.coins } : {}),
+        }),
+      );
+    } else {
+      setProvisionData(provisionFormFromCompany(company));
+    }
     setLockCompanyForTenant(true);
     setSelectedCompanyId(null);
     setCreateTenantOpen(true);
+  };
+
+  const handleApproveTenant = async (companyId: string) => {
+    const ok = await requestConfirm(
+      'Approve Create user and provision this tenant? They will receive login credentials.',
+      {
+        tone: 'default',
+        title: 'Approve tenant',
+        confirmLabel: 'Approve',
+        cancelLabel: 'Cancel',
+      },
+    );
+    if (!ok) return;
+    setApproveLoadingId(companyId);
+    try {
+      const res = await apiHqApproveCompanyTenant(companyId);
+      toast.success(
+        `Tenant approved${res.data?.tenantDbName ? `: ${res.data.tenantDbName}` : ''}. Login is now enabled.`,
+      );
+      await loadCompanies();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to approve tenant');
+    } finally {
+      setApproveLoadingId(null);
+    }
+  };
+
+  const handleRejectProvision = async (companyId: string) => {
+    const ok = await requestConfirm('Reject this Create user request? They can submit again later.', {
+      tone: 'warning',
+      title: 'Reject Create user',
+      confirmLabel: 'Reject',
+      cancelLabel: 'Cancel',
+    });
+    if (!ok) return;
+    try {
+      await apiHqRejectCompanyProvisionDraft(companyId);
+      toast.success('Create user request rejected');
+      await loadCompanies();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to reject request');
+    }
   };
 
   const handleProvisionSubmit = async (e: React.FormEvent) => {
@@ -240,12 +315,17 @@ export default function HqCompanyPage() {
       toast.error('Select an HQ company');
       return;
     }
+    if (!provisionData.password || provisionData.password.length < 8) {
+      toast.error('Password must be at least 8 characters');
+      return;
+    }
     setProvisionLoading(true);
     try {
       const maxUsers = provisionData.maxUsers ? Number(provisionData.maxUsers) : null;
       const maxJobs = provisionData.maxJobs ? Number(provisionData.maxJobs) : null;
-      const res = await apiHqProvisionTenant({
+      const body = {
         name: provisionData.name.trim(),
+        organizationName: provisionData.organizationName.trim() || provisionData.name.trim(),
         email: provisionData.email.trim().toLowerCase(),
         loginId: provisionData.loginId.trim(),
         password: provisionData.password,
@@ -270,7 +350,22 @@ export default function HqCompanyPage() {
           ...(maxJobs ? { maxJobs } : {}),
           ...(provisionData.coins ? { coins: Number(provisionData.coins) || 0 } : {}),
         },
-      });
+      };
+
+      // Linked to an HQ company → pending approval (no login until Approve).
+      if (body.companyId) {
+        await apiHqSaveCompanyProvisionDraft(body.companyId, body);
+        toast.success('Create user submitted for approval. Click Approve on this company to enable login.');
+        setCreateTenantOpen(false);
+        setProvisionData(emptyProvisionTenantForm());
+        setLockCompanyForTenant(false);
+        setSelectedCompanyId(body.companyId);
+        await loadCompanies();
+        return;
+      }
+
+      // Manual (no company) → provision immediately (HQ ops shortcut).
+      const res = await apiHqProvisionTenant(body);
       toast.success(
         `Tenant created${res.data?.tenantDbName ? `: ${res.data.tenantDbName}` : ''}.`,
       );
@@ -288,7 +383,7 @@ export default function HqCompanyPage() {
   return (
     <HqModulePageLayout
       title="Companies"
-      subtitle="Lead → Client → Company → Tenant. Converted leads land here; create a tenant from a company when ready."
+      subtitle="Lead → Client → Company → Create user (pending) → Approve → Tenant login."
       icon={<Building2 className="h-5 w-5" />}
       actions={
         <>
@@ -308,7 +403,7 @@ export default function HqCompanyPage() {
                 }}
               >
                 <Plus className="h-4 w-4" />
-                Create tenant
+                Create user
               </HqSecondaryButton>
               <HqPrimaryButton
                 onClick={() => {
@@ -343,6 +438,17 @@ export default function HqCompanyPage() {
             onSubmit={handleProvisionSubmit}
             isLoading={provisionLoading}
             lockCompany={lockCompanyForTenant}
+            title="Create user"
+            subtitle={
+              lockCompanyForTenant || provisionData.companyId
+                ? 'Submit for approval. Login is created only after Approve on this company.'
+                : 'Link to an HQ company for approval, or create a workspace manually (immediate provision).'
+            }
+            submitLabel={
+              lockCompanyForTenant || provisionData.companyId
+                ? 'Submit for approval'
+                : 'Create user'
+            }
           />
           {(createDrawerOpen || selectedClient) ? (
             <ClientDetailsDrawer
@@ -353,12 +459,34 @@ export default function HqCompanyPage() {
               updateClientOverride={handleUpdateClientOverride}
               onDelete={handleDeleteCompany}
               onCreateTenant={
-                createDrawerOpen || selectedCompany?.tenantDbName
+                createDrawerOpen ||
+                selectedCompany?.tenantDbName ||
+                selectedCompany?.provisionStatus === 'rejected'
                   ? undefined
                   : (clientId) => {
                       const company = companies.find((item) => item.id === clientId);
                       if (company) openCreateTenantFromCompany(company);
                     }
+              }
+              onApproveTenant={
+                !createDrawerOpen &&
+                selectedCompany?.provisionStatus === 'pending_approval' &&
+                !selectedCompany?.tenantDbName
+                  ? (clientId) => void handleApproveTenant(clientId)
+                  : undefined
+              }
+              approveTenantLoading={Boolean(
+                selectedCompanyId && approveLoadingId === selectedCompanyId,
+              )}
+              onResendForApproval={
+                !createDrawerOpen &&
+                selectedCompany?.provisionStatus === 'rejected' &&
+                !selectedCompany?.tenantDbName
+                  ? (clientId) => {
+                      const company = companies.find((item) => item.id === clientId);
+                      if (company) openCreateTenantFromCompany(company);
+                    }
+                  : undefined
               }
               onClose={() => {
                 setCreateDrawerOpen(false);
@@ -523,6 +651,21 @@ export default function HqCompanyPage() {
                               From lead
                             </span>
                           ) : null}
+                          {company.provisionStatus === 'pending_approval' && !company.tenantDbName ? (
+                            <span className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-800 ring-1 ring-amber-200">
+                              Pending approval
+                            </span>
+                          ) : null}
+                          {company.provisionStatus === 'rejected' && !company.tenantDbName ? (
+                            <span className="inline-flex rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-700 ring-1 ring-rose-200">
+                              Rejected
+                            </span>
+                          ) : null}
+                          {company.tenantDbName ? (
+                            <span className="inline-flex rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-sky-800 ring-1 ring-sky-200">
+                              Tenant live
+                            </span>
+                          ) : null}
                         </div>
                       </td>
                       <td className="px-4 py-3.5 text-slate-600">{company.contact}</td>
@@ -537,17 +680,57 @@ export default function HqCompanyPage() {
                       </td>
                       <td className="px-4 py-3.5 text-slate-600">{company.nextFollowUp}</td>
                       <td className="px-4 py-3.5">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedCompanyId(company.id);
-                          }}
-                          className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-                          aria-label={`Actions for ${company.name}`}
-                        >
-                          <MoreVertical className="h-4 w-4" />
-                        </button>
+                        <div className="flex items-center justify-end gap-1">
+                          {company.provisionStatus === 'pending_approval' &&
+                          !company.tenantDbName ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void handleApproveTenant(company.id);
+                                }}
+                                disabled={approveLoadingId === company.id}
+                                className="rounded-lg border border-emerald-300 bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
+                              >
+                                {approveLoadingId === company.id ? '…' : 'Approve'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void handleRejectProvision(company.id);
+                                }}
+                                className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-bold text-slate-600 hover:bg-slate-50"
+                              >
+                                Reject
+                              </button>
+                            </>
+                          ) : null}
+                          {company.provisionStatus === 'rejected' && !company.tenantDbName ? (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openCreateTenantFromCompany(company);
+                              }}
+                              className="rounded-lg border border-amber-300 bg-amber-50 px-2 py-1 text-[11px] font-bold text-amber-900 hover:bg-amber-100"
+                            >
+                              Resend for approval
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedCompanyId(company.id);
+                            }}
+                            className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                            aria-label={`Actions for ${company.name}`}
+                          >
+                            <MoreVertical className="h-4 w-4" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))

@@ -8,9 +8,11 @@ import { apiLogin, apiConsumeImpersonationToken, formatAuthErrorMessage, getAcce
 import { buildLoginDevicePayload, clearIntentionalLogout, finalizeAuthAfterTokens } from '../../lib/sessionAuth';
 import { LoginSessionFlow } from '../../components/session/LoginSessionFlow';
 import { TrialExpiredLoginPrompt } from '../../components/trial/TrialExpiredLoginPrompt';
+import { TrialExpiredPurchaseModal } from '../../components/trial/TrialExpiredPurchaseModal';
 import { AuthBrandLogo } from '../../components/auth/AuthBrandLogo';
 import type { ActiveSessionView } from '../../lib/sessionAuth';
 import { authDmSansClass } from '../../lib/authTypeFonts';
+import { TRIAL_EXPIRED_URL_PARAM } from '../../lib/orgTrialPlan';
 
 function resolveMarketingBase() {
   const fromEnv = process.env.NEXT_PUBLIC_MARKETING_SITE_URL?.trim().replace(/\/$/, '');
@@ -70,6 +72,7 @@ export default function LoginPage() {
     password: string;
     activeSession: ActiveSessionView | null;
   } | null>(null);
+  const [trialExpiredModalOpen, setTrialExpiredModalOpen] = useState(false);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -162,6 +165,12 @@ export default function LoginPage() {
     if (typeof window === 'undefined') return;
 
     const goToAppIfAuthenticated = () => {
+      // Keep the trial-ended popup on screen — do not bounce back into the app.
+      if (new URLSearchParams(window.location.search).get(TRIAL_EXPIRED_URL_PARAM) === '1') {
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('refreshToken');
+        return;
+      }
       if (!getAccessToken()) return;
       const redirectParam = new URLSearchParams(window.location.search).get('redirect');
       const target = resolvePostLoginPath(redirectParam);
@@ -263,7 +272,24 @@ export default function LoginPage() {
 
       redirectAfterLogin(requirePasswordReset, isSuperAdmin);
     } catch (err: unknown) {
-      setError(formatAuthErrorMessage(err as { message?: string }, 'Failed to login. Please try again.'));
+      const msg = formatAuthErrorMessage(err as { message?: string }, 'Failed to login. Please try again.');
+      const lowered = msg.toLowerCase();
+      if (
+        lowered.includes('trial has ended') ||
+        lowered.includes('trial expired') ||
+        lowered.includes('trial_expired')
+      ) {
+        setMessage('');
+        setError(msg);
+        setTrialExpiredModalOpen(true);
+        if (typeof window !== 'undefined') {
+          const url = new URL(window.location.href);
+          url.searchParams.set(TRIAL_EXPIRED_URL_PARAM, '1');
+          window.history.replaceState({}, '', `${url.pathname}${url.search}`);
+        }
+      } else {
+        setError(msg);
+      }
     } finally {
       setLoading(false);
       setLoadingMessage('');
@@ -289,6 +315,18 @@ export default function LoginPage() {
       <Suspense fallback={null}>
         <TrialExpiredLoginPrompt />
       </Suspense>
+      <TrialExpiredPurchaseModal
+        open={trialExpiredModalOpen}
+        plan={null}
+        onDismiss={() => {
+          setTrialExpiredModalOpen(false);
+          if (typeof window !== 'undefined') {
+            const url = new URL(window.location.href);
+            url.searchParams.delete(TRIAL_EXPIRED_URL_PARAM);
+            window.history.replaceState({}, '', `${url.pathname}${url.search}`);
+          }
+        }}
+      />
 
       {duplicateSession ? (
         <LoginSessionFlow

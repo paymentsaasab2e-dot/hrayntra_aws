@@ -73,7 +73,13 @@ import { LeadLocationFields } from '../components/location/LeadLocationFields';
 import { getCountryByCodeOrName, inferLocationFromCityName } from '../lib/cscData';
 import { startAsyncLoad } from '../lib/asyncLoadGuard';
 import { WhatsAppIcon } from '../components/icons/WhatsAppIcon';
-import { HqProductLineSelectBoxes, hqProductLineLabels, type HqProductLine } from '../components/hq/HqProductLinePicker';
+import {
+  HqLeadProductLineBadges,
+  HqProductLineSelectBoxes,
+  hqProductLineLabels,
+  resolveHqLeadProductLines,
+  type HqProductLine,
+} from '../components/hq/HqProductLinePicker';
 import { ADD_LEAD_DRAWER_WIDTH_KEY, AddLeadAiFlowProgress, AddLeadFormData, AddLeadWizardProgress, AddLeadWizardStep, CALL_OUTCOMES, DEFAULT_LEAD_STATUSES, FieldRow, FieldRowDateTime, LeadDetailsDrawerProps, LeadRequiredFieldErrors, LeadStatusDropdown, MarkLostFormData, OverviewField, OverviewFieldDateTime, TENANT_ADD_LEAD_WIZARD_STEPS, clampAddLeadDrawerWidth, getInitialAddLeadDrawerWidth, getLeadSourceDetailValue, getSourceFieldLabel, isDefaultLeadStatus, isLeadAlreadyConverted, isProtectedLeadStatus, leadConvertedAlertMessage, leadStatusChipClass, mergeLeadStatusOptions, mergeLocationFields, parseLeadDemoNotes, syncLeadTeamMembers, validateAddLeadWizardStep, validateLeadRequiredFields } from '../components/drawers/leadDetailsShared';
 
 export function useLeadDetailsDrawer(props: LeadDetailsDrawerProps) {
@@ -2167,6 +2173,7 @@ const drawerTree = (
           <DetailsModalShell
             key={addLeadMode ? 'add-lead-drawer' : `lead-drawer-${lead?.id || 'detail'}`}
             variant="main"
+            flushTop={Boolean(hqMode || isHqOverrideMode)}
             dialogTitleId={addLeadMode ? 'add-lead-modal-title' : 'lead-detail-modal-title'}
             panelRef={leadDrawerPanelRef}
             onBackdropClick={() => void handleLeadDrawerClose()}
@@ -2209,26 +2216,41 @@ const drawerTree = (
                     </p>
                   </>
                 ) : (
-                  <>
-                    <h2 id="lead-detail-modal-title" className="text-xl font-bold text-slate-900 truncate">
-                      {lead!.companyName}
-                    </h2>
-                    <p className="mt-0.5 text-sm text-slate-500 truncate">
-                      {formatDirectorDisplay(lead!.directorSalutation, lead!.contactPerson) ||
-                        lead!.contactPerson ||
-                        'No contact assigned'}
-                      {lead!.city || lead!.location
-                        ? ` · ${[lead!.city, lead!.state].filter(Boolean).join(', ') || lead!.location}`
-                        : ''}
-                    </p>
-                    <span
-                      className={`mt-2 inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${leadStatusChipClass(
-                        lead!.status,
-                      )}`}
-                    >
-                      {lead!.status}
-                    </span>
-                  </>
+                  <div className="min-w-0">
+                    <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5">
+                      <h2
+                        id="lead-detail-modal-title"
+                        className="text-xl font-bold text-slate-900 truncate max-w-[min(100%,16rem)] sm:max-w-[20rem]"
+                      >
+                        {lead!.companyName}
+                      </h2>
+                      {(formatDirectorDisplay(lead!.directorSalutation, lead!.contactPerson) ||
+                        lead!.contactPerson) && (
+                        <span className="text-sm text-slate-500 truncate max-w-[12rem]">
+                          {formatDirectorDisplay(lead!.directorSalutation, lead!.contactPerson) ||
+                            lead!.contactPerson}
+                        </span>
+                      )}
+                      <span
+                        className={`inline-flex shrink-0 items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${leadStatusChipClass(
+                          lead!.status,
+                        )}`}
+                      >
+                        {lead!.status}
+                      </span>
+                      {resolveHqLeadProductLines(lead!).length > 0 ? (
+                        <HqLeadProductLineBadges
+                          lines={resolveHqLeadProductLines(lead!)}
+                          className="shrink-0"
+                        />
+                      ) : null}
+                    </div>
+                    {lead!.city || lead!.location ? (
+                      <p className="mt-1 text-xs text-slate-400 truncate">
+                        {[lead!.city, lead!.state].filter(Boolean).join(', ') || lead!.location}
+                      </p>
+                    ) : null}
+                  </div>
                 )}
               </div>
             </div>

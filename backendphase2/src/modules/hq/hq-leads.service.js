@@ -174,6 +174,45 @@ function toLeadRow(doc) {
     employerDemoRequestId: doc.employerDemoRequestId || null,
     preferredDemoDate: doc.preferredDemoDate || null,
     preferredDemoTime: doc.preferredDemoTime || null,
+    organizationType: doc.organizationType || null,
+    companySize: doc.companySize || null,
+    formFullName: doc.formFullName || doc.contactName || doc.contactPerson || '',
+    trialProvisioned: Boolean(doc.trialProvisioned || doc.trialLoginId || doc.trialGrantedAt),
+    trialDays: doc.trialDays ?? null,
+    trialStartsAt: doc.trialStartsAt || null,
+    trialEndsAt: doc.trialEndsAt || null,
+    trialLoginId: doc.trialLoginId || null,
+    trialLoginUrl: doc.trialLoginUrl || null,
+    trialTenantDbName: doc.trialTenantDbName || null,
+    trialEmail: doc.trialEmail || doc.email || null,
+    trialGrantedAt:
+      doc.trialGrantedAt instanceof Date
+        ? doc.trialGrantedAt.toISOString()
+        : doc.trialGrantedAt || null,
+    trialEndedAt:
+      doc.trialEndedAt instanceof Date
+        ? doc.trialEndedAt.toISOString()
+        : doc.trialEndedAt || null,
+  };
+}
+
+/** Trial account fields stamped onto an HQ CRM lead after try-free provision / HQ grant. */
+function trialMetaFromDemo(demo = {}) {
+  const loginId = String(demo.trialLoginId || '').trim();
+  const provisioned = Boolean(demo.trialProvisioned || loginId || demo.trialGrantedAt);
+  if (!provisioned) return null;
+  return {
+    stage: 'trial',
+    status: 'Trial',
+    trialProvisioned: true,
+    trialDays: demo.trialDays ?? null,
+    trialStartsAt: demo.trialStartsAt || null,
+    trialEndsAt: demo.trialEndsAt || null,
+    trialLoginId: loginId || null,
+    trialLoginUrl: demo.trialLoginUrl || null,
+    trialTenantDbName: demo.trialTenantDbName || null,
+    trialEmail: String(demo.trialEmail || demo.email || '').trim().toLowerCase() || null,
+    trialGrantedAt: demo.trialGrantedAt ? new Date(demo.trialGrantedAt) : new Date(),
   };
 }
 
@@ -359,25 +398,29 @@ function buildEmployerDemoLeadFields(demo) {
   const requestKind = String(demo?.requestKind || 'demo').toLowerCase();
   const isPurchase = requestKind === 'purchase';
   const isTrial = requestKind === 'trial';
-  const emailVerified = Boolean(demo?.emailVerified);
   const slot = parseDemoSlotFromOutcome(outcome);
   const scheduledAt = slot ? demoSlotToDate(slot.date, slot.time) : null;
   const expectedUsers = companySizeToExpectedUsers(companySize);
   const estimatedDealValue = Math.max(expectedUsers * 25, 500);
 
+  // Keep notes short — company size / workspace / request kind live on lead fields + Overview elsewhere.
   const initialNotes = [
     slot?.date && slot?.time ? `Booked demo: ${slot.date} at ${slot.time}` : '',
-    outcome ? `Outcome: ${outcome}` : '',
-    companySize ? `Company size: ${companySize}` : '',
-    demo?.organizationType
+    isTrial
+      ? outcome && !/^auto try-free/i.test(outcome)
+        ? `Outcome: ${outcome}`
+        : 'Outcome: Try-free signup'
+      : outcome
+        ? `Outcome: ${outcome}`
+        : '',
+    !isTrial && companySize ? `Company size: ${companySize}` : '',
+    !isTrial && demo?.organizationType
       ? `Workspace type: ${
           String(demo.organizationType).toLowerCase() === 'standalone' ? 'Standalone' : 'Agency'
         }`
       : '',
-    requestKind ? `Request kind: ${requestKind}` : '',
-    emailVerified ? 'Email verified: yes' : 'Email verified: pending',
-    requestId ? `Entrepreneur demo request: ${requestId}` : '',
     isPurchase ? 'Source: Entrepreneur landing page — paid plan signup' : '',
+    isTrial ? 'Source: Entrepreneur try-free form' : '',
   ]
     .filter(Boolean)
     .join('\n');
@@ -396,8 +439,16 @@ function buildEmployerDemoLeadFields(demo) {
       return d;
     })();
 
+  const organizationType = String(demo?.organizationType || '')
+    .trim()
+    .toLowerCase();
+  const trialMeta = trialMetaFromDemo(demo);
+
   return {
     contactName,
+    contactPerson: contactName,
+    directorName: contactName,
+    formFullName: contactName,
     companyName,
     email,
     phone,
@@ -405,6 +456,8 @@ function buildEmployerDemoLeadFields(demo) {
     country,
     expectedUsers,
     estimatedDealValue,
+    organizationType: organizationType || null,
+    companySize: companySize || null,
     leadSource: EMPLOYER_DEMO_LEAD_SOURCE,
     leadSourceDetail: isPurchase
       ? 'Entrepreneur landing page — paid plan'
@@ -414,13 +467,16 @@ function buildEmployerDemoLeadFields(demo) {
           ? 'Entrepreneur request demo — scheduled'
           : 'Entrepreneur request demo form',
     interestedModules: ['Recruitment'],
+    hqProductLines: ['recruitment'],
     initialNotes,
-    stage,
+    stage: trialMeta?.stage || stage,
+    status: trialMeta?.status || HQ_LEAD_STAGE_LABELS[stage] || 'New',
     score: inferScore(estimatedDealValue, expectedUsers),
     nextFollowUpAt,
     employerDemoRequestId: requestId || null,
     preferredDemoDate: slot?.date || null,
     preferredDemoTime: slot?.time || null,
+    ...(trialMeta || {}),
   };
 }
 
@@ -749,6 +805,25 @@ function appendNoteOnce(existingNotes, line) {
   return [notes, addition].filter(Boolean).join('\n');
 }
 
+/**
+ * Replace prior try-free / entrepreneur-form note lines instead of stacking
+ * near-duplicates on every OTP / re-grant sync (which made the Overview look broken).
+ */
+function mergeEmployerFormNotes(existingNotes, nextBlock) {
+  const addition = String(nextBlock || '').trim();
+  if (!addition) return String(existingNotes || '').trim();
+  const existing = String(existingNotes || '').trim();
+  if (!existing) return addition;
+
+  const FORM_LABEL =
+    /^(booked demo|outcome|company size|workspace type|request kind|email verified|entrepreneur demo request|employer demo request|source)\s*:/i;
+  const kept = existing
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !FORM_LABEL.test(line));
+  return [...kept, ...addition.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)].join('\n');
+}
+
 function mergeLeadStage(existingStage, nextStage) {
   const rank = { new: 0, demo: 1, trial: 2, contacted: 3, qualified: 4, converted: 5, lost: 5 };
   const current = String(existingStage || 'new');
@@ -848,14 +923,56 @@ export const hqLeadsService = {
         $set: {
           stage: 'trial',
           status: 'Trial',
+          trialProvisioned: true,
           trialDays: data?.trialDays || null,
           trialStartsAt: data?.trialStartsAt || null,
           trialEndsAt: data?.trialEndsAt || null,
           trialLoginId: data?.trialLoginId || null,
           trialLoginUrl: data?.trialLoginUrl || null,
           trialTenantDbName: data?.trialTenantDbName || null,
-          trialEmail: data?.trialEmail || null,
+          trialEmail: data?.trialEmail || existing.email || null,
           trialGrantedAt: new Date(),
+          trialEndedAt: null,
+          remarks,
+          updatedAt: new Date(),
+          updatedByEmail: reqUser?.email || null,
+        },
+      },
+    );
+    const updated = await collection.findOne({ _id: objectId });
+    return {
+      lead: toLeadRow(updated),
+      storage: getStorageInfo(),
+    };
+  },
+
+  async markTrialEnded(id, data, reqUser) {
+    const collection = await getCollection();
+    const objectId = new ObjectId(id);
+    const existing = await collection.findOne({ _id: objectId });
+    if (!existing) {
+      const err = new Error('Lead not found');
+      err.statusCode = 404;
+      throw err;
+    }
+    const endedAt = data?.trialEndsAt || new Date().toISOString().slice(0, 10);
+    const note = String(data?.note || '').trim() || `Trial ended by HQ on ${endedAt}`;
+    const remarks = Array.isArray(existing.remarks) ? [...existing.remarks] : [];
+    remarks.push({
+      id: new ObjectId().toString(),
+      text: note,
+      createdAt: new Date(),
+      createdByEmail: reqUser?.email || null,
+    });
+    await collection.updateOne(
+      { _id: objectId },
+      {
+        $set: {
+          stage: existing.stage === 'converted' || existing.stage === 'lost' ? existing.stage : 'trial',
+          status: existing.stage === 'converted' || existing.stage === 'lost' ? existing.status : 'Trial',
+          trialProvisioned: true,
+          trialEndsAt: endedAt,
+          trialEndedAt: new Date(),
           remarks,
           updatedAt: new Date(),
           updatedByEmail: reqUser?.email || null,
@@ -995,6 +1112,9 @@ export const hqLeadsService = {
         existing.companyName &&
         !isPlaceholderVisitorCompany(existing.companyName) &&
         isPlaceholderVisitorCompany(companyName);
+      const mergedStage = fields.trialProvisioned
+        ? 'trial'
+        : mergeLeadStage(existing.stage, fields.stage);
       await collection.updateOne(
         { _id: existing._id },
         {
@@ -1002,6 +1122,9 @@ export const hqLeadsService = {
             ...fields,
             companyName: keepCompany ? existing.companyName : companyName,
             contactName: contactName || existing.contactName,
+            contactPerson: contactName || existing.contactPerson || existing.contactName,
+            directorName: contactName || existing.directorName || existing.contactName,
+            formFullName: contactName || existing.formFullName || existing.contactName,
             email: email || existing.email,
             phone: fields.phone || existing.phone || '',
             emails: uniqueStrings([
@@ -1014,14 +1137,21 @@ export const hqLeadsService = {
               existing.phone,
               ...(Array.isArray(existing.phones) ? existing.phones : []),
             ]),
-            stage: mergeLeadStage(existing.stage, fields.stage),
+            stage: mergedStage,
+            status: fields.trialProvisioned
+              ? 'Trial'
+              : fields.status || existing.status || HQ_LEAD_STAGE_LABELS[mergedStage] || 'New',
             leadOwner: existing.leadOwner || '',
             assignedToId: existing.assignedToId || null,
             assignedToIds: Array.isArray(existing.assignedToIds) ? existing.assignedToIds : [],
             assignedToUsers: Array.isArray(existing.assignedToUsers) ? existing.assignedToUsers : [],
             followUps: existing.followUps || [],
             remarks: existing.remarks || [],
-            initialNotes: appendNoteOnce(existing.initialNotes || existing.notes, fields.initialNotes),
+            initialNotes: mergeEmployerFormNotes(
+              existing.initialNotes || existing.notes,
+              fields.initialNotes,
+            ),
+            notes: mergeEmployerFormNotes(existing.notes || existing.initialNotes, fields.initialNotes),
             createdAt: existing.createdAt || new Date(),
             createdByEmail: existing.createdByEmail || null,
             updatedAt: new Date(),
@@ -1040,6 +1170,7 @@ export const hqLeadsService = {
       ...fields,
       emails: uniqueStrings([email]),
       phones: uniqueStrings([fields.phone]),
+      notes: fields.initialNotes || '',
       leadOwner: '',
       followUps: [],
       remarks: [],

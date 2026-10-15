@@ -243,6 +243,14 @@ html {
   /**
    * HQ console theme — system UI stack (CRM/Rec dashboard text) + charcoal / orange.
    */
+  /**
+   * Drawers portal to document.body (outside .hq-theme). Mirror HQ header height
+   * on html so main drawers flush to the top instead of leaving a 3.5rem gap.
+   */
+  html:has(.hq-theme) {
+    --ph2-header-h: 0px;
+  }
+
   .hq-theme {
     --ph2-header-h: 0px;
     --ph2-sidenav-w: 220px;

@@ -712,11 +712,26 @@ export function CandidateProfileDrawer({
         : buildUpdatePayloadFromEditForm(editForm!, candidate.extraData);
 
       if (isPhase1Edit && editForm) {
-        payload = applyHiringFieldsFromEditForm(payload, editForm, candidate.assignedJobId);
+        payload = applyHiringFieldsFromEditForm(
+          payload,
+          editForm,
+          candidate.assignedJobId,
+          (candidate.assignedJobs || []).map((row) => String(row?.id || '').trim()).filter(Boolean),
+        );
       } else if (editForm) {
-        const nextJobId = String(editForm.assignedJobId || '').trim();
-        const prevJobId = String(candidate.assignedJobId || '').trim();
-        if (nextJobId && nextJobId !== prevJobId) {
+        const nextIds = Array.isArray(editForm.assignedJobIds)
+          ? editForm.assignedJobIds.map((id) => String(id || '').trim()).filter(Boolean)
+          : String(editForm.assignedJobId || '').trim()
+            ? [String(editForm.assignedJobId).trim()]
+            : [];
+        const prevIds = (candidate.assignedJobs || [])
+          .map((row) => String(row?.id || '').trim())
+          .filter(Boolean);
+        const primaryPrev = String(candidate.assignedJobId || '').trim();
+        if (primaryPrev && !prevIds.includes(primaryPrev)) prevIds.unshift(primaryPrev);
+        const prevSet = new Set(prevIds);
+        const addedJobs = nextIds.filter((id) => !prevSet.has(id));
+        if (addedJobs.length > 0) {
           const previousStage = String(candidate.stage || '').trim().toLowerCase();
           const formStage = String(editForm.stage || payload.stage || '').trim();
           const formStageLower = formStage.toLowerCase();

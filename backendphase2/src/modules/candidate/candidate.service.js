@@ -237,14 +237,11 @@ function resolveCandidateAssignedJobTitlesForList(
     if (!orderedIds.includes(id)) orderedIds.push(id);
   }
 
+  // One title per job id — keep duplicates when different jobs share the same name.
   const titles = [];
-  const seen = new Set();
   for (const jobId of orderedIds) {
     const label = resolveJobTitleFromCandidateRelations(candidate, jobId, jobsById);
-    if (label && !seen.has(label)) {
-      seen.add(label);
-      titles.push(label);
-    }
+    titles.push(label || 'Untitled job');
   }
   return titles;
 }

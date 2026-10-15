@@ -42,9 +42,17 @@ import {
   type HqCompanyStatus,
 } from '../company/hqCompaniesData';
 import {
+  CreateTenantModal,
+  emptyProvisionTenantForm,
+  provisionFormFromCompany,
+  type ProvisionTenantFormData,
+} from '@/components/hq/CreateTenantModal';
+import {
+  apiHqApproveCompanyTenant,
   apiHqCreateCompany,
   apiHqDeleteCompany,
   apiHqListCompanies,
+  apiHqSaveCompanyProvisionDraft,
   apiHqUpdateCompany,
   type CreateClientData,
   type HqCompanyApiRow,
@@ -117,6 +125,10 @@ export default function HqClientsPage() {
   const [createDrawerOpen, setCreateDrawerOpen] = useState(false);
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [selectedClientDrawerMode, setSelectedClientDrawerMode] = useState<'view' | 'edit'>('view');
+  const [createUserOpen, setCreateUserOpen] = useState(false);
+  const [provisionData, setProvisionData] = useState<ProvisionTenantFormData>(emptyProvisionTenantForm());
+  const [provisionLoading, setProvisionLoading] = useState(false);
+  const [approveLoadingId, setApproveLoadingId] = useState<string | null>(null);
 
   const loadCompanies = useCallback(async () => {
     setLoading(true);
@@ -269,6 +281,102 @@ export default function HqClientsPage() {
     }
   };
 
+  const selectedCompanyRow = useMemo(() => {
+    if (!selectedClientId) return null;
+    return companies.find((c) => c.id === selectedClientId) || null;
+  }, [selectedClientId, companies]);
+
+  const openCreateUserFromClient = (company: HqCompanyApiRow) => {
+    if (company.tenantDbName) {
+      toast.error(`Client already linked to tenant ${company.tenantDbName}`);
+      return;
+    }
+    setProvisionData(provisionFormFromCompany(company));
+    setSelectedClientId(null);
+    setCreateUserOpen(true);
+  };
+
+  const handleApproveTenant = async (companyId: string) => {
+    const ok = await requestConfirm(
+      'Approve Create user and provision this tenant? They will receive login credentials.',
+      {
+        tone: 'default',
+        title: 'Approve tenant',
+        confirmLabel: 'Approve',
+        cancelLabel: 'Cancel',
+      },
+    );
+    if (!ok) return;
+    setApproveLoadingId(companyId);
+    try {
+      const res = await apiHqApproveCompanyTenant(companyId);
+      toast.success(
+        `Tenant approved${res.data?.tenantDbName ? `: ${res.data.tenantDbName}` : ''}. Login is now enabled.`,
+      );
+      await loadCompanies();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to approve tenant');
+    } finally {
+      setApproveLoadingId(null);
+    }
+  };
+
+  const handleCreateUserDraftSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!provisionData.companyId) {
+      toast.error('Select an HQ client/company');
+      return;
+    }
+    if (provisionData.enabledModules.length === 0) {
+      toast.error('Select at least one CRM or Recruitment tab');
+      return;
+    }
+    if (!provisionData.password || provisionData.password.length < 8) {
+      toast.error('Password must be at least 8 characters');
+      return;
+    }
+    const companyId = provisionData.companyId;
+    setProvisionLoading(true);
+    try {
+      const maxUsers = provisionData.maxUsers ? Number(provisionData.maxUsers) : null;
+      const maxJobs = provisionData.maxJobs ? Number(provisionData.maxJobs) : null;
+      await apiHqSaveCompanyProvisionDraft(companyId, {
+        name: provisionData.name.trim(),
+        organizationName: provisionData.organizationName.trim() || provisionData.name.trim(),
+        email: provisionData.email.trim().toLowerCase(),
+        loginId: provisionData.loginId.trim(),
+        password: provisionData.password,
+        organizationType: provisionData.organizationType,
+        productLine: provisionData.productLine,
+        enabledModules: provisionData.enabledModules,
+        phase1CommonPoolEnabled: provisionData.phase1CommonPoolEnabled !== false,
+        billingCycle: provisionData.billingCycle,
+        planStartDate: provisionData.planStartDate || undefined,
+        planEndDate: provisionData.planEndDate || undefined,
+        companyId,
+        plan: {
+          name: provisionData.planName,
+          billingCycle: provisionData.billingCycle,
+          planStartDate: provisionData.planStartDate || undefined,
+          planEndDate: provisionData.planEndDate || undefined,
+          ...(provisionData.customPrice ? { price: provisionData.customPrice } : {}),
+          ...(maxUsers ? { maxUsers } : {}),
+          ...(maxJobs ? { maxJobs } : {}),
+          ...(provisionData.coins ? { coins: Number(provisionData.coins) || 0 } : {}),
+        },
+      });
+      setCreateUserOpen(false);
+      setProvisionData(emptyProvisionTenantForm());
+      toast.success('Create user submitted for approval — Approve on Clients or Companies to enable login');
+      await loadCompanies();
+      setSelectedClientId(companyId);
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to submit Create user');
+    } finally {
+      setProvisionLoading(false);
+    }
+  };
+
   const exportCsv = () => {
     if (filteredCompanies.length === 0) {
       toast.error('Nothing to export');
@@ -373,6 +481,23 @@ export default function HqClientsPage() {
           />
         ) : null}
 
+        <CreateTenantModal
+          open={createUserOpen}
+          onClose={() => {
+            if (provisionLoading) return;
+            setCreateUserOpen(false);
+            setProvisionData(emptyProvisionTenantForm());
+          }}
+          data={provisionData}
+          onChange={setProvisionData}
+          onSubmit={handleCreateUserDraftSubmit}
+          isLoading={provisionLoading}
+          lockCompany
+          title="Create user"
+          subtitle="Prefilled from this client. Submit for approval — login is created only after Approve."
+          submitLabel="Submit for approval"
+        />
+
         {(createDrawerOpen || selectedClient) && (
           <ClientDetailsDrawer
             client={createDrawerOpen ? null : selectedClient}
@@ -388,6 +513,36 @@ export default function HqClientsPage() {
             createClientOverride={handleCreateClientOverride}
             updateClientOverride={handleUpdateClientOverride}
             onDelete={handleDeleteClient}
+            onCreateTenant={
+              createDrawerOpen ||
+              selectedCompanyRow?.tenantDbName ||
+              selectedCompanyRow?.provisionStatus === 'rejected'
+                ? undefined
+                : (clientId) => {
+                    const company = companies.find((item) => item.id === clientId);
+                    if (company) openCreateUserFromClient(company);
+                  }
+            }
+            onApproveTenant={
+              !createDrawerOpen &&
+              selectedCompanyRow?.provisionStatus === 'pending_approval' &&
+              !selectedCompanyRow?.tenantDbName
+                ? (clientId) => void handleApproveTenant(clientId)
+                : undefined
+            }
+            approveTenantLoading={Boolean(
+              selectedClientId && approveLoadingId === selectedClientId,
+            )}
+            onResendForApproval={
+              !createDrawerOpen &&
+              selectedCompanyRow?.provisionStatus === 'rejected' &&
+              !selectedCompanyRow?.tenantDbName
+                ? (clientId) => {
+                    const company = companies.find((item) => item.id === clientId);
+                    if (company) openCreateUserFromClient(company);
+                  }
+                : undefined
+            }
             onClientCreated={async () => {
               setCreateDrawerOpen(false);
               setAddProductLine(null);
@@ -612,9 +767,29 @@ export default function HqClientsPage() {
                                 showStatusDot={company.status === 'active'}
                                 statusDotTitle={`Client: ${HQ_COMPANY_STATUS_LABELS[company.status]}`}
                               />
-                              <span className="text-xs font-semibold text-slate-900 truncate">
-                                {company.name}
-                              </span>
+                              <div className="min-w-0">
+                                <span className="block text-xs font-semibold text-slate-900 truncate">
+                                  {company.name}
+                                </span>
+                                <div className="mt-0.5 flex flex-wrap gap-1">
+                                  {company.provisionStatus === 'pending_approval' &&
+                                  !company.tenantDbName ? (
+                                    <span className="inline-flex rounded-full bg-amber-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-800 ring-1 ring-amber-200">
+                                      Pending approval
+                                    </span>
+                                  ) : null}
+                                  {company.provisionStatus === 'rejected' && !company.tenantDbName ? (
+                                    <span className="inline-flex rounded-full bg-rose-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-rose-700 ring-1 ring-rose-200">
+                                      Rejected
+                                    </span>
+                                  ) : null}
+                                  {company.tenantDbName ? (
+                                    <span className="inline-flex rounded-full bg-sky-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-sky-800 ring-1 ring-sky-200">
+                                      Tenant live
+                                    </span>
+                                  ) : null}
+                                </div>
+                              </div>
                             </div>
                           </td>
                           <td className="px-3 sm:px-4 py-2">
@@ -644,19 +819,47 @@ export default function HqClientsPage() {
                             {company.nextFollowUp || '—'}
                           </td>
                           <td className="px-3 sm:px-4 py-2 text-right">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setCreateDrawerOpen(false);
-                                setSelectedClientDrawerMode('edit');
-                                setSelectedClientId(company.id);
-                              }}
-                              className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-                              aria-label={`Edit ${company.name}`}
-                            >
-                              <MoreVertical className="h-4 w-4" />
-                            </button>
+                            <div className="inline-flex items-center justify-end gap-1">
+                              {company.provisionStatus === 'pending_approval' &&
+                              !company.tenantDbName ? (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    void handleApproveTenant(company.id);
+                                  }}
+                                  disabled={approveLoadingId === company.id}
+                                  className="rounded-lg border border-emerald-300 bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
+                                >
+                                  {approveLoadingId === company.id ? '…' : 'Approve'}
+                                </button>
+                              ) : null}
+                              {company.provisionStatus === 'rejected' && !company.tenantDbName ? (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openCreateUserFromClient(company);
+                                  }}
+                                  className="rounded-lg border border-amber-300 bg-amber-50 px-2 py-1 text-[11px] font-bold text-amber-900 hover:bg-amber-100"
+                                >
+                                  Resend for approval
+                                </button>
+                              ) : null}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setCreateDrawerOpen(false);
+                                  setSelectedClientDrawerMode('edit');
+                                  setSelectedClientId(company.id);
+                                }}
+                                className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                                aria-label={`Edit ${company.name}`}
+                              >
+                                <MoreVertical className="h-4 w-4" />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                         );

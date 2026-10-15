@@ -179,6 +179,7 @@ export type HqDemoRequestRow = {
   fullName: string;
   email: string;
   organizationName: string;
+  organizationType?: string;
   countryCode: string;
   dialCode: string;
   phoneNumber: string;
@@ -224,6 +225,46 @@ export function formatDemoTryFreeAccessLabel(demo: {
   if (status === 'expired') return 'Expired';
   const end = String(demo.trialEndsAt || '').trim().slice(0, 10);
   return end ? `Active until ${end}` : 'Active';
+}
+
+/** Same try-free access badge helpers for HQ CRM lead rows. */
+export function getLeadTryFreeAccessStatus(lead: {
+  trialProvisioned?: boolean;
+  trialLoginId?: string | null;
+  trialGrantedAt?: string | null;
+  trialEndsAt?: string | null;
+  stage?: string | null;
+  status?: string | null;
+}): HqTryFreeAccessStatus {
+  const hasTrial =
+    Boolean(lead.trialProvisioned) ||
+    Boolean(lead.trialLoginId) ||
+    Boolean(lead.trialGrantedAt) ||
+    String(lead.stage || '').toLowerCase() === 'trial' ||
+    String(lead.status || '').toLowerCase() === 'trial';
+  return getDemoTryFreeAccessStatus({
+    trialProvisioned: hasTrial,
+    trialEndsAt: lead.trialEndsAt,
+  });
+}
+
+export function formatLeadTryFreeAccessLabel(lead: {
+  trialProvisioned?: boolean;
+  trialLoginId?: string | null;
+  trialGrantedAt?: string | null;
+  trialEndsAt?: string | null;
+  stage?: string | null;
+  status?: string | null;
+}): string {
+  return formatDemoTryFreeAccessLabel({
+    trialProvisioned:
+      Boolean(lead.trialProvisioned) ||
+      Boolean(lead.trialLoginId) ||
+      Boolean(lead.trialGrantedAt) ||
+      String(lead.stage || '').toLowerCase() === 'trial' ||
+      String(lead.status || '').toLowerCase() === 'trial',
+    trialEndsAt: lead.trialEndsAt,
+  });
 }
 
 export const HQ_DEMO_STATUS_STYLES: Record<HqDemoRequestStatus, string> = {

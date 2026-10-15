@@ -21,6 +21,37 @@ export const hqController = {
     }
   },
 
+  async saveCompanyProvisionDraft(req, res) {
+    try {
+      const result = await hqService.saveCompanyProvisionDraft(
+        req.params.id,
+        req.body,
+        req.user,
+      );
+      sendResponse(res, 200, 'Create user submitted for approval', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async approveCompanyTenant(req, res) {
+    try {
+      const result = await hqService.approveCompanyTenant(req.params.id, req.user);
+      sendResponse(res, 201, 'Tenant approved and provisioned', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async rejectCompanyProvisionDraft(req, res) {
+    try {
+      const result = await hqService.rejectCompanyProvisionDraft(req.params.id, req.user);
+      sendResponse(res, 200, 'Create user request rejected', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
   async listTenants(req, res) {
     try {
       const result = await hqService.listTenants(req.user);
@@ -312,6 +343,15 @@ export const hqController = {
     try {
       const result = await hqService.grantLeadTrial(req.params.id, req.body || {}, req.user);
       sendResponse(res, 200, 'Try-free access granted', result);
+    } catch (error) {
+      sendError(res, error.statusCode || 400, error.message, error);
+    }
+  },
+
+  async endLeadTrial(req, res) {
+    try {
+      const result = await hqService.endLeadTrial(req.params.id, req.body || {}, req.user);
+      sendResponse(res, 200, result?.message || 'Try-free access ended', result);
     } catch (error) {
       sendError(res, error.statusCode || 400, error.message, error);
     }

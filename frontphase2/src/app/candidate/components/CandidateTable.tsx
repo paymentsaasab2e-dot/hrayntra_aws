@@ -12,7 +12,6 @@ import {
   ChevronDown,
   ExternalLink,
   MapPin,
-  Briefcase,
   Trash2,
   Loader2,
   Send,
@@ -41,6 +40,7 @@ import {
   PH2_FIT_ROW_TABLE_CLASS,
   useFitVisibleTableRows,
 } from '../../../components/layout/ph2FitVisibleTableRows';
+import { AssigneeAvatars } from '../../leads/AssigneeAvatars';
 
 export type { CandidateTableColumnFilters } from './CandidateTableFilters';
 export { EMPTY_CANDIDATE_TABLE_COLUMN_FILTERS } from './CandidateTableFilters';
@@ -229,6 +229,8 @@ export interface Candidate {
   experienceLabel?: string;
   location: string;
   assignedJobs: string[];
+  /** One row per assigned job id (titles may repeat across different jobs). */
+  assignedJobItems?: Array<{ id: string; title: string }>;
   stage: string;
   owner: string;
   lastActivity: string;
@@ -535,12 +537,46 @@ export const CandidateTable: React.FC<CandidateTableProps> = React.memo(({
                 ) : null}
                 {show('assignedJob') ? (
                   <td className="px-3 py-3 sm:px-4 sm:py-3.5">
-                    <div className="inline-flex max-w-[150px] items-center gap-1.5 rounded-lg bg-indigo-50/70 px-2 py-1 text-indigo-800 ring-1 ring-indigo-100">
-                      <Briefcase size={13} className="shrink-0 text-indigo-500" />
-                      <p className="truncate text-xs font-medium">
-                        {candidate.assignedJobs?.[0] || '—'}
-                      </p>
-                    </div>
+                    {(() => {
+                      // Prefer id-based entries so same-named jobs still each get a pill.
+                      const jobItems =
+                        Array.isArray(candidate.assignedJobItems) &&
+                        candidate.assignedJobItems.length > 0
+                          ? candidate.assignedJobItems
+                              .map((row, index) => ({
+                                id: String(row?.id || `${candidate.id}-job-${index}`).trim(),
+                                title: String(row?.title || '').trim() || 'Untitled job',
+                              }))
+                              .filter((row) => row.id)
+                          : (candidate.assignedJobs || [])
+                              .map((title, index) => ({
+                                id: `${candidate.id}-job-${index}`,
+                                title: String(title || '').trim(),
+                              }))
+                              .filter((row) => row.title);
+
+                      if (jobItems.length === 0) {
+                        return (
+                          <span className="text-xs font-medium text-slate-400">—</span>
+                        );
+                      }
+                      // Always show overlapping initials stack (1 job or many) — one circle per job id.
+                      return (
+                        <div
+                          className="inline-flex"
+                          onClick={(event) => event.stopPropagation()}
+                          title={jobItems.map((row) => row.title).join(', ')}
+                        >
+                          <AssigneeAvatars
+                            maxVisible={jobItems.length}
+                            assignees={jobItems.map((row) => ({
+                              id: row.id,
+                              name: row.title,
+                            }))}
+                          />
+                        </div>
+                      );
+                    })()}
                   </td>
                 ) : null}
                 {show('stage') ? (

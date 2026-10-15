@@ -298,6 +298,30 @@ export const hqTrialService = {
         ...(note ? { hqGrantNote: note } : {}),
       });
 
+      if (!skipLeadSync) {
+        try {
+          await hqLeadsService.createLeadFromEmployerDemoRequest({
+            ...demo,
+            requestKind: 'trial',
+            outcome:
+              note ||
+              (signupSource === 'hq_grant_trial'
+                ? `${trialDays}-day try-free access — refreshed by HQ`
+                : `${trialDays}-day try-free access — refreshed from landing`),
+            trialProvisioned: true,
+            trialLoginId: loginId,
+            trialTenantDbName: tenantDbName,
+            trialDays,
+            trialStartsAt: subscriptionPlan?.planStartDate || null,
+            trialEndsAt: subscriptionPlan?.planEndDate || null,
+            trialLoginUrl: tryFreeUrl,
+            trialEmail: email,
+          });
+        } catch (leadErr) {
+          console.warn('[hq-trial] HQ lead sync failed (re-grant):', leadErr?.message || leadErr);
+        }
+      }
+
       return {
         alreadyProvisioned: true,
         tenantDbName,
@@ -389,6 +413,14 @@ export const hqTrialService = {
             (signupSource === 'hq_grant_trial'
               ? `${trialDays}-day try-free access — granted by HQ`
               : `${trialDays}-day try-free access — auto from landing`),
+          trialProvisioned: true,
+          trialLoginId: loginId,
+          trialTenantDbName: hqUser.tenantDbName,
+          trialDays,
+          trialStartsAt: subscriptionPlan?.planStartDate || null,
+          trialEndsAt: subscriptionPlan?.planEndDate || null,
+          trialLoginUrl: tryFreeUrl,
+          trialEmail: email,
         });
       } catch (leadErr) {
         console.warn('[hq-trial] HQ lead sync failed:', leadErr?.message || leadErr);
@@ -494,6 +526,99 @@ export const hqTrialService = {
     return {
       ...result,
       lead: updated?.lead || lead,
+    };
+  },
+
+  /**
+   * End try-free access immediately: set plan end date to yesterday so login
+   * returns TRIAL_EXPIRED, and stamp the HQ lead as expired.
+   */
+  async endTrialFromLead(leadId, options = {}, reqUser) {
+    const leadDoc = await hqLeadsService.getLeadDocument(leadId);
+    const lead = hqLeadsService.toLeadRow(leadDoc);
+    const email = normalizeEmail(
+      options.email || lead.trialEmail || lead.email || (Array.isArray(lead.emails) ? lead.emails[0] : ''),
+    );
+    const tenantDbName = String(lead.trialTenantDbName || options.tenantDbName || '').trim();
+
+    if (!lead.trialProvisioned && !lead.trialLoginId && String(lead.stage || '').toLowerCase() !== 'trial') {
+      const err = new Error('This lead does not have an active try-free account');
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const yesterday = new Date();
+    yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+    const endedOn = yesterday.toISOString().slice(0, 10);
+
+    let hqUser = email ? await headquartersAuthService.findWorkspaceUserByEmail(email) : null;
+    if (!hqUser && tenantDbName) {
+      const tenants = await headquartersAuthService.listTenants();
+      hqUser =
+        tenants.find((t) => String(t.tenantDbName || '') === tenantDbName) ||
+        tenants.find((t) => normalizeEmail(t.email) === email) ||
+        null;
+    }
+
+    const existingPlan = hqUser?.subscriptionPlan || {};
+    const endedPlan = {
+      ...existingPlan,
+      name: existingPlan.name || 'Trial',
+      isTrial: true,
+      planEndDate: endedOn,
+      planStartDate: existingPlan.planStartDate || endedOn,
+      trialDays: existingPlan.trialDays || lead.trialDays || TRIAL_PACKAGE_DAYS,
+      employerDemoRequestId:
+        lead.employerDemoRequestId || existingPlan.employerDemoRequestId || null,
+    };
+
+    const hqEmail = normalizeEmail(hqUser?.email || email);
+    if (hqEmail) {
+      try {
+        await headquartersAuthService.setSubscriptionPlanForEmail(hqEmail, endedPlan);
+      } catch (err) {
+        console.warn('[hq-trial] failed to expire HQ subscription plan:', err?.message || err);
+      }
+    }
+
+    // Always expire the tenant workspace plan (login reads this first).
+    const dbName = String(hqUser?.tenantDbName || tenantDbName || '').trim();
+    if (dbName && !isReservedPlatformTenantDbName(dbName)) {
+      try {
+        await runWithTenantContext(dbName, () => setSubscriptionPlan(endedPlan));
+      } catch (err) {
+        console.warn('[hq-trial] failed to expire tenant subscription plan:', err?.message || err);
+      }
+    }
+
+    if (lead.employerDemoRequestId) {
+      try {
+        await markDemoRequestProvisioned(lead.employerDemoRequestId, {
+          trialEndsAt: endedOn,
+          trialEndedByHq: true,
+          trialEndedAt: new Date().toISOString(),
+        });
+      } catch (err) {
+        console.warn('[hq-trial] failed to update demo request end date:', err?.message || err);
+      }
+    }
+
+    const updated = await hqLeadsService.markTrialEnded(
+      leadId,
+      {
+        trialEndsAt: endedOn,
+        note: options.note || `Trial ended by HQ (${endedOn})`,
+      },
+      reqUser,
+    );
+
+    return {
+      ended: true,
+      trialEndsAt: endedOn,
+      email: hqUser?.email || email || null,
+      tenantDbName: hqUser?.tenantDbName || tenantDbName || null,
+      lead: updated?.lead || lead,
+      message: 'Try-free access ended. The employer can no longer sign in with this trial.',
     };
   },
 };
