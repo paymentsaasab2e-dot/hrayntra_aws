@@ -300,7 +300,7 @@ export default function HqClientsPage() {
     const ok = await requestConfirm(
       'Approve Create user and provision this tenant? They will receive login credentials.',
       {
-        tone: 'default',
+        tone: 'info',
         title: 'Approve tenant',
         confirmLabel: 'Approve',
         cancelLabel: 'Cancel',
