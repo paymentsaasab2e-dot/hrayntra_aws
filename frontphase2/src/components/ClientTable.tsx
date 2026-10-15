@@ -1,4 +1,8 @@
 import React, { useRef, useState } from 'react';
+import {
+  PH2_FIT_ROW_TABLE_CLASS,
+  useFitVisibleTableRows,
+} from './layout/ph2FitVisibleTableRows';
 import { Pencil, Briefcase, Check, Trash2, Upload, ArrowUp, ArrowDown, ArrowRightLeft, RefreshCcw, Send } from 'lucide-react';
 import { SHOW_TABLE_ROW_EDIT_ICON } from '../constants/tableUi';
 import { TableBrandAvatar } from './ui/TableBrandAvatar';
@@ -107,6 +111,8 @@ export function ClientTable({
   isColumnVisible = () => true,
 }: ClientTableProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const tableRef = useRef<HTMLTableElement>(null);
+  useFitVisibleTableRows(tableRef, true, clients.length);
   const [uploadingClientId, setUploadingClientId] = useState<string | null>(null);
   const [pendingUploadClientId, setPendingUploadClientId] = useState<string | null>(null);
   const show = isColumnVisible;
@@ -185,7 +191,7 @@ export function ClientTable({
         className="hidden"
       />
       <div className={fillScrollParent ? 'contents' : 'no-scrollbar overflow-x-auto'}>
-        <table className="w-max min-w-full border-collapse text-left">
+        <table ref={tableRef} className={`w-max min-w-full border-collapse text-left ${PH2_FIT_ROW_TABLE_CLASS}`}>
           <thead className="sticky top-0 z-10">
             <tr className="bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 border-b border-indigo-100/50 text-indigo-950/70 uppercase text-xs font-bold tracking-[0.06em] backdrop-blur-sm">
               <th className="w-10 px-3 sm:px-4 py-2 first:pl-4">
@@ -257,12 +263,12 @@ export function ClientTable({
                   />
                 </td>
                 <td className="px-3 sm:px-4 py-2">
-                  <div className="flex items-center gap-2.5">
-                    <div className="relative h-8 w-8 shrink-0 overflow-visible rounded-full group/logo">
+                  <div className="flex items-center gap-2">
+                    <div className="relative h-7 w-7 shrink-0 overflow-visible rounded-full group/logo">
                       <TableBrandAvatar
                         src={client.logo}
                         name={client.name}
-                        size="md"
+                        size="sm"
                         showStatusDot={client.stage === 'Active' || client.stage === 'Hot Clients 🔥'}
                         statusDotTitle={
                           client.stage === 'Hot Clients 🔥'
@@ -284,21 +290,21 @@ export function ClientTable({
                         {uploadingClientId === client.id ? (
                           <span className="text-[10px] font-semibold">...</span>
                         ) : (
-                          <Upload className="h-4 w-4" strokeWidth={2} />
+                          <Upload className="h-3.5 w-3.5" strokeWidth={2} />
                         )}
                       </button>
                     </div>
-                    <div className="min-w-0">
+                    <div className="flex min-w-0 items-center gap-1.5">
                       <button
                         type="button"
                         onClick={() => onSelectClient?.(client)}
-                        className="block truncate text-left text-sm font-medium text-slate-900 transition-colors hover:text-indigo-700"
+                        className="min-w-0 truncate text-left text-sm font-medium text-slate-900 transition-colors hover:text-indigo-700"
                         title="View client details"
                       >
                         {client.name}
                       </button>
                       {showInRecruitmentBadge && client.recruitmentEnabled ? (
-                        <span className="mt-0.5 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 ring-1 ring-amber-200/80">
+                        <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0 text-[10px] font-medium text-amber-800 ring-1 ring-amber-200/80">
                           In Recruitment
                         </span>
                       ) : null}
@@ -307,21 +313,21 @@ export function ClientTable({
                         if (!handoff || handoff.status === 'none') return null;
                         if (handoff.status === 'pending') {
                           return (
-                            <span className="mt-0.5 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 ring-1 ring-amber-200/80">
+                            <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0 text-[10px] font-medium text-amber-800 ring-1 ring-amber-200/80">
                               Handoff pending
                             </span>
                           );
                         }
                         if (handoff.status === 'accepted') {
                           return (
-                            <span className="mt-0.5 inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800 ring-1 ring-emerald-200/80">
+                            <span className="shrink-0 rounded-full bg-emerald-100 px-1.5 py-0 text-[10px] font-medium text-emerald-800 ring-1 ring-emerald-200/80">
                               Handed off
                             </span>
                           );
                         }
                         return (
                           <span
-                            className="mt-0.5 inline-flex max-w-full truncate rounded-full bg-rose-100 px-2 py-0.5 text-xs font-medium text-rose-800 ring-1 ring-rose-200/80"
+                            className="max-w-[9rem] shrink-0 truncate rounded-full bg-rose-100 px-1.5 py-0 text-[10px] font-medium text-rose-800 ring-1 ring-rose-200/80"
                             title={handoff.reviewNote || 'Handoff request was rejected'}
                           >
                             Handoff rejected
@@ -351,7 +357,7 @@ export function ClientTable({
                   const value = getDynamicFieldValue?.(client, label) ?? '';
                   return (
                     <td key={`${client.id}-${label}`} className="px-3 sm:px-4 py-2">
-                      <span className="line-clamp-2 text-xs text-slate-700">{value || '—'}</span>
+                      <span className="truncate text-xs text-slate-700">{value || '—'}</span>
                     </td>
                   );
                 })}

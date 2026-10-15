@@ -146,6 +146,7 @@ import {
   PH2_TOOLBAR_FILTERS_CLASS,
   PH2_TOOLBAR_ROW_CLASS,
 } from '../../components/layout/Ph2ModulePageLayout';
+import { Ph2TableRefreshingOverlay } from '../../components/layout/ph2FitVisibleTableRows';
 import {
   candidateShowsAppliedTag,
   resolveCandidateAssignedJobTitles,
@@ -880,20 +881,14 @@ export function CandidateListPage() {
                   onDeselect={() => setSelectedIds([])}
                 />
                     <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-                      {tableLoading || candidateSmartSearch.applying ? (
-                        <div
-                          className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-white/80 backdrop-blur-[1px]"
-                          role="status"
-                          aria-live="polite"
-                        >
-                          <RefreshCcw size={22} className="animate-spin text-indigo-500" strokeWidth={2.25} />
-                          <p className="text-sm font-medium text-indigo-800">
-                            {candidateSmartSearch.applying
-                              ? 'Searching candidates… please wait'
-                              : 'Loading candidates…'}
-                          </p>
-                        </div>
-                      ) : null}
+                      <Ph2TableRefreshingOverlay
+                        show={tableLoading || candidateSmartSearch.applying}
+                        label={
+                          candidateSmartSearch.applying
+                            ? 'Searching candidates… please wait'
+                            : 'Loading candidates…'
+                        }
+                      />
                       <div className={PH2_TABLE_BODY_SCROLL_CLASS}>
                 <CandidateTable
                   candidates={filteredCandidates}

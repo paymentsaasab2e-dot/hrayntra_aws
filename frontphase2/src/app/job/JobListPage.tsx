@@ -187,6 +187,11 @@ import {
   PH2_TOOLBAR_FILTERS_CLASS,
   PH2_TOOLBAR_ROW_CLASS,
 } from '../../components/layout/Ph2ModulePageLayout';
+import {
+  PH2_FIT_ROW_TABLE_CLASS,
+  Ph2TableRefreshingOverlay,
+  useFitVisibleTableRows,
+} from '../../components/layout/ph2FitVisibleTableRows';
 import { ShowSummaryCardsButton } from '../../components/layout/ShowSummaryCardsButton';
 import { SearchableToolbarFilterSelect } from '../../components/forms/SearchableToolbarFilterSelect';
 import { dedupeByCompanyName } from '../../lib/companyNameKey';
@@ -549,6 +554,8 @@ const JobsListView = ({
   );
   const show = isColumnVisible;
   const { format: formatLocationCell } = useFormatTableLocationCell();
+  const tableRef = useRef<HTMLTableElement>(null);
+  useFitVisibleTableRows(tableRef, true, rows.length);
   const visibleColCount =
     2 + // title + actions always
     (show('select') ? 1 : 0) +
@@ -573,7 +580,7 @@ const JobsListView = ({
 
   return (
   <div className={PH2_TABLE_BODY_SCROLL_CLASS}>
-      <table className="w-max min-w-full text-left border-collapse">
+      <table ref={tableRef} className={`w-max min-w-full text-left border-collapse ${PH2_FIT_ROW_TABLE_CLASS}`}>
         <thead className="sticky top-0 z-10">
           <tr className="border-b border-indigo-100 bg-gradient-to-r from-slate-50 via-indigo-50 to-violet-50 text-indigo-950/70 uppercase text-xs font-bold tracking-[0.06em]">
             {show('select') ? (
@@ -629,11 +636,11 @@ const JobsListView = ({
                 ) : null}
                 <td className="align-middle px-3 py-2 sm:px-4" style={{ width: '16rem', maxWidth: '20rem' }}>
               <div className="flex w-full max-w-[20rem] flex-col justify-center">
-                <div className="flex w-full items-start gap-2">
+                <div className="flex w-full items-center gap-2">
                   <button
                     type="button"
                     onClick={() => onJobClick?.(job)}
-                        className="min-w-0 flex-1 text-left text-sm font-medium leading-snug text-slate-900 line-clamp-3 whitespace-normal break-words [overflow-wrap:anywhere] hover:text-indigo-700 transition-colors"
+                        className="min-w-0 flex-1 truncate text-left text-sm font-medium leading-tight text-slate-900 hover:text-indigo-700 transition-colors"
                     title={job.title}
                   >
                     {job.title}
@@ -1304,8 +1311,13 @@ export function JobListPage() {
                   transition={{ duration: 0.22 }}
                   className="flex min-h-0 flex-1 flex-col overflow-hidden"
                 >
+                    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+                    <Ph2TableRefreshingOverlay
+                      show={Boolean(jobSmartSearch.applying)}
+                      label="Searching jobs… please wait"
+                    />
                     <PageErrorBoundary>
-                    <JobsListView
+                    <JobsListView>
                       jobs={displayJobs}
                       onJobClick={openJobDrawer}
                       onEditJob={
@@ -1335,6 +1347,7 @@ export function JobListPage() {
                       visiblePipelineStageKeys={visiblePipelineStageKeys}
                     />
                     </PageErrorBoundary>
+                    </div>
                   <div className={PH2_TABLE_CARD_FOOTER_CLASS}>
                     <PaginationAll
                       initialPage={currentPage}

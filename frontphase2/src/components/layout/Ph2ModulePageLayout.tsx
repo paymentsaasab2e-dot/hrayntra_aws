@@ -65,7 +65,7 @@ export function Ph2ModulePageLayout({
   return (
     <div className="ph2-page-shell flex h-[calc(100dvh-3.5rem)] w-full min-w-0 max-w-full flex-col overflow-hidden text-slate-900">
       <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="flex min-h-0 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-indigo-100/50 bg-white/80 px-3 py-2.5 shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)] backdrop-blur-md sm:min-h-[4.5rem] sm:gap-3 sm:px-6 sm:py-3">
+        <header className="flex min-h-0 shrink-0 flex-nowrap items-center justify-between gap-2 overflow-x-auto border-b border-indigo-100/50 bg-white/80 px-3 py-2 shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)] backdrop-blur-md sm:px-5">
           <div className={PH2_PAGE_HEADER_BRAND_CLASS}>
             <div className={PH2_PAGE_HEADER_ICON_TILE_CLASS}>{icon}</div>
             <h1 className={PH2_PAGE_HEADER_TITLE_CLASS}>{title}</h1>

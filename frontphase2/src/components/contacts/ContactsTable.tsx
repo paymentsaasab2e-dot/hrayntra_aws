@@ -1,6 +1,11 @@
 'use client';
 
-import React from 'react';
+import React, { useRef } from 'react';
+import {
+  PH2_FIT_ROW_TABLE_CLASS,
+  Ph2TableRefreshingOverlay,
+  useFitVisibleTableRows,
+} from '../layout/ph2FitVisibleTableRows';
 import { CheckSquare, Square, Pencil, Trash2 } from 'lucide-react';
 import { SHOW_TABLE_ROW_EDIT_ICON } from '../../constants/tableUi';
 import { ImageWithFallback } from '../ImageWithFallback';
@@ -48,6 +53,8 @@ export function ContactsTable({
 }: ContactsTableProps) {
   const show = isColumnVisible;
   const { format: formatLocationCell } = useFormatTableLocationCell();
+  const tableRef = useRef<HTMLTableElement>(null);
+  useFitVisibleTableRows(tableRef, true, contacts.length);
   const allSelected = contacts.length > 0 && contacts.every((contact) => selectedIds.has(contact.id));
   const someSelected = contacts.some((contact) => selectedIds.has(contact.id));
 
@@ -124,7 +131,7 @@ export function ContactsTable({
     }
   };
 
-  if (loading) {
+  if (loading && contacts.length === 0) {
     return (
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <div className={`${PH2_TABLE_BODY_SCROLL_CLASS} p-8 text-center text-sm font-medium text-slate-500`}>
@@ -135,7 +142,8 @@ export function ContactsTable({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+      <Ph2TableRefreshingOverlay show={loading && contacts.length > 0} label="Loading contacts…" />
       <div className={PH2_TABLE_BODY_SCROLL_CLASS}>
         {contacts.length === 0 ? (
           <div className="p-12 text-center">
@@ -143,7 +151,7 @@ export function ContactsTable({
             <div className="text-sm text-slate-400">Try adjusting your filters or add a new contact</div>
           </div>
         ) : (
-          <table className="w-max min-w-full text-left">
+          <table ref={tableRef} className={`w-max min-w-full text-left ${PH2_FIT_ROW_TABLE_CLASS}`}>
             <thead className="sticky top-0 z-10">
               <tr className="border-b border-indigo-100/50 bg-gradient-to-r from-slate-50/90 via-white to-indigo-50/30 backdrop-blur-sm">
                 <th className="px-3 py-2.5 sm:px-4 w-12">

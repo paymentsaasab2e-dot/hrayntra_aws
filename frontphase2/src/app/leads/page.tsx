@@ -91,6 +91,11 @@ import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
 import { TableSkeleton } from '../../components/ui/Skeleton';
 import { SummaryCard, SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
 import { PH2_KPI_ROW_CLASS } from '../../components/layout/Ph2ModulePageLayout';
+import {
+  PH2_FIT_ROW_TABLE_CLASS,
+  Ph2TableRefreshingOverlay,
+  useFitVisibleTableRows,
+} from '../../components/layout/ph2FitVisibleTableRows';
 import { ShowSummaryCardsButton } from '../../components/layout/ShowSummaryCardsButton';
 import { TableBrandAvatar } from '../../components/ui/TableBrandAvatar';
 import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../constants/tablePagination';
@@ -1877,6 +1882,9 @@ export default function RecruitmentAgencyDashboard() {
     return () => window.removeEventListener('aria-ui-payload', handleAriaPayload as EventListener);
   }, []);
 
+  const leadsTableRef = useRef<HTMLTableElement>(null);
+  useFitVisibleTableRows(leadsTableRef, true, filteredLeads.length);
+
   return (
     <div className="ph2-page-shell flex h-[calc(100dvh-3.5rem)] w-full min-w-0 max-w-full flex-col overflow-hidden text-slate-900">
       <Toaster
@@ -1887,7 +1895,7 @@ export default function RecruitmentAgencyDashboard() {
       {/* Main Content — viewport-locked so only the table body scrolls */}
       <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {/* Header */}
-        <header className="min-h-[4.5rem] flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 py-3 shrink-0 border-b border-indigo-100/50 bg-white/80 backdrop-blur-md shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)]">
+        <header className="flex min-h-0 shrink-0 flex-nowrap items-center justify-between gap-2 overflow-x-auto border-b border-indigo-100/50 bg-white/80 px-3 py-2 shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)] backdrop-blur-md sm:px-5">
           <div className="flex items-center gap-2.5 sm:gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-rose-500 via-orange-500 to-amber-500 text-white shadow-lg shadow-rose-500/30 ring-1 ring-white/20">
               <Target className="h-5 w-5" strokeWidth={2.2} />
@@ -2244,14 +2252,27 @@ export default function RecruitmentAgencyDashboard() {
             ) : null}
 
             {/* Leads Table — vertical + horizontal scroll stay inside this panel */}
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+              <Ph2TableRefreshingOverlay
+                show={Boolean((loading || leadsSmartSearch.applying) && leads.length > 0)}
+                label={
+                  leadsSmartSearch.applying
+                    ? 'Searching leads… please wait'
+                    : 'Loading leads…'
+                }
+              />
               <div className="ph2-table-body-scroll min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-auto">
-                {loading && <TableSkeleton rows={8} columns={6} />}
-                {error && !loading && (
+                {loading && leads.length === 0 && <TableSkeleton rows={8} columns={6} />}
+                {error && !loading && leads.length === 0 && (
                   <div className="p-10 text-center text-sm text-rose-600 font-medium">Error: {error}</div>
                 )}
-                {!loading && !error && (
-                  <table id="leads-main-table" className="w-max min-w-full text-left" aria-label="Leads">
+                {(leads.length > 0 || (!loading && !error)) && (
+                  <table
+                    id="leads-main-table"
+                    ref={leadsTableRef}
+                    className={`w-max min-w-full text-left ${PH2_FIT_ROW_TABLE_CLASS}`}
+                    aria-label="Leads"
+                  >
                     <thead className="sticky top-0 z-10">
                       <tr className="bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 border-b border-indigo-100/50 text-indigo-950/70 uppercase text-xs font-bold tracking-[0.06em] backdrop-blur-sm">
                         <th className="px-3 sm:px-4 py-2 w-10 first:pl-4">
@@ -2362,15 +2383,16 @@ export default function RecruitmentAgencyDashboard() {
                                 <span className="shrink-0">
                                   <TableBrandAvatar
                                     name={lead.companyName}
-                                    size="sm"
+                                    size="xs"
                                     showStatusDot={lead.status !== 'Lost'}
                                     statusDotTitle={`Lead: ${lead.status}`}
                                   />
                                 </span>
-                                <div className="flex min-w-[8rem] flex-col justify-center gap-0.5">
+                                <div className="flex min-w-0 items-center gap-1.5">
                                 <button
                                   type="button"
-                                  className="text-left text-[15px] font-medium leading-snug text-slate-900 hover:text-indigo-700 transition-colors whitespace-normal break-words"
+                                  className="min-w-0 truncate text-left text-sm font-medium leading-tight text-slate-900 hover:text-indigo-700 transition-colors"
+                                  title={lead.companyName}
                                   onClick={() => {
                                     void openLeadDrawerWithFreshData(lead, 'view');
                                   }}
@@ -2381,14 +2403,14 @@ export default function RecruitmentAgencyDashboard() {
                                   const conversion = getStatusForLead(lead.id);
                                   if (conversion.status === 'pending') {
                                     return (
-                                      <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 ring-1 ring-amber-200/80">
+                                      <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0 text-[10px] font-medium text-amber-800 ring-1 ring-amber-200/80">
                                         Conversion pending
                                       </span>
                                     );
                                   }
                                   if (conversion.status === 'accepted') {
                                     return (
-                                      <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800 ring-1 ring-emerald-200/80">
+                                      <span className="shrink-0 rounded-full bg-emerald-100 px-1.5 py-0 text-[10px] font-medium text-emerald-800 ring-1 ring-emerald-200/80">
                                         Conversion approved
                                       </span>
                                     );
@@ -2396,7 +2418,7 @@ export default function RecruitmentAgencyDashboard() {
                                   if (conversion.status === 'rejected') {
                                     return (
                                       <span
-                                        className="inline-flex max-w-full truncate rounded-full bg-rose-100 px-2 py-0.5 text-xs font-medium text-rose-800 ring-1 ring-rose-200/80"
+                                        className="max-w-[9rem] shrink-0 truncate rounded-full bg-rose-100 px-1.5 py-0 text-[10px] font-medium text-rose-800 ring-1 ring-rose-200/80"
                                         title={conversion.reviewNote || 'Conversion request was rejected'}
                                       >
                                         Conversion rejected
@@ -2679,7 +2701,7 @@ export default function RecruitmentAgencyDashboard() {
                 )}
               </div>
             </div>
-            {!loading && !error && (
+            {(leads.length > 0 || (!loading && !error)) && (
               <div className="mt-0 w-full shrink-0 border-t border-indigo-100/50 bg-gradient-to-r from-slate-50/40 via-white to-indigo-50/25 px-3 py-2 sm:px-4">
                 <PaginationAll
                   initialPage={currentPage}
