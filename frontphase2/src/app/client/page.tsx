@@ -1544,7 +1544,7 @@ export default function App() {
                   }
                 />
               <div className="ph2-table-body-scroll min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-auto">
-                <ClientTable>
+                <ClientTable
                     clients={pagedClients}
                     dynamicColumnLabels={selectedDynamicColumnLabels}
                     getDynamicFieldValue={getClientDynamicFieldValue}

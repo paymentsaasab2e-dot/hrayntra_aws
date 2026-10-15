@@ -1317,7 +1317,7 @@ export function JobListPage() {
                       label="Searching jobs… please wait"
                     />
                     <PageErrorBoundary>
-                    <JobsListView>
+                    <JobsListView
                       jobs={displayJobs}
                       onJobClick={openJobDrawer}
                       onEditJob={
