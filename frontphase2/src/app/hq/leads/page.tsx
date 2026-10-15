@@ -19,6 +19,7 @@ import {
   Search,
   Sparkles,
   Target,
+  TimerOff,
   Trash2,
   Upload,
   UserPlus,
@@ -28,6 +29,12 @@ import { Toaster, toast } from 'sonner';
 import { requestConfirm } from '@/lib/appDialog';
 import { LeadDetailsDrawer } from '@/components/drawers/LeadDetailsDrawer';
 import { HqCrmEmbed } from '@/components/hq/HqCrmEmbed';
+import {
+  CreateTenantModal,
+  emptyProvisionTenantForm,
+  provisionFormFromCompany,
+  type ProvisionTenantFormData,
+} from '@/components/hq/CreateTenantModal';
 import {
   emptyHqGrantLeadTrialValues,
   HqGrantLeadTrialModal,
@@ -39,21 +46,19 @@ import {
   resolveHqLeadProductLines,
 } from '@/components/hq/HqProductLinePicker';
 import { SummaryCard, SummaryCardSkeleton, type SummaryCardColor } from '@/components/ui/SummaryCard';
-import { PH2_KPI_ROW_CLASS } from '@/components/layout/Ph2ModulePageLayout';
 import { TableBrandAvatar } from '@/components/ui/TableBrandAvatar';
 import { AssigneeAvatars } from '@/app/leads/AssigneeAvatars';
-import { SourceCell } from '@/app/leads/SourceCell';
 import PaginationAll from '@/components/PaginationAll';
 import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '@/constants/tablePagination';
-import { formatDirectorDisplay } from '@/constants/salutations';
-import { formatContactListDisplay } from '@/lib/contact-channels';
 import { isValidFollowUpInstant, splitDateTimeForDisplay } from '@/utils/formatLeadDateTime';
 import { AiCoinLockBadge, useAiCoinGate } from '@/components/coins/AiCoinGate';
 import {
   BOOK_A_DEMO_TAG_CLASS,
   defaultNextFollowUpLocal,
   formatDemoTryFreeAccessLabel,
+  formatLeadTryFreeAccessLabel,
   getDemoTryFreeAccessStatus,
+  getLeadTryFreeAccessStatus,
   HQ_DEMO_STATUS_LABELS,
   HQ_DEMO_STATUS_STYLES,
   HQ_LEAD_FOLLOW_UP_TYPES,
@@ -71,10 +76,12 @@ import {
   apiHqCreateLead,
   apiHqDeleteDemoRequest,
   apiHqDeleteLead,
+  apiHqEndLeadTrial,
   apiHqGrantDemoTrial,
   apiHqGrantLeadTrial,
   apiHqListDemoRequests,
   apiHqListLeads,
+  apiHqSaveCompanyProvisionDraft,
   apiHqUpdateLead,
   type BackendLead,
   type CreateLeadData,
@@ -84,11 +91,12 @@ import {
   type HqLeadStorageInfo,
 } from '@/lib/api';
 
-type StatusFilter = 'All' | 'New' | 'Demo' | 'Contacted' | 'Qualified' | 'Converted' | 'Lost' | 'Demos';
+type StatusFilter = 'All' | 'New' | 'Demo' | 'Trial' | 'Contacted' | 'Qualified' | 'Converted' | 'Lost' | 'Demos';
 
 const STAGE_BY_FILTER: Record<Exclude<StatusFilter, 'All' | 'Demos'>, HqLeadStage> = {
   New: 'new',
   Demo: 'demo',
+  Trial: 'trial',
   Contacted: 'contacted',
   Qualified: 'qualified',
   Converted: 'converted',
@@ -254,6 +262,9 @@ function mapHqLeadToFrontend(row: HqLeadApiRow): Lead {
     nextFollowUp: pickHqNextFollowUp(row),
     priority: (row.priority as Priority) || 'Medium',
     interestedNeeds: row.interestedNeeds || row.interestedModules?.join(', ') || '',
+    hqProductLines: row.hqProductLines || undefined,
+    hqProductLine: row.hqProductLine || undefined,
+    interestedModules: row.interestedModules || undefined,
     servicesNeeded: row.servicesNeeded || undefined,
     notes: row.notes || row.initialNotes || '',
     expectedBusinessValue: row.expectedBusinessValue || String(row.estimatedDealValue || ''),
@@ -381,6 +392,10 @@ export default function HqLeadsPage() {
   const [createLeadMode, setCreateLeadMode] = useState<'ai' | 'manual'>('manual');
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [selectedLeadDrawerMode, setSelectedLeadDrawerMode] = useState<'view' | 'edit'>('view');
+  const [createUserOpen, setCreateUserOpen] = useState(false);
+  const [provisionData, setProvisionData] = useState<ProvisionTenantFormData>(emptyProvisionTenantForm());
+  const [provisionLoading, setProvisionLoading] = useState(false);
+  const [convertedCompanyId, setConvertedCompanyId] = useState<string | null>(null);
 
   const isDemosTab = statusFilter === 'Demos';
 
@@ -439,10 +454,72 @@ export default function HqLeadsPage() {
     }
   }, [highlightLeadId, loading, leads, router, pathname, searchParams]);
 
+  /** Merge landing-form person + trial access onto CRM leads (covers older rows missing trial fields). */
+  const displayLeads = useMemo(() => {
+    if (!demos.length) return leads;
+    const byEmail = new Map<string, HqDemoRequestRow>();
+    const byRequestId = new Map<string, HqDemoRequestRow>();
+    for (const demo of demos) {
+      const email = String(demo.email || '').trim().toLowerCase();
+      if (email) byEmail.set(email, demo);
+      if (demo.id) byRequestId.set(String(demo.id), demo);
+    }
+    return leads.map((lead) => {
+      const demo =
+        (lead.employerDemoRequestId && byRequestId.get(String(lead.employerDemoRequestId))) ||
+        byEmail.get(String(lead.email || '').trim().toLowerCase()) ||
+        null;
+      if (!demo) return lead;
+      const formFullName = String(demo.fullName || '').trim();
+      const organizationType = String(demo.organizationType || '').trim() || null;
+      const companySize = String(demo.companySize || '').trim() || null;
+      const phone = [demo.dialCode, demo.phoneNumber].filter(Boolean).join(' ').trim();
+      return {
+        ...lead,
+        formFullName: formFullName || lead.formFullName || lead.contactPerson || lead.name,
+        contactPerson: formFullName || lead.contactPerson || lead.name,
+        name: formFullName || lead.name,
+        company: lead.company || demo.organizationName || '',
+        email: lead.email || demo.email || '',
+        phone: lead.phone || phone || '',
+        organizationType: lead.organizationType || organizationType,
+        companySize: lead.companySize || companySize,
+        trialProvisioned: Boolean(lead.trialProvisioned || demo.trialProvisioned || demo.trialLoginId),
+        trialLoginId: lead.trialLoginId || demo.trialLoginId || null,
+        trialEndsAt: lead.trialEndsAt || demo.trialEndsAt || null,
+        trialStartsAt: lead.trialStartsAt || demo.trialStartsAt || null,
+        trialDays: lead.trialDays ?? demo.trialDays ?? null,
+        trialTenantDbName: lead.trialTenantDbName || demo.trialTenantDbName || null,
+        trialLoginUrl: lead.trialLoginUrl || demo.trialLoginUrl || null,
+        stage:
+          lead.trialProvisioned || demo.trialProvisioned || demo.trialLoginId
+            ? lead.stage === 'converted' || lead.stage === 'lost'
+              ? lead.stage
+              : 'trial'
+            : lead.stage,
+        status:
+          lead.trialProvisioned || demo.trialProvisioned || demo.trialLoginId
+            ? lead.stage === 'converted' || lead.stage === 'lost'
+              ? lead.status
+              : 'Trial'
+            : lead.status,
+      };
+    });
+  }, [leads, demos]);
+
   const metrics = useMemo(() => {
-    const counts = { NEW_LEADS: 0, DEMO: 0, CONTACTED: 0, QUALIFIED: 0, CONVERTED: 0, LOST: 0 };
-    for (const lead of leads) {
-      if (isBookADemoLead(lead) || lead.stage === 'demo') counts.DEMO += 1;
+    const counts = {
+      NEW_LEADS: 0,
+      DEMO: 0,
+      TRIAL: 0,
+      CONTACTED: 0,
+      QUALIFIED: 0,
+      CONVERTED: 0,
+      LOST: 0,
+    };
+    for (const lead of displayLeads) {
+      if (isHqLeadTrialStage(lead)) counts.TRIAL += 1;
+      else if (isBookADemoLead(lead) || lead.stage === 'demo') counts.DEMO += 1;
       else if (lead.stage === 'new') counts.NEW_LEADS += 1;
       else if (lead.stage === 'contacted') counts.CONTACTED += 1;
       else if (lead.stage === 'qualified') counts.QUALIFIED += 1;
@@ -450,11 +527,11 @@ export default function HqLeadsPage() {
       else if (lead.stage === 'lost') counts.LOST += 1;
     }
     return counts;
-  }, [leads]);
+  }, [displayLeads]);
 
   const filteredLeads = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return leads.filter((lead) => {
+    return displayLeads.filter((lead) => {
       if (statusFilter !== 'All' && statusFilter !== 'Demos') {
         if (statusFilter === 'Demo') {
           if (lead.stage !== 'demo' && !isBookADemoLead(lead)) return false;
@@ -468,10 +545,23 @@ export default function HqLeadsPage() {
       }
       if (!q) return true;
       return (
-        matchesQuickSearch(buildQuickSearchHaystack(lead.name, lead.company, lead.email, lead.contactPerson, lead.owner, lead.leadSource, lead.phone), q)
+        matchesQuickSearch(
+          buildQuickSearchHaystack(
+            lead.name,
+            lead.company,
+            lead.email,
+            lead.contactPerson,
+            lead.formFullName,
+            lead.owner,
+            lead.leadSource,
+            lead.phone,
+            lead.trialLoginId,
+          ),
+          q,
+        )
       );
     });
-  }, [statusFilter, sourceFilter, search, leads]);
+  }, [statusFilter, sourceFilter, search, displayLeads]);
 
   const pagedLeads = useMemo(() => {
     const start = (currentPage - 1) * pageSize;
@@ -587,32 +677,99 @@ export default function HqLeadsPage() {
       }
       setSelectedLeadId(null);
       setAddLeadDrawerOpen(false);
+      if (!company?.id) {
+        toast.success('Lead converted to HQ Client / Company');
+        return;
+      }
+      // Open Create user prefilled — submit saves pending_approval (no login yet).
+      setConvertedCompanyId(company.id);
+      setProvisionData(provisionFormFromCompany(company));
+      setCreateUserOpen(true);
       toast.success(
-        company?.name
-          ? `Converted “${company.name}” to Client — also listed under Companies`
-          : 'Lead converted to HQ Client / Company',
+        company.name
+          ? `Converted “${company.name}” — complete Create user, then Approve on Company`
+          : 'Lead converted — complete Create user for approval',
         {
-          action: company?.id
-            ? {
-                label: 'Open Client',
-                onClick: () =>
-                  router.push(`/hq/clients?clientId=${encodeURIComponent(company.id)}`),
-              }
-            : undefined,
-          cancel: company?.id
-            ? {
-                label: 'Companies',
-                onClick: () =>
-                  router.push(`/hq/company?company=${encodeURIComponent(company.id)}`),
-              }
-            : undefined,
+          action: {
+            label: 'Clients',
+            onClick: () =>
+              router.push(`/hq/clients?clientId=${encodeURIComponent(company.id)}`),
+          },
+          cancel: {
+            label: 'Companies',
+            onClick: () =>
+              router.push(`/hq/company?company=${encodeURIComponent(company.id)}`),
+          },
         },
       );
-      if (company?.id) {
-        router.push(`/hq/clients?clientId=${encodeURIComponent(company.id)}`);
-      }
     } catch (err: any) {
       toast.error(err?.message || 'Failed to convert lead');
+    }
+  };
+
+  const handleCreateUserDraftSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const companyId = provisionData.companyId || convertedCompanyId;
+    if (!companyId) {
+      toast.error('Missing company — convert the lead again');
+      return;
+    }
+    if (provisionData.enabledModules.length === 0) {
+      toast.error('Select at least one CRM or Recruitment tab');
+      return;
+    }
+    if (!provisionData.password || provisionData.password.length < 8) {
+      toast.error('Password must be at least 8 characters');
+      return;
+    }
+    setProvisionLoading(true);
+    try {
+      const maxUsers = provisionData.maxUsers ? Number(provisionData.maxUsers) : null;
+      const maxJobs = provisionData.maxJobs ? Number(provisionData.maxJobs) : null;
+      await apiHqSaveCompanyProvisionDraft(companyId, {
+        name: provisionData.name.trim(),
+        organizationName: provisionData.organizationName.trim() || provisionData.name.trim(),
+        email: provisionData.email.trim().toLowerCase(),
+        loginId: provisionData.loginId.trim(),
+        password: provisionData.password,
+        organizationType: provisionData.organizationType,
+        productLine: provisionData.productLine,
+        enabledModules: provisionData.enabledModules,
+        phase1CommonPoolEnabled: provisionData.phase1CommonPoolEnabled !== false,
+        billingCycle: provisionData.billingCycle,
+        planStartDate: provisionData.planStartDate || undefined,
+        planEndDate: provisionData.planEndDate || undefined,
+        companyId,
+        plan: {
+          name: provisionData.planName,
+          billingCycle: provisionData.billingCycle,
+          planStartDate: provisionData.planStartDate || undefined,
+          planEndDate: provisionData.planEndDate || undefined,
+          ...(provisionData.customPrice ? { price: provisionData.customPrice } : {}),
+          ...(maxUsers ? { maxUsers } : {}),
+          ...(maxJobs ? { maxJobs } : {}),
+          ...(provisionData.coins ? { coins: Number(provisionData.coins) || 0 } : {}),
+        },
+      });
+      setCreateUserOpen(false);
+      setProvisionData(emptyProvisionTenantForm());
+      setConvertedCompanyId(null);
+      toast.success('Create user submitted for approval — open Company to Approve and enable login', {
+        action: {
+          label: 'Open Company',
+          onClick: () =>
+            router.push(`/hq/company?company=${encodeURIComponent(companyId)}`),
+        },
+        cancel: {
+          label: 'Clients',
+          onClick: () =>
+            router.push(`/hq/clients?clientId=${encodeURIComponent(companyId)}`),
+        },
+      });
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to submit Create user for approval');
+    } finally {
+      setProvisionLoading(false);
     }
   };
 
@@ -775,6 +932,32 @@ export default function HqLeadsPage() {
     }
   };
 
+  const handleEndLeadTrial = async (lead: HqLeadApiRow) => {
+    const company = lead.company || lead.name || 'this lead';
+    const ok = await requestConfirm(
+      `End try-free access for ${company}? They will no longer be able to sign in with this trial account.`,
+      {
+        tone: 'warning',
+        title: 'End trial account',
+        confirmLabel: 'End trial',
+        cancelLabel: 'Cancel',
+      },
+    );
+    if (!ok) return;
+    try {
+      // Do not send tenantDbName in the body — HQ JWT tenant ≠ trial tenant,
+      // and middleware rejects that as a tenant override.
+      const result = await apiHqEndLeadTrial(lead.id, {
+        email: lead.trialEmail || lead.email || undefined,
+      });
+      toast.success(result.data?.message || 'Trial account ended');
+      await loadLeads();
+      await loadDemos();
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to end trial account');
+    }
+  };
+
   const handleDeleteDemo = async (demoId: string) => {
     const ok = await requestConfirm('Delete this landing signup?', {
       tone: 'warning',
@@ -892,6 +1075,34 @@ export default function HqLeadsPage() {
     <HqCrmEmbed>
       <div className="ph2-page-shell flex h-[100dvh] w-full flex-col overflow-hidden text-slate-900">
         <Toaster position="top-right" richColors style={{ top: '5rem' }} />
+
+        <CreateTenantModal
+          open={createUserOpen}
+          onClose={() => {
+            if (provisionLoading) return;
+            setCreateUserOpen(false);
+            const companyId = provisionData.companyId || convertedCompanyId;
+            setProvisionData(emptyProvisionTenantForm());
+            setConvertedCompanyId(null);
+            if (companyId) {
+              toast.message('Client saved — you can Create user later from Company', {
+                action: {
+                  label: 'Open Company',
+                  onClick: () =>
+                    router.push(`/hq/company?company=${encodeURIComponent(companyId)}`),
+                },
+              });
+            }
+          }}
+          data={provisionData}
+          onChange={setProvisionData}
+          onSubmit={handleCreateUserDraftSubmit}
+          isLoading={provisionLoading}
+          lockCompany
+          title="Create user"
+          subtitle="Prefilled from the converted lead. Submit for approval — login is created only after Approve on Company."
+          submitLabel="Submit for approval"
+        />
 
         {(selectedLead || addLeadDrawerOpen) && (
           <LeadDetailsDrawer
@@ -1070,13 +1281,13 @@ export default function HqLeadsPage() {
           </div>
         ) : null}
 
-            <div className={PH2_KPI_ROW_CLASS}>
+            <div className="mb-2 sm:mb-4 grid shrink-0 grid-cols-2 gap-1.5 sm:grid-cols-4 sm:gap-2 xl:grid-cols-8 xl:gap-3">
               {loading ? (
-                (['blue', 'yellow', 'purple', 'orange', 'green', 'gray', 'blue'] as SummaryCardColor[]).map((c, i) => (
-                  <SummaryCardSkeleton key={i} color={c} />
-                ))
-          ) : (
-            <>
+                (['blue', 'orange', 'indigo', 'yellow', 'purple', 'green', 'gray', 'cyan'] as SummaryCardColor[]).map(
+                  (c, i) => <SummaryCardSkeleton key={i} color={c} />,
+                )
+              ) : (
+                <>
                   <SummaryCard
                     label="NEW LEADS"
                     count={metrics.NEW_LEADS || stats.newLeads}
@@ -1092,6 +1303,14 @@ export default function HqLeadsPage() {
                     icon={<Target size={16} strokeWidth={2.35} />}
                     active={statusFilter === 'Demo'}
                     onClick={() => handleStatusCardClick('Demo')}
+                  />
+                  <SummaryCard
+                    label="TRIAL"
+                    count={metrics.TRIAL}
+                    color="indigo"
+                    icon={<KeyRound size={16} strokeWidth={2.35} />}
+                    active={statusFilter === 'Trial'}
+                    onClick={() => handleStatusCardClick('Trial')}
                   />
                   <SummaryCard
                     label="CONTACTED"
@@ -1128,14 +1347,14 @@ export default function HqLeadsPage() {
                   <SummaryCard
                     label="LANDING SIGNUPS"
                     count={demoStats.total || demos.length}
-                    color="blue"
+                    color="cyan"
                     icon={<CalendarClock size={16} strokeWidth={2.35} />}
                     active={statusFilter === 'Demos'}
                     onClick={() => handleStatusCardClick('Demos')}
                   />
-            </>
-          )}
-          </div>
+                </>
+              )}
+            </div>
 
             <div className="mb-0 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-indigo-100/60 bg-white/70 shadow-[0_12px_40px_-18px_rgba(59,130,246,0.18)] backdrop-blur-sm transition-shadow hover:shadow-[0_16px_48px_-14px_rgba(79,70,229,0.16)]">
               <div className="flex shrink-0 items-center gap-2 overflow-x-auto ph2-invisible-scrollbar border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20 p-3 sm:p-4">
@@ -1171,6 +1390,7 @@ export default function HqLeadsPage() {
                   <option value="All">All Status</option>
                   <option value="New">New</option>
                   <option value="Demo">Demo</option>
+                  <option value="Trial">Trial</option>
                   <option value="Contacted">Contacted</option>
                   <option value="Qualified">Qualified</option>
                   <option value="Converted">Converted</option>
@@ -1336,12 +1556,11 @@ export default function HqLeadsPage() {
                   <table className="w-max min-w-full text-left" aria-label="Leads">
                     <thead className="sticky top-0 z-10">
                       <tr>
-                        <th className="min-w-[11rem]">Lead</th>
+                        <th className="min-w-[14rem]">Company</th>
                         <th>Source</th>
-                        <th>Interested in</th>
-                        <th>Contact</th>
+                        <th>Try-free</th>
                         <th>Status</th>
-                        <th>Assigned To</th>
+                        <th>Assigned</th>
                         <th>Follow-up</th>
                         <th className="text-right">Actions</th>
                 </tr>
@@ -1349,13 +1568,13 @@ export default function HqLeadsPage() {
                     <tbody className="divide-y divide-slate-100/80">
                 {loading ? (
                   <tr>
-                          <td colSpan={8} className="px-4 py-12 text-center text-sm text-slate-500">
+                          <td colSpan={7} className="px-4 py-12 text-center text-sm text-slate-500">
                             Loading HQ leads…
                     </td>
                   </tr>
                 ) : filteredLeads.length === 0 ? (
                   <tr>
-                          <td colSpan={8} className="px-4 py-12 text-center">
+                          <td colSpan={7} className="px-4 py-12 text-center">
                             <p className="text-xs font-medium text-slate-500">
                       {leads.length === 0
                                 ? 'No leads yet. Use Create with AI or Create Manually.'
@@ -1370,6 +1589,18 @@ export default function HqLeadsPage() {
                         pagedLeads.map((lead) => {
                           const mapped = mapHqLeadToFrontend(lead);
                           const productLines = resolveHqLeadProductLines(lead);
+                          const orgTypeLabel = String(lead.organizationType || '')
+                            .trim()
+                            .toLowerCase();
+                          const tryFreeStatus = getLeadTryFreeAccessStatus(lead);
+                          const canEndTrial =
+                            tryFreeStatus === 'active' ||
+                            Boolean(lead.trialProvisioned || lead.trialLoginId) ||
+                            isHqLeadTrialStage(lead);
+                          const sourceLabel = formatHqLeadSourceDisplay(
+                            lead.source || lead.leadSource || mapped.source || undefined,
+                            lead.leadSourceDetail,
+                          );
                           return (
                     <tr
                       key={lead.id}
@@ -1385,42 +1616,56 @@ export default function HqLeadsPage() {
                                 : 'even:bg-slate-50/35 hover:bg-indigo-50/45'
                             }`}
                           >
-                            <td className="px-3 sm:px-4 py-2 min-w-[11rem] align-middle">
-                              <div className="flex items-center gap-2">
+                            <td className="px-3 sm:px-4 py-2.5 min-w-[14rem] align-middle">
+                              <div className="flex items-start gap-2.5">
                                 <TableBrandAvatar
-                                  name={lead.company || lead.name}
+                                  name={lead.company || lead.name || 'Lead'}
                                   size="sm"
                                   showStatusDot={lead.stage !== 'lost'}
                                   statusDotTitle={`Lead: ${mapped.status}`}
                                 />
-                                <div className="flex min-w-[8rem] flex-col justify-center gap-0.5">
+                                <div className="min-w-0 flex flex-col gap-0.5">
                                   <span className="text-xs font-semibold text-slate-900 whitespace-normal break-words">
-                                    {lead.company || lead.name}
+                                    {lead.company || lead.name || '—'}
                                   </span>
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    {orgTypeLabel ? (
+                                      <span className="inline-flex rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-600">
+                                        {orgTypeLabel === 'standalone' ? 'Standalone' : 'Agency'}
+                                      </span>
+                                    ) : null}
+                                    <HqLeadProductLineBadges lines={productLines} />
+                                  </div>
                                 </div>
                               </div>
                       </td>
-                            <td className="px-3 sm:px-4 py-2" onClick={(e) => e.stopPropagation()}>
-                              <SourceCell lead={mapped} />
+                            <td className="px-3 sm:px-4 py-2.5 align-middle">
+                              {sourceLabel && sourceLabel !== '—' ? (
+                                <span className="inline-flex max-w-[11rem] items-center rounded-full border border-sky-100 bg-gradient-to-r from-sky-50 to-blue-50/80 px-2 py-0.5 text-[10px] font-semibold text-sky-800">
+                                  <span className="truncate" title={sourceLabel}>
+                                    {sourceLabel}
+                                  </span>
+                                </span>
+                              ) : (
+                                <span className="text-[10px] text-slate-300">—</span>
+                              )}
                       </td>
-                            <td className="px-3 sm:px-4 py-2">
-                              <HqLeadProductLineBadges lines={productLines} />
+                            <td className="px-3 sm:px-4 py-2.5 align-middle">
+                              <span
+                                className={`inline-flex w-fit rounded-full px-2.5 py-0.5 text-[10px] font-semibold tracking-wide ring-1 ${
+                                  tryFreeStatus === 'active'
+                                    ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
+                                    : tryFreeStatus === 'expired'
+                                      ? 'bg-rose-50 text-rose-700 ring-rose-200'
+                                      : 'bg-slate-100 text-slate-600 ring-slate-200'
+                                }`}
+                              >
+                                {formatLeadTryFreeAccessLabel(lead)}
+                              </span>
                             </td>
-                            <td className="px-3 sm:px-4 py-2">
-                              <div className="flex flex-col gap-0.5">
-                                <span className="text-xs font-medium text-slate-800">
-                                  {formatDirectorDisplay(mapped.directorSalutation, mapped.directorName || mapped.contactPerson)}
-                                </span>
-                                <span className="text-[10px] text-slate-500">
-                                  {formatContactListDisplay(mapped.emails, mapped.email)}
-                                </span>
-                              </div>
-                            </td>
-                            <td className="px-3 sm:px-4 py-2" onClick={(e) => e.stopPropagation()}>
-                              <div className="flex flex-col gap-1.5">
-                                <div className="flex flex-wrap items-center gap-1.5">
+                            <td className="px-3 sm:px-4 py-2.5 align-middle" onClick={(e) => e.stopPropagation()}>
                                   <select
-                                    className="max-w-[10rem] cursor-pointer rounded-full border-0 bg-slate-100/80 px-2 py-1 text-[11px] font-semibold text-slate-800 shadow-sm ring-1 ring-slate-200/90 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+                                    className="max-w-[9rem] cursor-pointer rounded-full border-0 bg-slate-100/80 px-2 py-1 text-[11px] font-semibold text-slate-800 shadow-sm ring-1 ring-slate-200/90 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
                                     value={mapped.status}
                                     onChange={(e) => void handleInlineStatusChange(lead.id, e.target.value)}
                                   >
@@ -1433,13 +1678,11 @@ export default function HqLeadsPage() {
                                       <option value={mapped.status}>{mapped.status}</option>
                                     ) : null}
                                   </select>
-                                </div>
-                              </div>
                             </td>
-                            <td className="px-3 sm:px-4 py-2">
+                            <td className="px-3 sm:px-4 py-2.5 align-middle">
                               <AssigneeAvatars lead={mapped} />
                             </td>
-                            <td className="px-3 sm:px-4 py-2">
+                            <td className="px-3 sm:px-4 py-2.5 align-middle">
                               <LeadFollowUpTableCell lastFollowUp={mapped.lastFollowUp} />
                             </td>
                             <td className="px-3 sm:px-4 py-2">
@@ -1459,6 +1702,19 @@ export default function HqLeadsPage() {
                           >
                                   <KeyRound className="h-4 w-4" />
                           </button>
+                                {canEndTrial && tryFreeStatus !== 'expired' ? (
+                                  <button
+                                    type="button"
+                                    title="End trial account"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      void handleEndLeadTrial(lead);
+                                    }}
+                                    className="rounded-lg p-1.5 text-amber-600 transition hover:bg-amber-50"
+                                  >
+                                    <TimerOff className="h-4 w-4" />
+                                  </button>
+                                ) : null}
                                 {lead.stage !== 'converted' && lead.stage !== 'lost' ? (
                           <button
                             type="button"

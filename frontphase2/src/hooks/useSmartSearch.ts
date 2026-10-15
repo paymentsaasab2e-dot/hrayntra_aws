@@ -10,10 +10,14 @@ export function useSmartSearch<TParsed extends { keywords: SmartSearchKeywordChi
   applyParsed: (parsed: TParsed) => void;
   onRemoveKeyword?: (removed: SmartSearchKeywordChip, remaining: SmartSearchKeywordChip[]) => void;
   examples: readonly SmartSearchExample[];
+  initialKeywords?: SmartSearchKeywordChip[];
+  initialPrompt?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const [prompt, setPrompt] = useState('');
-  const [activeKeywords, setActiveKeywords] = useState<SmartSearchKeywordChip[]>([]);
+  const [prompt, setPrompt] = useState(config.initialPrompt || '');
+  const [activeKeywords, setActiveKeywords] = useState<SmartSearchKeywordChip[]>(
+    config.initialKeywords || [],
+  );
   const [applying, setApplying] = useState(false);
 
   const previewKeywords = useMemo(

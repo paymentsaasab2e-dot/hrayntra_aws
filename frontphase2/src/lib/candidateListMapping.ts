@@ -176,56 +176,93 @@ export function resolveCandidateListStage(c: BackendCandidate): string {
   return mapBackendStage(c.status || '') || 'New';
 }
 
-/** Job titles / links shown on Candidates list — assign, apply, pipeline, or match. */
-export function resolveCandidateAssignedJobTitles(c: BackendCandidate): string[] {
-  const fromTitles = (c.assignedJobTitles || [])
-    .map((title) => String(title || '').trim())
-    .filter(Boolean);
-  if (fromTitles.length) return fromTitles;
-
-  const seen = new Set<string>();
-  const titles: string[] = [];
-  const push = (raw: string | null | undefined) => {
-    const label = String(raw || '').trim();
-    if (!label || seen.has(label)) return;
-    seen.add(label);
-    titles.push(label);
-  };
-
-  // Prefer the same primary job used for stage / submit-to-client.
-  const primaryJobId = resolveSubmitJobIdFromBackend(c);
-  if (primaryJobId) {
-    const primaryApp = (c.applications || []).find(
-      (row) => String((row as { jobId?: string; job?: { id?: string } })?.jobId || (row as { job?: { id?: string } })?.job?.id || '').trim() === primaryJobId,
-    ) as { job?: { title?: string | null } } | undefined;
-    push(primaryApp?.job?.title);
-    const primaryMatch = crmLinkedMatches(c).find(
-      (row) => String(row?.jobId || row?.job?.id || '').trim() === primaryJobId,
-    );
-    push(primaryMatch?.job?.title);
-    const primaryPipe = (c.pipelineEntries || []).find(
-      (row) => String((row as { jobId?: string })?.jobId || '').trim() === primaryJobId,
-    ) as { job?: { title?: string | null } } | undefined;
-    push(primaryPipe?.job?.title);
-  }
-
+function findJobTitleById(c: BackendCandidate, jobId: string): string {
+  const id = String(jobId || '').trim();
+  if (!id) return '';
   for (const match of crmLinkedMatches(c)) {
-    push(match.job?.title);
+    if (String(match?.jobId || match?.job?.id || '').trim() === id) {
+      const title = String(match?.job?.title || '').trim();
+      if (title) return title;
+    }
   }
   for (const app of c.applications || []) {
-    const row = app as { job?: { title?: string | null } };
-    push(row.job?.title);
+    const row = app as { jobId?: string; job?: { id?: string; title?: string | null } };
+    if (String(row?.jobId || row?.job?.id || '').trim() === id) {
+      const title = String(row?.job?.title || '').trim();
+      if (title) return title;
+    }
   }
   for (const entry of c.pipelineEntries || []) {
-    const row = entry as { job?: { title?: string | null } };
-    push(row.job?.title);
+    const row = entry as { jobId?: string; job?: { title?: string | null } };
+    if (String(row?.jobId || '').trim() === id) {
+      const title = String(row?.job?.title || '').trim();
+      if (title) return title;
+    }
   }
   for (const interview of c.interviews || []) {
-    const row = interview as { job?: { title?: string | null } };
-    push(row.job?.title);
+    const row = interview as { jobId?: string; job?: { id?: string; title?: string | null } };
+    if (String(row?.jobId || row?.job?.id || '').trim() === id) {
+      const title = String(row?.job?.title || '').trim();
+      if (title) return title;
+    }
+  }
+  return '';
+}
+
+/**
+ * One entry per assigned job id (same title allowed for different jobs).
+ * Prefer explicit assignedJobs[] ids; fall back to linked apply/pipeline/match ids.
+ */
+export function resolveCandidateAssignedJobEntries(
+  c: BackendCandidate,
+): Array<{ id: string; title: string }> {
+  const explicitIds = (Array.isArray(c.assignedJobs) ? c.assignedJobs : [])
+    .map((id) => String(id || '').trim())
+    .filter(Boolean);
+  const titlesArr = Array.isArray(c.assignedJobTitles) ? c.assignedJobTitles : [];
+
+  if (explicitIds.length) {
+    return explicitIds.map((id, index) => {
+      const fromApi = String(titlesArr[index] || '').trim();
+      const title = fromApi || findJobTitleById(c, id) || 'Untitled job';
+      return { id, title };
+    });
   }
 
-  return titles;
+  const orderedIds: string[] = [];
+  const pushId = (raw: string | null | undefined) => {
+    const id = String(raw || '').trim();
+    if (!id || orderedIds.includes(id)) return;
+    orderedIds.push(id);
+  };
+
+  const primaryJobId = resolveSubmitJobIdFromBackend(c);
+  if (primaryJobId) pushId(primaryJobId);
+  for (const match of crmLinkedMatches(c)) {
+    pushId(match?.jobId || match?.job?.id);
+  }
+  for (const app of c.applications || []) {
+    const row = app as { jobId?: string; job?: { id?: string } };
+    pushId(row?.jobId || row?.job?.id);
+  }
+  for (const entry of c.pipelineEntries || []) {
+    const row = entry as { jobId?: string };
+    pushId(row?.jobId);
+  }
+  for (const interview of c.interviews || []) {
+    const row = interview as { jobId?: string; job?: { id?: string } };
+    pushId(row?.jobId || row?.job?.id);
+  }
+
+  return orderedIds.map((id) => ({
+    id,
+    title: findJobTitleById(c, id) || 'Untitled job',
+  }));
+}
+
+/** Job titles for Candidates list — one per job id (duplicate titles kept). */
+export function resolveCandidateAssignedJobTitles(c: BackendCandidate): string[] {
+  return resolveCandidateAssignedJobEntries(c).map((row) => row.title);
 }
 
 export function candidateShowsAppliedTag(c: BackendCandidate): boolean {

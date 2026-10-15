@@ -815,8 +815,14 @@ export interface ClientDetailsDrawerProps {
     clientId: string,
     data: Record<string, unknown>,
   ) => Promise<BackendClient | undefined | null>;
-  /** HQ company page — provision a tenant from this client/company. */
+  /** HQ company page — open Create user / submit provision draft for this client/company. */
   onCreateTenant?: (clientId: string) => void;
+  /** HQ — approve pending Create-user draft → create tenant + login. */
+  onApproveTenant?: (clientId: string) => void;
+  /** True while approve-tenant API is in flight. */
+  approveTenantLoading?: boolean;
+  /** HQ — only when Create-user was rejected; reopen form to submit for approval again. */
+  onResendForApproval?: (clientId: string) => void;
   /**
    * Stacking class for backdrop + panel (e.g. `z-[100]` when opened above AI Job Creation).
    * Defaults to `z-50`.

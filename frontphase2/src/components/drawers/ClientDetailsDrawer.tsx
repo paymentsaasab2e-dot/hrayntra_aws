@@ -170,6 +170,9 @@ export function ClientDetailsDrawer(props: ClientDetailsDrawerProps) {
   createClientOverride,
   updateClientOverride,
   onCreateTenant,
+  onApproveTenant,
+  approveTenantLoading = false,
+  onResendForApproval,
   stackClassName: _stackClassName = 'z-50',
 } = props;
   const { clientPanelPortalReady, createJobDrawerOpen, drawerTree, duplicateFromJobId, jobCandidatesForDrawer, jobDetailsOpen, jobPipelineStagesForDrawer, pipelineStages, refreshClientJobs, selectedJobForDrawer, setClientActivities, setCreateJobDrawerOpen, setDuplicateFromJobId, setJobCandidatesForDrawer, setJobDetailsOpen, setSelectedJobForDrawer } = useClientDetailsDrawer(props);

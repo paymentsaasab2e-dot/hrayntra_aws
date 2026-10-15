@@ -69,6 +69,10 @@ export interface Lead {
   auditMeta?: AuditMeta;
   priority: Priority;
   interestedNeeds: string;
+  /** HQ CRM — which product modules the lead wants (crm / recruitment). */
+  hqProductLines?: string[];
+  hqProductLine?: string | null;
+  interestedModules?: string[];
   servicesNeeded?: string;
   notes: string;
   expectedBusinessValue?: string;

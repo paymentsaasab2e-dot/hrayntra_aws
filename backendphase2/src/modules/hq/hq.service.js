@@ -448,6 +448,69 @@ export const hqService = {
     };
   },
 
+  /**
+   * Save Create-user form against an HQ company without creating a login.
+   * Tenant is created only via approveCompanyTenant.
+   */
+  async saveCompanyProvisionDraft(companyId, data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqCompaniesService.saveProvisionDraft(companyId, data, reqUser);
+  },
+
+  async rejectCompanyProvisionDraft(companyId, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqCompaniesService.rejectProvisionDraft(companyId, reqUser);
+  },
+
+  /**
+   * Approve a pending Create-user draft → provision tenant + allow login.
+   */
+  async approveCompanyTenant(companyId, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    const { draft } = await hqCompaniesService.getProvisionDraftForApprove(companyId);
+    const result = await this.provisionTenant(
+      {
+        name: draft.name,
+        organizationName: draft.organizationName || draft.name,
+        email: draft.email,
+        loginId: draft.loginId,
+        password: draft.password,
+        organizationType: draft.organizationType,
+        productLine: draft.productLine,
+        enabledModules: draft.enabledModules,
+        phase1CommonPoolEnabled: draft.phase1CommonPoolEnabled !== false,
+        billingCycle: draft.billingCycle,
+        planStartDate: draft.planStartDate || undefined,
+        planEndDate: draft.planEndDate || undefined,
+        companyId,
+        plan: draft.plan || {
+          name: draft.planName || 'Starter',
+          billingCycle: draft.billingCycle || 'monthly',
+          planStartDate: draft.planStartDate || undefined,
+          planEndDate: draft.planEndDate || undefined,
+          ...(draft.customPrice ? { price: draft.customPrice } : {}),
+          ...(draft.maxUsers ? { maxUsers: draft.maxUsers } : {}),
+          ...(draft.maxJobs ? { maxJobs: draft.maxJobs } : {}),
+          ...(draft.coins != null ? { coins: draft.coins } : {}),
+        },
+      },
+      reqUser,
+    );
+    // linkTenant already marks approved; ensure status if link was skipped
+    if (!result.companyId) {
+      await hqCompaniesService.markProvisionApproved(
+        companyId,
+        {
+          tenantDbName: result.tenantDbName,
+          tenantAdminEmail: draft.email,
+        },
+        reqUser,
+      );
+    }
+    const company = await hqCompaniesService.getCompanyById(companyId);
+    return { ...result, company };
+  },
+
   async provisionTenant(data, reqUser) {
     assertPlatformProvisioner(reqUser);
     const name = String(data?.name || '').trim();
@@ -1177,6 +1240,19 @@ export const hqService = {
       note: data?.note,
       notifyEmails: data?.notifyEmails,
     }, reqUser);
+  },
+
+  async endLeadTrial(id, data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    return hqTrialService.endTrialFromLead(
+      id,
+      {
+        email: data?.email,
+        note: data?.note,
+        tenantDbName: data?.tenantDbName,
+      },
+      reqUser,
+    );
   },
 
   async listSupportTickets(reqUser, filters = {}) {

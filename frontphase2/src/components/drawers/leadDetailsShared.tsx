@@ -92,6 +92,14 @@ export function prettyDemoNoteValue(value: string): string {
   return trimmed;
 }
 
+/** Internal / noisy labels from try-free sync — hide from Overview “Demo request”. */
+const HIDDEN_DEMO_NOTE_LABELS = new Set([
+  'entrepreneur demo request',
+  'employer demo request',
+  'email verified',
+  'request kind',
+]);
+
 export function parseLeadDemoNotes(notes: string | null | undefined): Array<{ label: string; value: string }> | null {
   const raw = String(notes || '').trim();
   if (!raw) return null;
@@ -99,21 +107,26 @@ export function parseLeadDemoNotes(notes: string | null | undefined): Array<{ la
     /booked demo:/i.test(raw) ||
     /employer demo request:|entrepreneur demo request:/i.test(raw) ||
     /\[demo-slot:/i.test(raw) ||
-    /preferred demo:/i.test(raw);
+    /preferred demo:/i.test(raw) ||
+    /request kind:\s*trial/i.test(raw);
   if (!looksLikeDemo) return null;
-  const rows = raw
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const idx = line.indexOf(':');
-      if (idx <= 0) return { label: 'Note', value: prettyDemoNoteValue(line) };
-      return {
-        label: line.slice(0, idx).trim(),
-        value: prettyDemoNoteValue(line.slice(idx + 1).trim()),
-      };
-    })
-    .filter((row) => row.value && row.value !== '—');
+
+  // Keep the latest value per label — try-free re-sync appends near-duplicate blocks.
+  const byLabel = new Map<string, { label: string; value: string }>();
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const idx = trimmed.indexOf(':');
+    const label = idx > 0 ? trimmed.slice(0, idx).trim() : 'Note';
+    const value = prettyDemoNoteValue(idx > 0 ? trimmed.slice(idx + 1).trim() : trimmed);
+    if (!value || value === '—') continue;
+    const key = label.toLowerCase();
+    if (HIDDEN_DEMO_NOTE_LABELS.has(key)) continue;
+    if (/^[a-f0-9]{20,}$/i.test(value)) continue;
+    byLabel.set(key, { label, value });
+  }
+
+  const rows = [...byLabel.values()];
   return rows.length ? rows : null;
 }
 

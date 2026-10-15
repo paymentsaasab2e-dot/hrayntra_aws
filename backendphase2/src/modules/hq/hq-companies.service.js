@@ -255,6 +255,176 @@ function toCompanyRow(doc) {
     tenantAdminEmail: doc.tenantAdminEmail || null,
     tenantProvisionedAt:
       doc.tenantProvisionedAt instanceof Date ? doc.tenantProvisionedAt.toISOString() : null,
+    provisionStatus: normalizeProvisionStatus(doc.provisionStatus),
+    provisionDraft: mapProvisionDraft(doc.provisionDraft),
+    provisionDraftSubmittedAt:
+      doc.provisionDraftSubmittedAt instanceof Date
+        ? doc.provisionDraftSubmittedAt.toISOString()
+        : null,
+    provisionApprovedAt:
+      doc.provisionApprovedAt instanceof Date ? doc.provisionApprovedAt.toISOString() : null,
+  };
+}
+
+const VALID_PROVISION_STATUSES = ['pending_approval', 'approved', 'rejected'];
+
+function normalizeProvisionStatus(status) {
+  const raw = String(status || '').trim().toLowerCase();
+  return VALID_PROVISION_STATUSES.includes(raw) ? raw : null;
+}
+
+function mapProvisionDraft(draft) {
+  if (!draft || typeof draft !== 'object') return null;
+  const enabledModules = Array.isArray(draft.enabledModules)
+    ? [...new Set(draft.enabledModules.map((m) => String(m || '').trim()).filter(Boolean))]
+    : [];
+  const plan =
+    draft.plan && typeof draft.plan === 'object'
+      ? {
+          name: String(draft.plan.name || draft.planName || 'Starter').trim() || 'Starter',
+          billingCycle:
+            String(draft.plan.billingCycle || draft.billingCycle || 'monthly').toLowerCase() ===
+            'annual'
+              ? 'annual'
+              : 'monthly',
+          planStartDate: draft.plan.planStartDate || draft.planStartDate || null,
+          planEndDate: draft.plan.planEndDate || draft.planEndDate || null,
+          price: draft.plan.price != null ? String(draft.plan.price) : draft.customPrice || null,
+          maxUsers:
+            draft.plan.maxUsers != null
+              ? Number(draft.plan.maxUsers)
+              : draft.maxUsers
+                ? Number(draft.maxUsers)
+                : null,
+          maxJobs:
+            draft.plan.maxJobs != null
+              ? Number(draft.plan.maxJobs)
+              : draft.maxJobs
+                ? Number(draft.maxJobs)
+                : null,
+          coins:
+            draft.plan.coins != null
+              ? Number(draft.plan.coins)
+              : draft.coins
+                ? Number(draft.coins)
+                : null,
+        }
+      : null;
+  return {
+    organizationName: String(draft.organizationName || '').trim() || null,
+    name: String(draft.name || '').trim() || null,
+    email: String(draft.email || '').trim().toLowerCase() || null,
+    loginId: String(draft.loginId || '').trim() || null,
+    /** Present only in API when HQ needs to re-open the form; never expose to non-HQ surfaces. */
+    hasPassword: Boolean(String(draft.password || '').trim()),
+    organizationType:
+      String(draft.organizationType || 'agency').toLowerCase() === 'standalone'
+        ? 'standalone'
+        : 'agency',
+    productLine:
+      String(draft.productLine || 'crm').toLowerCase() === 'recruitment' ? 'recruitment' : 'crm',
+    enabledModules,
+    phase1CommonPoolEnabled: draft.phase1CommonPoolEnabled !== false,
+    billingCycle:
+      String(draft.billingCycle || plan?.billingCycle || 'monthly').toLowerCase() === 'annual'
+        ? 'annual'
+        : 'monthly',
+    planStartDate: draft.planStartDate || plan?.planStartDate || null,
+    planEndDate: draft.planEndDate || plan?.planEndDate || null,
+    planName: String(draft.planName || plan?.name || 'Starter').trim() || 'Starter',
+    customPrice: draft.customPrice != null ? String(draft.customPrice) : plan?.price || null,
+    maxUsers: draft.maxUsers != null ? String(draft.maxUsers) : plan?.maxUsers != null ? String(plan.maxUsers) : null,
+    maxJobs: draft.maxJobs != null ? String(draft.maxJobs) : plan?.maxJobs != null ? String(plan.maxJobs) : null,
+    coins: draft.coins != null ? String(draft.coins) : plan?.coins != null ? String(plan.coins) : null,
+    plan,
+  };
+}
+
+function parseProvisionDraftInput(data) {
+  const name = String(data?.name || '').trim();
+  const email = String(data?.email || '').trim().toLowerCase();
+  const loginId = String(data?.loginId || '').trim();
+  const password = String(data?.password || '');
+  const organizationName = String(data?.organizationName || name || '').trim();
+  const organizationType =
+    String(data?.organizationType || 'agency').toLowerCase() === 'standalone'
+      ? 'standalone'
+      : 'agency';
+  const productLine =
+    String(data?.productLine || 'crm').toLowerCase() === 'recruitment' ? 'recruitment' : 'crm';
+  const enabledModules = Array.isArray(data?.enabledModules)
+    ? [...new Set(data.enabledModules.map((m) => String(m || '').trim()).filter(Boolean))]
+    : [];
+  const billingCycle =
+    String(data?.billingCycle || data?.plan?.billingCycle || 'monthly').toLowerCase() === 'annual'
+      ? 'annual'
+      : 'monthly';
+  const planName = String(data?.plan?.name || data?.planName || 'Starter').trim() || 'Starter';
+  const planStartDate = String(data?.planStartDate || data?.plan?.planStartDate || '').trim() || null;
+  const planEndDate = String(data?.planEndDate || data?.plan?.planEndDate || '').trim() || null;
+  const customPrice =
+    data?.plan?.price != null
+      ? String(data.plan.price)
+      : data?.customPrice != null
+        ? String(data.customPrice)
+        : null;
+  const maxUsers =
+    data?.plan?.maxUsers != null
+      ? Number(data.plan.maxUsers)
+      : data?.maxUsers
+        ? Number(data.maxUsers)
+        : null;
+  const maxJobs =
+    data?.plan?.maxJobs != null
+      ? Number(data.plan.maxJobs)
+      : data?.maxJobs
+        ? Number(data.maxJobs)
+        : null;
+  const coins =
+    data?.plan?.coins != null
+      ? Number(data.plan.coins)
+      : data?.coins
+        ? Number(data.coins)
+        : null;
+
+  if (!name || !email || !loginId || !password) {
+    throw new Error('name, email, loginId, and password are required');
+  }
+  if (password.length < 8) {
+    throw new Error('Password must be at least 8 characters');
+  }
+  if (enabledModules.length === 0) {
+    throw new Error('Select at least one CRM or Recruitment tab');
+  }
+
+  return {
+    organizationName,
+    name,
+    email,
+    loginId,
+    password,
+    organizationType,
+    productLine,
+    enabledModules,
+    phase1CommonPoolEnabled: data?.phase1CommonPoolEnabled !== false,
+    billingCycle,
+    planStartDate,
+    planEndDate,
+    planName,
+    customPrice,
+    maxUsers: Number.isFinite(maxUsers) ? maxUsers : null,
+    maxJobs: Number.isFinite(maxJobs) ? maxJobs : null,
+    coins: Number.isFinite(coins) ? coins : null,
+    plan: {
+      name: planName,
+      billingCycle,
+      planStartDate,
+      planEndDate,
+      ...(customPrice ? { price: customPrice } : {}),
+      ...(Number.isFinite(maxUsers) && maxUsers ? { maxUsers } : {}),
+      ...(Number.isFinite(maxJobs) && maxJobs ? { maxJobs } : {}),
+      ...(Number.isFinite(coins) ? { coins } : {}),
+    },
   };
 }
 
@@ -783,6 +953,146 @@ export const hqCompaniesService = {
   },
 
   /**
+   * Save Create-user form as a pending draft. Does NOT create a tenant or login.
+   * Login is created only after approveProvision → provisionTenant.
+   */
+  async saveProvisionDraft(id, data, reqUser) {
+    if (!ObjectId.isValid(id)) throw new Error('Invalid company id');
+    const collection = await getCollection();
+    const objectId = new ObjectId(id);
+    const existing = await collection.findOne({ _id: objectId });
+    if (!existing) throw new Error('Company not found');
+    if (existing.tenantDbName) {
+      throw new Error(`Company already linked to tenant ${existing.tenantDbName}`);
+    }
+
+    const draft = parseProvisionDraftInput(data);
+    const now = new Date();
+    await collection.updateOne(
+      { _id: objectId },
+      {
+        $set: {
+          provisionStatus: 'pending_approval',
+          provisionDraft: draft,
+          provisionDraftSubmittedAt: now,
+          provisionDraftSubmittedByEmail: reqUser?.email || null,
+          provisionRejectedAt: null,
+          provisionRejectedByEmail: null,
+          updatedAt: now,
+          updatedByEmail: reqUser?.email || null,
+        },
+      },
+    );
+    const updated = await collection.findOne({ _id: objectId });
+    return { company: toCompanyRow(updated), storage: getStorageInfo() };
+  },
+
+  /**
+   * Return raw draft (including password) for approve → provisionTenant.
+   */
+  async getProvisionDraftForApprove(id) {
+    if (!ObjectId.isValid(id)) throw new Error('Invalid company id');
+    const collection = await getCollection();
+    const objectId = new ObjectId(id);
+    const existing = await collection.findOne({ _id: objectId });
+    if (!existing) throw new Error('Company not found');
+    if (existing.tenantDbName) {
+      throw new Error(`Company already linked to tenant ${existing.tenantDbName}`);
+    }
+    if (normalizeProvisionStatus(existing.provisionStatus) !== 'pending_approval') {
+      throw new Error('No pending Create-user request to approve');
+    }
+    const draft = existing.provisionDraft;
+    if (!draft || typeof draft !== 'object') {
+      throw new Error('Pending Create-user draft is missing');
+    }
+    const password = String(draft.password || '');
+    if (!password) {
+      throw new Error('Pending Create-user draft is missing password — resubmit Create user');
+    }
+    return {
+      companyId: objectId.toString(),
+      company: toCompanyRow(existing),
+      draft: {
+        ...draft,
+        password,
+        companyId: objectId.toString(),
+      },
+    };
+  },
+
+  async markProvisionApproved(id, data, reqUser) {
+    if (!ObjectId.isValid(id)) throw new Error('Invalid company id');
+    const collection = await getCollection();
+    const objectId = new ObjectId(id);
+    const existing = await collection.findOne({ _id: objectId });
+    if (!existing) throw new Error('Company not found');
+
+    const tenantDbName = String(data?.tenantDbName || '').trim();
+    const tenantAdminEmail = String(data?.tenantAdminEmail || '').trim().toLowerCase() || null;
+    const now = new Date();
+
+    // Strip password from stored draft after approval.
+    const safeDraft = existing.provisionDraft
+      ? { ...existing.provisionDraft, password: undefined }
+      : null;
+    if (safeDraft && 'password' in safeDraft) delete safeDraft.password;
+
+    await collection.updateOne(
+      { _id: objectId },
+      {
+        $set: {
+          provisionStatus: 'approved',
+          provisionDraft: safeDraft,
+          provisionApprovedAt: now,
+          provisionApprovedByEmail: reqUser?.email || null,
+          ...(tenantDbName
+            ? {
+                tenantDbName,
+                tenantAdminEmail,
+                tenantProvisionedAt: now,
+              }
+            : {}),
+          updatedAt: now,
+          updatedByEmail: reqUser?.email || null,
+        },
+      },
+    );
+    const updated = await collection.findOne({ _id: objectId });
+    return { company: toCompanyRow(updated), storage: getStorageInfo() };
+  },
+
+  async rejectProvisionDraft(id, reqUser) {
+    if (!ObjectId.isValid(id)) throw new Error('Invalid company id');
+    const collection = await getCollection();
+    const objectId = new ObjectId(id);
+    const existing = await collection.findOne({ _id: objectId });
+    if (!existing) throw new Error('Company not found');
+    if (existing.tenantDbName) {
+      throw new Error('Tenant already provisioned — cannot reject');
+    }
+    if (normalizeProvisionStatus(existing.provisionStatus) !== 'pending_approval') {
+      throw new Error('No pending Create-user request to reject');
+    }
+    const now = new Date();
+    await collection.updateOne(
+      { _id: objectId },
+      {
+        $set: {
+          provisionStatus: 'rejected',
+          provisionRejectedAt: now,
+          provisionRejectedByEmail: reqUser?.email || null,
+          updatedAt: now,
+          updatedByEmail: reqUser?.email || null,
+        },
+        $unset: { provisionDraft: '' },
+      },
+    );
+    const updated = await collection.findOne({ _id: objectId });
+    return { company: toCompanyRow(updated), storage: getStorageInfo() };
+  },
+
+  /**
    * Link an HQ company to a provisioned tenant workspace (Lead → Client → Company → Tenant).
    */
   async linkTenant(id, data, reqUser) {
@@ -798,14 +1108,24 @@ export const hqCompaniesService = {
       throw new Error('This company is already linked to another tenant');
     }
 
+    const now = new Date();
+    const safeDraft = existing.provisionDraft
+      ? { ...existing.provisionDraft, password: undefined }
+      : null;
+    if (safeDraft && 'password' in safeDraft) delete safeDraft.password;
+
     await collection.updateOne(
       { _id: objectId },
       {
         $set: {
           tenantDbName,
           tenantAdminEmail: String(data?.tenantAdminEmail || '').trim().toLowerCase() || null,
-          tenantProvisionedAt: new Date(),
-          updatedAt: new Date(),
+          tenantProvisionedAt: now,
+          provisionStatus: 'approved',
+          provisionApprovedAt: now,
+          provisionApprovedByEmail: reqUser?.email || null,
+          ...(safeDraft ? { provisionDraft: safeDraft } : {}),
+          updatedAt: now,
           updatedByEmail: reqUser?.email || null,
         },
       },

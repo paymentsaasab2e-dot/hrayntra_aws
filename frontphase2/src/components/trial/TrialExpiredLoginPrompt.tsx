@@ -15,9 +15,17 @@ export function TrialExpiredLoginPrompt() {
   const [plan, setPlan] = useState<CachedOrgSubscriptionPlan | null>(null);
 
   useEffect(() => {
-    if (searchParams.get(TRIAL_EXPIRED_URL_PARAM) !== '1') return;
+    if (searchParams.get(TRIAL_EXPIRED_URL_PARAM) !== '1') {
+      setOpen(false);
+      return;
+    }
     setPlan(readTrialExpiredPlanSnapshot());
     setOpen(true);
+    // Drop any leftover session so the login page does not bounce away.
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('accessToken');
+      localStorage.removeItem('refreshToken');
+    }
   }, [searchParams]);
 
   return (

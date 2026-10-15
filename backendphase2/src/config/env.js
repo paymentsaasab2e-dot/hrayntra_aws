@@ -409,6 +409,9 @@ export const env = {
   /** Resolved chat model from OPENAI_CHAT_MODEL / OPENAI_ASSISTANT_MODEL (defaults to gpt-4.1). */
   OPENAI_CHAT_MODEL,
   OPENAI_ASSISTANT_MODEL: OPENAI_CHAT_MODEL,
+  /** Fast model for Smart Search parse only. Override with SMART_SEARCH_CHAT_MODEL. */
+  SMART_SEARCH_CHAT_MODEL:
+    String(process.env.SMART_SEARCH_CHAT_MODEL || '').trim() || 'gpt-4.1-mini',
   ALLOWED_OPENAI_CHAT_MODEL,
   MISTRAL_API_KEY: process.env.MISTRAL_API_KEY,
   MISTRAL_CHAT_MODEL: process.env.MISTRAL_CHAT_MODEL || 'mistral-small-latest',

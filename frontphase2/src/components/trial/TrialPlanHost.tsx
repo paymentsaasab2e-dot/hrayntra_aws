@@ -39,11 +39,19 @@ export function TrialPlanHost() {
 
     try {
       persistTrialExpiredPlan(plan);
-      await apiLogout();
+      // Clear tokens immediately so /login does not auto-redirect back into the app
+      // (that race made the trial-ended popup flash and vanish).
+      localStorage.removeItem('accessToken');
+      localStorage.removeItem('refreshToken');
       localStorage.removeItem('orgSubscriptionPlan');
       localStorage.removeItem('orgSubscriptionPlanName');
       localStorage.removeItem('orgPlanUsage');
-      router.replace(`/login?${TRIAL_EXPIRED_URL_PARAM}=1`);
+      try {
+        await apiLogout();
+      } catch {
+        /* local session already cleared */
+      }
+      window.location.replace(`/login?${TRIAL_EXPIRED_URL_PARAM}=1`);
     } finally {
       sessionStorage.removeItem(LOGOUT_LOCK_KEY);
       handlingRef.current = false;

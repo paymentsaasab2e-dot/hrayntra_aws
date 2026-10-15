@@ -86,11 +86,19 @@ function todayIsoDateUtc() {
   return new Date().toISOString().slice(0, 10);
 }
 
-/** Block login when HQ/tenant subscription is an expired trial. */
+function isExpiredTrialPlan(plan) {
+  if (!plan?.isTrial) return false;
+  const end = String(plan.planEndDate || '').trim().slice(0, 10);
+  if (!end) return false;
+  return end < todayIsoDateUtc();
+}
+
+/** Block login when HQ or tenant subscription is an expired trial. */
 async function assertTrialNotExpired(email) {
-  let plan = null;
+  const plans = [];
   try {
-    plan = await getSubscriptionPlan();
+    const local = await getSubscriptionPlan();
+    if (local) plans.push(local);
   } catch {
     /* ignore local plan read failures */
   }
@@ -99,21 +107,25 @@ async function assertTrialNotExpired(email) {
   if (normalizedEmail) {
     try {
       const hqUser = await headquartersAuthService.findWorkspaceUserByEmail(normalizedEmail);
-      if (hqUser?.subscriptionPlan?.isTrial) {
-        plan = hqUser.subscriptionPlan;
-      } else if (!plan?.isTrial && hqUser?.subscriptionPlan) {
-        plan = hqUser.subscriptionPlan;
-      }
+      if (hqUser?.subscriptionPlan) plans.push(hqUser.subscriptionPlan);
     } catch {
       /* ignore HQ lookup failures */
     }
   }
 
-  if (!plan?.isTrial) return;
+  // Also resolve by active tenant (try-free login often uses loginId + tenantDbName).
+  const tenantDbName = resolveActiveTenantDbName();
+  if (tenantDbName) {
+    try {
+      const tenants = await headquartersAuthService.listTenants();
+      const hqByTenant = tenants.find((t) => String(t.tenantDbName || '') === tenantDbName);
+      if (hqByTenant?.subscriptionPlan) plans.push(hqByTenant.subscriptionPlan);
+    } catch {
+      /* ignore */
+    }
+  }
 
-  const end = String(plan.planEndDate || '').trim().slice(0, 10);
-  if (!end) return;
-  if (end < todayIsoDateUtc()) {
+  if (plans.some((plan) => isExpiredTrialPlan(plan))) {
     const err = new Error('Trial has ended. Request a demo or contact HQ to continue.');
     err.statusCode = 403;
     err.code = 'TRIAL_EXPIRED';

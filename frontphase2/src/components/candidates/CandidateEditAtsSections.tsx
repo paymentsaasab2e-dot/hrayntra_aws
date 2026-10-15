@@ -49,7 +49,10 @@ export type CandidateEditFormState = {
   status: string;
   source: string;
   recruiterId: string;
+  /** @deprecated Prefer assignedJobIds — kept for older call sites; synced as first selected job. */
   assignedJobId: string;
+  /** Multi-select Assigned jobs (job ids). */
+  assignedJobIds: string[];
   noticePeriod: string;
   availability: string;
   salaryCurrency: string;
@@ -299,6 +302,15 @@ export function buildCandidateEditForm(candidate: CandidateProfileDrawerData): C
     source: candidate.source && candidate.source !== 'â€”' ? candidate.source : '',
     recruiterId: candidate.recruiterId || '',
     assignedJobId: candidate.assignedJobId || '',
+    assignedJobIds: (() => {
+      const fromRows = (candidate.assignedJobs || [])
+        .map((row) => String(row?.id || '').trim())
+        .filter(Boolean);
+      const primary = String(candidate.assignedJobId || '').trim();
+      const merged = [...fromRows];
+      if (primary && !merged.includes(primary)) merged.unshift(primary);
+      return [...new Set(merged)];
+    })(),
     noticePeriod:
       candidate.noticePeriod && candidate.noticePeriod !== 'â€”' ? candidate.noticePeriod : '',
     availability: candidate.cvAvailability || candidate.availability || 'available',
@@ -684,7 +696,14 @@ export function buildUpdatePayloadFromEditForm(
 
   return {
     assignedToId: editForm.recruiterId || null,
-    assignedJobs: editForm.assignedJobId ? [editForm.assignedJobId] : [],
+    assignedJobs: (() => {
+      const ids = Array.isArray(editForm.assignedJobIds)
+        ? editForm.assignedJobIds.map((id) => String(id || '').trim()).filter(Boolean)
+        : [];
+      if (ids.length) return [...new Set(ids)];
+      const legacy = String(editForm.assignedJobId || '').trim();
+      return legacy ? [legacy] : [];
+    })(),
     firstName: str(editForm.firstName),
     lastName: str(editForm.lastName),
     email: str(editForm.email),

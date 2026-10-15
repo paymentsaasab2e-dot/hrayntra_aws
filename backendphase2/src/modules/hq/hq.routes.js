@@ -94,6 +94,7 @@ router.delete('/leads/:id/follow-ups/:followUpId', authMiddleware, hqController.
 router.post('/leads/:id/remarks', authMiddleware, hqController.addLeadRemark);
 router.post('/leads/:id/convert-to-company', authMiddleware, hqController.convertLeadToCompany);
 router.post('/leads/:id/grant-trial', authMiddleware, hqController.grantLeadTrial);
+router.post('/leads/:id/end-trial', authMiddleware, hqController.endLeadTrial);
 
 router.get('/demos', authMiddleware, hqController.listDemoRequests);
 router.delete('/demos/:id', authMiddleware, hqController.deleteDemoRequest);
@@ -130,6 +131,21 @@ router.patch('/help-tickets', authMiddleware, hqController.updateHelpTicket);
 router.get('/companies', authMiddleware, hqController.listCompanies);
 router.post('/companies', authMiddleware, hqController.createCompany);
 router.put('/companies/:id', authMiddleware, hqController.updateCompany);
+router.post(
+  '/companies/:id/provision-draft',
+  authMiddleware,
+  hqController.saveCompanyProvisionDraft,
+);
+router.post(
+  '/companies/:id/approve-tenant',
+  authMiddleware,
+  hqController.approveCompanyTenant,
+);
+router.post(
+  '/companies/:id/reject-provision',
+  authMiddleware,
+  hqController.rejectCompanyProvisionDraft,
+);
 router.post(
   '/companies/:id/logo',
   authMiddleware,

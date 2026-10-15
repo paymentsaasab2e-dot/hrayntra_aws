@@ -111,7 +111,8 @@ export function extractUsageFromLlmError(err) {
 function normalizeOpenAiRequestBody(body) {
   return {
     ...body,
-    model: OPENAI_CHAT_MODEL,
+    // Allow a caller (e.g. Smart Search) to pick a faster parse model.
+    model: String(body?.model || '').trim() || OPENAI_CHAT_MODEL,
   };
 }
 

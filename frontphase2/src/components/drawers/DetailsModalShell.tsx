@@ -55,6 +55,11 @@ type DetailsModalShellProps = {
    */
   variant?: 'centered' | 'main';
   /**
+   * When true with `variant="main"`, ignore the Phase 2 app header offset and
+   * start at the top of the viewport (still right of the sidenav). Used on HQ.
+   */
+  flushTop?: boolean;
+  /**
    * `viewport` — tall drawer-style panel (default).
    * `content` — height follows children (small confirm / feedback popups). Avoids empty tall flash.
    */
@@ -77,6 +82,7 @@ export function DetailsModalShell({
   backdropClassName = '',
   dialogTitleId,
   variant = 'centered',
+  flushTop = false,
   fit = 'viewport',
 }: DetailsModalShellProps) {
   const maxWidth = SIZE_MAX_WIDTH[size];
@@ -87,7 +93,9 @@ export function DetailsModalShell({
 
   if (variant === 'main') {
     const mainInset = {
-      top: 'calc(var(--ph2-header-h, 3.5rem) + var(--ph2-impersonation-banner-h, 0px))',
+      top: flushTop
+        ? 'var(--ph2-impersonation-banner-h, 0px)'
+        : 'calc(var(--ph2-header-h, 3.5rem) + var(--ph2-impersonation-banner-h, 0px))',
       left: 'var(--ph2-sidenav-w, 220px)',
       right: 0,
       bottom: 0,

@@ -1,7 +1,7 @@
 // AUTO-SPLIT from page.tsx — moved code, no behavior change.
 'use client';
 
-import React, { useState, useMemo, useEffect, useCallback, useRef, Suspense } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef, Suspense, startTransition } from 'react';
 import { CandidateTable, Candidate } from './components/CandidateTable';
 import {
   CandidateTableFilters,
@@ -32,6 +32,12 @@ import {
 import { useSmartSearch } from '../../hooks/useSmartSearch';
 import { mapAiToCandidatesResult, parseSmartSearchWithAi } from '../../lib/smart-search/aiParser';
 import { buildCandidatesListApiParams } from '../../lib/smart-search/entitySmartSearch';
+import {
+  clearCandidateSmartSearchSession,
+  readCandidateSmartSearchSession,
+  writeCandidateSmartSearchSession,
+  type CandidateSmartSearchSession,
+} from '../../lib/smart-search/candidateSmartSearchSession';
 import {
   CANDIDATES_SMART_SEARCH_EXAMPLES,
   candidateMatchesSmartKeywordChips,
@@ -147,6 +153,7 @@ import {
 } from '../../components/layout/Ph2ModulePageLayout';
 import {
   candidateShowsAppliedTag,
+  resolveCandidateAssignedJobEntries,
   resolveCandidateAssignedJobTitles,
   resolveCandidateListStage,
 } from '../../lib/candidateListMapping';
@@ -180,7 +187,7 @@ type CandidateListTab = 'all' | 'mine';
 const CANDIDATE_LOCATION_COUNTRY_OPTIONS = getCscCountryOptions().map((row) => row.label);
 
 export const CANDIDATE_TABLE_TAB_CLASS =
-  'px-4 py-3 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap';
+  'px-3 py-2 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap';
 
 const CANDIDATE_STAGE_API_MAP: Record<string, string> = {
   new: 'New',
@@ -332,7 +339,11 @@ function mapBackendCandidate(raw: BackendCandidate): Candidate {
   const c = enrichBackendCandidateFromPhase1Snapshot(raw);
   const name = resolveCandidateDisplayName(c, { alreadyEnriched: true });
   const basicFullName = `${c.firstName ?? ''} ${c.lastName ?? ''}`.trim();
-  const assignedJobsFromAssignedTitles = resolveCandidateAssignedJobTitles(c);
+  const assignedJobEntries = resolveCandidateAssignedJobEntries(c);
+  const assignedJobsFromAssignedTitles =
+    assignedJobEntries.map((row) => row.title).filter(Boolean).length > 0
+      ? assignedJobEntries.map((row) => row.title)
+      : resolveCandidateAssignedJobTitles(c);
   const workEntries = collectCandidateWorkEntries(c);
   // Never fall back to raw API experience — it can be ISO codes (e.g. 27001) or calendar years.
   const experienceYears = resolveCandidateExperienceYears(c) ?? 0;
@@ -350,6 +361,7 @@ function mapBackendCandidate(raw: BackendCandidate): Candidate {
     city: c.city || undefined,
     country: c.country || undefined,
     assignedJobs: assignedJobsFromAssignedTitles,
+    assignedJobItems: assignedJobEntries,
     stage: resolveCandidateListStage(c),
     owner: c.assignedTo?.name || 'Unassigned',
     lastActivity: (c.updatedAt || c.createdAt)
@@ -458,6 +470,17 @@ export function useCandidateList() {
   const [debouncedColumnFilters, setDebouncedColumnFilters] =
     useState<CandidateTableColumnFilters>(columnFilters);
   const [smartSearchCandidateIds, setSmartSearchCandidateIds] = useState<string[]>([]);
+  const [smartSearchSessionReady, setSmartSearchSessionReady] = useState(false);
+  const restoredSmartKeywordsRef = useRef<CandidateSmartSearchSession | null>(null);
+
+  useEffect(() => {
+    const restored = readCandidateSmartSearchSession();
+    if (restored?.ids.length) {
+      restoredSmartKeywordsRef.current = restored;
+      setSmartSearchCandidateIds(restored.ids);
+    }
+    setSmartSearchSessionReady(true);
+  }, []);
   const candidateColumnVisibility = usePersistedColumnVisibility(
     'candidates.visibleColumns',
     CANDIDATE_TABLE_COLUMNS,
@@ -479,11 +502,12 @@ export function useCandidateList() {
     () => effectiveCandidateSearchQuery(searchParams.get('search') || ''),
   );
   useEffect(() => {
+    if (smartSearchCandidateIds.length > 0) return;
     const timer = window.setTimeout(() => {
       setDebouncedSearch(effectiveCandidateSearchQuery(filters.search));
     }, 350);
     return () => window.clearTimeout(timer);
-  }, [filters.search]);
+  }, [filters.search, smartSearchCandidateIds.length]);
 
   useEffect(() => {
     const syncPhase1Access = () => {
@@ -502,6 +526,7 @@ export function useCandidateList() {
   const loadCandidatesRequestIdRef = useRef(0);
   const loadCandidatesAbortRef = useRef<AbortController | null>(null);
   const candidatePrefetchGenRef = useRef(0);
+  const smartSearchApplyingRef = useRef(false);
   const [loadingCandidateProfile, setLoadingCandidateProfile] = useState(false);
   const [availableDrawerTags, setAvailableDrawerTags] = useState<CandidateTagItem[]>([]);
   const [pipelineJobs, setPipelineJobs] = useState<CandidatePipelineJobOption[]>([]);
@@ -838,7 +863,7 @@ export function useCandidateList() {
         if (isFirstLoad) {
           setLoading(true);
           setError(null);
-        } else {
+        } else if (!hasLoadedCandidatesOnceRef.current) {
           setTableLoading(true);
         }
       }
@@ -868,6 +893,7 @@ export function useCandidateList() {
         activeListTab === 'all' && shouldIncludePhase1CommonPool();
       const useWarmParallel =
         !smartSearchCandidateIds?.length &&
+        !debouncedSearch &&
         activePage === 1 &&
         pageSize <= CANDIDATE_WARM_BATCH_SIZE;
 
@@ -877,20 +903,27 @@ export function useCandidateList() {
         total: number,
       ) => {
         if (requestId !== loadCandidatesRequestIdRef.current) return;
-        setCandidates(mapped);
+        const idSet = new Set(smartSearchCandidateIds || []);
+        const pinned =
+          idSet.size > 0 ? mapped.filter((row) => idSet.has(String(row.id))) : mapped;
+        const pinnedBackend =
+          idSet.size > 0
+            ? backendRows.filter((row) => idSet.has(String(row.id || (row as { _id?: string })._id || '')))
+            : backendRows;
+        setCandidates(pinned);
         hasLoadedCandidatesOnceRef.current = true;
-        setTotalEntries(total);
+        setTotalEntries(idSet.size > 0 ? pinned.length : total);
         writeCandidatesListCache({
           tab: activeListTab,
           page: activePage,
           pageSize,
           search: debouncedSearch || '',
           filterSig: candidatesFilterSig,
-          totalEntries: total,
-          candidates: mapped,
+          totalEntries: idSet.size > 0 ? pinned.length : total,
+          candidates: pinned,
         });
         setLocationFilterOptions((prev) =>
-          buildLocationFilterOptions(mapped, backendRows, prev),
+          buildLocationFilterOptions(pinned, pinnedBackend, prev),
         );
         if (!silent) {
           setLoading(false);
@@ -1053,7 +1086,7 @@ export function useCandidateList() {
       const total = extractCandidatesPaginationTotal(payload as any, mapped.length);
       paintPage(mapped, backendCandidates, total);
 
-      if (!smartSearchCandidateIds?.length) {
+      if (!smartSearchCandidateIds?.length && !debouncedSearch) {
         const neighbors = [activePage - 1, activePage + 1].filter((p) => p >= 1);
         void Promise.allSettled(
           neighbors.map((p) => {
@@ -1173,6 +1206,7 @@ export function useCandidateList() {
   }, []);
 
   useEffect(() => {
+    if (!smartSearchSessionReady) return;
     const cached = readCandidatesListCache(
       listTab,
       currentPage,
@@ -1181,7 +1215,11 @@ export function useCandidateList() {
       candidatesFilterSig,
     );
     const cachedRows = cached?.data?.candidates;
-    if (Array.isArray(cachedRows) && cachedRows.length > 0) {
+    const canUseCache =
+      !smartSearchCandidateIds.length &&
+      Array.isArray(cachedRows) &&
+      cachedRows.length > 0;
+    if (canUseCache) {
       setCandidates(cachedRows as Candidate[]);
       if (typeof cached?.data?.totalEntries === 'number') {
         setTotalEntries(cached.data.totalEntries);
@@ -1189,8 +1227,8 @@ export function useCandidateList() {
       setLoading(false);
       setTableLoading(false);
     }
-    void loadCandidates({ silent: Boolean(cachedRows?.length) });
-  }, [loadCandidates]);
+    void loadCandidates({ silent: canUseCache });
+  }, [loadCandidates, smartSearchSessionReady, smartSearchCandidateIds.length]);
 
   // Reusable auto-refresh: polls while visible, refreshes on tab focus and on
   // candidate / job-pipeline change events.
@@ -1202,6 +1240,7 @@ export function useCandidateList() {
     events: ['jobportal:candidates-changed', 'jobportal:jobs-changed'],
     intervalMs: 45_000,
     shouldSkip: () =>
+      smartSearchApplyingRef.current ||
       isCandidatesListCacheFresh(
         readCandidatesListCache(
           listTab,
@@ -1267,16 +1306,33 @@ export function useCandidateList() {
         jobId: parsed.jobId || jobChip?.value || '',
         experienceRange: parsed.experienceRange || '',
       });
-      setSmartSearchCandidateIds(
+      const nextIds =
         parsed.matchingCandidateIds && parsed.matchingCandidateIds.length > 0
           ? parsed.matchingCandidateIds
-          : [],
-      );
+          : [];
+      setSmartSearchCandidateIds(nextIds);
+      if (nextIds.length > 0) {
+        writeCandidateSmartSearchSession({
+          ids: nextIds,
+          keywords: parsed.keywords || [],
+          prompt: nextSearch,
+          search: nextSearch,
+          status: parsed.status || statusChip?.value || '',
+          company: parsed.company || '',
+          location: parsed.location || '',
+          jobId: parsed.jobId || jobChip?.value || '',
+          stage: parsed.stage || stageChip?.value || '',
+          experienceRange: parsed.experienceRange || '',
+        });
+      } else {
+        clearCandidateSmartSearchSession();
+      }
     },
     onRemoveKeyword: (removed, remaining) => {
       setCurrentPage(1);
       // IDs were for the previous prompt. Keep using them after chip edits would ignore name/role search.
       setSmartSearchCandidateIds([]);
+      clearCandidateSmartSearchSession();
       if (removed.kind === 'stage') {
         setColumnFilters((prev) => ({ ...prev, stage: '' }));
       }
@@ -1303,6 +1359,21 @@ export function useCandidateList() {
     },
     examples: CANDIDATES_SMART_SEARCH_EXAMPLES,
   });
+  smartSearchApplyingRef.current = candidateSmartSearch.applying;
+
+  useEffect(() => {
+    if (!smartSearchSessionReady) return;
+    const restored = restoredSmartKeywordsRef.current;
+    if (!restored) return;
+    restoredSmartKeywordsRef.current = null;
+    if (restored.keywords.length) {
+      candidateSmartSearch.setActiveKeywords(restored.keywords);
+    }
+    if (restored.prompt) {
+      candidateSmartSearch.setPrompt(restored.prompt);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- restore chips once after session hydrate
+  }, [smartSearchSessionReady]);
 
   const hasToolbarFilters = Boolean(
     smartSearchCandidateIds.length > 0 ||
@@ -1316,18 +1387,22 @@ export function useCandidateList() {
     setFilters({ search: '', status: '' });
     setColumnFilters(EMPTY_CANDIDATE_TABLE_COLUMN_FILTERS);
     setSmartSearchCandidateIds([]);
+    clearCandidateSmartSearchSession();
     candidateSmartSearch.clearSmartSearch();
     setCurrentPage(1);
   }, [candidateSmartSearch]);
 
   const handleSearchInputChange = useCallback(
     (value: string) => {
-      setCurrentPage(1);
-      setFilters((prev) => ({ ...prev, search: value }));
-      if (smartSearchCandidateIds.length > 0 || candidateSmartSearch.activeKeywords.length > 0) {
-        setSmartSearchCandidateIds([]);
-        candidateSmartSearch.clearSmartSearch();
-      }
+      startTransition(() => {
+        setCurrentPage(1);
+        setFilters((prev) => ({ ...prev, search: value }));
+        if (smartSearchCandidateIds.length > 0 || candidateSmartSearch.activeKeywords.length > 0) {
+          setSmartSearchCandidateIds([]);
+          clearCandidateSmartSearchSession();
+          candidateSmartSearch.clearSmartSearch();
+        }
+      });
     },
     [candidateSmartSearch, smartSearchCandidateIds.length],
   );
@@ -1424,10 +1499,11 @@ export function useCandidateList() {
   }, []);
 
   const filteredCandidates = useMemo(() => {
+    if (smartSearchCandidateIds.length > 0) {
+      const allow = new Set(smartSearchCandidateIds);
+      return candidates.filter((candidate) => allow.has(String(candidate.id)));
+    }
     if (candidateSmartSearch.activeKeywords.length === 0) return candidates;
-    // IDs already came from tenant DB + CV fields. A second chip pass on list-row
-    // haystacks dropped people whose match lived in cvSummary / work history.
-    if (smartSearchCandidateIds.length > 0) return candidates;
     return candidates.filter((candidate) =>
       candidateMatchesSmartKeywordChips(
         {

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { SHOW_TABLE_ROW_EDIT_ICON } from '../../../constants/tableUi';
 import {
@@ -12,7 +12,6 @@ import {
   ChevronDown,
   ExternalLink,
   MapPin,
-  Briefcase,
   Trash2,
   Loader2,
   Send,
@@ -37,6 +36,11 @@ import {
   SUBMIT_TO_CLIENT_STAGE_OPTION_LABEL,
   SUBMIT_TO_CLIENT_STAGE_OPTION_VALUE,
 } from '../../../lib/candidateSubmitToClient';
+import {
+  PH2_FIT_ROW_TABLE_CLASS,
+  useFitVisibleTableRows,
+} from '../../../components/layout/ph2FitVisibleTableRows';
+import { AssigneeAvatars } from '../../leads/AssigneeAvatars';
 
 export type { CandidateTableColumnFilters } from './CandidateTableFilters';
 export { EMPTY_CANDIDATE_TABLE_COLUMN_FILTERS } from './CandidateTableFilters';
@@ -225,6 +229,8 @@ export interface Candidate {
   experienceLabel?: string;
   location: string;
   assignedJobs: string[];
+  /** One row per assigned job id (titles may repeat across different jobs). */
+  assignedJobItems?: Array<{ id: string; title: string }>;
   stage: string;
   owner: string;
   lastActivity: string;
@@ -310,7 +316,7 @@ interface CandidateTableProps {
   isColumnVisible?: (columnId: string) => boolean;
 }
 
-export const CandidateTable: React.FC<CandidateTableProps> = ({
+export const CandidateTable: React.FC<CandidateTableProps> = React.memo(({
   candidates,
   selectedIds,
   onToggleSelect,
@@ -338,6 +344,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
   compact = false,
   isColumnVisible = () => true,
 }) => {
+  const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const allSelected = candidates.length > 0 && selectedIds.length === candidates.length;
   const showAiAlertColumn = Boolean(
     workspaceAlertsByEntityId &&
@@ -345,6 +352,8 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
   );
   const show = isColumnVisible;
   const { format: formatLocationCell } = useFormatTableLocationCell();
+  const tableRef = useRef<HTMLTableElement>(null);
+  useFitVisibleTableRows(tableRef, compact, candidates.length);
 
   return (
     <div
@@ -362,10 +371,9 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
         }
       >
         <table
+          ref={tableRef}
           className={`w-max min-w-full border-collapse text-left ${
-            compact
-              ? '[&_th]:!px-2 [&_th]:!py-1.5 [&_td]:!px-2 [&_td]:!py-1.5 [&_th]:first:!pl-3 [&_td]:first:!pl-3'
-              : ''
+            compact ? PH2_FIT_ROW_TABLE_CLASS : ''
           }`}
         >
           <thead className="sticky top-0 z-10">
@@ -415,7 +423,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                 className={`group transition-colors duration-150 hover:bg-indigo-50/50 ${
                   onViewProfile ? 'cursor-pointer' : ''
                 } ${
-                  selectedIds.includes(candidate.id)
+                  selectedIdSet.has(candidate.id)
                     ? 'bg-indigo-50/80 shadow-[inset_3px_0_0_0_rgb(99,102,241)]'
                     : 'even:bg-slate-50/40'
                 }`}
@@ -427,7 +435,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                   >
                     <input
                       type="checkbox"
-                      checked={selectedIds.includes(candidate.id)}
+                      checked={selectedIdSet.has(candidate.id)}
                       onChange={() => onToggleSelect(candidate.id)}
                       className="h-4 w-4 cursor-pointer rounded border-indigo-200 text-indigo-600 focus:ring-indigo-500/30"
                     />
@@ -455,17 +463,15 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                       <button
                         type="button"
                         onClick={() => onViewProfile?.(candidate)}
-                        className="text-left text-sm font-medium text-slate-900 transition-colors hover:text-indigo-700"
+                        className="inline-flex max-w-full items-center gap-1.5 text-left text-sm font-medium text-slate-900 transition-colors hover:text-indigo-700"
                       >
-                        {candidate.name}
-                      </button>
-                      <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                        <span className="truncate">{candidate.name}</span>
                         {candidate.isPhase1Candidate ? (
-                          <span className="rounded-md bg-violet-50 px-1.5 py-0.5 text-xs font-medium uppercase tracking-wide text-violet-700 ring-1 ring-violet-100">
+                          <span className="shrink-0 rounded-md bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-violet-700 ring-1 ring-violet-100">
                             Phase 1
                           </span>
                         ) : null}
-                      </div>
+                      </button>
                     </div>
                   </div>
                 </td>
@@ -531,12 +537,46 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
                 ) : null}
                 {show('assignedJob') ? (
                   <td className="px-3 py-3 sm:px-4 sm:py-3.5">
-                    <div className="inline-flex max-w-[150px] items-center gap-1.5 rounded-lg bg-indigo-50/70 px-2 py-1 text-indigo-800 ring-1 ring-indigo-100">
-                      <Briefcase size={13} className="shrink-0 text-indigo-500" />
-                      <p className="truncate text-xs font-medium">
-                        {candidate.assignedJobs?.[0] || '—'}
-                      </p>
-                    </div>
+                    {(() => {
+                      // Prefer id-based entries so same-named jobs still each get a pill.
+                      const jobItems =
+                        Array.isArray(candidate.assignedJobItems) &&
+                        candidate.assignedJobItems.length > 0
+                          ? candidate.assignedJobItems
+                              .map((row, index) => ({
+                                id: String(row?.id || `${candidate.id}-job-${index}`).trim(),
+                                title: String(row?.title || '').trim() || 'Untitled job',
+                              }))
+                              .filter((row) => row.id)
+                          : (candidate.assignedJobs || [])
+                              .map((title, index) => ({
+                                id: `${candidate.id}-job-${index}`,
+                                title: String(title || '').trim(),
+                              }))
+                              .filter((row) => row.title);
+
+                      if (jobItems.length === 0) {
+                        return (
+                          <span className="text-xs font-medium text-slate-400">—</span>
+                        );
+                      }
+                      // Always show overlapping initials stack (1 job or many) — one circle per job id.
+                      return (
+                        <div
+                          className="inline-flex"
+                          onClick={(event) => event.stopPropagation()}
+                          title={jobItems.map((row) => row.title).join(', ')}
+                        >
+                          <AssigneeAvatars
+                            maxVisible={jobItems.length}
+                            assignees={jobItems.map((row) => ({
+                              id: row.id,
+                              name: row.title,
+                            }))}
+                          />
+                        </div>
+                      );
+                    })()}
                   </td>
                 ) : null}
                 {show('stage') ? (
@@ -810,4 +850,4 @@ export const CandidateTable: React.FC<CandidateTableProps> = ({
       </div>
     </div>
   );
-};
+});

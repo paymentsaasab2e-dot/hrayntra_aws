@@ -4,7 +4,7 @@ import { dedupeCompanyNamedPayload } from '../companyNameKey';
 import type { CreateClientData, CreateLeadData, HqAccountSupportLookup, HqAiCoinPack, HqAiFeature, HqAnalyticsPayload, HqBillingCandidateLedgerPayload, HqBillingEmployerLedgerPayload, HqBillingPayload, HqCandidateBehaviorAnalysis, HqCompanyApiRow, HqCompanyStats, HqCourseCertificate, HqCourseEnrollmentResult, HqCoursePayload, HqCourseRow, HqCourseStats, HqCustomReportRow, HqDemoRequestApiRow, HqDemoStats, HqHelpTicket, HqHelpTicketMessage, HqHelpTicketStats, HqHelpTicketStatus, HqKycInterviewerRow, HqLeadApiRow, HqLeadStats, HqLeadStorageInfo, HqPermissionRow, HqPortalCandidateRow, HqPortalJobRow, HqPortalStats, HqPortalStorageInfo, HqPushJobsToFeedsResult, HqRoleRow, HqSubscriptionPackage, HqSupportTicket, HqSupportTicketMessage, HqSupportTicketPriority, HqSupportTicketStats, HqSupportTicketStatus, HqSyncTenantJobsToPhase1Result, HqTeamMemberRow, HqTeamMemberStatus, HqTeamStats, HqTenantBehaviorAnalysis, HqTenantRow, HqTenantSubscriptionPlan } from './types';
 
 
-export async function apiHqProvisionTenant(body: {
+export type HqProvisionTenantBody = {
   name: string;
   organizationName?: string;
   email: string;
@@ -33,7 +33,9 @@ export async function apiHqProvisionTenant(body: {
     maxJobs?: number | null;
     coins?: number;
   };
-}) {
+};
+
+export async function apiHqProvisionTenant(body: HqProvisionTenantBody) {
   return apiFetch<{
     tenantDbName?: string;
     tenantDatabaseUrl?: string;
@@ -46,6 +48,39 @@ export async function apiHqProvisionTenant(body: {
     user?: { id: string; email: string; loginId: string };
     companyId?: string | null;
   }>('/hq/provision-tenant', { method: 'POST', auth: true, body });
+}
+
+/** Save Create-user form as pending_approval (no login until Approve). */
+export async function apiHqSaveCompanyProvisionDraft(
+  companyId: string,
+  body: HqProvisionTenantBody,
+) {
+  return apiFetch<{ company: HqCompanyApiRow; storage: HqLeadStorageInfo }>(
+    `/hq/companies/${encodeURIComponent(companyId)}/provision-draft`,
+    { method: 'POST', auth: true, body },
+  );
+}
+
+/** Approve pending draft → create tenant + login credentials. */
+export async function apiHqApproveCompanyTenant(companyId: string) {
+  return apiFetch<{
+    tenantDbName?: string;
+    user?: { id: string; email: string; loginId: string };
+    company?: HqCompanyApiRow;
+    companyId?: string | null;
+    credentialEmailSent?: boolean;
+  }>(`/hq/companies/${encodeURIComponent(companyId)}/approve-tenant`, {
+    method: 'POST',
+    auth: true,
+    body: {},
+  });
+}
+
+export async function apiHqRejectCompanyProvisionDraft(companyId: string) {
+  return apiFetch<{ company: HqCompanyApiRow; storage: HqLeadStorageInfo }>(
+    `/hq/companies/${encodeURIComponent(companyId)}/reject-provision`,
+    { method: 'POST', auth: true, body: {} },
+  );
 }
 
 export async function apiHqListPackages() {
@@ -208,6 +243,30 @@ export async function apiHqGrantLeadTrial(
     method: 'POST',
     auth: true,
     body,
+  });
+}
+
+export async function apiHqEndLeadTrial(
+  leadId: string,
+  body: { email?: string; note?: string } = {},
+) {
+  // Never put tenantDbName in the body — HQ auth tokens carry a different
+  // tenant than the trial workspace, and tenantContextMiddleware rejects that.
+  const { email, note } = body;
+  return apiFetch<{
+    ended?: boolean;
+    trialEndsAt?: string | null;
+    email?: string | null;
+    tenantDbName?: string | null;
+    message?: string;
+    lead?: HqLeadApiRow;
+  }>(`/hq/leads/${encodeURIComponent(leadId)}/end-trial`, {
+    method: 'POST',
+    auth: true,
+    body: {
+      ...(email ? { email } : {}),
+      ...(note ? { note } : {}),
+    },
   });
 }
 

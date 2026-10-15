@@ -1,4 +1,4 @@
-import { prisma } from '../config/prisma.js';
+import { getActiveTenantDbName, prisma } from '../config/prisma.js';
 import { buildLeadsListScopeWhere } from './smartSearchLeadContext.service.js';
 import {
   buildJobsListScopeWhere,
@@ -13,6 +13,7 @@ import {
   normalizeEnumToken,
   normalizeInterviewStatusFilter,
   SCHEMA_ENUMS,
+  SEARCH_STOP_WORDS,
 } from './smartSearchSchema.config.js';
 import { buildAssigneeVisibilityOr } from './memberVisibility.service.js';
 import {
@@ -22,6 +23,123 @@ import {
 
 /** When more matches exist, return filters only (avoid huge ?ids= URLs). */
 export const SMART_SEARCH_MAX_IDS_IN_RESPONSE = 500;
+
+const CANDIDATE_COLLECTION = 'candidates';
+const CANDIDATE_TEXT_INDEX = 'candidates_smart_search_text';
+const textIndexReadyByDb = new Map();
+const textIndexBuildByDb = new Map();
+
+const CANDIDATE_TEXT_INDEX_SPEC = {
+  name: CANDIDATE_TEXT_INDEX,
+  key: {
+    firstName: 'text',
+    lastName: 'text',
+    currentTitle: 'text',
+    designation: 'text',
+    currentCompany: 'text',
+    skills: 'text',
+    recruiterSkills: 'text',
+    cvSummary: 'text',
+    city: 'text',
+    location: 'text',
+    preferredLocation: 'text',
+    education: 'text',
+  },
+  default_language: 'english',
+  weights: {
+    skills: 10,
+    recruiterSkills: 8,
+    currentTitle: 8,
+    designation: 7,
+    firstName: 6,
+    lastName: 6,
+    city: 6,
+    location: 6,
+    cvSummary: 4,
+    education: 3,
+    currentCompany: 3,
+  },
+};
+
+function mongoDocId(value) {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  if (value.$oid) return String(value.$oid);
+  return String(value);
+}
+
+function searchTermsFromText(value) {
+  return String(value || '')
+    .trim()
+    .split(/\s+/)
+    .map((term) => term.trim())
+    .filter((term) => term.length >= 2 && !SEARCH_STOP_WORDS.has(term.toLowerCase()));
+}
+
+function kickCandidateSmartSearchTextIndex() {
+  const dbKey = getActiveTenantDbName() || '_default';
+  if (textIndexReadyByDb.get(dbKey) === true) return Promise.resolve(true);
+  if (textIndexBuildByDb.has(dbKey)) return textIndexBuildByDb.get(dbKey);
+  const pending = prisma
+    .$runCommandRaw({
+      createIndexes: CANDIDATE_COLLECTION,
+      indexes: [CANDIDATE_TEXT_INDEX_SPEC],
+    })
+    .then(() => {
+      textIndexReadyByDb.set(dbKey, true);
+      return true;
+    })
+    .catch((err) => {
+      const msg = String(err?.message || err);
+      if (/already exists|IndexOptionsConflict|IndexKeySpecsConflict/i.test(msg)) {
+        textIndexReadyByDb.set(dbKey, true);
+        return true;
+      }
+      console.warn('[smart-search] text index skipped:', msg.split('\n')[0]);
+      textIndexReadyByDb.set(dbKey, false);
+      return false;
+    })
+    .finally(() => {
+      textIndexBuildByDb.delete(dbKey);
+    });
+  textIndexBuildByDb.set(dbKey, pending);
+  return pending;
+}
+
+/** Fire-and-forget: never block a search on createIndexes. */
+export function warmupCandidateSmartSearchTextIndex() {
+  try {
+    void kickCandidateSmartSearchTextIndex();
+  } catch {
+    /* tenant prisma not ready */
+  }
+}
+
+async function ensureCandidateSmartSearchTextIndex() {
+  const dbKey = getActiveTenantDbName() || '_default';
+  if (textIndexReadyByDb.get(dbKey) === true) return true;
+  if (textIndexReadyByDb.get(dbKey) === false) return false;
+  void kickCandidateSmartSearchTextIndex();
+  return true;
+}
+
+function candidateRowHaystack(row) {
+  return [
+    row.firstName,
+    row.lastName,
+    row.email,
+    row.currentTitle,
+    row.designation,
+    row.cvSummary,
+    row.education,
+    row.city,
+    row.country,
+    row.location,
+    ...(Array.isArray(row.skills) ? row.skills : []),
+  ]
+    .map((value) => String(value || '').toLowerCase())
+    .join(' ');
+}
 
 const CANDIDATE_EXPERIENCE_RANGES = {
   '0-2': { min: 0, max: 2 },
@@ -365,24 +483,31 @@ async function queryClientIds(filters, req) {
 }
 
 async function queryCandidateIds(filters, req) {
+  const started = Date.now();
   const andParts = scopeToAndParts(await buildCandidateListScopeWhere(req));
   if (filters.ownerId && isValidObjectId(filters.ownerId)) {
     andParts.push({ assignedToId: filters.ownerId });
   }
-  appendCandidateFilterParts(andParts, filters);
+  const location = String(filters.location || '').trim();
+  const company = String(filters.company || '').trim();
+  const jobId = String(filters.jobId || '').trim();
   const searchText = String(filters.searchText || '').trim();
-  const searchFilter = buildSchemaTextSearchWhere('candidates', searchText);
-  if (searchFilter) andParts.push(searchFilter);
+  // Keep equality filters (stage/job/owner). Fold location/company into $text — contains COLLSCAN will not scale.
+  appendCandidateFilterParts(andParts, { ...filters, location: '', company: '' });
+  const extraText = [location, company, jobId && !isValidObjectId(jobId) ? jobId : '']
+    .filter(Boolean)
+    .join(' ');
+  const combinedSearch = [searchText, extraText].filter(Boolean).join(' ').trim();
+  const terms = searchTermsFromText(combinedSearch);
+  const searchFilter = buildSchemaTextSearchWhere('candidates', combinedSearch);
   const hasStructured =
     Boolean(filters.ownerId && isValidObjectId(filters.ownerId)) ||
     Boolean(String(filters.status || '').trim()) ||
     Boolean(String(filters.stage || '').trim()) ||
-    Boolean(String(filters.company || '').trim()) ||
-    Boolean(String(filters.location || '').trim()) ||
-    Boolean(String(filters.jobId || '').trim()) ||
     Boolean(String(filters.source || '').trim()) ||
+    Boolean(jobId && isValidObjectId(jobId)) ||
     Boolean(String(filters.experienceRange || '').trim());
-  if (!searchFilter && !hasStructured) {
+  if (!searchFilter && !hasStructured && !location && !company) {
     return [];
   }
 
@@ -400,34 +525,109 @@ async function queryCandidateIds(filters, req) {
     country: true,
     createdAt: true,
   };
-  // No orderBy: regex + sort-all-matches is what made warehouse take ~2.5 minutes.
+
+  const rankRows = (rows, needle) =>
+    rows
+      .map((row) => ({
+        id: row.id,
+        score: scoreFieldRelevance(needle, {
+          primary: `${row.firstName || ''} ${row.lastName || ''}`.trim() || row.email,
+          secondary: [
+            row.email,
+            row.currentTitle,
+            row.designation,
+            ...(Array.isArray(row.skills) ? row.skills : []),
+          ],
+          tertiary: [row.cvSummary, row.education, row.city, row.country],
+        }),
+        createdAt: row.createdAt,
+      }))
+      .sort((a, b) => compareRelevanceThenDate(a.score, b.score, a.createdAt, b.createdAt))
+      .map((row) => row.id);
+
+  const useTextIndex = terms.length > 0 && (await ensureCandidateSmartSearchTextIndex());
+  if (useTextIndex) {
+    try {
+      const quoted = terms.map((term) => `"${term.replace(/"/g, '')}"`).join(' ');
+      const raw = await prisma.$runCommandRaw({
+        find: CANDIDATE_COLLECTION,
+        filter: {
+          isDeleted: { $ne: true },
+          $text: { $search: quoted },
+        },
+        projection: {
+          _id: 1,
+          firstName: 1,
+          lastName: 1,
+          email: 1,
+          currentTitle: 1,
+          designation: 1,
+          cvSummary: 1,
+          education: 1,
+          skills: 1,
+          city: 1,
+          country: 1,
+          location: 1,
+          createdAt: 1,
+        },
+        limit: 2000,
+      });
+      const batch = raw?.cursor?.firstBatch || [];
+      const needles = terms.map((term) => term.toLowerCase());
+      let mapped = batch
+        .map((row) => ({
+          id: mongoDocId(row._id),
+          firstName: row.firstName,
+          lastName: row.lastName,
+          email: row.email,
+          currentTitle: row.currentTitle,
+          designation: row.designation,
+          cvSummary: row.cvSummary,
+          education: row.education,
+          skills: row.skills,
+          city: row.city,
+          country: row.country,
+          location: row.location,
+          createdAt: row.createdAt,
+        }))
+        .filter((row) => row.id && needles.every((needle) => candidateRowHaystack(row).includes(needle)));
+
+      if (mapped.length) {
+        const scoped = await prisma.candidate.findMany({
+          where: {
+            AND: [{ id: { in: mapped.map((row) => row.id) } }, ...andParts],
+          },
+          select: { id: true },
+        });
+        const allowed = new Set(scoped.map((row) => String(row.id)));
+        mapped = mapped.filter((row) => allowed.has(String(row.id)));
+      }
+
+      const ids = rankRows(mapped, combinedSearch).slice(0, SMART_SEARCH_MAX_IDS_IN_RESPONSE);
+      console.info('[smart-search] candidate $text', {
+        terms,
+        hits: batch.length,
+        afterAnd: mapped.length,
+        ids: ids.length,
+        ms: Date.now() - started,
+      });
+      return ids;
+    } catch (err) {
+      console.warn('[smart-search] $text fallback to contains:', String(err?.message || err).split('\n')[0]);
+    }
+  }
+
+  if (searchFilter) andParts.push(searchFilter);
   const rows = await prisma.candidate.findMany({
     where: buildWhereFromAndParts(andParts),
     select: candidateSearchSelect,
     take: SMART_SEARCH_MAX_IDS_IN_RESPONSE,
   });
 
-  if (!searchText) {
+  if (!combinedSearch) {
     return rows.map((row) => row.id);
   }
-
-  return rows
-    .map((row) => ({
-      id: row.id,
-      score: scoreFieldRelevance(searchText, {
-        primary: `${row.firstName || ''} ${row.lastName || ''}`.trim() || row.email,
-        secondary: [
-          row.email,
-          row.currentTitle,
-          row.designation,
-          ...(Array.isArray(row.skills) ? row.skills : []),
-        ],
-        tertiary: [row.cvSummary, row.education, row.city, row.country],
-      }),
-      createdAt: row.createdAt,
-    }))
-    .sort((a, b) => compareRelevanceThenDate(a.score, b.score, a.createdAt, b.createdAt))
-    .map((row) => row.id);
+  return rankRows(rows, combinedSearch);
 }
 
 async function queryInterviewIds(filters, req) {

@@ -18,6 +18,7 @@ import {
   mapCandidateCommonRowToCandidate,
   applyProfileSnapshotFields,
 } from '../../services/candidateCommon/candidateCommonPool.service.js';
+import { warmupCandidateSmartSearchTextIndex } from '../../services/smartSearchDbQuery.service.js';
 import {
   PIPELINE_STAGES,
   mapStageNameToPipelineBucket,
@@ -236,14 +237,11 @@ function resolveCandidateAssignedJobTitlesForList(
     if (!orderedIds.includes(id)) orderedIds.push(id);
   }
 
+  // One title per job id — keep duplicates when different jobs share the same name.
   const titles = [];
-  const seen = new Set();
   for (const jobId of orderedIds) {
     const label = resolveJobTitleFromCandidateRelations(candidate, jobId, jobsById);
-    if (label && !seen.has(label)) {
-      seen.add(label);
-      titles.push(label);
-    }
+    titles.push(label || 'Untitled job');
   }
   return titles;
 }
@@ -810,6 +808,12 @@ function classifyCandidateSearch(search) {
     if (tokenCount >= 2 && tokenCount <= 3) return { kind: 'name', term, normalized };
   }
   return { kind: 'general', term, normalized };
+}
+
+/** Keyword/CV search cannot use updatedAt sort — regex + sort-all is a multi-minute COLLSCAN. */
+function candidateListFindOrderBy(search) {
+  if (classifyCandidateSearch(search).kind === 'general') return null;
+  return [{ updatedAt: 'desc' }, { createdAt: 'desc' }];
 }
 
 function buildCandidateSearchWhereClause(search) {
@@ -5175,6 +5179,7 @@ export const candidateService = {
   },
 
   async getAll(req) {
+    warmupCandidateSmartSearchTextIndex();
     const pagination = getPaginationParams(req);
     // Prefer batches ≤100 for list UX; allow larger for export via env override.
     const page = pagination.page;
@@ -5225,22 +5230,23 @@ export const candidateService = {
     }
 
     const andParts = [];
-    if (ids) {
-      const idList = String(ids)
-        .split(',')
-        .map((value) => value.trim())
-        .filter((value) => /^[a-fA-F0-9]{24}$/.test(value));
-      if (idList.length) {
-        andParts.push({ id: { in: idList } });
-      }
+    const requestedIds = [
+      ...new Set(
+        String(ids || '')
+          .split(',')
+          .map((value) => value.trim())
+          .filter((value) => /^[a-fA-F0-9]{24}$/.test(value)),
+      ),
+    ].slice(0, 500);
+    if (requestedIds.length) {
+      andParts.push({ id: { in: requestedIds } });
     }
     // Recycle Bin: hide soft-deleted rows from the normal Candidates page.
     // `not: true` matches false, null, and missing-field documents (legacy rows from before
     // the soft-delete column existed) without tripping Prisma's "Argument isDeleted is missing".
     andParts.push({ isDeleted: { not: true } });
-    // Drop Phase 1 rows whose only assignedJobs are other-tenant ids (cross-tenant pollution).
-    // Keep pure discovery (empty assignedJobs) for All+commonPool; My still gates via mine scope.
-    if (tenantJobIdSet && tenantJobIdSet.size > 0) {
+    // Smart Search / ?ids= is an exact lookup. Extra list scopes drop valid matches.
+    if (!requestedIds.length && tenantJobIdSet && tenantJobIdSet.size > 0) {
       const tenantJobIds = Array.from(tenantJobIdSet)
         .map((id) => String(id || '').trim())
         .filter(Boolean)
@@ -5257,7 +5263,7 @@ export const candidateService = {
     }
     // Phase 1 discovery rows (no job link) appear on "All candidates" via includeCommonPool + candidatecommon merge.
     // My uses buildMineCandidatesScope: created/assigned to me, or applied/assigned to accessible jobs.
-    if (!loadCommonPool && !mine) {
+    if (!requestedIds.length && !loadCommonPool && !mine) {
       andParts.push(buildCrmCandidatesListScopeClause());
     }
     const superAdminScope = buildSuperAdminOwnerScope(req, ['createdById', 'assignedToId']);
@@ -5267,28 +5273,30 @@ export const candidateService = {
     // - applied or assigned to jobs I can access (personal jobs, or all tenant jobs when view-all)
     // Do NOT also AND with the legacy super-admin owner scope, otherwise
     // candidates applied on my jobs but not directly assigned/created get excluded.
-    if (mine && req.user?.id) {
-      andParts.push(await buildMineCandidatesScope(req.user.id, myJobIds));
-    } else if (superAdminScope) {
-      andParts.push(superAdminScope);
-    } else if (!canViewAllCandidates && req.user?.id) {
-      const org = await getRequestOrgScope(req);
-      if (!isOrgHeadPurpose(org)) {
-        andParts.push(await buildCandidateListVisibilityScope(req));
+    if (!requestedIds.length) {
+      if (mine && req.user?.id) {
+        andParts.push(await buildMineCandidatesScope(req.user.id, myJobIds));
+      } else if (superAdminScope) {
+        andParts.push(superAdminScope);
+      } else if (!canViewAllCandidates && req.user?.id) {
+        const org = await getRequestOrgScope(req);
+        if (!isOrgHeadPurpose(org)) {
+          andParts.push(await buildCandidateListVisibilityScope(req));
+        }
       }
+      // Company org filter is for All/shared lists. Applying it on top of mine=true can
+      // wipe Super Admin My Candidates when personal ownership is empty/untagged.
+      if (!mine) {
+        const orgScope = await applyOrgCompanyAssigneeWhere(req, {
+          assignedToIdField: 'assignedToId',
+          createdByField: 'createdById',
+        });
+        if (orgScope) andParts.push(orgScope);
+      }
+      const searchClause = buildCandidateSearchWhereClause(search);
+      if (searchClause) andParts.push(searchClause);
+      await appendCandidateListFilterAndParts(andParts, listFilters);
     }
-    // Company org filter is for All/shared lists. Applying it on top of mine=true can
-    // wipe Super Admin My Candidates when personal ownership is empty/untagged.
-    if (!mine) {
-      const orgScope = await applyOrgCompanyAssigneeWhere(req, {
-        assignedToIdField: 'assignedToId',
-        createdByField: 'createdById',
-      });
-      if (orgScope) andParts.push(orgScope);
-    }
-    const searchClause = buildCandidateSearchWhereClause(search);
-    if (searchClause) andParts.push(searchClause);
-    await appendCandidateListFilterAndParts(andParts, listFilters);
     if (andParts.length) {
       where.AND = andParts;
     }
@@ -5370,7 +5378,8 @@ export const candidateService = {
     // My candidates: tenant CRM only (true skip/take).
     // All candidates with Phase 1 enabled (loadCommonPool): always merge candidatecommon
     // so every verified Phase 1 profile appears — not only rows already copied into the tenant DB.
-    const useMultiSourceMerge = !mine && (Boolean(loadCommonPool) || livePortalMerge);
+    const useMultiSourceMerge =
+      !requestedIds.length && !mine && (Boolean(loadCommonPool) || livePortalMerge);
 
     if (useMultiSourceMerge) {
       // Bounded k-way merge for All candidates (tenant + optional portal + common pool).
@@ -5415,11 +5424,12 @@ export const candidateService = {
         return value;
       });
 
+      const tenantListOrderBy = candidateListFindOrderBy(search);
       const tenantPromise = prisma.candidate
         .findMany({
           where,
           select: candidateListIndexSelect,
-          orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+          ...(tenantListOrderBy ? { orderBy: tenantListOrderBy } : {}),
           take: K,
         })
         .then((rows) => {
@@ -5553,7 +5563,7 @@ export const candidateService = {
             prisma.candidate.findMany({
               where,
               include: candidateListInclude,
-              orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+              ...(candidateListFindOrderBy(search) ? { orderBy: candidateListFindOrderBy(search) } : {}),
               skip,
               take: limit,
             }),
@@ -5593,7 +5603,9 @@ export const candidateService = {
         prisma.candidate.findMany({
           where,
           select: { id: true },
-          orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+          ...(candidateListFindOrderBy(search)
+            ? { orderBy: candidateListFindOrderBy(search) }
+            : {}),
           skip,
           take: limit,
         }),
@@ -5616,7 +5628,7 @@ export const candidateService = {
     }
 
     // Strip cross-tenant pollution: rows whose only job links belong to another tenant.
-    if (tenantJobIdSet && candidates.length) {
+    if (!requestedIds.length && tenantJobIdSet && candidates.length) {
       const before = candidates.length;
       candidates = candidates.filter(
         (row) => !candidateHasOnlyForeignTenantJobLinks(row, tenantJobIdSet),
@@ -5689,6 +5701,27 @@ export const candidateService = {
           })();
         }
       }
+    }
+
+    if (requestedIds.length) {
+      const byId = new Map(candidates.map((row) => [String(row.id), row]));
+      const missing = requestedIds.filter((id) => !byId.has(id));
+      if (missing.length && loadCommonPool) {
+        try {
+          const commonRows = await fetchCandidateCommonForCandidatesList(req, { ids: missing });
+          for (const row of commonRows || []) {
+            const id = String(row.id || '').trim();
+            if (id && !byId.has(id)) byId.set(id, row);
+          }
+        } catch (err) {
+          console.warn(
+            '[candidate.service] smart-search ids common lookup skipped:',
+            err?.message || err,
+          );
+        }
+      }
+      candidates = requestedIds.map((id) => byId.get(id)).filter(Boolean);
+      total = candidates.length;
     }
 
     // Resolve linked job ids (assign, apply, pipeline, match, interview) into titles for list UI.
