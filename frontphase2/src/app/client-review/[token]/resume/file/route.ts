@@ -136,14 +136,14 @@ export async function GET(
   const withDisposition = (filename: string, inline: boolean) =>
     `${inline && !forceDownload ? 'inline' : 'attachment'}; filename="${filename}"`;
 
-  // Watermarked Word Online shell (preview) — Office fetches raw DOCX via the same path without view=.
+  // Word Online shell (preview) — watermark is a fixed overlay on the parent resume page.
   if (viewOffice && !wantPdf) {
-    const watermark = await fetchPublicReviewWatermark(req, token);
     const origin = publicRequestOrigin(req);
     const docxQs = new URLSearchParams();
     if (matchId) docxQs.set('matchId', matchId);
     if (source) docxQs.set('source', source);
     if (formatHint) docxQs.set('format', formatHint);
+    docxQs.set('preview', '1');
     const docxPublicUrl = `${origin}/client-review/${encodeURIComponent(token)}/resume/file${
       docxQs.toString() ? `?${docxQs.toString()}` : ''
     }`;
@@ -153,22 +153,14 @@ export async function GET(
     const html = buildOfficeOnlineResumeShellHtml({
       docxPublicUrl,
       title: 'Candidate resume',
-      watermark: watermarkHasVisibleContent(watermark)
-        ? {
-            enabled: true,
-            text: watermark?.text,
-            imageDataUrl: watermark?.imageDataUrl,
-            imageUrl: watermark?.imageUrl,
-            opacity: watermark?.opacity,
-          }
-        : null,
+      watermark: null,
       fallbackPreviewUrl,
     });
     return new NextResponse(html, {
       status: 200,
       headers: {
         'Content-Type': 'text/html; charset=utf-8',
-        'Cache-Control': 'private, max-age=60',
+        'Cache-Control': 'no-store',
       },
     });
   }

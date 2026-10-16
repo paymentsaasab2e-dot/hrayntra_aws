@@ -26,11 +26,60 @@ function isOfficeOnlineBlockedHost(hostname: string): boolean {
   );
 }
 
+/** Fixed tiled marks — visible on every viewport "page" without scrolling away. */
+function FloatingResumeWatermark({
+  text,
+  logo,
+  opacity,
+}: {
+  text: string;
+  logo: string;
+  opacity: number;
+}) {
+  const tiles = useMemo(
+    () =>
+      Array.from({ length: 9 }, (_, index) => ({
+        id: index,
+        top: `${12 + (index % 3) * 32}%`,
+        left: `${10 + Math.floor(index / 3) * 32}%`,
+      })),
+    [],
+  );
+
+  return (
+    <div
+      className="pointer-events-none absolute inset-0 z-30 overflow-hidden"
+      aria-hidden="true"
+    >
+      {tiles.map((tile) => (
+        <div
+          key={tile.id}
+          className="absolute flex -translate-x-1/2 -translate-y-1/2 -rotate-[32deg] flex-col items-center gap-2"
+          style={{ top: tile.top, left: tile.left, opacity }}
+        >
+          {logo ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={logo}
+              alt=""
+              className="max-h-16 max-w-[min(28vw,160px)] object-contain"
+            />
+          ) : null}
+          {text ? (
+            <span className="whitespace-nowrap text-[clamp(1.1rem,3.6vw,2.4rem)] font-extrabold tracking-[0.08em] text-slate-400">
+              {text}
+            </span>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /**
  * Public client-review resume page.
- * Word: Office Online shell on public hosts; PDF convert on localhost.
- * Floating CSS watermark for PDF/native preview; Office shell paints its own.
- * Download: watermarked PDF (`as=pdf&download=1`).
+ * Preview: clean PDF/DOCX + fixed floating watermark (does not scroll with pages).
+ * Download: watermark stamped into the PDF file.
  */
 export default function ClientReviewResumePage() {
   const params = useParams<{ token: string }>();
@@ -46,7 +95,6 @@ export default function ClientReviewResumePage() {
   const [watermark, setWatermark] = useState<ExportWatermarkSettings | null>(null);
   // Build iframe src only after mount to avoid SSR/client hostname hydration mismatch.
   const [previewUrl, setPreviewUrl] = useState('');
-  const [useFloatingWatermark, setUseFloatingWatermark] = useState(false);
 
   useEffect(() => {
     if (!token) return;
@@ -96,30 +144,29 @@ export default function ClientReviewResumePage() {
   useEffect(() => {
     if (!fileUrl) {
       setPreviewUrl('');
-      setUseFloatingWatermark(false);
       return;
     }
     if (!isWord) {
-      setPreviewUrl(fileUrl);
-      setUseFloatingWatermark(true);
+      // Bust any previously cached stamped PDF from older builds.
+      const sep = fileUrl.includes('?') ? '&' : '?';
+      setPreviewUrl(`${fileUrl}${sep}preview=1`);
       return;
     }
     const officeBlocked = isOfficeOnlineBlockedHost(window.location.hostname);
     try {
       const url = new URL(fileUrl, window.location.origin);
+      url.searchParams.set('preview', '1');
       if (officeBlocked) {
         url.searchParams.set('as', 'pdf');
-        setUseFloatingWatermark(true);
       } else {
         url.searchParams.set('view', 'office');
-        // Office shell HTML paints its own fixed overlay.
-        setUseFloatingWatermark(false);
       }
       setPreviewUrl(`${url.pathname}${url.search}`);
     } catch {
       const sep = fileUrl.includes('?') ? '&' : '?';
-      setPreviewUrl(`${fileUrl}${sep}${officeBlocked ? 'as=pdf' : 'view=office'}`);
-      setUseFloatingWatermark(officeBlocked);
+      setPreviewUrl(
+        `${fileUrl}${sep}preview=1&${officeBlocked ? 'as=pdf' : 'view=office'}`,
+      );
     }
   }, [fileUrl, isWord]);
 
@@ -129,6 +176,7 @@ export default function ClientReviewResumePage() {
     try {
       const url = new URL(fileUrl, 'https://local.invalid');
       url.searchParams.delete('view');
+      url.searchParams.delete('preview');
       if (isWord) url.searchParams.set('as', 'pdf');
       url.searchParams.set('download', '1');
       return `${url.pathname}${url.search}`;
@@ -141,10 +189,8 @@ export default function ClientReviewResumePage() {
   const wmLogo = String(watermark?.imageDataUrl || watermark?.imageUrl || '').trim();
   const wmText = String(watermark?.text || '').trim();
   const showClientOverlay =
-    useFloatingWatermark &&
-    Boolean(watermark?.enabled) &&
-    (Boolean(wmText) || Boolean(wmLogo));
-  const wmOpacity = Math.min(0.4, Math.max(0.08, Number(watermark?.opacity) || 0.18));
+    Boolean(watermark?.enabled) && (Boolean(wmText) || Boolean(wmLogo));
+  const wmOpacity = Math.min(0.35, Math.max(0.1, Number(watermark?.opacity) || 0.18));
 
   return (
     <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-slate-100">
@@ -179,31 +225,9 @@ export default function ClientReviewResumePage() {
           />
         )}
 
-        {/* Fixed floating watermark — stays put while the iframe document scrolls. */}
+        {/* Fixed floating watermark over the iframe — stays while CV pages scroll. */}
         {showClientOverlay ? (
-          <div
-            className="pointer-events-none absolute inset-0 z-20 overflow-hidden"
-            aria-hidden="true"
-          >
-            <div
-              className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 -rotate-[32deg] flex-col items-center gap-3"
-              style={{ opacity: wmOpacity }}
-            >
-              {wmLogo ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={wmLogo}
-                  alt=""
-                  className="max-h-28 max-w-[min(60vw,280px)] object-contain"
-                />
-              ) : null}
-              {wmText ? (
-                <span className="whitespace-nowrap text-[clamp(2rem,10vw,5.5rem)] font-extrabold tracking-[0.08em] text-slate-400">
-                  {wmText}
-                </span>
-              ) : null}
-            </div>
-          </div>
+          <FloatingResumeWatermark text={wmText} logo={wmLogo} opacity={wmOpacity} />
         ) : null}
       </main>
     </div>

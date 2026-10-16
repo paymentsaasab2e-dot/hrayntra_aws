@@ -3300,7 +3300,7 @@ export const interviewService = {
 
   async streamPublicClientReviewAsset(
     token,
-    { kind = 'resume', fileId = '', matchId = '', source = '', preview = false } = {},
+    { kind = 'resume', fileId = '', matchId = '', source = '', preview = false, stamp = false } = {},
   ) {
     const access = await resolveClientReviewAccess(token);
     const decoded = access?.decoded;
@@ -3339,9 +3339,10 @@ export const interviewService = {
       const baseName = safeDownloadFilename(
         `${detail?.candidate?.name || 'Candidate'}_${resumeLabel}.${fileExt}`,
       );
-      // Preview uses a fixed floating CSS watermark in the browser — do not bake into PDF pages
-      // or the mark scrolls with the document. Downloads still stamp via the frontend file route.
-      if (preview) {
+      // Never bake watermark into streamed resume bytes. Preview uses a fixed floating CSS
+      // overlay (stays on screen while pages scroll). Downloads are stamped by the frontend
+      // `/resume/file?download=1` route. Optional stamp=true keeps an escape hatch for API clients.
+      if (preview || !stamp) {
         return { ...loaded, filename: baseName };
       }
       try {
