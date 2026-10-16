@@ -78,17 +78,28 @@ export default function ClientReviewResumePage() {
   const href = normalizeResumeHref(fileUrl);
   const isWord = isWordResume(href) || format === 'docx' || format === 'doc';
 
-  /** Word Online HTML shell with tenant watermark baked in server-side. */
+  /** Word: Office Online shell on public hosts; PDF convert on localhost (Office cannot fetch local DOCX). */
   const previewUrl = useMemo(() => {
     if (!fileUrl) return '';
     if (!isWord) return fileUrl;
+    const host =
+      typeof window !== 'undefined' ? window.location.hostname.toLowerCase() : '';
+    const officeBlocked =
+      host === 'localhost' ||
+      host === '127.0.0.1' ||
+      host === '::1' ||
+      host.endsWith('.local');
     try {
       const url = new URL(fileUrl, 'https://local.invalid');
-      url.searchParams.set('view', 'office');
+      if (officeBlocked) {
+        url.searchParams.set('as', 'pdf');
+      } else {
+        url.searchParams.set('view', 'office');
+      }
       return `${url.pathname}${url.search}`;
     } catch {
       const sep = fileUrl.includes('?') ? '&' : '?';
-      return `${fileUrl}${sep}view=office`;
+      return `${fileUrl}${sep}${officeBlocked ? 'as=pdf' : 'view=office'}`;
     }
   }, [fileUrl, isWord]);
 

@@ -4,6 +4,22 @@ function escapeHtml(value: string): string {
   );
 }
 
+/** Office Online must fetch the DOCX from the public internet — localhost will fail. */
+export function isOfficeOnlineReachableDocUrl(url: string): boolean {
+  try {
+    const parsed = new URL(String(url || '').trim());
+    const host = parsed.hostname.toLowerCase();
+    if (!host || host === 'localhost' || host === '127.0.0.1' || host === '::1') return false;
+    if (host.endsWith('.local') || host.endsWith('.localhost')) return false;
+    if (/^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(host)) return false;
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return false;
+    // Prefer HTTPS for Office Online; still allow http only for non-local hosts.
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export type OfficeOnlineWatermarkOverlay = {
   enabled?: boolean;
   text?: string;
@@ -18,6 +34,9 @@ export type OfficeOnlineWatermarkOverlay = {
  * Full-page Microsoft Office Online embed — closest to Word layout on Linux
  * (LibreOffice reflows multi-column resumes). Optional CSS watermark overlay
  * (text and/or logo) painted above the Office iframe.
+ *
+ * On localhost / private hosts Office Online cannot fetch the DOCX, so we embed
+ * the PDF fallback preview instead.
  */
 export function buildOfficeOnlineResumeShellHtml(options: {
   docxPublicUrl: string;
@@ -26,20 +45,24 @@ export function buildOfficeOnlineResumeShellHtml(options: {
   fallbackPreviewUrl?: string;
 }): string {
   const safeTitle = escapeHtml(options.title || 'Resume');
-  const embedSrc = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(
-    options.docxPublicUrl,
-  )}`;
+  const fallbackRaw = String(options.fallbackPreviewUrl || '').trim();
+  const officeReachable = isOfficeOnlineReachableDocUrl(options.docxPublicUrl);
+  const usePdfEmbed = !officeReachable && Boolean(fallbackRaw);
+  const embedSrc = usePdfEmbed
+    ? fallbackRaw
+    : `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(
+        options.docxPublicUrl,
+      )}`;
   const wm = options.watermark && options.watermark.enabled !== false ? options.watermark : null;
   const wmTextRaw = String(wm?.text || '').trim();
   const wmLogoRaw = String(wm?.imageDataUrl || wm?.imageUrl || '').trim();
-  const hasWm = Boolean(wm && (wmTextRaw || wmLogoRaw));
+  // PDF fallback is already stamped server-side — skip CSS overlay to avoid double watermark.
+  const hasWm = Boolean(wm && (wmTextRaw || wmLogoRaw) && !usePdfEmbed);
   const wmText = escapeHtml(wmTextRaw);
   const wmLogo = escapeHtml(wmLogoRaw);
   const wmOpacity = Math.min(0.4, Math.max(0.08, Number(wm?.opacity) || 0.18));
   const wmColor = escapeHtml(String(wm?.color || '#94a3b8'));
-  const fallback = options.fallbackPreviewUrl
-    ? escapeHtml(options.fallbackPreviewUrl)
-    : '';
+  const fallback = !usePdfEmbed && fallbackRaw ? escapeHtml(fallbackRaw) : '';
 
   const wmInner = hasWm
     ? `<div class="wm-inner">
@@ -124,6 +147,19 @@ export function buildOfficeOnlineResumeShellHtml(options: {
         text-decoration: none;
         font-weight: 600;
       }
+      .local-note {
+        position: absolute;
+        left: 12px;
+        bottom: 12px;
+        z-index: 30;
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        font-size: 11px;
+        color: #475569;
+        background: rgba(255,255,255,0.92);
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        padding: 6px 10px;
+      }
     </style>
   </head>
   <body>
@@ -134,6 +170,11 @@ export function buildOfficeOnlineResumeShellHtml(options: {
         allowfullscreen
       ></iframe>
       ${hasWm ? `<div class="wm" aria-hidden="true">${wmInner}</div>` : ''}
+      ${
+        usePdfEmbed
+          ? `<div class="local-note">Local preview (PDF) — Office Online cannot open localhost files</div>`
+          : ''
+      }
       ${
         fallback
           ? `<div class="fallback"><a href="${fallback}">Open PDF preview</a></div>`
