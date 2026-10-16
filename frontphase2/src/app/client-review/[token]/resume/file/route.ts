@@ -120,8 +120,10 @@ export async function GET(
       .trim()
       .toLowerCase() === 'true';
 
-  // Downloads must always go through PDF + stamp (never raw Word without watermark).
-  const wantStampedPdf = asPdf || forceDownload;
+  // Preview: convert Word→PDF without baking watermark (floating CSS overlay stays fixed).
+  // Download: always PDF + stamp so the saved file keeps the watermark.
+  const wantPdf = asPdf || forceDownload;
+  const stampIntoPdf = forceDownload;
 
   const params = new URLSearchParams();
   if (matchId) params.set('matchId', matchId);
@@ -133,7 +135,7 @@ export async function GET(
     `${inline && !forceDownload ? 'inline' : 'attachment'}; filename="${filename}"`;
 
   // Watermarked Word Online shell (preview) — Office fetches raw DOCX via the same path without view=.
-  if (viewOffice && !wantStampedPdf) {
+  if (viewOffice && !wantPdf) {
     const watermark = await fetchPublicReviewWatermark(req, token);
     const origin = publicRequestOrigin(req);
     const docxQs = new URLSearchParams();
@@ -202,7 +204,7 @@ export async function GET(
       formatHint === 'doc';
 
     // Raw Word bytes for Office Online (no download / no PDF conversion).
-    if (wasWord && !isPdfBuffer(bytes) && !wantStampedPdf) {
+    if (wasWord && !isPdfBuffer(bytes) && !wantPdf) {
       contentType = wordContentType(disposition, formatHint);
       const ext = formatHint === 'doc' ? 'doc' : 'docx';
       disposition = withDisposition(`Resume.${ext}`, true);
@@ -217,7 +219,7 @@ export async function GET(
       });
     }
 
-    if (wasWord && !isPdfBuffer(bytes) && wantStampedPdf) {
+    if (wasWord && !isPdfBuffer(bytes) && wantPdf) {
       try {
         const pdf = await convertWordResumeToPdf(new Uint8Array(bytes));
         bytes = Buffer.from(pdf);
@@ -236,9 +238,12 @@ export async function GET(
     }
 
     if (isPdfBuffer(bytes)) {
-      const watermark = await fetchPublicReviewWatermark(req, token);
-      if (watermarkHasVisibleContent(watermark)) {
-        bytes = Buffer.from(await stampPdfBufferWithExportWatermark(bytes, watermark));
+      // Bake watermark only into downloads so on-screen preview can use a fixed floating overlay.
+      if (stampIntoPdf) {
+        const watermark = await fetchPublicReviewWatermark(req, token);
+        if (watermarkHasVisibleContent(watermark)) {
+          bytes = Buffer.from(await stampPdfBufferWithExportWatermark(bytes, watermark));
+        }
       }
       contentType = 'application/pdf';
       disposition = withDisposition('Resume.pdf', true);

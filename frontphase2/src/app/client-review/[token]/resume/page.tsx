@@ -15,9 +15,21 @@ function resolvePublicReviewApiBase() {
   return isLocal ? LOCAL_API_BASE : PROD_PROXY_BASE;
 }
 
+function isOfficeOnlineBlockedHost(hostname: string): boolean {
+  const host = String(hostname || '').toLowerCase();
+  return (
+    host === 'localhost' ||
+    host === '127.0.0.1' ||
+    host === '::1' ||
+    host.endsWith('.local') ||
+    host.endsWith('.localhost')
+  );
+}
+
 /**
  * Public client-review resume page.
- * Word: Office Online shell with server-baked tenant watermark (`view=office`).
+ * Word: Office Online shell on public hosts; PDF convert on localhost.
+ * Floating CSS watermark for PDF/native preview; Office shell paints its own.
  * Download: watermarked PDF (`as=pdf&download=1`).
  */
 export default function ClientReviewResumePage() {
@@ -32,6 +44,9 @@ export default function ClientReviewResumePage() {
 
   const apiBase = useMemo(() => resolvePublicReviewApiBase(), []);
   const [watermark, setWatermark] = useState<ExportWatermarkSettings | null>(null);
+  // Build iframe src only after mount to avoid SSR/client hostname hydration mismatch.
+  const [previewUrl, setPreviewUrl] = useState('');
+  const [useFloatingWatermark, setUseFloatingWatermark] = useState(false);
 
   useEffect(() => {
     if (!token) return;
@@ -57,7 +72,7 @@ export default function ClientReviewResumePage() {
         const normalized = normalizeExportWatermark(raw);
         setWatermark(normalized.enabled ? normalized : null);
       } catch {
-        /* watermark optional — server shell still stamps when possible */
+        /* watermark optional */
       }
     })();
     return () => {
@@ -78,28 +93,33 @@ export default function ClientReviewResumePage() {
   const href = normalizeResumeHref(fileUrl);
   const isWord = isWordResume(href) || format === 'docx' || format === 'doc';
 
-  /** Word: Office Online shell on public hosts; PDF convert on localhost (Office cannot fetch local DOCX). */
-  const previewUrl = useMemo(() => {
-    if (!fileUrl) return '';
-    if (!isWord) return fileUrl;
-    const host =
-      typeof window !== 'undefined' ? window.location.hostname.toLowerCase() : '';
-    const officeBlocked =
-      host === 'localhost' ||
-      host === '127.0.0.1' ||
-      host === '::1' ||
-      host.endsWith('.local');
+  useEffect(() => {
+    if (!fileUrl) {
+      setPreviewUrl('');
+      setUseFloatingWatermark(false);
+      return;
+    }
+    if (!isWord) {
+      setPreviewUrl(fileUrl);
+      setUseFloatingWatermark(true);
+      return;
+    }
+    const officeBlocked = isOfficeOnlineBlockedHost(window.location.hostname);
     try {
-      const url = new URL(fileUrl, 'https://local.invalid');
+      const url = new URL(fileUrl, window.location.origin);
       if (officeBlocked) {
         url.searchParams.set('as', 'pdf');
+        setUseFloatingWatermark(true);
       } else {
         url.searchParams.set('view', 'office');
+        // Office shell HTML paints its own fixed overlay.
+        setUseFloatingWatermark(false);
       }
-      return `${url.pathname}${url.search}`;
+      setPreviewUrl(`${url.pathname}${url.search}`);
     } catch {
       const sep = fileUrl.includes('?') ? '&' : '?';
-      return `${fileUrl}${sep}${officeBlocked ? 'as=pdf' : 'view=office'}`;
+      setPreviewUrl(`${fileUrl}${sep}${officeBlocked ? 'as=pdf' : 'view=office'}`);
+      setUseFloatingWatermark(officeBlocked);
     }
   }, [fileUrl, isWord]);
 
@@ -120,9 +140,10 @@ export default function ClientReviewResumePage() {
 
   const wmLogo = String(watermark?.imageDataUrl || watermark?.imageUrl || '').trim();
   const wmText = String(watermark?.text || '').trim();
-  // Client-side fallback overlay if Office shell is unavailable (built-in / PDF iframe).
   const showClientOverlay =
-    Boolean(watermark?.enabled) && (Boolean(wmText) || Boolean(wmLogo));
+    useFloatingWatermark &&
+    Boolean(watermark?.enabled) &&
+    (Boolean(wmText) || Boolean(wmLogo));
   const wmOpacity = Math.min(0.4, Math.max(0.08, Number(watermark?.opacity) || 0.18));
 
   return (
@@ -148,7 +169,7 @@ export default function ClientReviewResumePage() {
       <main className="relative min-h-0 flex-1 overflow-hidden">
         {!previewUrl ? (
           <div className="flex h-full items-center justify-center p-6 text-sm text-slate-600">
-            Invalid review link.
+            {token ? 'Loading resume…' : 'Invalid review link.'}
           </div>
         ) : (
           <iframe
@@ -158,8 +179,8 @@ export default function ClientReviewResumePage() {
           />
         )}
 
-        {/* Fallback overlay when watermark only arrives client-side (non-office views). */}
-        {showClientOverlay && !isWord ? (
+        {/* Fixed floating watermark — stays put while the iframe document scrolls. */}
+        {showClientOverlay ? (
           <div
             className="pointer-events-none absolute inset-0 z-20 overflow-hidden"
             aria-hidden="true"

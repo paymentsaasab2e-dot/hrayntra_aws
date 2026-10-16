@@ -56,8 +56,8 @@ export function buildOfficeOnlineResumeShellHtml(options: {
   const wm = options.watermark && options.watermark.enabled !== false ? options.watermark : null;
   const wmTextRaw = String(wm?.text || '').trim();
   const wmLogoRaw = String(wm?.imageDataUrl || wm?.imageUrl || '').trim();
-  // PDF fallback is already stamped server-side — skip CSS overlay to avoid double watermark.
-  const hasWm = Boolean(wm && (wmTextRaw || wmLogoRaw) && !usePdfEmbed);
+  // Fixed CSS overlay for both Office Online and local PDF embed (preview PDFs are not stamped).
+  const hasWm = Boolean(wm && (wmTextRaw || wmLogoRaw));
   const wmText = escapeHtml(wmTextRaw);
   const wmLogo = escapeHtml(wmLogoRaw);
   const wmOpacity = Math.min(0.4, Math.max(0.08, Number(wm?.opacity) || 0.18));
