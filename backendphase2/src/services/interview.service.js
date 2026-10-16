@@ -3298,7 +3298,10 @@ export const interviewService = {
       : withWatermark;
   },
 
-  async streamPublicClientReviewAsset(token, { kind = 'resume', fileId = '', matchId = '', source = '' } = {}) {
+  async streamPublicClientReviewAsset(
+    token,
+    { kind = 'resume', fileId = '', matchId = '', source = '', preview = false } = {},
+  ) {
     const access = await resolveClientReviewAccess(token);
     const decoded = access?.decoded;
     if (!decoded?.interviewId && !decoded?.matchId) {
@@ -3336,6 +3339,11 @@ export const interviewService = {
       const baseName = safeDownloadFilename(
         `${detail?.candidate?.name || 'Candidate'}_${resumeLabel}.${fileExt}`,
       );
+      // Preview uses a fixed floating CSS watermark in the browser — do not bake into PDF pages
+      // or the mark scrolls with the document. Downloads still stamp via the frontend file route.
+      if (preview) {
+        return { ...loaded, filename: baseName };
+      }
       try {
         const { getPublicClientReviewExportWatermark } = await import(
           '../modules/setting/publicClientReviewWatermark.util.js'

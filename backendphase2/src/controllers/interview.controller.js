@@ -146,17 +146,22 @@ export const interviewController = {
 
   async streamPublicClientReviewResume(req, res) {
     try {
+      const preview =
+        String(req.query.preview || '').trim() === '1' ||
+        String(req.query.preview || '').trim().toLowerCase() === 'true';
       const result = await interviewService.streamPublicClientReviewAsset(req.params.token, {
         kind: 'resume',
         matchId: req.query.matchId,
         source: req.query.source,
+        preview,
       });
       res.setHeader('Content-Type', result.contentType || 'application/pdf');
       res.setHeader(
         'Content-Disposition',
         `inline; filename="${result.filename || 'Resume.pdf'}"`,
       );
-      res.setHeader('Cache-Control', 'private, max-age=120');
+      // Preview bytes must not stay cached as an older stamped PDF.
+      res.setHeader('Cache-Control', preview ? 'no-store' : 'private, max-age=120');
       res.setHeader('Content-Length', String(result.buffer.length));
       return res.status(200).send(result.buffer);
     } catch (error) {

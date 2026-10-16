@@ -128,6 +128,8 @@ export async function GET(
   const params = new URLSearchParams();
   if (matchId) params.set('matchId', matchId);
   if (source) params.set('source', source);
+  // Ask API for clean bytes on screen preview; we stamp only when downloading.
+  if (!forceDownload) params.set('preview', '1');
   const query = params.toString() ? `?${params.toString()}` : '';
   const target = `${backendApiBase(req)}/interviews/public/review/${encodeURIComponent(token)}/resume${query}`;
 
@@ -213,7 +215,7 @@ export async function GET(
         headers: {
           'Content-Type': contentType,
           'Content-Disposition': disposition,
-          'Cache-Control': 'private, max-age=120',
+          'Cache-Control': forceDownload ? 'private, max-age=120' : 'no-store',
           'Content-Length': String(bytes.length),
         },
       });
@@ -254,7 +256,7 @@ export async function GET(
       headers: {
         'Content-Type': contentType,
         'Content-Disposition': disposition,
-        'Cache-Control': 'private, max-age=120',
+        'Cache-Control': forceDownload ? 'private, max-age=120' : 'no-store',
         'Content-Length': String(bytes.length),
       },
     });
