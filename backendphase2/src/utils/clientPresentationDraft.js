@@ -422,7 +422,9 @@ export function hydrateCandidateForClientReview(candidate) {
       nationality: pickPreferred(pi.nationality, next.nationality),
       gender: pickPreferred(pi.gender, next.gender),
       employment: pickPreferred(pi.employment, next.employment),
-      birthDate: pickPreferred(pi.dob, next.birthDate || next.dob),
+      maritalStatus: pickPreferred(pi.maritalStatus, next.maritalStatus),
+      age: pickPreferred(pi.age, next.age),
+      birthDate: pickPreferred(pi.dob || pi.dateOfBirth || pi.birthDate, next.birthDate || next.dob),
       passportNumber: pickPreferred(pi.passportNumber, next.passportNumber),
       cvSummary: pickPreferred(phase1.summaryText, next.cvSummary),
       cvEducationEntries: pickPreferred(mapPhase1EducationEntries(phase1), next.cvEducationEntries),
@@ -509,7 +511,9 @@ export function candidateFromTenantDbForClientReview(candidate) {
       nationality: pickPreferred(next.nationality, pi.nationality),
       gender: pickPreferred(next.gender, pi.gender),
       employment: pickPreferred(next.employment, pi.employment),
-      birthDate: pickPreferred(next.birthDate || next.dob, pi.dob),
+      maritalStatus: pickPreferred(next.maritalStatus, pi.maritalStatus),
+      age: pickPreferred(next.age, pi.age),
+      birthDate: pickPreferred(next.birthDate || next.dob, pi.dob || pi.dateOfBirth || pi.birthDate),
       passportNumber: pickPreferred(next.passportNumber, pi.passportNumber),
       cvSummary: pickPreferred(next.cvSummary, phase1.summaryText),
       cvEducationEntries: pickPreferred(next.cvEducationEntries, mapPhase1EducationEntries(phase1)),
@@ -652,6 +656,21 @@ function applyTenantStoredProfile(candidate) {
     address: pickPreferred(candidate.address || candidate.addressLine, personalPipe.currentAddress),
     city: pickPreferred(candidate.city, personalPipe.city),
     country: pickPreferred(candidate.country, personalPipe.country),
+    nationality: pickPreferred(candidate.nationality, personalPipe.nationality || extra.nationality),
+    gender: pickPreferred(candidate.gender, personalPipe.gender || extra.gender),
+    maritalStatus: pickPreferred(
+      candidate.maritalStatus,
+      personalPipe.maritalStatus || extra.maritalStatus,
+    ),
+    age: pickPreferred(candidate.age, personalPipe.age || extra.age),
+    birthDate: pickPreferred(
+      candidate.birthDate || candidate.dob,
+      personalPipe.birthDate || extra.dateOfBirth || extra.dob,
+    ),
+    passportNumber: pickPreferred(
+      candidate.passportNumber,
+      personalPipe.passportNumber || extra.passportNumber,
+    ),
     linkedIn: pickPreferred(candidate.linkedIn, socialPipe.linkedIn || extra.linkedIn),
     website: pickPreferred(candidate.website, socialPipe.website || extra.website),
     portfolio: pickPreferred(candidate.portfolio, extra.portfolio || socialPipe.website),
@@ -730,11 +749,16 @@ function buildEditFormFromCandidate(hydrated) {
     ),
     maritalStatus: pickPreferred(
       hydrated.maritalStatus,
-      personalPipe.maritalStatus || extra.maritalStatus,
+      personal.maritalStatus || personalPipe.maritalStatus || extra.maritalStatus,
     ),
     birthDate: pickPreferred(
       hydrated.birthDate || hydrated.dob,
-      personalPipe.birthDate || extra.dateOfBirth || extra.dob || personal.dob,
+      personal.dob ||
+        personal.dateOfBirth ||
+        personal.birthDate ||
+        personalPipe.birthDate ||
+        extra.dateOfBirth ||
+        extra.dob,
     ),
     passportNumber: pickPreferred(
       hydrated.passportNumber,
@@ -748,7 +772,10 @@ function buildEditFormFromCandidate(hydrated) {
       hydrated.currentCompanyWebsite,
       personalPipe.currentCompanyWebsite,
     ),
-    currentCompany: hydrated.currentCompany,
+    currentCompany: pickPreferred(
+      hydrated.currentCompany,
+      formatPrefValue(prefs.currentOrganization || prefs.currentCompany || prefs.company),
+    ),
     currentTitle: hydrated.designation || hydrated.currentTitle || formatPrefValue(prefs.currentRole),
     experience: hydrated.experience,
     education: pickPreferred(hydrated.education, educationPipe.summaryText),
@@ -847,7 +874,7 @@ function buildEditFormFromCandidate(hydrated) {
       hydrated.candidateScore ?? hydrated.score,
       personalPipe.candidateScore,
     ),
-    age: pickPreferred(hydrated.age, personalPipe.age),
+    age: pickPreferred(hydrated.age, personal.age || personalPipe.age || extra.age),
   };
 }
 
