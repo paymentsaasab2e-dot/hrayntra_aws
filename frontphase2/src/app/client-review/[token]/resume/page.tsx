@@ -26,7 +26,7 @@ function isOfficeOnlineBlockedHost(hostname: string): boolean {
   );
 }
 
-/** Fixed tiled marks — visible on every viewport "page" without scrolling away. */
+/** One fixed mark over the viewer — stays put while CV pages scroll. */
 function FloatingResumeWatermark({
   text,
   logo,
@@ -36,42 +36,29 @@ function FloatingResumeWatermark({
   logo: string;
   opacity: number;
 }) {
-  const tiles = useMemo(
-    () =>
-      Array.from({ length: 9 }, (_, index) => ({
-        id: index,
-        top: `${12 + (index % 3) * 32}%`,
-        left: `${10 + Math.floor(index / 3) * 32}%`,
-      })),
-    [],
-  );
-
   return (
     <div
       className="pointer-events-none absolute inset-0 z-30 overflow-hidden"
       aria-hidden="true"
     >
-      {tiles.map((tile) => (
-        <div
-          key={tile.id}
-          className="absolute flex -translate-x-1/2 -translate-y-1/2 -rotate-[32deg] flex-col items-center gap-2"
-          style={{ top: tile.top, left: tile.left, opacity }}
-        >
-          {logo ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={logo}
-              alt=""
-              className="max-h-16 max-w-[min(28vw,160px)] object-contain"
-            />
-          ) : null}
-          {text ? (
-            <span className="whitespace-nowrap text-[clamp(1.1rem,3.6vw,2.4rem)] font-extrabold tracking-[0.08em] text-slate-400">
-              {text}
-            </span>
-          ) : null}
-        </div>
-      ))}
+      <div
+        className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 -rotate-[32deg] flex-col items-center gap-3"
+        style={{ opacity }}
+      >
+        {logo ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={logo}
+            alt=""
+            className="max-h-28 max-w-[min(60vw,280px)] object-contain"
+          />
+        ) : null}
+        {text ? (
+          <span className="whitespace-nowrap text-[clamp(2rem,8vw,4.5rem)] font-extrabold tracking-[0.08em] text-slate-400">
+            {text}
+          </span>
+        ) : null}
+      </div>
     </div>
   );
 }
