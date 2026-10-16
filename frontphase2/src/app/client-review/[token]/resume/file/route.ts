@@ -120,24 +120,25 @@ export async function GET(
       .trim()
       .toLowerCase() === 'true';
 
-  // Preview: convert Word→PDF without baking watermark (floating CSS overlay stays fixed).
-  // Download: always PDF + stamp so the saved file keeps the watermark.
+  // Always convert Word→PDF for preview/download, then stamp one watermark per page
+  // onto the PDF so the mark stays on the document (not a floating overlay over the viewer).
   const wantPdf = asPdf || forceDownload;
-  const stampIntoPdf = forceDownload;
+  const stampIntoPdf = true;
 
   const params = new URLSearchParams();
   if (matchId) params.set('matchId', matchId);
   if (source) params.set('source', source);
-  // Ask API for clean bytes on screen preview; we stamp only when downloading.
-  if (!forceDownload) params.set('preview', '1');
+  // Clean upstream bytes — we stamp once here (logo OR text, one per page).
+  params.set('preview', '1');
   const query = params.toString() ? `?${params.toString()}` : '';
   const target = `${backendApiBase(req)}/interviews/public/review/${encodeURIComponent(token)}/resume${query}`;
 
   const withDisposition = (filename: string, inline: boolean) =>
     `${inline && !forceDownload ? 'inline' : 'attachment'}; filename="${filename}"`;
 
-  // Word Online shell (preview) — watermark is a fixed overlay on the parent resume page.
+  // Word Online shell on public hosts. Localhost uses as=pdf (stamped) instead.
   if (viewOffice && !wantPdf) {
+    const watermark = await fetchPublicReviewWatermark(req, token);
     const origin = publicRequestOrigin(req);
     const docxQs = new URLSearchParams();
     if (matchId) docxQs.set('matchId', matchId);
@@ -153,7 +154,15 @@ export async function GET(
     const html = buildOfficeOnlineResumeShellHtml({
       docxPublicUrl,
       title: 'Candidate resume',
-      watermark: null,
+      watermark: watermarkHasVisibleContent(watermark)
+        ? {
+            enabled: true,
+            text: watermark?.text,
+            imageDataUrl: watermark?.imageDataUrl,
+            imageUrl: watermark?.imageUrl,
+            opacity: watermark?.opacity,
+          }
+        : null,
       fallbackPreviewUrl,
     });
     return new NextResponse(html, {
@@ -232,7 +241,6 @@ export async function GET(
     }
 
     if (isPdfBuffer(bytes)) {
-      // Bake watermark only into downloads so on-screen preview can use a fixed floating overlay.
       if (stampIntoPdf) {
         const watermark = await fetchPublicReviewWatermark(req, token);
         if (watermarkHasVisibleContent(watermark)) {
