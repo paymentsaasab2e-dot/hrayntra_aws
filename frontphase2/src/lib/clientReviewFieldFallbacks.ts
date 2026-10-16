@@ -113,6 +113,101 @@ function isBlankResolvedValue(value: unknown): boolean {
   return !text || text === '—' || text === '-' || text === '[]' || text === '{}';
 }
 
+function decodeBasicHtmlEntities(value: string): string {
+  return String(value || '')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&nbsp;/gi, ' ');
+}
+
+/** Plain text from SAASA CV overlays — used when profile city/country/name were never filled. */
+export function collectClientReviewCvPlainText(
+  detail: ClientReviewData | null | undefined,
+): string {
+  const pages = detail?.saasaCvPreview?.pdfTextLayerHtml;
+  if (!Array.isArray(pages) || !pages.length) return '';
+  const chunks: string[] = [];
+  for (const html of pages) {
+    const raw = String(html || '');
+    for (const match of raw.matchAll(/data-saasa-original="([^"]*)"/gi)) {
+      chunks.push(decodeBasicHtmlEntities(match[1] || ''));
+    }
+    for (const match of raw.matchAll(/>([^<]{2,180})</g)) {
+      chunks.push(decodeBasicHtmlEntities(match[1] || ''));
+    }
+  }
+  return chunks.join('\n');
+}
+
+const KNOWN_COUNTRY_HINTS = [
+  'cameroon',
+  'cameroun',
+  'nigeria',
+  'ghana',
+  'kenya',
+  'uganda',
+  'tanzania',
+  'rwanda',
+  'senegal',
+  'ivory coast',
+  "cote d'ivoire",
+  'south africa',
+  'india',
+  'united arab emirates',
+  'uae',
+  'united states',
+  'usa',
+  'united kingdom',
+  'uk',
+  'france',
+  'germany',
+  'canada',
+];
+
+function looksLikeCountryName(value: string): boolean {
+  const key = String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\./g, '');
+  if (!key || key.length < 2) return false;
+  return KNOWN_COUNTRY_HINTS.some(
+    (hint) => key === hint || key.includes(hint) || hint.includes(key),
+  );
+}
+
+/** Pull City / Country from CV header lines like `Douala,Cameroon(+237)...`. */
+export function inferLocationFromClientReviewCvText(text: string): {
+  city: string;
+  country: string;
+} {
+  const raw = String(text || '');
+  if (!raw.trim()) return { city: '', country: '' };
+
+  const spaced = [
+    ...raw.matchAll(
+      /\b([A-Za-z][A-Za-z .'-]{1,40}),\s*([A-Za-z][A-Za-z .'-]{1,40})\b/g,
+    ),
+  ];
+  const mashed = [...raw.matchAll(/\b([A-Za-z]{3,40}),([A-Za-z]{3,40})\b/g)];
+
+  for (const match of [...spaced, ...mashed]) {
+    const left = String(match[1] || '').trim();
+    const right = String(match[2] || '').trim();
+    if (!left || !right) continue;
+    if (looksLikeCountryName(right)) {
+      return { city: left, country: right };
+    }
+    if (looksLikeCountryName(left)) {
+      return { city: right, country: left };
+    }
+  }
+
+  return { city: '', country: '' };
+}
+
 function formatEntryRows(entries: Array<Record<string, unknown>> | undefined): string {
   if (!Array.isArray(entries) || !entries.length) return '';
   return entries
@@ -277,6 +372,14 @@ export function clientReviewFieldFallbacks(
   const birthDate = String(candidate.birthDate || '').trim();
   const age = storedAge(candidate.age) || ageFromBirthDate(birthDate);
   const extra = candidateExtra(candidate);
+  const cvText = collectClientReviewCvPlainText(detail);
+  const fromCvLocation = inferLocationFromClientReviewCvText(cvText);
+  const city =
+    String(candidate.city || '').trim() ||
+    fromCvLocation.city ||
+    String(extra.currentLocation || '').trim();
+  const country =
+    String(candidate.country || '').trim() || fromCvLocation.country;
 
   return {
     fullName: resolveClientReviewFullName({
@@ -289,9 +392,9 @@ export function clientReviewFieldFallbacks(
     phone: String(candidate.phone || '').trim(),
     age,
     birthDate,
-    city: String(candidate.city || '').trim(),
+    city,
     state: String(candidate.state || '').trim(),
-    country: String(candidate.country || '').trim(),
+    country,
     address: String(candidate.address || '').trim(),
     zip: String(candidate.zip || '').trim(),
     nationality: String(candidate.nationality || '').trim(),

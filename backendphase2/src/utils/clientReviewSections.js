@@ -1418,6 +1418,97 @@ function isOpenableClientResumeHref(value) {
   return /^https?:\/\//i.test(raw) || /\/client-review\/[^/]+\/resume\b/i.test(raw);
 }
 
+function decodeBasicHtmlEntities(value) {
+  return String(value || '')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&nbsp;/gi, ' ');
+}
+
+export function collectSaasaCvPlainText(pdfTextLayerHtml) {
+  if (!Array.isArray(pdfTextLayerHtml) || !pdfTextLayerHtml.length) return '';
+  const chunks = [];
+  for (const html of pdfTextLayerHtml) {
+    const raw = String(html || '');
+    for (const match of raw.matchAll(/data-saasa-original="([^"]*)"/gi)) {
+      chunks.push(decodeBasicHtmlEntities(match[1] || ''));
+    }
+    for (const match of raw.matchAll(/>([^<]{2,180})</g)) {
+      chunks.push(decodeBasicHtmlEntities(match[1] || ''));
+    }
+  }
+  return chunks.join('\n');
+}
+
+const KNOWN_COUNTRY_HINTS = [
+  'cameroon',
+  'cameroun',
+  'nigeria',
+  'ghana',
+  'kenya',
+  'uganda',
+  'tanzania',
+  'rwanda',
+  'senegal',
+  'ivory coast',
+  "cote d'ivoire",
+  'south africa',
+  'india',
+  'united arab emirates',
+  'uae',
+  'united states',
+  'usa',
+  'united kingdom',
+  'uk',
+  'france',
+  'germany',
+  'canada',
+];
+
+function looksLikeCountryName(value) {
+  const key = String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\./g, '');
+  if (!key || key.length < 2) return false;
+  return KNOWN_COUNTRY_HINTS.some(
+    (hint) => key === hint || key.includes(hint) || hint.includes(key),
+  );
+}
+
+export function inferLocationFromCvPlainText(text) {
+  const raw = String(text || '');
+  if (!raw.trim()) return { city: '', country: '' };
+  const spaced = [
+    ...raw.matchAll(/\b([A-Za-z][A-Za-z .'-]{1,40}),\s*([A-Za-z][A-Za-z .'-]{1,40})\b/g),
+  ];
+  const mashed = [...raw.matchAll(/\b([A-Za-z]{3,40}),([A-Za-z]{3,40})\b/g)];
+  for (const match of [...spaced, ...mashed]) {
+    const left = String(match[1] || '').trim();
+    const right = String(match[2] || '').trim();
+    if (!left || !right) continue;
+    if (looksLikeCountryName(right)) return { city: left, country: right };
+    if (looksLikeCountryName(left)) return { city: right, country: left };
+  }
+  return { city: '', country: '' };
+}
+
+/** Fill empty city/country from SAASA CV text (e.g. `Douala,Cameroon` on the header line). */
+export function enrichClientReviewCandidateFromCv(candidate, pdfTextLayerHtml) {
+  const next = candidate && typeof candidate === 'object' ? { ...candidate } : {};
+  const text = collectSaasaCvPlainText(pdfTextLayerHtml);
+  if (!text.trim()) return next;
+
+  const location = inferLocationFromCvPlainText(text);
+  if (!String(next.city || '').trim() && location.city) next.city = location.city;
+  if (!String(next.country || '').trim() && location.country) next.country = location.country;
+
+  return next;
+}
+
 /** Put the recruiter-selected CV URL on the Resume / CV section for client review. */
 export function attachSharedResumeToClientReviewSections(sections, resumeUrl) {
   const url = String(resumeUrl || '').trim();

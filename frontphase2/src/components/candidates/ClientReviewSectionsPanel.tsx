@@ -328,13 +328,29 @@ function expandSectionForVisibleFields(
   if (group) {
     const nextFields = group.fields
       .filter((field) => isFieldIdVisible(field.id, visibleFields) && !omitted.has(field.id))
-      .map((field) => ({
-        id: field.id,
-        label: field.label,
-        value:
-          findExistingFieldValue(section.fields || [], field.id, field.label) ||
-          String(fallbackValues[field.id] || ''),
-      }));
+      .map((field) => {
+        const existing = findExistingFieldValue(
+          section.fields || [],
+          field.id,
+          field.label,
+        );
+        const fallback = String(fallbackValues[field.id] || '');
+        let value = existing || fallback;
+        // Prefer a spaced/fuller name when the saved presentation mashed tokens together.
+        if (field.id === 'fullName' && fallback) {
+          const existingTokens = String(existing || '')
+            .trim()
+            .split(/\s+/)
+            .filter(Boolean).length;
+          const fallbackTokens = fallback.trim().split(/\s+/).filter(Boolean).length;
+          if (fallbackTokens > existingTokens) value = fallback;
+        }
+        return {
+          id: field.id,
+          label: field.label,
+          value,
+        };
+      });
 
     const ageField = nextFields.find((field) => field.id === 'age');
     if (ageField && !String(ageField.value || '').trim()) {
@@ -344,6 +360,15 @@ function expandSectionForVisibleFields(
         findExistingFieldValue(section.fields || [], 'birthDate', 'Birth Date');
       ageField.value = ageFromBirthDate(birthValue);
     }
+
+    // Personal tab: hide blank optional rows (Age / Passport / …) instead of a wall of "Not provided".
+    const displayFields =
+      section.id === 'personal'
+        ? nextFields.filter(
+            (field) =>
+              field.id === 'fullName' || Boolean(String(field.value || '').trim()),
+          )
+        : nextFields;
 
     const entryFields =
       section.id === 'work'
@@ -356,7 +381,7 @@ function expandSectionForVisibleFields(
 
     return {
       ...section,
-      fields: nextFields.map(({ label, value }) => ({ label, value })),
+      fields: displayFields.map(({ label, value }) => ({ label, value })),
       entries: entriesAllowed ? section.entries : undefined,
     };
   }

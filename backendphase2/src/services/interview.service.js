@@ -74,6 +74,7 @@ import {
   parseClientReviewTableColumns,
   hydrateClientReviewSections,
   attachSharedResumeToClientReviewSections,
+  enrichClientReviewCandidateFromCv,
   ageFromBirthDate,
 } from '../utils/clientReviewSections.js';
 import {
@@ -1871,6 +1872,15 @@ async function serializeInterviewForClientReview(
         pdfTextLayerHtml: Array.isArray(saasaBag?.pdfTextLayerHtml) ? saasaBag.pdfTextLayerHtml : null,
       }
     : null;
+  // CV text often has location/contact even when profile fields were left blank at submit.
+  candidateForClient = enrichClientReviewCandidateFromCv(
+    candidateForClient,
+    saasaCvPreview?.pdfTextLayerHtml,
+  );
+  presentationSections = hydrateClientReviewSections(presentationSections, {
+    candidate: candidateForClient,
+    matchScore: resolvedMatchScore,
+  });
   presentationSections = attachSharedResumeToClientReviewSections(
     presentationSections,
     sharedResumeUrl,
