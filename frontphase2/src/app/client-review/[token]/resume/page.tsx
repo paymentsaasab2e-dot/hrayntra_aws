@@ -2,23 +2,12 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
-import { normalizeExportWatermark, type ExportWatermarkSettings } from '../../../../lib/exportWatermark';
 import { isWordResume, normalizeResumeHref } from '../../../../lib/resumePreview';
-
-const LOCAL_API_BASE = 'http://127.0.0.1:5001/api/v1';
-const PROD_PROXY_BASE = '/api/proxy';
-
-function resolvePublicReviewApiBase() {
-  if (typeof window === 'undefined') return PROD_PROXY_BASE;
-  const host = window.location.hostname;
-  const isLocal = host === 'localhost' || host === '127.0.0.1' || host.endsWith('.local');
-  return isLocal ? LOCAL_API_BASE : PROD_PROXY_BASE;
-}
 
 /**
  * Public client-review resume page.
- * Word: Office Online shell with server-baked tenant watermark (`view=office`).
- * Download: watermarked PDF (`as=pdf&download=1`).
+ * Word: PDF convert on localhost (Office Online cannot fetch local DOCX).
+ * Watermark is stamped once per PDF page in `/resume/file` (stays on the page).
  */
 export default function ClientReviewResumePage() {
   const params = useParams<{ token: string }>();
@@ -30,40 +19,8 @@ export default function ClientReviewResumePage() {
     .trim()
     .toLowerCase();
 
-  const apiBase = useMemo(() => resolvePublicReviewApiBase(), []);
-  const [watermark, setWatermark] = useState<ExportWatermarkSettings | null>(null);
-
-  useEffect(() => {
-    if (!token) return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const response = await fetch(
-          `${apiBase}/interviews/public/review/${encodeURIComponent(token)}`,
-          { cache: 'no-store' },
-        );
-        if (!response.ok) return;
-        const payload = (await response.json()) as {
-          success?: boolean;
-          data?: { exportWatermark?: unknown };
-          exportWatermark?: unknown;
-        };
-        const raw =
-          payload?.data?.exportWatermark ??
-          payload?.exportWatermark ??
-          (payload?.data as { data?: { exportWatermark?: unknown } } | undefined)?.data
-            ?.exportWatermark;
-        if (cancelled || !raw) return;
-        const normalized = normalizeExportWatermark(raw);
-        setWatermark(normalized.enabled ? normalized : null);
-      } catch {
-        /* watermark optional — server shell still stamps when possible */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [apiBase, token]);
+  // Build iframe src only after mount to avoid SSR/client hostname hydration mismatch.
+  const [previewUrl, setPreviewUrl] = useState('');
 
   const fileUrl = useMemo(() => {
     if (!token) return '';
@@ -78,21 +35,38 @@ export default function ClientReviewResumePage() {
   const href = normalizeResumeHref(fileUrl);
   const isWord = isWordResume(href) || format === 'docx' || format === 'doc';
 
-  /** Word Online HTML shell with tenant watermark baked in server-side. */
-  const previewUrl = useMemo(() => {
-    if (!fileUrl) return '';
-    if (!isWord) return fileUrl;
+  useEffect(() => {
+    if (!fileUrl) {
+      setPreviewUrl('');
+      return;
+    }
+    if (!isWord) {
+      setPreviewUrl(fileUrl);
+      return;
+    }
+    const host = window.location.hostname.toLowerCase();
+    const officeBlocked =
+      host === 'localhost' ||
+      host === '127.0.0.1' ||
+      host === '::1' ||
+      host.endsWith('.local') ||
+      host.endsWith('.localhost');
     try {
-      const url = new URL(fileUrl, 'https://local.invalid');
-      url.searchParams.set('view', 'office');
-      return `${url.pathname}${url.search}`;
+      const url = new URL(fileUrl, window.location.origin);
+      // Always use stamped PDF preview so one watermark sits on each document page.
+      if (officeBlocked) {
+        url.searchParams.set('as', 'pdf');
+      } else {
+        // Public hosts: prefer Office Online for layout; PDF fallback still stamped.
+        url.searchParams.set('view', 'office');
+      }
+      setPreviewUrl(`${url.pathname}${url.search}`);
     } catch {
       const sep = fileUrl.includes('?') ? '&' : '?';
-      return `${fileUrl}${sep}view=office`;
+      setPreviewUrl(`${fileUrl}${sep}${officeBlocked ? 'as=pdf' : 'view=office'}`);
     }
   }, [fileUrl, isWord]);
 
-  /** Watermarked PDF download (DOCX is converted + stamped server-side). */
   const downloadUrl = useMemo(() => {
     if (!fileUrl) return '';
     try {
@@ -106,13 +80,6 @@ export default function ClientReviewResumePage() {
       return `${fileUrl}${sep}${isWord ? 'as=pdf&' : ''}download=1`;
     }
   }, [fileUrl, isWord]);
-
-  const wmLogo = String(watermark?.imageDataUrl || watermark?.imageUrl || '').trim();
-  const wmText = String(watermark?.text || '').trim();
-  // Client-side fallback overlay if Office shell is unavailable (built-in / PDF iframe).
-  const showClientOverlay =
-    Boolean(watermark?.enabled) && (Boolean(wmText) || Boolean(wmLogo));
-  const wmOpacity = Math.min(0.4, Math.max(0.08, Number(watermark?.opacity) || 0.18));
 
   return (
     <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-slate-100">
@@ -137,7 +104,7 @@ export default function ClientReviewResumePage() {
       <main className="relative min-h-0 flex-1 overflow-hidden">
         {!previewUrl ? (
           <div className="flex h-full items-center justify-center p-6 text-sm text-slate-600">
-            Invalid review link.
+            {token ? 'Loading resume…' : 'Invalid review link.'}
           </div>
         ) : (
           <iframe
@@ -146,33 +113,6 @@ export default function ClientReviewResumePage() {
             className="h-full w-full border-0 bg-white"
           />
         )}
-
-        {/* Fallback overlay when watermark only arrives client-side (non-office views). */}
-        {showClientOverlay && !isWord ? (
-          <div
-            className="pointer-events-none absolute inset-0 z-20 overflow-hidden"
-            aria-hidden="true"
-          >
-            <div
-              className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 -rotate-[32deg] flex-col items-center gap-3"
-              style={{ opacity: wmOpacity }}
-            >
-              {wmLogo ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={wmLogo}
-                  alt=""
-                  className="max-h-28 max-w-[min(60vw,280px)] object-contain"
-                />
-              ) : null}
-              {wmText ? (
-                <span className="whitespace-nowrap text-[clamp(2rem,10vw,5.5rem)] font-extrabold tracking-[0.08em] text-slate-400">
-                  {wmText}
-                </span>
-              ) : null}
-            </div>
-          </div>
-        ) : null}
       </main>
     </div>
   );

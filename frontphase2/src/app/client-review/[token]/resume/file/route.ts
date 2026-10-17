@@ -120,26 +120,31 @@ export async function GET(
       .trim()
       .toLowerCase() === 'true';
 
-  // Downloads must always go through PDF + stamp (never raw Word without watermark).
-  const wantStampedPdf = asPdf || forceDownload;
+  // Always convert Word→PDF for preview/download, then stamp one watermark per page
+  // onto the PDF so the mark stays on the document (not a floating overlay over the viewer).
+  const wantPdf = asPdf || forceDownload;
+  const stampIntoPdf = true;
 
   const params = new URLSearchParams();
   if (matchId) params.set('matchId', matchId);
   if (source) params.set('source', source);
+  // Clean upstream bytes — we stamp once here (logo OR text, one per page).
+  params.set('preview', '1');
   const query = params.toString() ? `?${params.toString()}` : '';
   const target = `${backendApiBase(req)}/interviews/public/review/${encodeURIComponent(token)}/resume${query}`;
 
   const withDisposition = (filename: string, inline: boolean) =>
     `${inline && !forceDownload ? 'inline' : 'attachment'}; filename="${filename}"`;
 
-  // Watermarked Word Online shell (preview) — Office fetches raw DOCX via the same path without view=.
-  if (viewOffice && !wantStampedPdf) {
+  // Word Online shell on public hosts. Localhost uses as=pdf (stamped) instead.
+  if (viewOffice && !wantPdf) {
     const watermark = await fetchPublicReviewWatermark(req, token);
     const origin = publicRequestOrigin(req);
     const docxQs = new URLSearchParams();
     if (matchId) docxQs.set('matchId', matchId);
     if (source) docxQs.set('source', source);
     if (formatHint) docxQs.set('format', formatHint);
+    docxQs.set('preview', '1');
     const docxPublicUrl = `${origin}/client-review/${encodeURIComponent(token)}/resume/file${
       docxQs.toString() ? `?${docxQs.toString()}` : ''
     }`;
@@ -164,7 +169,7 @@ export async function GET(
       status: 200,
       headers: {
         'Content-Type': 'text/html; charset=utf-8',
-        'Cache-Control': 'private, max-age=60',
+        'Cache-Control': 'no-store',
       },
     });
   }
@@ -202,7 +207,7 @@ export async function GET(
       formatHint === 'doc';
 
     // Raw Word bytes for Office Online (no download / no PDF conversion).
-    if (wasWord && !isPdfBuffer(bytes) && !wantStampedPdf) {
+    if (wasWord && !isPdfBuffer(bytes) && !wantPdf) {
       contentType = wordContentType(disposition, formatHint);
       const ext = formatHint === 'doc' ? 'doc' : 'docx';
       disposition = withDisposition(`Resume.${ext}`, true);
@@ -211,13 +216,13 @@ export async function GET(
         headers: {
           'Content-Type': contentType,
           'Content-Disposition': disposition,
-          'Cache-Control': 'private, max-age=120',
+          'Cache-Control': forceDownload ? 'private, max-age=120' : 'no-store',
           'Content-Length': String(bytes.length),
         },
       });
     }
 
-    if (wasWord && !isPdfBuffer(bytes) && wantStampedPdf) {
+    if (wasWord && !isPdfBuffer(bytes) && wantPdf) {
       try {
         const pdf = await convertWordResumeToPdf(new Uint8Array(bytes));
         bytes = Buffer.from(pdf);
@@ -236,9 +241,11 @@ export async function GET(
     }
 
     if (isPdfBuffer(bytes)) {
-      const watermark = await fetchPublicReviewWatermark(req, token);
-      if (watermarkHasVisibleContent(watermark)) {
-        bytes = Buffer.from(await stampPdfBufferWithExportWatermark(bytes, watermark));
+      if (stampIntoPdf) {
+        const watermark = await fetchPublicReviewWatermark(req, token);
+        if (watermarkHasVisibleContent(watermark)) {
+          bytes = Buffer.from(await stampPdfBufferWithExportWatermark(bytes, watermark));
+        }
       }
       contentType = 'application/pdf';
       disposition = withDisposition('Resume.pdf', true);
@@ -249,7 +256,7 @@ export async function GET(
       headers: {
         'Content-Type': contentType,
         'Content-Disposition': disposition,
-        'Cache-Control': 'private, max-age=120',
+        'Cache-Control': forceDownload ? 'private, max-age=120' : 'no-store',
         'Content-Length': String(bytes.length),
       },
     });

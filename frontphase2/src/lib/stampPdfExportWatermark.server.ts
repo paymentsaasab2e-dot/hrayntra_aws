@@ -81,11 +81,12 @@ export async function stampPdfBufferWithExportWatermark(
       }
     }
 
+    // One mark per page — logo already includes brand text, so don't also draw text.
     for (const page of pages) {
       const { width, height } = page.getSize();
       if (embeddedImage) {
         try {
-          const imgW = Math.min(width * 0.4, 220);
+          const imgW = Math.min(width * 0.42, 240);
           const imgH = (embeddedImage.height / Math.max(1, embeddedImage.width)) * imgW;
           page.drawImage(embeddedImage, {
             x: (width - imgW) / 2,
@@ -98,13 +99,15 @@ export async function stampPdfBufferWithExportWatermark(
         } catch (err) {
           console.warn('[stampPdf.server] drawImage failed:', err);
         }
+        continue;
       }
       if (text && font) {
         try {
           const size = Math.max(18, Math.min(48, Math.floor(width / 8)));
+          const textWidth = font.widthOfTextAtSize(text, size);
           page.drawText(text, {
-            x: width * 0.18,
-            y: height * 0.42 - (embeddedImage ? 40 : 0),
+            x: Math.max(24, (width - textWidth) / 2),
+            y: height * 0.45,
             size,
             font,
             rotate: degrees(35),

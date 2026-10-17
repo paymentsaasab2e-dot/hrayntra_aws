@@ -3298,7 +3298,10 @@ export const interviewService = {
       : withWatermark;
   },
 
-  async streamPublicClientReviewAsset(token, { kind = 'resume', fileId = '', matchId = '', source = '' } = {}) {
+  async streamPublicClientReviewAsset(
+    token,
+    { kind = 'resume', fileId = '', matchId = '', source = '', preview = false, stamp = false } = {},
+  ) {
     const access = await resolveClientReviewAccess(token);
     const decoded = access?.decoded;
     if (!decoded?.interviewId && !decoded?.matchId) {
@@ -3336,6 +3339,12 @@ export const interviewService = {
       const baseName = safeDownloadFilename(
         `${detail?.candidate?.name || 'Candidate'}_${resumeLabel}.${fileExt}`,
       );
+      // Never bake watermark into streamed resume bytes. Preview uses a fixed floating CSS
+      // overlay (stays on screen while pages scroll). Downloads are stamped by the frontend
+      // `/resume/file?download=1` route. Optional stamp=true keeps an escape hatch for API clients.
+      if (preview || !stamp) {
+        return { ...loaded, filename: baseName };
+      }
       try {
         const { getPublicClientReviewExportWatermark } = await import(
           '../modules/setting/publicClientReviewWatermark.util.js'
