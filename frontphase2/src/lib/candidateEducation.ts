@@ -241,17 +241,35 @@ export function isGarbageEducationSummary(text: unknown): boolean {
   );
 }
 
+/** OCR/LLM often turns class 12 ("XII") into "Xilin". */
+export function cleanEducationQualification(value: unknown): string {
+  return String(value ?? '')
+    .replace(/\bXilin\b/gi, 'XII')
+    .replace(/\bXi\s*in\b/gi, 'XII')
+    .replace(/\bXin\b/gi, 'X')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function educationEntryLine(entry: Record<string, unknown> | null | undefined): string {
+  if (!entry || typeof entry !== 'object') return '';
+  const q = cleanEducationQualification(entry.qualification || entry.degree);
+  const i = String(entry.instituteName || entry.institution || '').trim();
+  return [q, i].filter(Boolean).join(' — ');
+}
+
+/** Highest / most recent qualification only — used as Overview "Qualification". */
+export function buildPrimaryEducationSummary(
+  entries: Array<Record<string, unknown>> | null | undefined
+): string {
+  if (!Array.isArray(entries) || !entries.length) return '';
+  return educationEntryLine(entries[0]);
+}
+
 /** Build ATS education summary from structured entries (matches backend pipeline). */
 export function buildEducationSummaryFromCvEntries(
   entries: Array<Record<string, unknown>> | null | undefined
 ): string {
   if (!Array.isArray(entries) || !entries.length) return '';
-  return entries
-    .map((e) => {
-      const q = String(e.qualification || e.degree || '').trim();
-      const i = String(e.instituteName || e.institution || '').trim();
-      return [q, i].filter(Boolean).join(' — ');
-    })
-    .filter(Boolean)
-    .join(' | ');
+  return entries.map((e) => educationEntryLine(e)).filter(Boolean).join(' | ');
 }

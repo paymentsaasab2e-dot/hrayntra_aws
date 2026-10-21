@@ -74,6 +74,29 @@ export const inboxController = {
     }
   },
 
+  async importGmailAttachmentAsCandidate(req, res) {
+    try {
+      const result = await inboxService.importGmailAttachmentAsCandidate(
+        req.user,
+        req.params.messageId,
+        req.body?.attachmentId || req.body?.id || req.params.attachmentId,
+        req.body?.filename
+      );
+      sendResponse(
+        res,
+        200,
+        result.isDuplicate ? 'Candidate already exists' : 'Candidate created from Gmail resume',
+        result
+      );
+    } catch (error) {
+      const status =
+        error?.code === 'GMAIL_RECONNECT_REQUIRED'
+          ? 403
+          : Number(error?.status) || 500;
+      sendError(res, status, error.message, error);
+    }
+  },
+
   async archiveGmailMessage(req, res) {
     try {
       const result = await inboxService.archiveGmailMessage(req.user.id, req.params.messageId);
@@ -134,6 +157,28 @@ export const inboxController = {
       sendResponse(res, 200, 'Outlook message retrieved successfully', result);
     } catch (error) {
       sendError(res, error.status === 429 ? 429 : 500, error.message, error);
+    }
+  },
+
+  async importOutlookAttachmentAsCandidate(req, res) {
+    try {
+      const result = await inboxService.importOutlookAttachmentAsCandidate(
+        req.user,
+        req.params.messageId,
+        req.body?.attachmentId || req.params.attachmentId
+      );
+      sendResponse(
+        res,
+        200,
+        result.isDuplicate ? 'Candidate already exists' : 'Candidate created from Outlook resume',
+        result
+      );
+    } catch (error) {
+      const status =
+        error?.code === 'OUTLOOK_RECONNECT_REQUIRED'
+          ? 403
+          : Number(error?.status) || 500;
+      sendError(res, status, error.message, error);
     }
   },
 

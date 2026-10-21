@@ -1709,7 +1709,8 @@ async function serializeInterviewForClientReview(
     currentCompany: c.currentCompany || '',
     designation: c.designation || c.currentTitle || '',
     currentTitle: c.currentTitle || c.designation || '',
-    experience: c.experience ?? null,
+    experience: c.experienceYears ?? c.experience ?? null,
+    experienceYears: c.experienceYears ?? c.experience ?? null,
     skills: Array.isArray(c.skills) ? c.skills : [],
     languages: Array.isArray(c.languages) ? c.languages : [],
     languageProficiency: c.languageProficiency || '',
@@ -1732,14 +1733,23 @@ async function serializeInterviewForClientReview(
     maritalStatus: c.maritalStatus || '',
     passportNumber: c.passportNumber || '',
     currentCompanyWebsite: c.currentCompanyWebsite || '',
-    currentSalary: c.currentSalary ?? '',
-    currentSalaryCurrency: c.currentSalaryCurrency || '',
+    currentSalary: c.careerPreferences?.currentSalary ?? c.currentSalary ?? '',
+    currentSalaryCurrency:
+      c.careerPreferences?.currentCurrency || c.currentSalaryCurrency || '',
     // Prefer empty Preferred Package benefits over stale portal checkbox strings.
     currentBenefits:
       c.currentBenefits === undefined || c.currentBenefits === null ? '' : c.currentBenefits,
     careerPreferences: c.careerPreferences || null,
-    expectedSalary: c.expectedSalary ?? '',
-    expectedSalaryCurrency: c.expectedSalaryCurrency || '',
+    expectedSalary:
+      c.careerPreferences?.preferredSalary ??
+      c.careerPreferences?.salaryAmount ??
+      c.expectedSalary ??
+      '',
+    expectedSalaryCurrency:
+      c.careerPreferences?.preferredCurrency ||
+      c.careerPreferences?.salaryCurrency ||
+      c.expectedSalaryCurrency ||
+      '',
     expectedBenefits:
       c.expectedBenefits === undefined || c.expectedBenefits === null ? '' : c.expectedBenefits,
     noticePeriod: c.noticePeriod || '',

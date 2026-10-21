@@ -1,5 +1,6 @@
 import { prisma } from '../../config/prisma.js';
 import { oauthTokenService } from '../oauth/oauth-token.service.js';
+import { summarizeMailAttachment } from './inbox-attachments.util.js';
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -294,6 +295,97 @@ async function fetchGraphJson(url, accessToken, init = {}, attempt = 0) {
   }
 }
 
+async function fetchGraphBuffer(url, accessToken, attempt = 0) {
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!response.ok) {
+    const message = await response.text();
+    if (isGraphRateLimited(response.status, message) && attempt < 4) {
+      const retryAfter = Number(response.headers.get('retry-after'));
+      const waitMs =
+        Number.isFinite(retryAfter) && retryAfter > 0
+          ? retryAfter * 1000
+          : Math.min(8000, 400 * 2 ** attempt);
+      await sleep(waitMs);
+      return fetchGraphBuffer(url, accessToken, attempt + 1);
+    }
+    const error = new Error(
+      isGraphRateLimited(response.status, message)
+        ? 'Outlook is busy right now. Please wait a moment and try again.'
+        : `Microsoft Graph failed: ${message}`
+    );
+    error.status = response.status;
+    throw error;
+  }
+  return Buffer.from(await response.arrayBuffer());
+}
+
+function mapOutlookAttachment(row) {
+  const type = String(row?.['@odata.type'] || '').toLowerCase();
+  if (type.includes('itemattachment') || type.includes('referenceattachment')) return null;
+  const filename = String(row?.name || '').trim();
+  if (!filename) return null;
+  if (row?.isInline && !/\.(pdf|docx?)$/i.test(filename)) return null;
+  return summarizeMailAttachment({
+    id: row.id,
+    filename,
+    mimeType: row.contentType,
+    size: row.size,
+  });
+}
+
+export async function listOutlookMessageAttachments(accessToken, messageId) {
+  const encoded = encodeURIComponent(String(messageId || '').trim());
+  const payload = await fetchGraphJson(
+    `https://graph.microsoft.com/v1.0/me/messages/${encoded}/attachments?$select=id,name,contentType,size,isInline`,
+    accessToken
+  );
+  const rows = Array.isArray(payload?.value) ? payload.value : [];
+  return rows.map(mapOutlookAttachment).filter(Boolean);
+}
+
+export async function downloadOutlookMessageAttachment(userId, messageId, attachmentId) {
+  const { accessToken } = await getOutlookAccessContext(userId);
+  const encodedMsg = encodeURIComponent(String(messageId || '').trim());
+  const encodedAtt = encodeURIComponent(String(attachmentId || '').trim());
+  if (!encodedMsg || !encodedAtt) {
+    const error = new Error('Attachment was not found on this Outlook message');
+    error.status = 404;
+    throw error;
+  }
+  let meta;
+  try {
+    meta = await fetchGraphJson(
+      `https://graph.microsoft.com/v1.0/me/messages/${encodedMsg}/attachments/${encodedAtt}?$select=id,name,contentType,size,isInline`,
+      accessToken
+    );
+  } catch (error) {
+    if (error?.status === 404) {
+      const missing = new Error('Attachment was not found on this Outlook message');
+      missing.status = 404;
+      throw missing;
+    }
+    throw error;
+  }
+  const mapped = mapOutlookAttachment(meta);
+  if (!mapped) {
+    const error = new Error('Attachment was not found on this Outlook message');
+    error.status = 404;
+    throw error;
+  }
+  const buffer = await fetchGraphBuffer(
+    `https://graph.microsoft.com/v1.0/me/messages/${encodedMsg}/attachments/${encodedAtt}/$value`,
+    accessToken
+  );
+  return {
+    id: mapped.id,
+    filename: mapped.filename,
+    mimeType: mapped.mimeType,
+    buffer,
+  };
+}
+
 function toOutlookListItem(message, fallbackEmail = '') {
   const from = mailboxFromGraph(message?.from);
   const bodyContent = String(message?.body?.content || '');
@@ -318,7 +410,6 @@ function toOutlookListItem(message, fallbackEmail = '') {
     cc: formatRecipients(message.ccRecipients),
     body: text || message.bodyPreview || '',
     htmlBody: isHtml && bodyContent ? sanitizeHtmlDocument(bodyContent) : '',
-    attachments: [],
   };
 }
 
@@ -590,7 +681,14 @@ export async function getOutlookMessage(userId, messageId) {
     `https://graph.microsoft.com/v1.0/me/messages/${encoded}?$select=${LIST_SELECT},body`,
     accessToken
   );
-  return toOutlookListItem(message, oauth.microsoftEmail || '');
+  const item = toOutlookListItem(message, oauth.microsoftEmail || '');
+  try {
+    item.attachments = await listOutlookMessageAttachments(accessToken, messageId);
+  } catch {
+    item.attachments = [];
+  }
+  item.hasAttachment = item.attachments.length > 0 || Boolean(message.hasAttachments);
+  return item;
 }
 
 export async function archiveOutlookMessage(userId, messageId) {

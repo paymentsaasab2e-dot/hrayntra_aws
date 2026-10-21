@@ -357,6 +357,35 @@ function money(value: unknown): string {
   return String(value).trim();
 }
 
+function careerPrefsOf(candidate: ClientReviewData['candidate']): Record<string, unknown> {
+  const rec = candidate as Record<string, unknown> | undefined;
+  const prefs = rec?.careerPreferences;
+  return prefs && typeof prefs === 'object' && !Array.isArray(prefs)
+    ? (prefs as Record<string, unknown>)
+    : {};
+}
+
+function overviewExpectedSalary(candidate: ClientReviewData['candidate']): unknown {
+  const prefs = careerPrefsOf(candidate);
+  return prefs.preferredSalary ?? prefs.salaryAmount ?? candidate?.expectedSalary;
+}
+
+function overviewCurrentSalary(candidate: ClientReviewData['candidate']): unknown {
+  const prefs = careerPrefsOf(candidate);
+  return prefs.currentSalary ?? candidate?.currentSalary;
+}
+
+function overviewExperience(candidate: ClientReviewData['candidate']): string {
+  const rec = candidate as Record<string, unknown> | undefined;
+  const years = rec?.experienceYears;
+  const exp = candidate?.experience;
+  const y = years != null && Number.isFinite(Number(years)) ? Number(years) : null;
+  const e = exp != null && Number.isFinite(Number(exp)) ? Number(exp) : null;
+  const pick = y != null && e != null ? (!Number.isInteger(y) ? y : !Number.isInteger(e) ? e : y) : y ?? e;
+  if (pick == null) return String(exp ?? '').trim();
+  return String(Math.round(pick * 10) / 10);
+}
+
 /** Values the table already has — used to fill empty drawer fields. */
 export function clientReviewFieldFallbacks(
   detail: ClientReviewData | null | undefined,
@@ -366,9 +395,8 @@ export function clientReviewFieldFallbacks(
   const rawScore = detail?.matchScore;
   const score =
     !scoreHidden && Number.isFinite(Number(rawScore)) ? String(Math.round(Number(rawScore))) : '';
-  const experience = Number.isFinite(Number(candidate.experience))
-    ? String(candidate.experience)
-    : String(candidate.experience || '').trim();
+  const experience = overviewExperience(candidate);
+  const prefs = careerPrefsOf(candidate);
   const birthDate = String(candidate.birthDate || '').trim();
   const age = storedAge(candidate.age) || ageFromBirthDate(birthDate);
   const extra = candidateExtra(candidate);
@@ -404,16 +432,32 @@ export function clientReviewFieldFallbacks(
     passportNumber: String(candidate.passportNumber || '').trim(),
     preferredLocation: String(candidate.preferredLocation || '').trim(),
     currentCompanyWebsite: String(candidate.currentCompanyWebsite || '').trim(),
-    currentTitle: String(candidate.designation || candidate.currentTitle || '').trim(),
-    currentCompany: String(candidate.currentCompany || '').trim(),
+    currentTitle: String(
+      prefs.currentRole || candidate.designation || candidate.currentTitle || '',
+    ).trim(),
+    currentCompany: String(
+      prefs.currentOrganization || prefs.currentCompany || candidate.currentCompany || '',
+    ).trim(),
     experience,
     candidateScore: score,
-    currentSalary: money(candidate.currentSalary),
-    currentSalaryCurrency: String(candidate.currentSalaryCurrency || '').trim(),
-    currentBenefits: String(candidate.currentBenefits || '').trim(),
-    expectedSalary: money(candidate.expectedSalary),
-    expectedSalaryCurrency: String(candidate.expectedSalaryCurrency || '').trim(),
-    expectedBenefits: String(candidate.expectedBenefits || '').trim(),
+    currentSalary: money(overviewCurrentSalary(candidate)),
+    currentSalaryCurrency: String(
+      prefs.currentCurrency || candidate.currentSalaryCurrency || '',
+    ).trim(),
+    currentBenefits: joinList(
+      Object.prototype.hasOwnProperty.call(prefs, 'currentBenefits')
+        ? prefs.currentBenefits
+        : candidate.currentBenefits,
+    ),
+    expectedSalary: money(overviewExpectedSalary(candidate)),
+    expectedSalaryCurrency: String(
+      prefs.preferredCurrency || prefs.salaryCurrency || candidate.expectedSalaryCurrency || '',
+    ).trim(),
+    expectedBenefits: joinList(
+      Object.prototype.hasOwnProperty.call(prefs, 'preferredBenefits')
+        ? prefs.preferredBenefits
+        : candidate.expectedBenefits,
+    ),
     noticePeriod: String(candidate.noticePeriod || '').trim(),
     remarks: String(candidate.remarks || '').trim(),
     skills: joinList(candidate.skills),
@@ -469,6 +513,23 @@ export function resolveClientReviewFieldValue(
     return '';
   }
 
+  const fallbacks = clientReviewFieldFallbacks(mergedDetail);
+  const liveOverviewFields = new Set<SubmitToClientFieldId>([
+    'expectedSalary',
+    'expectedSalaryCurrency',
+    'currentSalary',
+    'currentSalaryCurrency',
+    'currentBenefits',
+    'expectedBenefits',
+    'experience',
+    'languageProficiency',
+    'currentTitle',
+    'currentCompany',
+  ]);
+  if (fieldId !== 'fullName' && liveOverviewFields.has(fieldId) && fallbacks[fieldId]) {
+    return String(fallbacks[fieldId] || '');
+  }
+
   const fromPresentation = presentationValueForField(detail, fieldId);
   if (fieldId !== 'fullName' && fromPresentation) return fromPresentation;
 
@@ -476,19 +537,14 @@ export function resolveClientReviewFieldValue(
     return resolveClientReviewFullName(row);
   }
 
-  const fallbacks = clientReviewFieldFallbacks(mergedDetail);
   const fromFallback = fallbacks[fieldId];
   if (fromFallback) return fromFallback;
 
   switch (fieldId) {
     case 'currentTitle':
       return String(row.designation || candidate.designation || candidate.currentTitle || '').trim();
-    case 'experience': {
-      const experience = row.experience ?? candidate.experience;
-      return Number.isFinite(Number(experience))
-        ? String(Number(experience))
-        : String(experience || '').trim();
-    }
+    case 'experience':
+      return overviewExperience(candidate) || String(row.experience || '').trim();
     case 'age':
       return (
         storedAge(candidate.age) ||

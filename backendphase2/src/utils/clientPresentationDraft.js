@@ -640,6 +640,41 @@ function preferredPackageSalary(prefs) {
   return prefs?.preferredSalary ?? prefs?.salaryAmount ?? null;
 }
 
+function languageRowsHaveProficiency(value) {
+  return (
+    Array.isArray(value) &&
+    value.some(
+      (item) => item && typeof item === 'object' && (item.proficiency || item.level),
+    )
+  );
+}
+
+function formatLanguageProficiencyList(value) {
+  if (!Array.isArray(value)) return formatReviewText(value);
+  return value
+    .map((item) => {
+      if (item && typeof item === 'object') {
+        const lang = String(item.language || item.name || '').trim();
+        const prof = String(item.proficiency || item.level || '').trim();
+        return [lang, prof].filter(Boolean).join(' | ');
+      }
+      return String(item || '').trim();
+    })
+    .filter(Boolean)
+    .join(', ');
+}
+
+function overviewExperienceYears(candidate) {
+  const years = candidate?.experienceYears;
+  const exp = candidate?.experience;
+  const y = years != null && Number.isFinite(Number(years)) ? Number(years) : null;
+  const e = exp != null && Number.isFinite(Number(exp)) ? Number(exp) : null;
+  const pick = y != null && e != null ? (!Number.isInteger(y) ? y : !Number.isInteger(e) ? e : y) : y ?? e;
+  if (pick == null) return exp ?? years ?? '';
+  const rounded = Math.round(pick * 10) / 10;
+  return rounded;
+}
+
 function extraProfileBag(candidate) {
   const extra = parseExtra(candidate?.extraData);
   const phase1 = resolveLivePhase1Snapshot(candidate);
@@ -747,6 +782,16 @@ function applyTenantStoredProfile(candidate) {
       ? prefs.preferredBenefits
       : candidate.expectedBenefits,
     careerPreferences: prefs,
+    experience: overviewExperienceYears({
+      ...candidate,
+      experienceYears: candidate.experienceYears,
+    }),
+    languageProficiency: pickPreferred(
+      formatLanguageProficiencyList(
+        languageRowsHaveProficiency(candidate.languages) ? candidate.languages : null,
+      ),
+      candidate.languageProficiency,
+    ),
   };
 }
 
@@ -764,19 +809,19 @@ function buildEditFormFromCandidate(hydrated) {
     phase1,
     salary,
   } = extraProfileBag(hydrated);
-  const languages = pickPreferred(
-    hydrated.languages,
-    Array.isArray(phase1?.languages)
-      ? phase1.languages.map((row) => row?.name || row).filter(Boolean)
-      : [],
-  );
+  const phase1Languages = Array.isArray(phase1?.languages) ? phase1.languages : [];
+  const languages = languageRowsHaveProficiency(hydrated.languages)
+    ? hydrated.languages
+    : languageRowsHaveProficiency(phase1Languages)
+      ? phase1Languages
+      : pickPreferred(hydrated.languages, phase1Languages);
   const skills = pickPreferred(
     hydrated.skills,
     Array.isArray(phase1?.skills) ? phase1.skills.map((row) => row?.name || row).filter(Boolean) : [],
   );
   const languageProficiency = pickPreferred(
-    formatListValue(summaryPipe.languageProficiency || extra.languageProficiency),
-    Array.isArray(languages) ? languages.join(', ') : languages,
+    formatLanguageProficiencyList(languages),
+    formatListValue(summaryPipe.languageProficiency || extra.languageProficiency || hydrated.languageProficiency),
   );
   return {
     firstName: pickPreferred(hydrated.firstName, personal.firstName || personalPipe.firstName),
@@ -836,7 +881,7 @@ function buildEditFormFromCandidate(hydrated) {
       formatPrefValue(prefs.currentOrganization || prefs.currentCompany || prefs.company),
     ),
     currentTitle: hydrated.designation || hydrated.currentTitle || formatPrefValue(prefs.currentRole),
-    experience: hydrated.experience,
+    experience: overviewExperienceYears(hydrated),
     education: pickPreferred(hydrated.education, educationPipe.summaryText),
     educationSummary: pickPreferred(
       educationPipe.summaryText,

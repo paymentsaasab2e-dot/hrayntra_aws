@@ -4240,6 +4240,30 @@ export interface InboxThread {
   messages: InboxMessage[];
 }
 
+export interface InboxMailAttachment {
+  id: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+  isResume: boolean;
+}
+
+export interface InboxCandidateImportResult {
+  created: boolean;
+  isDuplicate: boolean;
+  candidate: {
+    id: string;
+    firstName?: string | null;
+    lastName?: string | null;
+    email?: string | null;
+    resume?: string | null;
+  };
+  attachment: {
+    id: string;
+    filename: string;
+  };
+}
+
 export interface GmailInboxMessage {
   id: string;
   threadId: string;
@@ -4259,7 +4283,7 @@ export interface GmailInboxMessage {
   cc?: string;
   body?: string;
   htmlBody?: string;
-  attachments?: any[];
+  attachments?: InboxMailAttachment[];
 }
 
 export interface GmailInboxResponse {

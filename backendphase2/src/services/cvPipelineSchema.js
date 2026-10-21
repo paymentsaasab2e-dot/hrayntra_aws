@@ -204,11 +204,19 @@ function arr(v) {
   return Array.isArray(v) ? v.filter((x) => x != null && String(x).trim()) : [];
 }
 
+function cleanEducationQualification(value) {
+  return str(value)
+    .replace(/\bXilin\b/gi, 'XII')
+    .replace(/\bXi\s*in\b/gi, 'XII')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function normalizeEducationEntries(entries) {
   if (!Array.isArray(entries)) return [];
   return entries.map((e) => {
     if (!e || typeof e !== 'object') return e;
-    const qualification = str(e.qualification || e.degree);
+    const qualification = cleanEducationQualification(e.qualification || e.degree);
     const instituteName = str(e.instituteName || e.institution);
     return {
       ...e,

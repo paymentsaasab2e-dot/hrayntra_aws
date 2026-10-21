@@ -3641,8 +3641,18 @@ function mergeCareerPreferencesIntoCandidate(candidate, careerPrefs) {
   if (!candidate.designation && normalized.currentRole) {
     candidate.designation = normalized.currentRole;
   }
-  if (normalized.currentLocation) {
-    candidate.location = pickFirstNonEmpty(candidate.location, normalized.currentLocation);
+  const locationLooksLikeCurrency = (value) => {
+    const text = String(value || '').trim().toUpperCase();
+    return (
+      /^[A-Z]{3}$/.test(text) &&
+      ['XAF', 'XOF', 'USD', 'EUR', 'GBP', 'INR', 'AED', 'CAD', 'AUD', 'NGN', 'KES', 'ZAR', 'CHF', 'JPY', 'CNY', 'SGD', 'HKD'].includes(text)
+    );
+  };
+  if (normalized.currentLocation && !locationLooksLikeCurrency(normalized.currentLocation)) {
+    candidate.location = pickFirstNonEmpty(
+      locationLooksLikeCurrency(candidate.location) ? '' : candidate.location,
+      normalized.currentLocation,
+    );
   }
 
   candidate.careerPreferences = normalized;

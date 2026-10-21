@@ -1281,9 +1281,16 @@ function fallbackValuesFromCandidate(candidate, matchScore) {
     .split(/\s+/)
     .filter(Boolean);
   const score = Number.isFinite(Number(matchScore)) ? String(Math.round(Number(matchScore))) : '';
-  const experience = Number.isFinite(Number(candidate?.experience))
-    ? String(candidate.experience)
-    : String(candidate?.experience || '').trim();
+  const experienceRaw =
+    candidate?.experienceYears != null && Number.isFinite(Number(candidate.experienceYears))
+      ? Number(candidate.experienceYears)
+      : candidate?.experience;
+  const experienceNum =
+    experienceRaw != null && Number.isFinite(Number(experienceRaw)) ? Number(experienceRaw) : null;
+  const experience =
+    experienceNum == null
+      ? String(candidate?.experience || '').trim()
+      : String(Math.round(experienceNum * 10) / 10);
   const birthDate = String(
     candidate?.birthDate || candidate?.dob || candidate?.dateOfBirth || '',
   ).trim();
@@ -1358,7 +1365,10 @@ function fallbackValuesFromCandidate(candidate, matchScore) {
     remarks: String(candidate?.remarks || '').trim(),
     skills: joinClientReviewList(candidate?.skills),
     'language & proficiency': joinClientReviewList(
-      candidate?.languageProficiency || candidate?.languages,
+      Array.isArray(candidate?.languages) &&
+        candidate.languages.some((item) => item && typeof item === 'object' && (item.proficiency || item.level))
+        ? candidate.languages
+        : candidate?.languageProficiency || candidate?.languages,
     ),
     languages: joinClientReviewList(candidate?.languages),
     summary: String(candidate?.cvSummary || '').trim(),
@@ -1378,17 +1388,34 @@ function fallbackValuesFromCandidate(candidate, matchScore) {
   };
 }
 
+const OVERVIEW_LIVE_LABELS = new Set([
+  'expected salary',
+  'expected salary currency',
+  'current salary',
+  'current salary currency',
+  'current benefits',
+  'expected benefits',
+  'experience (years)',
+  'language & proficiency',
+  'languages',
+  'current designation',
+  'current employer',
+]);
+
 /** Fill empty drawer fields from the same candidate + match payload the table uses. */
 export function hydrateClientReviewSections(sections, { candidate, matchScore } = {}) {
   const fallbacks = fallbackValuesFromCandidate(candidate || {}, matchScore);
   return (Array.isArray(sections) ? sections : []).map((section) => {
     const fields = Array.isArray(section?.fields)
       ? section.fields.map((row) => {
-          if (!isBlankClientReviewValue(row?.value)) return row;
           const key = String(row?.label || '')
             .trim()
             .toLowerCase();
           const next = fallbacks[key];
+          if (next && OVERVIEW_LIVE_LABELS.has(key) && String(row?.value ?? '').trim() !== String(next)) {
+            return { ...row, value: next };
+          }
+          if (!isBlankClientReviewValue(row?.value)) return row;
           if (!next) return row;
           return { ...row, value: next };
         })
