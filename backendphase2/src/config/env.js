@@ -214,6 +214,29 @@ const publicBackendUrl = normalizePublicUrl(
     : `http://localhost:${parseInt(process.env.PORT || '5001', 10)}`,
 );
 
+/**
+ * OAuth callbacks must hit THIS API host, not a copied production URL.
+ * Test (`test-api2`) must not send LinkedIn to `api2.hryantra.com`.
+ */
+export function resolveOauthCallbackOnThisApi(configured, callbackPath) {
+  const path = String(callbackPath || '').startsWith('/')
+    ? String(callbackPath)
+    : `/${String(callbackPath || '')}`;
+  const backend = String(publicBackendUrl || '').replace(/\/$/, '');
+  const derived = backend ? `${backend}${path}` : '';
+  const configuredUrl = normalizePublicUrl(String(configured || '').trim());
+  if (!configuredUrl) return derived;
+  if (!backend) return configuredUrl;
+  try {
+    const configuredHost = new URL(configuredUrl).host.toLowerCase();
+    const backendHost = new URL(backend).host.toLowerCase();
+    if (configuredHost !== backendHost) return derived;
+  } catch {
+    return derived || configuredUrl;
+  }
+  return configuredUrl;
+}
+
 export const env = {
   NODE_ENV: process.env.NODE_ENV || 'development',
   PORT: parseInt(process.env.PORT || '5001', 10),
@@ -320,9 +343,10 @@ export const env = {
   // Social Media APIs — personal profile app (Share on LinkedIn)
   LINKEDIN_CLIENT_ID: process.env.LINKEDIN_CLIENT_ID,
   LINKEDIN_CLIENT_SECRET: process.env.LINKEDIN_CLIENT_SECRET,
-  LINKEDIN_REDIRECT_URI:
-    process.env.LINKEDIN_REDIRECT_URI ||
-    `http://localhost:${parseInt(process.env.PORT || '5001', 10)}/api/v1/linkedin/auth/linkedin/callback`,
+  LINKEDIN_REDIRECT_URI: resolveOauthCallbackOnThisApi(
+    process.env.LINKEDIN_REDIRECT_URI,
+    '/api/v1/linkedin/auth/linkedin/callback',
+  ),
   LINKEDIN_OAUTH_SCOPES: (
     process.env.LINKEDIN_OAUTH_SCOPES || 'openid profile email w_member_social'
   )
@@ -332,10 +356,10 @@ export const env = {
   // Community Management API app (Company Pages) — optional second LinkedIn app
   LINKEDIN_CMA_CLIENT_ID: process.env.LINKEDIN_CMA_CLIENT_ID || '',
   LINKEDIN_CMA_CLIENT_SECRET: process.env.LINKEDIN_CMA_CLIENT_SECRET || '',
-  LINKEDIN_CMA_REDIRECT_URI:
-    process.env.LINKEDIN_CMA_REDIRECT_URI ||
-    process.env.LINKEDIN_REDIRECT_URI ||
-    `http://localhost:${parseInt(process.env.PORT || '5001', 10)}/api/v1/linkedin/auth/linkedin/callback`,
+  LINKEDIN_CMA_REDIRECT_URI: resolveOauthCallbackOnThisApi(
+    process.env.LINKEDIN_CMA_REDIRECT_URI || process.env.LINKEDIN_REDIRECT_URI,
+    '/api/v1/linkedin/auth/linkedin/callback',
+  ),
   LINKEDIN_CMA_OAUTH_SCOPES: (
     process.env.LINKEDIN_CMA_OAUTH_SCOPES ||
     'r_organization_social w_organization_social rw_organization_admin'
@@ -375,9 +399,10 @@ export const env = {
     process.env.MICROSOFT_REDIRECT_URI || `${publicBackendUrl}/api/v1/oauth/microsoft/callback`,
 
   // LinkedIn OAuth (register this callback URL in LinkedIn app)
-  LINKEDIN_OAUTH_REDIRECT_URI:
-    process.env.LINKEDIN_OAUTH_REDIRECT_URI ||
-    `http://localhost:${parseInt(process.env.PORT || '5001', 10)}/api/v1/oauth/linkedin/callback`,
+  LINKEDIN_OAUTH_REDIRECT_URI: resolveOauthCallbackOnThisApi(
+    process.env.LINKEDIN_OAUTH_REDIRECT_URI,
+    '/api/v1/oauth/linkedin/callback',
+  ),
 
   // Interview meeting providers
   GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,

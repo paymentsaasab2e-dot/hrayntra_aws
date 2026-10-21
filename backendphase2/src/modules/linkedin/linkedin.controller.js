@@ -182,6 +182,12 @@ export const linkedinController = {
       console.log(`👤 User ID: ${req.user.id}`);
       console.log(`📧 User Email: ${req.user.email || 'N/A'}`);
       console.log(`📦 App: ${purpose === 'cma' ? 'Community Management (Company Page)' : 'Share on LinkedIn (personal)'}`);
+      console.log(`↩️  Return origin: ${returnOrigin || env.FRONTEND_URL}`);
+      console.log(
+        `🔗 Redirect URI: ${
+          purpose === 'cma' ? env.LINKEDIN_CMA_REDIRECT_URI : env.LINKEDIN_REDIRECT_URI
+        }`,
+      );
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
       sendResponse(res, 200, 'LinkedIn auth URL generated', {
