@@ -3602,28 +3602,46 @@ function mergeCareerPreferencesIntoCandidate(candidate, careerPrefs) {
   const fromSnap = snapPrefs
     ? normalizePortalCareerPreferences(snapPrefs, candidate)
     : null;
+  const extraPrefs =
+    extra.careerPreferences && typeof extra.careerPreferences === 'object' && !Array.isArray(extra.careerPreferences)
+      ? extra.careerPreferences
+      : null;
+  const fromExtra = extraPrefs
+    ? normalizePortalCareerPreferences(extraPrefs, candidate)
+    : null;
 
-  const snapAt = phase1SnapshotSavedAtMs(snap);
-  let portalUpdatedAt = 0;
-  if (careerPrefs?.updatedAt) {
-    const raw = careerPrefs.updatedAt;
-    const ms =
-      raw && typeof raw === 'object' && raw.$date
-        ? Date.parse(String(raw.$date))
-        : Date.parse(String(raw));
-    portalUpdatedAt = Number.isFinite(ms) ? ms : 0;
-  }
+  const compactCareerPrefs = (normalizedPrefs, raw) => {
+    if (!normalizedPrefs || typeof normalizedPrefs !== 'object') return {};
+    const next = {};
+    for (const [key, value] of Object.entries(normalizedPrefs)) {
+      const rawHadKey = Boolean(raw && Object.prototype.hasOwnProperty.call(raw, key));
+      if (value == null || value === '') continue;
+      if (Array.isArray(value) && value.length === 0) {
+        if (rawHadKey) next[key] = value;
+        continue;
+      }
+      if (typeof value === 'object' && !Array.isArray(value) && !Object.keys(value).length) {
+        continue;
+      }
+      next[key] = value;
+    }
+    return next;
+  };
 
-  // A stamped Overview save is what the recruiter just stored. Keep it in front of the
-  // portal career_preferences row, which this same save also upserts a moment later.
-  const preferSnap = Boolean(fromSnap && snapAt);
-  const normalized = preferSnap
-    ? { ...(fromPortal || {}), ...fromSnap }
-    : fromPortal
-      ? { ...(fromSnap || {}), ...fromPortal }
-      : fromSnap;
-
-  if (!normalized) return candidate;
+  // Preferred Package on Overview is source of truth: extraData.careerPreferences
+  // (recruiter save), then snapshot, then portal career_preferences.
+  const normalized = {
+    ...compactCareerPrefs(fromPortal, careerPrefs),
+    ...compactCareerPrefs(fromSnap, snapPrefs),
+    ...compactCareerPrefs(fromExtra, extraPrefs),
+  };
+  const hasNormalized = Object.values(normalized).some((value) => {
+    if (value == null || value === '') return false;
+    if (Array.isArray(value)) return value.length > 0;
+    if (typeof value === 'object') return Object.keys(value).length > 0;
+    return true;
+  });
+  if (!hasNormalized) return candidate;
 
   candidate.noticePeriod = pickFirstNonEmpty(candidate.noticePeriod, normalized.noticePeriod);
   candidate.availability = pickFirstNonEmpty(candidate.availability, normalized.availabilityToStart);

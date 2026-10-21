@@ -312,6 +312,21 @@ function dedupeReviewFields(fields: Array<{ label: string; value: string }>) {
   return next;
 }
 
+/** Live Current/Preferred Package values must replace stale ATS/portal rows. */
+const PACKAGE_FALLBACK_FIELD_IDS = new Set<SubmitToClientFieldId>([
+  'experience',
+  'currentTitle',
+  'currentCompany',
+  'currentSalary',
+  'currentSalaryCurrency',
+  'currentBenefits',
+  'expectedSalary',
+  'expectedSalaryCurrency',
+  'expectedBenefits',
+  'noticePeriod',
+  'p1AvailabilityToStart',
+]);
+
 /** Ensure every tenant-visible field appears in the section (empty → Not provided). */
 function expandSectionForVisibleFields(
   section: ClientReviewSection,
@@ -336,6 +351,9 @@ function expandSectionForVisibleFields(
         );
         const fallback = String(fallbackValues[field.id] || '');
         let value = existing || fallback;
+        if (PACKAGE_FALLBACK_FIELD_IDS.has(field.id) && fallback) {
+          value = fallback;
+        }
         // Prefer a spaced/fuller name when the saved presentation mashed tokens together.
         if (field.id === 'fullName' && fallback) {
           const existingTokens = String(existing || '')

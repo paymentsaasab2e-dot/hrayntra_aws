@@ -3,6 +3,8 @@
  * Does not replace the main CRM / overview record — only overlays at submit & review time.
  */
 
+import { resolveCandidateListExperienceYears } from './candidateExperienceYears.util.js';
+
 const CLIENT_PRESENTATION_KEY = 'clientPresentation';
 
 function parseExtra(extraData) {
@@ -604,7 +606,7 @@ function hasCareerListValue(value) {
 
 /**
  * Match Overview Preferred Package merge:
- * phase1 → extra → candidate.careerPreferences (later wins, including empty benefit arrays).
+ * phase1 → portal/candidate.careerPreferences → extraData.careerPreferences (later wins).
  * Empty preferredBenefits from CRM must clear portal/Phase-1 checkbox lists.
  */
 function mergeCareerPreferencesLikeOverview(candidate) {
@@ -616,20 +618,39 @@ function mergeCareerPreferencesLikeOverview(candidate) {
 
   const merged = {
     ...asPrefs(phase1?.careerPreferences),
-    ...asPrefs(extra.careerPreferences),
     ...asPrefs(candidate?.careerPreferences),
+    // Recruiter Current/Preferred Package in extraData wins over portal/ATS lists.
+    ...asPrefs(extra.careerPreferences),
   };
 
-  if (!hasCareerListValue(merged.currentBenefits) && professional.currentBenefits) {
+  const extraPrefs = asPrefs(extra.careerPreferences);
+  if (
+    !hasCareerListValue(merged.currentBenefits) &&
+    professional.currentBenefits &&
+    !Object.prototype.hasOwnProperty.call(extraPrefs, 'currentBenefits')
+  ) {
     merged.currentBenefits = professional.currentBenefits;
   }
-  if (!hasCareerListValue(merged.preferredBenefits) && professional.expectedBenefits) {
+  if (
+    !hasCareerListValue(merged.preferredBenefits) &&
+    professional.expectedBenefits &&
+    !Object.prototype.hasOwnProperty.call(extraPrefs, 'preferredBenefits')
+  ) {
     merged.preferredBenefits = professional.expectedBenefits;
   }
-  if (!String(merged.currentCurrency ?? '').trim() && professional.currentSalaryCurrency) {
+  if (
+    !String(merged.currentCurrency ?? '').trim() &&
+    professional.currentSalaryCurrency &&
+    !Object.prototype.hasOwnProperty.call(extraPrefs, 'currentCurrency')
+  ) {
     merged.currentCurrency = professional.currentSalaryCurrency;
   }
-  if (!String(merged.preferredCurrency ?? '').trim() && professional.expectedSalaryCurrency) {
+  if (
+    !String(merged.preferredCurrency ?? '').trim() &&
+    professional.expectedSalaryCurrency &&
+    !Object.prototype.hasOwnProperty.call(extraPrefs, 'preferredCurrency') &&
+    !Object.prototype.hasOwnProperty.call(extraPrefs, 'salaryCurrency')
+  ) {
     merged.preferredCurrency = professional.expectedSalaryCurrency;
   }
 
@@ -665,6 +686,10 @@ function formatLanguageProficiencyList(value) {
 }
 
 function overviewExperienceYears(candidate) {
+  const computed = resolveCandidateListExperienceYears(candidate);
+  if (computed != null && Number.isFinite(Number(computed))) {
+    return Math.round(Number(computed) * 10) / 10;
+  }
   const years = candidate?.experienceYears;
   const exp = candidate?.experience;
   const y = years != null && Number.isFinite(Number(years)) ? Number(years) : null;
