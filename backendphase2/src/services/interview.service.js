@@ -1734,11 +1734,14 @@ async function serializeInterviewForClientReview(
     currentCompanyWebsite: c.currentCompanyWebsite || '',
     currentSalary: c.currentSalary ?? '',
     currentSalaryCurrency: c.currentSalaryCurrency || '',
-    currentBenefits: c.currentBenefits || '',
+    // Prefer empty Preferred Package benefits over stale portal checkbox strings.
+    currentBenefits:
+      c.currentBenefits === undefined || c.currentBenefits === null ? '' : c.currentBenefits,
     careerPreferences: c.careerPreferences || null,
     expectedSalary: c.expectedSalary ?? '',
     expectedSalaryCurrency: c.expectedSalaryCurrency || '',
-    expectedBenefits: c.expectedBenefits || '',
+    expectedBenefits:
+      c.expectedBenefits === undefined || c.expectedBenefits === null ? '' : c.expectedBenefits,
     noticePeriod: c.noticePeriod || '',
     website: c.website || '',
     twitter: c.twitter || '',

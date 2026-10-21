@@ -317,15 +317,28 @@ export const env = {
   // Anthropic Claude API
   ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
   
-  // Social Media APIs
+  // Social Media APIs — personal profile app (Share on LinkedIn)
   LINKEDIN_CLIENT_ID: process.env.LINKEDIN_CLIENT_ID,
   LINKEDIN_CLIENT_SECRET: process.env.LINKEDIN_CLIENT_SECRET,
   LINKEDIN_REDIRECT_URI:
     process.env.LINKEDIN_REDIRECT_URI ||
     `http://localhost:${parseInt(process.env.PORT || '5001', 10)}/api/v1/linkedin/auth/linkedin/callback`,
-  /** Personal profile posting works with w_member_social. Add r/w_organization_social only after LinkedIn approves them for your app. */
   LINKEDIN_OAUTH_SCOPES: (
     process.env.LINKEDIN_OAUTH_SCOPES || 'openid profile email w_member_social'
+  )
+    .split(/[\s,]+/)
+    .map((s) => s.trim())
+    .filter(Boolean),
+  // Community Management API app (Company Pages) — optional second LinkedIn app
+  LINKEDIN_CMA_CLIENT_ID: process.env.LINKEDIN_CMA_CLIENT_ID || '',
+  LINKEDIN_CMA_CLIENT_SECRET: process.env.LINKEDIN_CMA_CLIENT_SECRET || '',
+  LINKEDIN_CMA_REDIRECT_URI:
+    process.env.LINKEDIN_CMA_REDIRECT_URI ||
+    process.env.LINKEDIN_REDIRECT_URI ||
+    `http://localhost:${parseInt(process.env.PORT || '5001', 10)}/api/v1/linkedin/auth/linkedin/callback`,
+  LINKEDIN_CMA_OAUTH_SCOPES: (
+    process.env.LINKEDIN_CMA_OAUTH_SCOPES ||
+    'r_organization_social w_organization_social rw_organization_admin'
   )
     .split(/[\s,]+/)
     .map((s) => s.trim())

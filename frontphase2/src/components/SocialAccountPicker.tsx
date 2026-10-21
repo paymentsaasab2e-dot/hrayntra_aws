@@ -107,10 +107,15 @@ export function SocialAccountPicker({
                     </div>
                   )}
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-medium text-slate-900 truncate">
-                        {accountLabel(account, provider)}
+                        {account.type === 'page' ? account.name : accountLabel(account, provider)}
                       </span>
+                      {account.type === 'page' ? (
+                        <span className="inline-flex items-center px-2 py-0.5 bg-sky-100 text-sky-800 rounded text-[10px] font-semibold uppercase tracking-wide shrink-0">
+                          Company Page
+                        </span>
+                      ) : null}
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs font-medium shrink-0">
                         <Check size={12} />
                         Connected
@@ -154,6 +159,14 @@ export function SocialAccountPicker({
       ) : (
         <p className="text-xs text-slate-500">No {providerLabel} accounts connected yet.</p>
       )}
+
+      {provider === 'linkedin' &&
+      connectedAccounts.length > 0 &&
+      !connectedAccounts.some((account) => account.type === 'page') ? (
+        <p className="text-[11px] text-slate-500">
+          Company Pages are not connected yet. Click <span className="font-medium text-slate-700">Add another LinkedIn account</span> and approve access as a Page admin.
+        </p>
+      ) : null}
 
       <button
         type="button"

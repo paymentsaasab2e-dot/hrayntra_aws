@@ -257,6 +257,16 @@ interface JobPipelineStageSummary {
 }
 
 /** Drop legacy "Apply" when an Applied/APPLIED stage exists (standalone double-bucket bug). */
+function isSubmitToClientLikeStage(stage: JobPipelineStageSummary): boolean {
+  const nameKey = normalizePipelineStageKey(stage.name);
+  const roleKey = normalizePipelineStageKey(String(stage.systemRole || ''));
+  if (roleKey === 'submittedtoclient' || roleKey === 'submittoclient') return true;
+  return (
+    (nameKey.includes('submit') && nameKey.includes('client')) ||
+    nameKey.includes('submittedtoclient')
+  );
+}
+
 function dedupeRedundantApplyPipelineStages(stages: JobPipelineStageSummary[]): JobPipelineStageSummary[] {
   if (!Array.isArray(stages) || stages.length < 2) return stages;
   const hasAppliedLike = stages.some(
@@ -264,8 +274,27 @@ function dedupeRedundantApplyPipelineStages(stages: JobPipelineStageSummary[]): 
       String(s.systemRole || '').toUpperCase() === 'APPLIED' ||
       /^applied$/i.test(String(s.name || '').trim())
   );
-  if (!hasAppliedLike) return stages;
-  return stages.filter((s) => String(s.name || '').trim().toLowerCase() !== 'apply');
+  let next = hasAppliedLike
+    ? stages.filter((s) => String(s.name || '').trim().toLowerCase() !== 'apply')
+    : stages;
+
+  // Jobs sometimes carry both "Submit to Client" and "Submitted to Client" (or duplicates).
+  // Collapse to one chip so Columns → Submit to Client never renders SUB twice.
+  const submitLike = next.filter(isSubmitToClientLikeStage);
+  if (submitLike.length > 1) {
+    const preferred =
+      submitLike.find((s) => String(s.systemRole || '').toUpperCase() === 'SUBMITTED_TO_CLIENT') ||
+      submitLike.find((s) => /^submit to client$/i.test(String(s.name || '').trim())) ||
+      [...submitLike].sort((a, b) => a.order - b.order)[0];
+    const mergedCount = submitLike.reduce((sum, s) => sum + (Number(s.count) || 0), 0);
+    const dropIds = new Set(submitLike.map((s) => s.id));
+    dropIds.delete(preferred.id);
+    next = next
+      .filter((s) => !dropIds.has(s.id))
+      .map((s) => (s.id === preferred.id ? { ...s, count: mergedCount } : s));
+  }
+
+  return next;
 }
 
 export interface Job {
@@ -527,8 +556,11 @@ function pipelineStageMatchesKey(stage: JobPipelineStageSummary, stageKey: strin
   if (key === 'screening') {
     return roleKey === 'screening' || /screen|short|long/.test(nameKey);
   }
-  if (key === 'submittoclient' || key === 'submit-to-client') {
+  if (key === 'submittoclient') {
+    // systemRole is SUBMITTED_TO_CLIENT → normalized "submittedtoclient"
     return (
+      roleKey === 'submittedtoclient' ||
+      roleKey === 'submittoclient' ||
       (nameKey.includes('submit') && nameKey.includes('client')) ||
       nameKey.includes('submittedtoclient')
     );
@@ -546,9 +578,16 @@ function pipelineStageMatchesKey(stage: JobPipelineStageSummary, stageKey: strin
     return nameKey.includes('reject');
   }
 
-  return nameKey.includes(key) || key.includes(nameKey);
+  // Avoid short-token false positives (e.g. key "submittoclient" vs name "submit").
+  if (nameKey.length >= 4 && key.includes(nameKey)) return true;
+  return nameKey.includes(key);
 }
 
+/**
+ * Columns → Pipeline picks canonical stage *keys* (applied, submit-to-client, …).
+ * Return at most one chip per selected key so jobs with duplicate submit-like
+ * stages never render APP / SUB / SUB.
+ */
 export function filterPipelineStagesForColumns(
   stages: JobPipelineStageSummary[] | undefined,
   visibleStageKeys: string[] | null | undefined,
@@ -557,9 +596,37 @@ export function filterPipelineStagesForColumns(
   // null/undefined = no Columns filter yet → show all. Empty array = user hid every stage.
   if (visibleStageKeys == null) return list;
   if (visibleStageKeys.length === 0) return [];
-  return list.filter((stage) =>
-    visibleStageKeys.some((key) => pipelineStageMatchesKey(stage, key)),
-  );
+
+  const result: JobPipelineStageSummary[] = [];
+  const usedIds = new Set<string>();
+
+  for (const stageKey of visibleStageKeys) {
+    const matches = list.filter(
+      (stage) => !usedIds.has(stage.id) && pipelineStageMatchesKey(stage, stageKey),
+    );
+    if (!matches.length) continue;
+
+    const keyNorm = normalizePipelineStageKey(stageKey);
+    const exactName = matches.find(
+      (s) => normalizePipelineStageKey(s.name) === keyNorm,
+    );
+    const byRole = matches.find((s) => {
+      const role = normalizePipelineStageKey(String(s.systemRole || ''));
+      if (keyNorm === 'submittoclient') {
+        return role === 'submittedtoclient' || role === 'submittoclient';
+      }
+      return role === keyNorm || (keyNorm === 'interviewing' && role === 'interview');
+    });
+    const primary =
+      exactName ||
+      byRole ||
+      [...matches].sort((a, b) => a.order - b.order)[0];
+    const count = matches.reduce((sum, s) => sum + (Number(s.count) || 0), 0);
+    matches.forEach((s) => usedIds.add(s.id));
+    result.push({ ...primary, count });
+  }
+
+  return result;
 }
 
 export const LEGACY_PIPELINE_BUCKETS: Array<{

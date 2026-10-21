@@ -1322,18 +1322,27 @@ function fallbackValuesFromCandidate(candidate, matchScore) {
     'current employer': String(candidate?.currentCompany || '').trim(),
     'experience (years)': experience,
     'candidate score': score,
-    'current salary': money(candidate?.currentSalary ?? prefs.currentSalary),
+    'current salary': money(prefs.currentSalary ?? candidate?.currentSalary),
     'current salary currency': formatReviewText(
-      candidate?.currentSalaryCurrency || prefs.currentCurrency,
+      prefs.currentCurrency || candidate?.currentSalaryCurrency,
     ),
-    'current benefits': formatReviewText(candidate?.currentBenefits || prefs.currentBenefits),
+    'current benefits': formatReviewText(
+      Object.prototype.hasOwnProperty.call(prefs, 'currentBenefits')
+        ? prefs.currentBenefits
+        : candidate?.currentBenefits,
+    ),
+    // Preferred Package salary wins over stale Candidate.expectedSalary column (Overview parity).
     'expected salary': money(
-      candidate?.expectedSalary ?? prefs.preferredSalary ?? prefs.salaryAmount,
+      prefs.preferredSalary ?? prefs.salaryAmount ?? candidate?.expectedSalary,
     ),
     'expected salary currency': formatReviewText(
-      candidate?.expectedSalaryCurrency || prefs.preferredCurrency || prefs.salaryCurrency,
+      prefs.preferredCurrency || prefs.salaryCurrency || candidate?.expectedSalaryCurrency,
     ),
-    'expected benefits': formatReviewText(candidate?.expectedBenefits || prefs.preferredBenefits),
+    'expected benefits': formatReviewText(
+      Object.prototype.hasOwnProperty.call(prefs, 'preferredBenefits')
+        ? prefs.preferredBenefits
+        : candidate?.expectedBenefits,
+    ),
     'notice period': formatReviewText(candidate?.noticePeriod || prefs.noticePeriod),
     'preferred job titles': formatReviewText(prefs.preferredJobTitles || prefs.preferredRoles),
     'preferred industries': formatReviewText(prefs.preferredIndustries || prefs.preferredIndustry),

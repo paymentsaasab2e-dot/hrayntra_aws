@@ -1,8 +1,71 @@
 import { sendResponse, sendError } from '../../utils/response.js';
-import { linkedinService } from './linkedin.service.js';
+import { isCmaLinkedInSub, linkedinService, toCmaLinkedInSub } from './linkedin.service.js';
 import { env } from '../../config/env.js';
 import { getActiveTenantDbName, runWithTenantContext } from '../../config/prisma.js';
 import crypto from 'crypto';
+
+function hasCmaLinkedInApp() {
+  return Boolean(String(env.LINKEDIN_CMA_CLIENT_ID || '').trim() && String(env.LINKEDIN_CMA_CLIENT_SECRET || '').trim());
+}
+
+function frontendJobsUrl() {
+  return env.FRONTEND_URL || 'http://localhost:3000';
+}
+
+function parseLinkedInOAuthState(state) {
+  const decoded = decodeURIComponent(String(state || ''));
+  const parts = decoded.split(':');
+  return {
+    userId: parts[1] || null,
+    tenantDbName: parts[2] || '',
+    purpose: parts[3] === 'cma' ? 'cma' : 'personal',
+    linkedinSub: parts.slice(4).join(':') || '',
+  };
+}
+
+function buildLinkedInOAuthState({ userId, tenantDbName = '', purpose = 'personal', linkedinSub = '' }) {
+  const nonce = crypto.randomBytes(32).toString('hex');
+  const base = `${nonce}:${userId}:${String(tenantDbName || '').trim()}`;
+  if (purpose === 'cma') return `${base}:cma:${linkedinSub || ''}`;
+  return base;
+}
+
+function buildLinkedInAuthorizeUrl({ clientId, redirectUri, scopes, state }) {
+  const authUrl = new URL('https://www.linkedin.com/oauth/v2/authorization');
+  authUrl.searchParams.set('response_type', 'code');
+  authUrl.searchParams.set('client_id', clientId);
+  authUrl.searchParams.set('redirect_uri', redirectUri);
+  authUrl.searchParams.set('scope', Array.isArray(scopes) ? scopes.join(' ') : String(scopes || ''));
+  authUrl.searchParams.set('state', state);
+  return authUrl.toString();
+}
+
+async function exchangeLinkedInCode({ code, redirectUri, clientId, clientSecret }) {
+  const tokenResponse = await fetch('https://www.linkedin.com/oauth/v2/accessToken', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri: redirectUri,
+      client_id: clientId,
+      client_secret: clientSecret,
+    }),
+  });
+  if (!tokenResponse.ok) {
+    const errorText = await tokenResponse.text();
+    throw new Error(`LinkedIn token exchange failed: ${errorText}`);
+  }
+  return tokenResponse.json();
+}
+
+async function fetchLinkedInUserInfo(accessToken) {
+  const userInfoResponse = await fetch('https://api.linkedin.com/v2/userinfo', {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!userInfoResponse.ok) return null;
+  return userInfoResponse.json();
+}
 
 export const linkedinController = {
   async initiateAuth(req, res) {
@@ -19,32 +82,48 @@ export const linkedinController = {
         );
       }
 
-      // Generate state for CSRF protection
-      const state = crypto.randomBytes(32).toString('hex');
-      
-      // Build auth URL - userId will be passed via state param
-      const authUrl = new URL('https://www.linkedin.com/oauth/v2/authorization');
-      authUrl.searchParams.set('response_type', 'code');
-      authUrl.searchParams.set('client_id', env.LINKEDIN_CLIENT_ID);
-      authUrl.searchParams.set('redirect_uri', env.LINKEDIN_REDIRECT_URI);
-      authUrl.searchParams.set('scope', env.LINKEDIN_OAUTH_SCOPES.join(' '));
-      // Encode userId in state for callback
       const tenantDbName = String(getActiveTenantDbName() || '').trim();
-      const stateWithUserId = `${state}:${req.user.id}:${tenantDbName}`;
-      authUrl.searchParams.set('state', stateWithUserId);
+      const tokens = await linkedinService.getTokensByUserId(req.user.id);
+      const hasPersonal = tokens.some(
+        (token) => !isCmaLinkedInSub(token.linkedinSub) && new Date(token.expiresAt) > new Date(),
+      );
+      const hasCma = tokens.some(
+        (token) => isCmaLinkedInSub(token.linkedinSub) && new Date(token.expiresAt) > new Date(),
+      );
 
-      // Log OAuth initiation to terminal
+      // Personal already connected and CMA app is configured → connect Company Page next.
+      const startCma = hasCmaLinkedInApp() && hasPersonal && !hasCma;
+      const purpose = startCma ? 'cma' : 'personal';
+      const state = buildLinkedInOAuthState({
+        userId: req.user.id,
+        tenantDbName,
+        purpose,
+      });
+      const authUrl = startCma
+        ? buildLinkedInAuthorizeUrl({
+            clientId: env.LINKEDIN_CMA_CLIENT_ID,
+            redirectUri: env.LINKEDIN_CMA_REDIRECT_URI,
+            scopes: env.LINKEDIN_CMA_OAUTH_SCOPES,
+            state,
+          })
+        : buildLinkedInAuthorizeUrl({
+            clientId: env.LINKEDIN_CLIENT_ID,
+            redirectUri: env.LINKEDIN_REDIRECT_URI,
+            scopes: env.LINKEDIN_OAUTH_SCOPES,
+            state,
+          });
+
       console.log('\n🔗 LinkedIn OAuth Initiated');
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       console.log(`👤 User ID: ${req.user.id}`);
       console.log(`📧 User Email: ${req.user.email || 'N/A'}`);
-      console.log(`🔐 State: ${state.substring(0, 20)}...`);
+      console.log(`📦 App: ${purpose === 'cma' ? 'Community Management (Company Page)' : 'Share on LinkedIn (personal)'}`);
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
-      // Return auth URL and state to frontend
       sendResponse(res, 200, 'LinkedIn auth URL generated', {
-        authUrl: authUrl.toString(),
+        authUrl,
         state,
+        purpose,
       });
     } catch (error) {
       sendError(res, 500, error.message, error);
@@ -53,76 +132,71 @@ export const linkedinController = {
 
   async handleCallback(req, res) {
     try {
-      const { code, state } = req.query;
+      const { code, state, error, error_description: errorDescription } = req.query;
+
+      if (error) {
+        const detail = String(errorDescription || error || 'LinkedIn authorization failed').replace(/\+/g, ' ');
+        return res.redirect(
+          `${frontendJobsUrl()}/job?linkedin=error&message=${encodeURIComponent(detail)}`,
+        );
+      }
 
       if (!code) {
-        const frontendUrl = env.FRONTEND_URL || 'http://localhost:3000';
-        return res.redirect(`${frontendUrl}/job?linkedin=error&message=Authorization code missing`);
+        return res.redirect(`${frontendJobsUrl()}/job?linkedin=error&message=Authorization code missing`);
       }
 
-      // Extract userId from state (format: "randomState:userId")
-      // Handle URL-encoded state parameter
-      const decodedState = decodeURIComponent(state || '');
-      let finalUserId = null;
-      let callbackTenantDbName = '';
-      if (decodedState && decodedState.includes(':')) {
-        const parts = decodedState.split(':');
-        finalUserId = parts.length >= 2 ? parts[parts.length - 2] : null;
-        callbackTenantDbName = parts.length >= 3 ? parts[parts.length - 1] : '';
-      }
+      const parsed = parseLinkedInOAuthState(state);
+      const finalUserId = parsed.userId;
+      const callbackTenantDbName = parsed.tenantDbName;
+      const purpose = parsed.purpose;
 
       if (!finalUserId) {
-        const frontendUrl = env.FRONTEND_URL || 'http://localhost:3000';
-        return res.redirect(`${frontendUrl}/job?linkedin=error&message=Invalid state parameter. Please try connecting again.`);
+        return res.redirect(
+          `${frontendJobsUrl()}/job?linkedin=error&message=Invalid state parameter. Please try connecting again.`,
+        );
       }
 
-      // Exchange code for access token
-      const tokenResponse = await fetch('https://www.linkedin.com/oauth/v2/accessToken', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: new URLSearchParams({
-          grant_type: 'authorization_code',
-          code,
-          redirect_uri: env.LINKEDIN_REDIRECT_URI,
-          client_id: env.LINKEDIN_CLIENT_ID,
-          client_secret: env.LINKEDIN_CLIENT_SECRET,
-        }),
+      const isCma = purpose === 'cma';
+      const tokenData = await exchangeLinkedInCode({
+        code,
+        redirectUri: isCma ? env.LINKEDIN_CMA_REDIRECT_URI : env.LINKEDIN_REDIRECT_URI,
+        clientId: isCma ? env.LINKEDIN_CMA_CLIENT_ID : env.LINKEDIN_CLIENT_ID,
+        clientSecret: isCma ? env.LINKEDIN_CMA_CLIENT_SECRET : env.LINKEDIN_CLIENT_SECRET,
       });
-
-      if (!tokenResponse.ok) {
-        const errorText = await tokenResponse.text();
-        throw new Error(`LinkedIn token exchange failed: ${errorText}`);
-      }
-
-      const tokenData = await tokenResponse.json();
       const { access_token, expires_in } = tokenData;
 
-      // Get user info from LinkedIn
-      const userInfoResponse = await fetch('https://api.linkedin.com/v2/userinfo', {
-        headers: {
-          'Authorization': `Bearer ${access_token}`,
-        },
-      });
-
-      if (!userInfoResponse.ok) {
+      let userInfo = await fetchLinkedInUserInfo(access_token);
+      if (!userInfo && isCma) {
+        const loadExisting = async () => {
+          const tokens = await linkedinService.getTokensByUserId(finalUserId);
+          return tokens.find((token) => !isCmaLinkedInSub(token.linkedinSub)) || tokens[0] || null;
+        };
+        const existing = callbackTenantDbName
+          ? await runWithTenantContext(callbackTenantDbName, loadExisting)
+          : await loadExisting();
+        userInfo = {
+          sub: parsed.linkedinSub || existing?.linkedinSub || finalUserId,
+          name: existing?.name || 'LinkedIn Company Page',
+          email: existing?.email || null,
+          picture: existing?.picture || null,
+        };
+      }
+      if (!userInfo?.sub) {
         throw new Error('Failed to fetch LinkedIn user info');
       }
 
-      const userInfo = await userInfoResponse.json();
       const { sub, name, email, picture } = userInfo;
+      const storeSub = isCma ? toCmaLinkedInSub(sub) : String(sub).replace(/^cma:/, '');
 
-      // Save token to database
       const save = () =>
         linkedinService.saveToken(
           finalUserId,
-          sub,
+          storeSub,
           access_token,
           expires_in,
           name,
           picture,
-          email || null
+          email || null,
         );
       if (callbackTenantDbName) {
         await runWithTenantContext(callbackTenantDbName, save);
@@ -130,19 +204,35 @@ export const linkedinController = {
         await save();
       }
 
-      // Log successful connection to terminal
       console.log('\n✅ LinkedIn Account Connected Successfully!');
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       console.log(`👤 User ID: ${finalUserId}`);
+      console.log(`📦 App: ${isCma ? 'Community Management (Company Page)' : 'Share on LinkedIn (personal)'}`);
       console.log(`🔗 LinkedIn User: ${name || 'N/A'}`);
       console.log(`📧 Email: ${email || 'N/A'}`);
-      console.log(`🆔 LinkedIn Sub: ${sub}`);
+      console.log(`🆔 LinkedIn Sub: ${storeSub}`);
       console.log(`⏰ Token Expires: ${new Date(Date.now() + expires_in * 1000).toLocaleString()}`);
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
-      // Redirect to frontend with success indicator
-      const frontendUrl = env.FRONTEND_URL || 'http://localhost:3000';
-      res.redirect(`${frontendUrl}/job?linkedin=connected`);
+      // After personal connect, continue into Company Page (CMA) OAuth when configured.
+      if (!isCma && hasCmaLinkedInApp()) {
+        const cmaState = buildLinkedInOAuthState({
+          userId: finalUserId,
+          tenantDbName: callbackTenantDbName,
+          purpose: 'cma',
+          linkedinSub: String(sub).replace(/^cma:/, ''),
+        });
+        return res.redirect(
+          buildLinkedInAuthorizeUrl({
+            clientId: env.LINKEDIN_CMA_CLIENT_ID,
+            redirectUri: env.LINKEDIN_CMA_REDIRECT_URI,
+            scopes: env.LINKEDIN_CMA_OAUTH_SCOPES,
+            state: cmaState,
+          }),
+        );
+      }
+
+      res.redirect(`${frontendJobsUrl()}/job?linkedin=connected`);
     } catch (error) {
       console.error('\n❌ LinkedIn Connection Failed!');
       console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -151,8 +241,7 @@ export const linkedinController = {
         console.error(`Stack: ${error.stack.split('\n').slice(0, 3).join('\n')}`);
       }
       console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
-      const frontendUrl = env.FRONTEND_URL || 'http://localhost:3000';
-      res.redirect(`${frontendUrl}/job?linkedin=error&message=${encodeURIComponent(error.message)}`);
+      res.redirect(`${frontendJobsUrl()}/job?linkedin=error&message=${encodeURIComponent(error.message)}`);
     }
   },
 

@@ -597,15 +597,54 @@ function preferReviewText(...values) {
   return '';
 }
 
+function hasCareerListValue(value) {
+  if (Array.isArray(value)) return value.some((item) => String(item || '').trim());
+  return Boolean(String(value ?? '').trim());
+}
+
+/**
+ * Match Overview Preferred Package merge:
+ * phase1 → extra → candidate.careerPreferences (later wins, including empty benefit arrays).
+ * Empty preferredBenefits from CRM must clear portal/Phase-1 checkbox lists.
+ */
+function mergeCareerPreferencesLikeOverview(candidate) {
+  const extra = parseExtra(candidate?.extraData);
+  const phase1 = resolveLivePhase1Snapshot(candidate);
+  const professional = pipelineSection(extra, 'professional');
+  const asPrefs = (value) =>
+    value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+
+  const merged = {
+    ...asPrefs(phase1?.careerPreferences),
+    ...asPrefs(extra.careerPreferences),
+    ...asPrefs(candidate?.careerPreferences),
+  };
+
+  if (!hasCareerListValue(merged.currentBenefits) && professional.currentBenefits) {
+    merged.currentBenefits = professional.currentBenefits;
+  }
+  if (!hasCareerListValue(merged.preferredBenefits) && professional.expectedBenefits) {
+    merged.preferredBenefits = professional.expectedBenefits;
+  }
+  if (!String(merged.currentCurrency ?? '').trim() && professional.currentSalaryCurrency) {
+    merged.currentCurrency = professional.currentSalaryCurrency;
+  }
+  if (!String(merged.preferredCurrency ?? '').trim() && professional.expectedSalaryCurrency) {
+    merged.preferredCurrency = professional.expectedSalaryCurrency;
+  }
+
+  return merged;
+}
+
+function preferredPackageSalary(prefs) {
+  return prefs?.preferredSalary ?? prefs?.salaryAmount ?? null;
+}
+
 function extraProfileBag(candidate) {
   const extra = parseExtra(candidate?.extraData);
   const phase1 = resolveLivePhase1Snapshot(candidate);
   const personal = phase1?.personalInfo && typeof phase1.personalInfo === 'object' ? phase1.personalInfo : {};
-  const prefs = mergeCareerPreferenceRecords(
-    candidate?.careerPreferences,
-    extra.careerPreferences,
-    phase1?.careerPreferences,
-  );
+  const prefs = mergeCareerPreferencesLikeOverview(candidate);
   return {
     extra,
     personal,
@@ -630,6 +669,7 @@ function applyTenantStoredProfile(candidate) {
   const socialPipe = pipelineSection(extra, 'social');
   const workPipe = pipelineSection(extra, 'work');
   const salary = readPlainObject(candidate.salary);
+  const prefs = mergeCareerPreferencesLikeOverview(candidate);
   const splitFromName = String(extra.fullName || extra.name || personalPipe.fullName || personalPipe.name || '')
     .trim()
     .split(/\s+/)
@@ -680,14 +720,33 @@ function applyTenantStoredProfile(candidate) {
       workPipe.entries || workPipe.workExperienceEntries || extra.workExperienceEntries,
     ),
     expectedSalary: pickPreferred(
-      candidate.expectedSalary,
-      extra.expectedSalary || salary.expected || salary.max || salary.amount,
+      preferredPackageSalary(prefs),
+      candidate.expectedSalary ??
+        (extra.expectedSalary || salary.expected || salary.max || salary.amount),
     ),
     currentSalary: pickPreferred(
-      candidate.currentSalary,
-      extra.currentSalary || salary.current || salary.min,
+      prefs.currentSalary,
+      candidate.currentSalary ?? (extra.currentSalary || salary.current || salary.min),
     ),
-    careerPreferences: pickPreferred(candidate.careerPreferences, extra.careerPreferences),
+    currentSalaryCurrency: preferReviewText(
+      prefs.currentCurrency,
+      candidate.currentSalaryCurrency,
+      salary.currency,
+    ),
+    expectedSalaryCurrency: preferReviewText(
+      prefs.preferredCurrency,
+      prefs.salaryCurrency,
+      candidate.expectedSalaryCurrency,
+      salary.currency,
+    ),
+    // Empty Preferred Package benefits must win over portal/Phase-1 checkbox lists.
+    currentBenefits: Object.prototype.hasOwnProperty.call(prefs, 'currentBenefits')
+      ? prefs.currentBenefits
+      : candidate.currentBenefits,
+    expectedBenefits: Object.prototype.hasOwnProperty.call(prefs, 'preferredBenefits')
+      ? prefs.preferredBenefits
+      : candidate.expectedBenefits,
+    careerPreferences: prefs,
   };
 }
 
@@ -807,8 +866,8 @@ function buildEditFormFromCandidate(hydrated) {
     portfolio: pickPreferred(hydrated.portfolio, extra.portfolio || socialPipe.website),
     remarks: pickPreferred(hydrated.remarks, professionalPipe.remarks || extra.remarks),
     currentSalary: pickPreferred(
-      hydrated.currentSalary,
-      prefs.currentSalary || extra.currentSalary || salary.current || salary.min,
+      prefs.currentSalary,
+      hydrated.currentSalary ?? (extra.currentSalary || salary.current || salary.min),
     ),
     currentSalaryCurrency: preferReviewText(
       prefs.currentCurrency,
@@ -816,19 +875,15 @@ function buildEditFormFromCandidate(hydrated) {
       extra.currentSalaryCurrency,
       salary.currency,
     ),
-    currentBenefits: preferReviewText(
-      prefs.currentBenefits,
-      professionalPipe.currentBenefits,
-      extra.currentBenefits,
-    ),
+    // Prefer Preferred Package lists (incl. empty → Not provided). Do not fall back to
+    // Phase-1 / portal benefit checkboxes when CRM preferred/current benefits are empty.
+    currentBenefits: Object.prototype.hasOwnProperty.call(prefs, 'currentBenefits')
+      ? formatReviewText(prefs.currentBenefits)
+      : preferReviewText(professionalPipe.currentBenefits, extra.currentBenefits),
     expectedSalary: pickPreferred(
-      hydrated.expectedSalary,
-      prefs.preferredSalary ||
-        prefs.salaryAmount ||
-        extra.expectedSalary ||
-        salary.expected ||
-        salary.max ||
-        salary.amount,
+      preferredPackageSalary(prefs),
+      hydrated.expectedSalary ??
+        (extra.expectedSalary || salary.expected || salary.max || salary.amount),
     ),
     expectedSalaryCurrency: preferReviewText(
       prefs.preferredCurrency,
@@ -837,11 +892,9 @@ function buildEditFormFromCandidate(hydrated) {
       extra.expectedSalaryCurrency,
       salary.currency,
     ),
-    expectedBenefits: preferReviewText(
-      prefs.preferredBenefits,
-      professionalPipe.expectedBenefits,
-      extra.expectedBenefits,
-    ),
+    expectedBenefits: Object.prototype.hasOwnProperty.call(prefs, 'preferredBenefits')
+      ? formatReviewText(prefs.preferredBenefits)
+      : preferReviewText(professionalPipe.expectedBenefits, extra.expectedBenefits),
     noticePeriod: pickPreferred(hydrated.noticePeriod, prefs.noticePeriod),
     workHistoryText: pickPreferred(
       summaryPipe.workHistory,

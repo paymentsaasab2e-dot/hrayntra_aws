@@ -22,35 +22,189 @@ function isExpired(tokenRecord) {
   return new Date(tokenRecord.expiresAt) < new Date();
 }
 
-async function fetchOrganizationPages(accessToken) {
-  try {
-    const url =
-      'https://api.linkedin.com/v2/organizationAcls?q=roleAssignee&role=ADMINISTRATOR&state=APPROVED&projection=(elements*(organizationalTarget~(id,localizedName,vanityName)))';
-    const response = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'X-Restli-Protocol-Version': '2.0.0',
-      },
-    });
-    if (!response.ok) return [];
-    const data = await response.json();
-    const elements = Array.isArray(data?.elements) ? data.elements : [];
-    return elements
-      .map((entry) => {
-        const org = entry?.['organizationalTarget~'] || entry?.organizationalTarget;
-        const orgId = String(org?.id || '').replace('urn:li:organization:', '');
-        if (!orgId) return null;
-        return {
-          id: orgId,
-          name: org?.localizedName || org?.vanityName || `Company Page ${orgId}`,
-          vanityName: org?.vanityName || null,
-        };
-      })
-      .filter(Boolean);
-  } catch (error) {
-    console.warn('Failed to fetch LinkedIn organization pages:', error?.message || error);
-    return [];
+function currentLinkedInVersionYm() {
+  const now = new Date();
+  return `${now.getUTCFullYear()}${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+function linkedInRestVersionCandidates() {
+  const preferred = String(process.env.LINKEDIN_API_VERSION || '').trim();
+  const latest = currentLinkedInVersionYm();
+  const year = Number(latest.slice(0, 4));
+  const month = Number(latest.slice(4, 6));
+  const rolling = [];
+  for (let i = 0; i < 6; i += 1) {
+    const date = new Date(Date.UTC(year, month - 1 - i, 1));
+    rolling.push(`${date.getUTCFullYear()}${String(date.getUTCMonth() + 1).padStart(2, '0')}`);
   }
+  return [...new Set([preferred, latest, ...rolling].filter(Boolean))];
+}
+
+function linkedInApiHeaders(accessToken, { restVersion = null } = {}) {
+  const headers = {
+    Authorization: `Bearer ${accessToken}`,
+    'X-Restli-Protocol-Version': '2.0.0',
+    Accept: 'application/json',
+  };
+  if (restVersion) headers['Linkedin-Version'] = restVersion;
+  return headers;
+}
+
+function parseLinkedInOrganizationId(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const match = raw.match(/organization(?:Brand)?:(\d+)/i) || raw.match(/^(\d+)$/);
+  return match ? match[1] : '';
+}
+
+function mapAclElementToPage(entry) {
+  if (!entry || typeof entry !== 'object') return null;
+  const org = entry['organizationalTarget~'] || entry.organizationalTarget || {};
+  const orgId =
+    parseLinkedInOrganizationId(org.id) ||
+    parseLinkedInOrganizationId(org.organizationalTarget) ||
+    parseLinkedInOrganizationId(entry.organizationalTarget) ||
+    parseLinkedInOrganizationId(entry.organization);
+  if (!orgId) return null;
+  return {
+    id: orgId,
+    name: org.localizedName || org.vanityName || entry.localizedName || `Company Page ${orgId}`,
+    vanityName: org.vanityName || null,
+  };
+}
+
+async function fetchLinkedInJson(url, accessToken, restVersion = null) {
+  const response = await fetch(url, { headers: linkedInApiHeaders(accessToken, { restVersion }) });
+  const text = await response.text();
+  let data = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = { raw: text };
+  }
+  const message = data?.message || data?.error || data?.status || '';
+  return { ok: response.ok, status: response.status, data, message: String(message) };
+}
+
+let cachedLinkedInRestVersion = '';
+
+async function fetchLinkedInRestJson(url, accessToken) {
+  const versions = cachedLinkedInRestVersion
+    ? [cachedLinkedInRestVersion, ...linkedInRestVersionCandidates().filter((v) => v !== cachedLinkedInRestVersion)]
+    : linkedInRestVersionCandidates();
+
+  let last = { ok: false, status: 0, data: {}, message: '' };
+  for (const version of versions) {
+    last = await fetchLinkedInJson(url, accessToken, version);
+    if (last.status === 426) {
+      console.warn('[linkedin] REST version inactive', version, url, last.message);
+      if (cachedLinkedInRestVersion === version) cachedLinkedInRestVersion = '';
+      continue;
+    }
+    if (last.ok || last.status !== 426) {
+      if (last.ok) cachedLinkedInRestVersion = version;
+      return last;
+    }
+  }
+  return last;
+}
+
+async function fetchOrganizationName(accessToken, orgId) {
+  const rest = await fetchLinkedInRestJson(`https://api.linkedin.com/rest/organizations/${orgId}`, accessToken);
+  if (rest.ok) {
+    const name =
+      rest.data?.localizedName ||
+      rest.data?.vanityName ||
+      rest.data?.name?.localized?.en_US ||
+      (typeof rest.data?.name === 'string' ? rest.data.name : '');
+    if (name) return { name: String(name), vanityName: rest.data?.vanityName || null };
+  }
+  const v2 = await fetchLinkedInJson(`https://api.linkedin.com/v2/organizations/${orgId}`, accessToken);
+  if (v2.ok) {
+    const name =
+      v2.data?.localizedName ||
+      v2.data?.vanityName ||
+      v2.data?.name?.localized?.en_US ||
+      (typeof v2.data?.name === 'string' ? v2.data.name : '');
+    if (name) return { name: String(name), vanityName: v2.data?.vanityName || null };
+  }
+  return { name: `Company Page ${orgId}`, vanityName: null };
+}
+
+async function fetchOrganizationPages(accessToken) {
+  const restUrls = [
+    'https://api.linkedin.com/rest/organizationAcls?q=roleAssignee&role=ADMINISTRATOR&state=APPROVED',
+    'https://api.linkedin.com/rest/organizationAcls?q=roleAssignee',
+  ];
+  const v2Urls = [
+    'https://api.linkedin.com/v2/organizationAcls?q=roleAssignee&role=ADMINISTRATOR&state=APPROVED&projection=(elements*(organizationalTarget~(id,localizedName,vanityName)))',
+    'https://api.linkedin.com/v2/organizationAcls?q=roleAssignee',
+  ];
+
+  let elements = [];
+  for (const url of restUrls) {
+    try {
+      const { ok, status, data, message } = await fetchLinkedInRestJson(url, accessToken);
+      if (!ok) {
+        console.warn('[linkedin] organizationAcls failed', status, url, message);
+        continue;
+      }
+      const next = Array.isArray(data?.elements) ? data.elements : [];
+      if (next.length) {
+        elements = next;
+        break;
+      }
+    } catch (error) {
+      console.warn('[linkedin] organizationAcls error', url, error?.message || error);
+    }
+  }
+
+  if (!elements.length) {
+    for (const url of v2Urls) {
+      try {
+        const { ok, status, data, message } = await fetchLinkedInJson(url, accessToken);
+        if (!ok) {
+          console.warn('[linkedin] organizationAcls v2 failed', status, url, message);
+          continue;
+        }
+        const next = Array.isArray(data?.elements) ? data.elements : [];
+        if (next.length) {
+          elements = next;
+          break;
+        }
+      } catch (error) {
+        console.warn('[linkedin] organizationAcls v2 error', url, error?.message || error);
+      }
+    }
+  }
+
+  const pages = [];
+  const seen = new Set();
+  for (const entry of elements) {
+    const mapped = mapAclElementToPage(entry);
+    if (!mapped || seen.has(mapped.id)) continue;
+    seen.add(mapped.id);
+    if (!mapped.name || mapped.name === `Company Page ${mapped.id}`) {
+      const details = await fetchOrganizationName(accessToken, mapped.id);
+      mapped.name = details.name;
+      mapped.vanityName = details.vanityName || mapped.vanityName;
+    }
+    pages.push(mapped);
+  }
+
+  if (!pages.length) {
+    console.warn('[linkedin] No Company Pages returned. User must be a Page admin and CMA scopes must be approved.');
+  }
+  return pages;
+}
+
+export function isCmaLinkedInSub(linkedinSub) {
+  return String(linkedinSub || '').startsWith('cma:');
+}
+
+export function toCmaLinkedInSub(linkedinSub) {
+  const raw = String(linkedinSub || '').replace(/^cma:/, '').trim();
+  return raw ? `cma:${raw}` : 'cma:unknown';
 }
 
 function flattenAccountsFromTokens(tokens, viewerUserId = null) {
@@ -65,22 +219,26 @@ function flattenAccountsFromTokens(tokens, viewerUserId = null) {
       String(ownerUser?.email || '').trim() ||
       null;
     const isOwn = viewerUserId ? ownerUserId === String(viewerUserId) : true;
+    const isCma = isCmaLinkedInSub(token.linkedinSub);
 
-    accounts.push({
-      id: token.id,
-      key: `personal:${token.id}`,
-      type: 'personal',
-      name: token.name || 'LinkedIn Profile',
-      email: token.email || null,
-      accountEmail: token.email || null,
-      picture: token.picture || null,
-      linkedinSub: token.linkedinSub,
-      connected: !expired,
-      expired,
-      ownerUserId: ownerUserId || null,
-      ownerName,
-      isOwn,
-    });
+    // CMA tokens are Company Page access only — do not list them as a personal profile.
+    if (!isCma) {
+      accounts.push({
+        id: token.id,
+        key: `personal:${token.id}`,
+        type: 'personal',
+        name: token.name || 'LinkedIn Profile',
+        email: token.email || null,
+        accountEmail: token.email || null,
+        picture: token.picture || null,
+        linkedinSub: token.linkedinSub,
+        connected: !expired,
+        expired,
+        ownerUserId: ownerUserId || null,
+        ownerName,
+        isOwn,
+      });
+    }
 
     const pages = Array.isArray(token.organizations) ? token.organizations : [];
     for (const page of pages) {
@@ -338,6 +496,25 @@ export const linkedinService = {
   async listAccounts(userId) {
     const tokens = await this.getTokensForTenant();
     const activeTokens = tokens.filter((token) => token.user?.isActive !== false);
+
+    for (const token of activeTokens) {
+      const cached = Array.isArray(token.organizations) ? token.organizations : [];
+      // Personal-app tokens cannot list Company Pages. Refresh CMA tokens until pages arrive.
+      if (!isCmaLinkedInSub(token.linkedinSub) || cached.length > 0 || isExpired(token)) continue;
+      try {
+        const decrypted = decryptAccessToken(token);
+        if (!decrypted?.accessToken || decrypted.expired) continue;
+        const organizations = await fetchOrganizationPages(decrypted.accessToken);
+        token.organizations = organizations;
+        await prisma.linkedInToken.update({
+          where: { id: token.id },
+          data: { organizations, updatedAt: new Date() },
+        });
+      } catch (error) {
+        console.warn('[linkedin] refresh organization pages failed', token.id, error?.message || error);
+      }
+    }
+
     return flattenAccountsFromTokens(activeTokens, userId);
   },
 
@@ -368,7 +545,7 @@ export const linkedinService = {
       if (tokenRecord.user?.isActive === false) {
         throw new Error('LinkedIn account owner is inactive');
       }
-      authorUrn = `urn:li:person:${tokenRecord.linkedinSub}`;
+      authorUrn = `urn:li:person:${String(tokenRecord.linkedinSub || '').replace(/^cma:/, '')}`;
     }
 
     if (tokenRecord.expired) {

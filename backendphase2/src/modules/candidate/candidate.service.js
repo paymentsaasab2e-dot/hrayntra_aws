@@ -3627,10 +3627,10 @@ function mergeCareerPreferencesIntoCandidate(candidate, careerPrefs) {
 
   candidate.noticePeriod = pickFirstNonEmpty(candidate.noticePeriod, normalized.noticePeriod);
   candidate.availability = pickFirstNonEmpty(candidate.availability, normalized.availabilityToStart);
-  candidate.expectedSalary =
-    candidate.expectedSalary != null ? candidate.expectedSalary : normalized.preferredSalary;
-  candidate.currentSalary =
-    candidate.currentSalary != null ? candidate.currentSalary : normalized.currentSalary;
+  // Preferred Package is source of truth (Overview). Sync Int columns from it when set so
+  // Submit-to-Client / list views never keep a stale expectedSalary (e.g. 6500 vs 2,000,000).
+  candidate.expectedSalary = pickFirstNonEmpty(normalized.preferredSalary, candidate.expectedSalary);
+  candidate.currentSalary = pickFirstNonEmpty(normalized.currentSalary, candidate.currentSalary);
   candidate.preferredLocation = pickFirstNonEmpty(
     candidate.preferredLocation,
     Array.isArray(normalized.preferredLocations) ? normalized.preferredLocations[0] : null,
