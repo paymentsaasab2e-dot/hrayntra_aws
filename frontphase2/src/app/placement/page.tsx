@@ -2,6 +2,7 @@
 
 import React, { Suspense, useEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { DRAWER_QUERY, readDrawerQuery, useBindDrawerQuery } from '../../lib/drawerUrlState';
 import { Download, FileText, Plus, RefreshCcw, Trophy } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import { FiltersBar } from '../../components/placements/FiltersBar';
@@ -108,6 +109,15 @@ function PlacementsPageContent() {
   const [rejectOfferPlacement, setRejectOfferPlacement] = useState<Placement | null>(null);
   const [detailDrawerOpen, setDetailDrawerOpen] = useState(false);
   const [detailPlacementId, setDetailPlacementId] = useState<string | null>(null);
+  useBindDrawerQuery(detailDrawerOpen && Boolean(detailPlacementId), {
+    [DRAWER_QUERY.placementId]: detailPlacementId,
+  });
+  useEffect(() => {
+    const id = readDrawerQuery(DRAWER_QUERY.placementId);
+    if (!id) return;
+    setDetailPlacementId(id);
+    setDetailDrawerOpen(true);
+  }, []);
   const [currentUserId, setCurrentUserId] = useState<string | undefined>();
   const [smartSearchPlacementIds, setSmartSearchPlacementIds] = useState<string[]>([]);
   const [showSummaryCards, setShowSummaryCards] = useState(false);

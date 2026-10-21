@@ -29,6 +29,15 @@ import { buildJobContactPersonOptions, type JobContactPersonOption } from '../li
 import { mergeClientVisibility, parseJobPublicFieldVisibility, buildPublicFieldVisibilityPayload, resolvePostedCompanyNameForSocial } from '../lib/jobPublicFieldVisibility';
 import { invalidateEmployerJobsCache } from '../lib/employerPageCache';
 import { AccordionSection, AiChatMessage, AiDescriptionSection, AiDraftData, ApplicationLogoOption, CREATE_JOB_EDIT_WIZARD_STEPS, CREATE_JOB_WIZARD_STEPS, CreateJobDrawerProps, CreateJobWizardStep, DEFAULT_JOB_DRAWER_ACCORDIONS, JobPromptHints, ScreeningQuestion, buildPlainJobDescriptionHtml, clearCreateJobOauthDraft, defaultTargetHireDateIso, emptyJobPromptHints, extractLabeledPromptValue, hydrateJobListFieldsFromPipelineResult, inferJobTitleFromPrompt, inferWorkModeFromText, makeShortTextScreeningQuestion, parseExperienceRequiredForForm, parseJobPromptHints, parseScreeningQuestionList, peekCreateJobOauthDraft, resolveClientIdByCompanyName, saveCreateJobOauthDraft, serializeScreeningQuestion } from '../components/drawers/createJobShared';
+import {
+  DRAWER_QUERY,
+  isCreateJobUrlStep,
+  readDrawerQuery,
+  rememberCreateJobStep,
+  rememberDrawerReturnUrl,
+  takeCreateJobStep,
+  useBindDrawerQuery,
+} from '../lib/drawerUrlState';
 
 export function useCreateJobDrawer(props: CreateJobDrawerProps) {
   const {
@@ -172,7 +181,23 @@ const [disconnectingTwitterId, setDisconnectingTwitterId] = useState<string | nu
 const [connectingLinkedIn, setConnectingLinkedIn] = useState(false);
 const linkedIn = useLinkedIn();
 const [accordions, setAccordions] = useState<AccordionSection[]>(DEFAULT_JOB_DRAWER_ACCORDIONS);
-const [wizardStep, setWizardStep] = useState<CreateJobWizardStep>('details');
+const [wizardStep, setWizardStep] = useState<CreateJobWizardStep>(() => {
+  const fromUrl = readDrawerQuery(DRAWER_QUERY.jobStep);
+  if (isCreateJobUrlStep(fromUrl)) return fromUrl;
+  return jobId ? 'details' : 'client';
+});
+
+useBindDrawerQuery(isOpen, jobId
+  ? {
+      [DRAWER_QUERY.createJob]: null,
+      [DRAWER_QUERY.editJob]: String(jobId),
+      [DRAWER_QUERY.jobStep]: wizardStep,
+    }
+  : {
+      [DRAWER_QUERY.createJob]: '1',
+      [DRAWER_QUERY.editJob]: null,
+      [DRAWER_QUERY.jobStep]: wizardStep,
+    });
 const [formData, setFormData] = useState({
     // Job Details
     nationality: '',
@@ -304,6 +329,9 @@ useEffect(() => {
     if (!isOpen) return;
 
     const draft = !jobId && !duplicateFromJobId ? peekCreateJobOauthDraft() : null;
+    const restoredStepRaw = readDrawerQuery(DRAWER_QUERY.jobStep) || takeCreateJobStep();
+    const restoredStep = isCreateJobUrlStep(restoredStepRaw) ? restoredStepRaw : null;
+
     if (draft) {
       setFormData((prev: any) => ({
         ...prev,
@@ -324,11 +352,11 @@ useEffect(() => {
       if (draft.aiDraftData) {
         setAiDraftData(draft.aiDraftData);
       }
-      setWizardStep('publish');
+      setWizardStep(restoredStep || 'publish');
       setAccordions([
         { id: 'details', label: 'Job Details', isOpen: false },
         { id: 'application', label: 'Job Application Form', isOpen: false },
-        { id: 'publish', label: 'Publish & Share', isOpen: true },
+        { id: 'publish', label: 'Publish & Share', isOpen: restoredStep ? restoredStep === 'publish' : true },
       ]);
       const clearTimer = window.setTimeout(() => {
         clearCreateJobOauthDraft();
@@ -336,7 +364,9 @@ useEffect(() => {
       return () => window.clearTimeout(clearTimer);
     }
 
-    setWizardStep(isEditMode || jobId || duplicateFromJobId ? 'details' : 'client');
+    setWizardStep(
+      restoredStep || (isEditMode || jobId || duplicateFromJobId ? 'details' : 'client'),
+    );
     setAccordions(DEFAULT_JOB_DRAWER_ACCORDIONS);
 
     if (isEditMode || jobId || duplicateFromJobId) return undefined;
@@ -755,6 +785,8 @@ const handleConnectSocialAccount = async (provider: 'twitter' | 'facebook') => {
         skillInput,
         aiDraftData,
       });
+      rememberCreateJobStep(wizardStep);
+      rememberDrawerReturnUrl();
       sessionStorage.setItem('oauth_provider', provider);
       const returnUrl = `${window.location.origin}${window.location.pathname}${window.location.search}`;
       await apiConnectIntegration(provider, returnUrl, { reopenCreateJobDrawer: true });
@@ -2335,6 +2367,8 @@ const handleConnectLinkedIn = async () => {
         skillInput,
         aiDraftData,
       });
+      rememberCreateJobStep(wizardStep);
+      rememberDrawerReturnUrl();
       sessionStorage.setItem('oauth_provider', 'linkedin');
       await linkedIn.connect();
     } catch (error) {

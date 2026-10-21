@@ -54,6 +54,17 @@ import { WorkspaceAlertTableCell, WorkspaceAlertTableHeader } from '../../compon
 import type { AuditMeta } from '../../types/audit';
 
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import {
+  DRAWER_QUERY,
+  applyDrawerReturnPath,
+  isCreateJobUrlStep,
+  patchDrawerQuery,
+  readDrawerQuery,
+  stripOauthCallbackQuery,
+  takeCreateJobStep,
+  takeDrawerReturnPath,
+  useBindDrawerQuery,
+} from '../../lib/drawerUrlState';
 import PaginationAll from '../../components/PaginationAll';
 import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../constants/tablePagination';
 import { requestConfirm, requestError } from '../../lib/appDialog';
@@ -1253,6 +1264,7 @@ export function useJobList() {
   const [jobDrawerOpen, setJobDrawerOpen] = useState(false);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const pendingDeepLinkJobIdRef = useRef<string | null>(null);
+  const pendingNestedCandidateIdRef = useRef<string | null>(null);
   const [currentPage, setCurrentPage] = useState(DEFAULT_PAGE);
   const [pageSize, setPageSize] = useState<TablePageSize>(DEFAULT_PAGE_SIZE);
   const [jobs, setJobs] = useState<Job[]>(() => {
@@ -1508,6 +1520,7 @@ export function useJobList() {
     const linkedinParam = params.get('linkedin');
     const integrationConnected = params.get('integration_connected');
     const integrationError = params.get('integration_error');
+    const hasOauthCallback = Boolean(linkedinParam || integrationConnected || integrationError);
     const shouldReopenAiWizard = sessionStorage.getItem('reopen_job_ai_wizard') === '1';
     const shouldReopenDrawer =
       !shouldReopenAiWizard &&
@@ -1519,10 +1532,21 @@ export function useJobList() {
         integrationError === 'twitter' ||
         integrationError === 'facebook');
 
+    if (hasOauthCallback || shouldReopenAiWizard || shouldReopenDrawer) {
+      const returnPath = takeDrawerReturnPath();
+      if (returnPath) applyDrawerReturnPath(returnPath);
+    }
+
+    const savedStep = shouldReopenDrawer ? takeCreateJobStep() : '';
+
     if (shouldReopenAiWizard) {
       const savedWizardMode = sessionStorage.getItem('reopen_job_ai_wizard_mode');
       sessionStorage.removeItem('reopen_job_ai_wizard_mode');
+      sessionStorage.removeItem('reopen_job_ai_wizard');
       setCreateJobMode(savedWizardMode === 'manual' ? 'manual' : 'ai');
+      if (readDrawerQuery(DRAWER_QUERY.jobAi) !== '1') {
+        patchDrawerQuery({ [DRAWER_QUERY.jobAi]: '1' });
+      }
       setJobAiWizardOpen(true);
       if (linkedinParam === 'connected') {
         toast.success('LinkedIn connected successfully.');
@@ -1532,6 +1556,20 @@ export function useJobList() {
         );
       }
     } else if (shouldReopenDrawer) {
+      const stepFromUrl = readDrawerQuery(DRAWER_QUERY.jobStep);
+      const nextStep = isCreateJobUrlStep(savedStep)
+        ? savedStep
+        : isCreateJobUrlStep(stepFromUrl)
+          ? stepFromUrl
+          : 'publish';
+      if (readDrawerQuery(DRAWER_QUERY.editJob)) {
+        patchDrawerQuery({ [DRAWER_QUERY.jobStep]: nextStep });
+      } else {
+        patchDrawerQuery({
+          [DRAWER_QUERY.createJob]: '1',
+          [DRAWER_QUERY.jobStep]: nextStep,
+        });
+      }
       setCreateJobMode('manual');
       setCreateJobDrawerOpen(true);
       sessionStorage.removeItem('reopen_create_job_drawer');
@@ -1549,15 +1587,7 @@ export function useJobList() {
       toast.error('Failed to connect Facebook account. Please try again.');
     }
 
-    if (linkedinParam || integrationConnected || integrationError) {
-      const url = new URL(window.location.href);
-      url.searchParams.delete('linkedin');
-      url.searchParams.delete('message');
-      url.searchParams.delete('integration_connected');
-      url.searchParams.delete('integration_error');
-      url.searchParams.delete('email');
-      window.history.replaceState({}, '', url.pathname + (url.search || ''));
-    }
+    stripOauthCallbackQuery();
   }, []);
 
   useEffect(() => {
@@ -1786,6 +1816,27 @@ export function useJobList() {
   const [jobPipelineStages, setJobPipelineStages] = useState<any[]>([]);
   const [editJobDrawerOpen, setEditJobDrawerOpen] = useState(false);
   const [editingJobId, setEditingJobId] = useState<string | null>(null);
+  useBindDrawerQuery(jobAiWizardOpen, { [DRAWER_QUERY.jobAi]: '1' });
+  useBindDrawerQuery(
+    jobDrawerOpen && Boolean(selectedJob?.id) && !createJobDrawerOpen && !editJobDrawerOpen,
+    { [DRAWER_QUERY.jobId]: selectedJob?.id || null },
+  );
+  useBindDrawerQuery(candidateProfileDrawerOpen && Boolean(selectedCandidateProfile?.id), {
+    [DRAWER_QUERY.candidateId]: selectedCandidateProfile?.id || null,
+  });
+  useEffect(() => {
+    if (readDrawerQuery(DRAWER_QUERY.createJob) === '1') {
+      setCreateJobDrawerOpen(true);
+    }
+    const editId = readDrawerQuery(DRAWER_QUERY.editJob);
+    if (editId) {
+      setEditingJobId(editId);
+      setEditJobDrawerOpen(true);
+    }
+    if (readDrawerQuery(DRAWER_QUERY.jobAi) === '1' && readDrawerQuery(DRAWER_QUERY.createJob) !== '1') {
+      setJobAiWizardOpen(true);
+    }
+  }, []);
   const [jobMetrics, setJobMetrics] = useState<JobMetrics | null>(() => {
     const cached = readJobsMetricsCache();
     const parsed = cached?.data;
@@ -2071,6 +2122,42 @@ export function useJobList() {
     window.addEventListener('jobportal:candidates-changed', onCandidatesChanged);
     return () => window.removeEventListener('jobportal:candidates-changed', onCandidatesChanged);
   }, [loadCandidateProfileInJobContext, selectedCandidateProfile?.id]);
+
+  useEffect(() => {
+    if (!jobDrawerOpen) {
+      pendingNestedCandidateIdRef.current = null;
+      return;
+    }
+    const candidateId = searchParams.get('candidateId') || readDrawerQuery(DRAWER_QUERY.candidateId);
+    if (!candidateId || pendingNestedCandidateIdRef.current === candidateId) return;
+    if (selectedCandidateProfile?.id === candidateId && candidateProfileDrawerOpen) {
+      pendingNestedCandidateIdRef.current = candidateId;
+      return;
+    }
+    pendingNestedCandidateIdRef.current = candidateId;
+    let cancelled = false;
+    void (async () => {
+      setCandidateDrawerMode('view');
+      setCandidateProfileDrawerOpen(true);
+      setLoadingCandidateProfile(true);
+      try {
+        await loadCandidateProfileInJobContext(candidateId);
+      } catch (error) {
+        if (!cancelled) console.error('Failed to restore candidate drawer:', error);
+      } finally {
+        if (!cancelled) setLoadingCandidateProfile(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    jobDrawerOpen,
+    searchParams,
+    loadCandidateProfileInJobContext,
+    selectedCandidateProfile?.id,
+    candidateProfileDrawerOpen,
+  ]);
 
   const openJobDrawerCandidateView = useCallback(
     async (candidate: Candidate) => {

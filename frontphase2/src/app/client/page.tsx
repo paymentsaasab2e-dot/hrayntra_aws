@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import nextDynamic from 'next/dynamic';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { DRAWER_QUERY, readDrawerQuery, useBindDrawerQuery } from '../../lib/drawerUrlState';
 import { toast } from 'sonner';
 import {
   Plus,
@@ -432,6 +433,15 @@ export default function App() {
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [selectedClientDrawerMode, setSelectedClientDrawerMode] = useState<'view' | 'edit'>('view');
   const [showAddClientDrawer, setShowAddClientDrawer] = useState(false);
+  useBindDrawerQuery(showAddClientDrawer, { [DRAWER_QUERY.addClient]: '1' });
+  useBindDrawerQuery(Boolean(selectedClientId) && !showAddClientDrawer, {
+    [DRAWER_QUERY.clientId]: selectedClientId,
+  });
+  useEffect(() => {
+    if (readDrawerQuery(DRAWER_QUERY.addClient) === '1') {
+      setShowAddClientDrawer(true);
+    }
+  }, []);
   const [addClientWithAi, setAddClientWithAi] = useState(false);
   const [createClientMode, setCreateClientMode] = useState<'ai' | 'manual'>('manual');
   const clientAiGate = useAiCoinGate('ai.client_chat');

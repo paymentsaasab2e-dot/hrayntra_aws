@@ -8,26 +8,88 @@ function hasCmaLinkedInApp() {
   return Boolean(String(env.LINKEDIN_CMA_CLIENT_ID || '').trim() && String(env.LINKEDIN_CMA_CLIENT_SECRET || '').trim());
 }
 
-function frontendJobsUrl() {
-  return env.FRONTEND_URL || 'http://localhost:3000';
+const RETURN_ORIGIN_MARK = '|rt|';
+
+function encodeReturnOrigin(origin) {
+  return Buffer.from(String(origin || ''), 'utf8').toString('base64url');
+}
+
+function decodeReturnOrigin(raw) {
+  try {
+    return Buffer.from(String(raw || ''), 'base64url').toString('utf8');
+  } catch {
+    return '';
+  }
+}
+
+function isAllowedFrontendOrigin(origin) {
+  try {
+    const url = new URL(String(origin || ''));
+    const host = url.hostname.toLowerCase();
+    if (!host) return false;
+    const localHttp = url.protocol === 'http:' && (host === 'localhost' || host === '127.0.0.1');
+    if (url.protocol !== 'https:' && !localHttp) return false;
+    if (host === 'localhost' || host === '127.0.0.1') return true;
+    if (host === 'hryantra.com' || host.endsWith('.hryantra.com')) return true;
+    if (host === 'poyeso.com' || host.endsWith('.poyeso.com')) return true;
+    if (host.endsWith('.vercel.app')) return true;
+    const configured = String(env.FRONTEND_URL || '').replace(/\/$/, '');
+    if (configured) {
+      try {
+        if (url.origin === new URL(configured).origin) return true;
+      } catch {
+        /* ignore invalid FRONTEND_URL */
+      }
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+function sanitizeReturnOrigin(raw) {
+  const origin = String(raw || '').trim();
+  if (!origin) return '';
+  try {
+    const normalized = new URL(origin).origin;
+    return isAllowedFrontendOrigin(normalized) ? normalized : '';
+  } catch {
+    return '';
+  }
+}
+
+function frontendJobsUrl(returnOrigin) {
+  const origin = sanitizeReturnOrigin(returnOrigin);
+  if (origin) return origin;
+  return String(env.FRONTEND_URL || 'http://localhost:3000').replace(/\/$/, '');
 }
 
 function parseLinkedInOAuthState(state) {
   const decoded = decodeURIComponent(String(state || ''));
-  const parts = decoded.split(':');
+  const [core, encodedOrigin] = decoded.split(RETURN_ORIGIN_MARK);
+  const parts = String(core || '').split(':');
   return {
     userId: parts[1] || null,
     tenantDbName: parts[2] || '',
     purpose: parts[3] === 'cma' ? 'cma' : 'personal',
     linkedinSub: parts.slice(4).join(':') || '',
+    returnOrigin: sanitizeReturnOrigin(decodeReturnOrigin(encodedOrigin || '')),
   };
 }
 
-function buildLinkedInOAuthState({ userId, tenantDbName = '', purpose = 'personal', linkedinSub = '' }) {
+function buildLinkedInOAuthState({
+  userId,
+  tenantDbName = '',
+  purpose = 'personal',
+  linkedinSub = '',
+  returnOrigin = '',
+}) {
   const nonce = crypto.randomBytes(32).toString('hex');
   const base = `${nonce}:${userId}:${String(tenantDbName || '').trim()}`;
-  if (purpose === 'cma') return `${base}:cma:${linkedinSub || ''}`;
-  return base;
+  const core = purpose === 'cma' ? `${base}:cma:${linkedinSub || ''}` : base;
+  const origin = sanitizeReturnOrigin(returnOrigin);
+  if (!origin) return core;
+  return `${core}${RETURN_ORIGIN_MARK}${encodeReturnOrigin(origin)}`;
 }
 
 function buildLinkedInAuthorizeUrl({ clientId, redirectUri, scopes, state }) {
@@ -83,6 +145,7 @@ export const linkedinController = {
       }
 
       const tenantDbName = String(getActiveTenantDbName() || '').trim();
+      const returnOrigin = sanitizeReturnOrigin(req.query?.returnOrigin);
       const tokens = await linkedinService.getTokensByUserId(req.user.id);
       const hasPersonal = tokens.some(
         (token) => !isCmaLinkedInSub(token.linkedinSub) && new Date(token.expiresAt) > new Date(),
@@ -98,6 +161,7 @@ export const linkedinController = {
         userId: req.user.id,
         tenantDbName,
         purpose,
+        returnOrigin,
       });
       const authUrl = startCma
         ? buildLinkedInAuthorizeUrl({
@@ -133,26 +197,27 @@ export const linkedinController = {
   async handleCallback(req, res) {
     try {
       const { code, state, error, error_description: errorDescription } = req.query;
+      const parsed = parseLinkedInOAuthState(state);
+      const jobsBase = frontendJobsUrl(parsed.returnOrigin);
 
       if (error) {
         const detail = String(errorDescription || error || 'LinkedIn authorization failed').replace(/\+/g, ' ');
         return res.redirect(
-          `${frontendJobsUrl()}/job?linkedin=error&message=${encodeURIComponent(detail)}`,
+          `${jobsBase}/job?linkedin=error&message=${encodeURIComponent(detail)}`,
         );
       }
 
       if (!code) {
-        return res.redirect(`${frontendJobsUrl()}/job?linkedin=error&message=Authorization code missing`);
+        return res.redirect(`${jobsBase}/job?linkedin=error&message=Authorization code missing`);
       }
 
-      const parsed = parseLinkedInOAuthState(state);
       const finalUserId = parsed.userId;
       const callbackTenantDbName = parsed.tenantDbName;
       const purpose = parsed.purpose;
 
       if (!finalUserId) {
         return res.redirect(
-          `${frontendJobsUrl()}/job?linkedin=error&message=Invalid state parameter. Please try connecting again.`,
+          `${jobsBase}/job?linkedin=error&message=Invalid state parameter. Please try connecting again.`,
         );
       }
 
@@ -221,6 +286,7 @@ export const linkedinController = {
           tenantDbName: callbackTenantDbName,
           purpose: 'cma',
           linkedinSub: String(sub).replace(/^cma:/, ''),
+          returnOrigin: parsed.returnOrigin,
         });
         return res.redirect(
           buildLinkedInAuthorizeUrl({
@@ -232,7 +298,7 @@ export const linkedinController = {
         );
       }
 
-      res.redirect(`${frontendJobsUrl()}/job?linkedin=connected`);
+      res.redirect(`${jobsBase}/job?linkedin=connected`);
     } catch (error) {
       console.error('\n❌ LinkedIn Connection Failed!');
       console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -241,7 +307,10 @@ export const linkedinController = {
         console.error(`Stack: ${error.stack.split('\n').slice(0, 3).join('\n')}`);
       }
       console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
-      res.redirect(`${frontendJobsUrl()}/job?linkedin=error&message=${encodeURIComponent(error.message)}`);
+      const fallbackOrigin = parseLinkedInOAuthState(req.query?.state).returnOrigin;
+      res.redirect(
+        `${frontendJobsUrl(fallbackOrigin)}/job?linkedin=error&message=${encodeURIComponent(error.message)}`,
+      );
     }
   },
 

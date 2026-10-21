@@ -8,6 +8,7 @@ import {
   type LinkedInPostJobData,
   type SocialPublishingAccount,
 } from '../lib/api';
+import { rememberDrawerReturnUrl, stripOauthCallbackQuery } from '../lib/drawerUrlState';
 
 export interface LinkedInUser {
   name: string;
@@ -65,6 +66,7 @@ export function useLinkedIn() {
       if (typeof window !== 'undefined') {
         sessionStorage.setItem('oauth_navigation', '1');
         sessionStorage.setItem('oauth_provider', 'linkedin');
+        rememberDrawerReturnUrl();
         if (options?.reopenCreateJobDrawer !== false) {
           sessionStorage.setItem('reopen_create_job_drawer', '1');
         } else {
@@ -149,19 +151,11 @@ export function useLinkedIn() {
     if (linkedinParam === 'connected') {
       // Refresh status after successful connection
       checkStatus();
-      // Clean up URL (remove query params)
-      const url = new URL(window.location.href);
-      url.searchParams.delete('linkedin');
-      url.searchParams.delete('message');
-      window.history.replaceState({}, '', url.pathname + (url.search || ''));
+      stripOauthCallbackQuery();
     } else if (linkedinParam === 'error') {
       const message = params.get('message') || 'LinkedIn connection failed';
       setError(decodeURIComponent(message));
-      // Clean up URL (remove query params)
-      const url = new URL(window.location.href);
-      url.searchParams.delete('linkedin');
-      url.searchParams.delete('message');
-      window.history.replaceState({}, '', url.pathname + (url.search || ''));
+      stripOauthCallbackQuery();
     }
   }, [checkStatus]);
 

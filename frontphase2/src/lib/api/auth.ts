@@ -475,7 +475,9 @@ export const gradeAssessmentSession = async (
 };
 
 export const apiInitiateLinkedInAuth = async () => {
-  return apiFetch<{ authUrl: string; state: string }>('/linkedin/auth/linkedin', { auth: true });
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  const q = origin ? `?returnOrigin=${encodeURIComponent(origin)}` : '';
+  return apiFetch<{ authUrl: string; state: string }>(`/linkedin/auth/linkedin${q}`, { auth: true });
 };
 
 export async function apiStartOAuthConnect(
