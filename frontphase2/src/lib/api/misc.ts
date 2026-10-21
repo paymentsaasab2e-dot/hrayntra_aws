@@ -1264,7 +1264,7 @@ export const apiGetLinkedInAccounts = async () => {
 };
 
 export const apiDisconnectLinkedInAccount = async (accountId: string) => {
-  return apiFetch<{ message: string }>(`/linkedin/accounts/${accountId}`, {
+  return apiFetch<{ message: string }>(`/linkedin/accounts/${encodeURIComponent(accountId)}`, {
     method: 'DELETE',
     auth: true,
   });

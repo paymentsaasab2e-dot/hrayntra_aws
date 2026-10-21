@@ -1520,11 +1520,24 @@ export function useJobList() {
     const linkedinParam = params.get('linkedin');
     const integrationConnected = params.get('integration_connected');
     const integrationError = params.get('integration_error');
+    const linkedinAccountsParam = params.get('linkedinAccounts') === '1';
     const hasOauthCallback = Boolean(linkedinParam || integrationConnected || integrationError);
-    const shouldReopenAiWizard = sessionStorage.getItem('reopen_job_ai_wizard') === '1';
+    const savedReopenAiWizard = sessionStorage.getItem('reopen_job_ai_wizard') === '1';
+    const savedReopenDrawer = sessionStorage.getItem('reopen_create_job_drawer') === '1';
+
+    if (hasOauthCallback || savedReopenAiWizard || savedReopenDrawer) {
+      const returnPath = takeDrawerReturnPath();
+      if (returnPath) applyDrawerReturnPath(returnPath);
+    }
+
+    const afterParams = new URLSearchParams(window.location.search);
+    const jobAiOpen =
+      afterParams.get(DRAWER_QUERY.jobAi) === '1' || params.get(DRAWER_QUERY.jobAi) === '1';
+    const shouldReopenAiWizard =
+      savedReopenAiWizard || (hasOauthCallback && jobAiOpen) || (linkedinAccountsParam && jobAiOpen);
     const shouldReopenDrawer =
       !shouldReopenAiWizard &&
-      (sessionStorage.getItem('reopen_create_job_drawer') === '1' ||
+      (savedReopenDrawer ||
         linkedinParam === 'connected' ||
         linkedinParam === 'error' ||
         integrationConnected === 'twitter' ||
@@ -1532,21 +1545,19 @@ export function useJobList() {
         integrationError === 'twitter' ||
         integrationError === 'facebook');
 
-    if (hasOauthCallback || shouldReopenAiWizard || shouldReopenDrawer) {
-      const returnPath = takeDrawerReturnPath();
-      if (returnPath) applyDrawerReturnPath(returnPath);
-    }
-
     const savedStep = shouldReopenDrawer ? takeCreateJobStep() : '';
 
     if (shouldReopenAiWizard) {
       const savedWizardMode = sessionStorage.getItem('reopen_job_ai_wizard_mode');
-      sessionStorage.removeItem('reopen_job_ai_wizard_mode');
-      sessionStorage.removeItem('reopen_job_ai_wizard');
+      sessionStorage.setItem('reopen_job_ai_wizard', '1');
+      if (linkedinAccountsParam || linkedinParam === 'connected' || linkedinParam === 'error') {
+        sessionStorage.setItem('reopen_linkedin_accounts', '1');
+      }
       setCreateJobMode(savedWizardMode === 'manual' ? 'manual' : 'ai');
       if (readDrawerQuery(DRAWER_QUERY.jobAi) !== '1') {
         patchDrawerQuery({ [DRAWER_QUERY.jobAi]: '1' });
       }
+      setCreateJobDrawerOpen(false);
       setJobAiWizardOpen(true);
       if (linkedinParam === 'connected') {
         toast.success('LinkedIn connected successfully.');

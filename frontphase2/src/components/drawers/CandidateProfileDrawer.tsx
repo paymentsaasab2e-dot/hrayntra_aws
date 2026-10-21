@@ -98,6 +98,7 @@ import { CandidateFilesTab } from './candidateTabs/Files';
 import { CandidateChatTab } from './candidateTabs/Chat';
 
 import { CandidateProfileDrawerProps, CandidateTagSystem, DrawerTab, InternalNotesSection, MAX_EDIT_AVATAR_FILE_BYTES, RejectCandidateModal, TABS, formatTimelineDateLabel, getAvatarInitials, getStageClasses, getTimelineConfig } from './candidateProfileShared';
+import { DRAWER_QUERY, readAllowedDrawerQuery, useBindDrawerQuery } from '../../lib/drawerUrlState';
 
 import { ScheduleInterviewModal } from './ScheduleInterviewModal';
 
@@ -122,6 +123,8 @@ export type {
   CandidateScheduledInterview,
   CandidateTagItem,
 } from './candidateProfileDrawerData';
+
+const CANDIDATE_DRAWER_TAB_IDS = TABS.map((tab) => tab.id);
 
 export function CandidateProfileDrawer({
   candidate,
@@ -205,7 +208,10 @@ export function CandidateProfileDrawer({
     }
   }, [isOpen, candidate?.id]);
 
-  const [activeTab, setActiveTab] = useState<DrawerTab>('Overview');
+  const [activeTab, setActiveTab] = useState<DrawerTab>(() =>
+    readAllowedDrawerQuery(DRAWER_QUERY.candidateTab, CANDIDATE_DRAWER_TAB_IDS, 'Overview'),
+  );
+  useBindDrawerQuery(isOpen, { [DRAWER_QUERY.candidateTab]: activeTab });
   const [showAddToPipelineModal, setShowAddToPipelineModal] = useState(false);
   const [showScheduleInterviewModal, setShowScheduleInterviewModal] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);

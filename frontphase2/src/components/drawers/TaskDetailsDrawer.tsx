@@ -63,6 +63,7 @@ import { cloudinaryPdfViewerHref, normalizeCloudinaryDocumentUrl } from '../../u
 import { CreateJobDrawer } from './CreateJobDrawer';
 import { getTeamRequest } from '../../lib/api/teamApi';
 import { orEmpty, startAsyncLoad } from '../../lib/asyncLoadGuard';
+import { DRAWER_QUERY, readAllowedDrawerQuery, useBindDrawerQuery } from '../../lib/drawerUrlState';
 import { usePermissions } from '../../hooks/usePermissions';
 import type { TeamRequest, TeamRequestJobPrefill } from '../../types/team';
 
@@ -334,7 +335,14 @@ export function TaskDetailsDrawer({
   usePageDrawerLifecycle(isOpen);
   const { hasAnyPermission } = usePermissions();
   const canCreateJob = hasAnyPermission(['jobs_create', 'create_job']);
-  const [activeTab, setActiveTab] = useState<'overview' | 'activity' | 'communication' | 'chat' | 'alerts' | 'suggestions'>('overview');
+  const TASK_DRAWER_TABS = ['overview', 'activity', 'communication', 'chat', 'alerts', 'suggestions'] as const;
+  const [activeTab, setActiveTab] = useState<'overview' | 'activity' | 'communication' | 'chat' | 'alerts' | 'suggestions'>(
+    () => readAllowedDrawerQuery(DRAWER_QUERY.taskTab, TASK_DRAWER_TABS, 'overview'),
+  );
+  useBindDrawerQuery(isOpen && Boolean(task?.id), {
+    [DRAWER_QUERY.taskId]: task?.id || null,
+    [DRAWER_QUERY.taskTab]: activeTab,
+  });
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [createForm, setCreateForm] = useState<TaskFormValues>(CREATE_FORM_INITIAL);
   const [editForm, setEditForm] = useState<TaskFormValues>(CREATE_FORM_INITIAL);

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 /** Query keys for restoring drawers after refresh / OAuth. Do not rename — URLs persist. */
 export const DRAWER_QUERY = {
@@ -8,15 +8,29 @@ export const DRAWER_QUERY = {
   editJob: 'editJob',
   jobStep: 'jobStep',
   jobAi: 'jobAi',
+  jobAiStep: 'jobAiStep',
+  jobAiPublish: 'jobAiPublish',
+  jobAiDest: 'jobAiDest',
+  jobTab: 'jobTab',
   jobId: 'jobId',
   candidateId: 'candidateId',
+  candidateTab: 'candidateTab',
   leadId: 'leadId',
+  leadTab: 'leadTab',
+  leadStep: 'leadStep',
   addLead: 'addLead',
   clientId: 'clientId',
+  clientTab: 'clientTab',
   addClient: 'addClient',
   interviewId: 'interviewId',
+  interviewTab: 'interviewTab',
   placementId: 'placementId',
   memberId: 'memberId',
+  memberTab: 'memberTab',
+  taskId: 'taskId',
+  taskTab: 'taskTab',
+  contactId: 'contactId',
+  contactTab: 'contactTab',
 } as const;
 
 const RETURN_KEY = 'drawer_return_to';
@@ -28,6 +42,24 @@ const CREATE_JOB_STEPS: CreateJobUrlStep[] = ['client', 'jd', 'details', 'applic
 
 export function isCreateJobUrlStep(value: string | null | undefined): value is CreateJobUrlStep {
   return CREATE_JOB_STEPS.includes(String(value || '') as CreateJobUrlStep);
+}
+
+export function readAllowedDrawerQuery<T extends string>(
+  key: string,
+  allowed: readonly T[],
+  fallback: T,
+): T {
+  const raw = readDrawerQuery(key);
+  return (allowed as readonly string[]).includes(raw) ? (raw as T) : fallback;
+}
+
+let pageIsUnloading = false;
+if (typeof window !== 'undefined') {
+  const markUnloading = () => {
+    pageIsUnloading = true;
+  };
+  window.addEventListener('pagehide', markUnloading);
+  window.addEventListener('beforeunload', markUnloading);
 }
 
 export function readDrawerQuery(key: string): string {
@@ -103,6 +135,7 @@ export function applyDrawerReturnPath(rawPath: string): boolean {
 export function stripOauthCallbackQuery() {
   patchDrawerQuery({
     linkedin: null,
+    linkedinAccounts: null,
     message: null,
     integration_connected: null,
     integration_error: null,
@@ -113,18 +146,27 @@ export function stripOauthCallbackQuery() {
 /** Write query params while a drawer is open; clear those keys on close/unmount. */
 export function useBindDrawerQuery(active: boolean, updates: Record<string, string | null | undefined>) {
   const payload = JSON.stringify(updates);
+  const updatesRef = useRef(updates);
+  updatesRef.current = updates;
+
   useEffect(() => {
     if (!active) return;
-    const parsed = JSON.parse(payload) as Record<string, string | null | undefined>;
-    patchDrawerQuery(parsed);
+    patchDrawerQuery(JSON.parse(payload) as Record<string, string | null | undefined>);
+  }, [active, payload]);
+
+  useEffect(() => {
+    if (!active) return undefined;
     return () => {
+      // Refresh / tab close would otherwise strip the URL before reload.
+      if (pageIsUnloading) return;
+      const parsed = updatesRef.current;
       const clear: Record<string, null> = {};
-      for (const key of Object.keys(parsed)) {
-        if (parsed[key] != null && parsed[key] !== '') {
+      for (const [key, value] of Object.entries(parsed)) {
+        if (value != null && value !== '') {
           clear[key] = null;
         }
       }
       patchDrawerQuery(clear);
     };
-  }, [active, payload]);
+  }, [active]);
 }

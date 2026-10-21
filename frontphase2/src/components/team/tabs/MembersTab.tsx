@@ -65,6 +65,7 @@ import {
 import { SummaryCard, SummaryCardSkeleton, type SummaryCardColor } from '../../../components/ui/SummaryCard';
 import { TableSkeleton } from '../../../components/ui/Skeleton';
 import { formatDateDMY } from '../../../utils/dateDisplay';
+import { DRAWER_QUERY, readDrawerQuery } from '../../../lib/drawerUrlState';
 
 // Color mapping for role colors
 const roleColorMap: Record<string, string> = {
@@ -153,6 +154,13 @@ export const MembersTab: React.FC<MembersTabProps> = ({
   const [showProfileDrawer, setShowProfileDrawer] = useState(false);
   const [selectedMember, setSelectedMember] = useState<TeamMember | null>(null);
   const [selectedMemberTempPassword, setSelectedMemberTempPassword] = useState<string | null>(null);
+
+  useEffect(() => {
+    const id = readDrawerQuery(DRAWER_QUERY.memberId);
+    if (!id) return;
+    setSelectedMember((prev) => (prev?.id === id ? prev : ({ id } as TeamMember)));
+    setShowProfileDrawer(true);
+  }, []);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState<TablePageSize>(10);
   const [totalMembers, setTotalMembers] = useState(0);

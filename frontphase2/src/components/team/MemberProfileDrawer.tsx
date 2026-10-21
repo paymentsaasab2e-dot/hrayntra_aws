@@ -26,6 +26,7 @@ import { formatDateDMY } from '../../utils/dateDisplay';
 import { DrawerEntityChatTab } from '../drawers/DrawerEntityChatTab';
 import { EntityWorkspaceAlertsPanel } from '../ai/EntityWorkspaceAlertsPanel';
 import { startAsyncLoad } from '../../lib/asyncLoadGuard';
+import { DRAWER_QUERY, readAllowedDrawerQuery, useBindDrawerQuery } from '../../lib/drawerUrlState';
 
 interface MemberProfileDrawerProps {
   isOpen: boolean;
@@ -107,7 +108,13 @@ export const MemberProfileDrawer: React.FC<MemberProfileDrawerProps> = ({
       setSettingCustomPassword(false);
     }
   };
-  const [profileTab, setProfileTab] = useState<'profile' | 'chat'>('profile');
+  const [profileTab, setProfileTab] = useState<'profile' | 'chat'>(() =>
+    readAllowedDrawerQuery(DRAWER_QUERY.memberTab, ['profile', 'chat'] as const, 'profile'),
+  );
+  useBindDrawerQuery(isOpen, {
+    [DRAWER_QUERY.memberId]: memberId || null,
+    [DRAWER_QUERY.memberTab]: profileTab,
+  });
 
   const { isSuperAdmin, hasAnyPermission } = usePermissions();
   const userIsSuperAdmin = isSuperAdmin();

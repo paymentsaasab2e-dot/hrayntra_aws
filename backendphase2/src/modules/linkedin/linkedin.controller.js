@@ -58,22 +58,62 @@ function sanitizeReturnOrigin(raw) {
   }
 }
 
+function sanitizeReturnUrl(raw) {
+  const value = String(raw || '').trim();
+  if (!value || value.length > 1024) return '';
+  try {
+    const url = new URL(value);
+    if (!isAllowedFrontendOrigin(url.origin)) return '';
+    const path = url.pathname || '/';
+    if (!path.startsWith('/') || path.startsWith('//') || path.includes('\\') || /[\r\n]/.test(path)) {
+      return url.origin;
+    }
+    return `${url.origin}${path}${url.search || ''}`;
+  } catch {
+    return sanitizeReturnOrigin(value);
+  }
+}
+
 function frontendJobsUrl(returnOrigin) {
   const origin = sanitizeReturnOrigin(returnOrigin);
   if (origin) return origin;
   return String(env.FRONTEND_URL || 'http://localhost:3000').replace(/\/$/, '');
 }
 
+function linkedInAppRedirect(returnUrl, params = {}) {
+  const sanitized = sanitizeReturnUrl(returnUrl);
+  const fallback = `${frontendJobsUrl(sanitized || returnUrl)}/job`;
+  let url;
+  try {
+    url = new URL(sanitized || fallback);
+  } catch {
+    url = new URL(fallback);
+  }
+  if (!url.pathname || url.pathname === '/') {
+    url.pathname = '/job';
+  }
+  Object.entries(params).forEach(([key, value]) => {
+    if (value == null || value === '') {
+      url.searchParams.delete(key);
+    } else {
+      url.searchParams.set(key, String(value));
+    }
+  });
+  return url.toString();
+}
+
 function parseLinkedInOAuthState(state) {
   const decoded = decodeURIComponent(String(state || ''));
   const [core, encodedOrigin] = decoded.split(RETURN_ORIGIN_MARK);
   const parts = String(core || '').split(':');
+  const decodedReturn = decodeReturnOrigin(encodedOrigin || '');
   return {
     userId: parts[1] || null,
     tenantDbName: parts[2] || '',
     purpose: parts[3] === 'cma' ? 'cma' : 'personal',
     linkedinSub: parts.slice(4).join(':') || '',
-    returnOrigin: sanitizeReturnOrigin(decodeReturnOrigin(encodedOrigin || '')),
+    returnOrigin: sanitizeReturnOrigin(decodedReturn),
+    returnUrl: sanitizeReturnUrl(decodedReturn),
   };
 }
 
@@ -83,13 +123,14 @@ function buildLinkedInOAuthState({
   purpose = 'personal',
   linkedinSub = '',
   returnOrigin = '',
+  returnUrl = '',
 }) {
   const nonce = crypto.randomBytes(32).toString('hex');
   const base = `${nonce}:${userId}:${String(tenantDbName || '').trim()}`;
   const core = purpose === 'cma' ? `${base}:cma:${linkedinSub || ''}` : base;
-  const origin = sanitizeReturnOrigin(returnOrigin);
-  if (!origin) return core;
-  return `${core}${RETURN_ORIGIN_MARK}${encodeReturnOrigin(origin)}`;
+  const encodedReturn = sanitizeReturnUrl(returnUrl || returnOrigin) || sanitizeReturnOrigin(returnOrigin);
+  if (!encodedReturn) return core;
+  return `${core}${RETURN_ORIGIN_MARK}${encodeReturnOrigin(encodedReturn)}`;
 }
 
 function buildLinkedInAuthorizeUrl({ clientId, redirectUri, scopes, state }) {
@@ -145,7 +186,8 @@ export const linkedinController = {
       }
 
       const tenantDbName = String(getActiveTenantDbName() || '').trim();
-      const returnOrigin = sanitizeReturnOrigin(req.query?.returnOrigin);
+      const returnUrl = sanitizeReturnUrl(req.query?.returnUrl || req.query?.returnOrigin);
+      const returnOrigin = sanitizeReturnOrigin(returnUrl || req.query?.returnOrigin);
       const tokens = await linkedinService.getTokensByUserId(req.user.id);
       const hasPersonal = tokens.some(
         (token) => !isCmaLinkedInSub(token.linkedinSub) && new Date(token.expiresAt) > new Date(),
@@ -162,6 +204,7 @@ export const linkedinController = {
         tenantDbName,
         purpose,
         returnOrigin,
+        returnUrl,
       });
       const authUrl = startCma
         ? buildLinkedInAuthorizeUrl({
@@ -183,6 +226,7 @@ export const linkedinController = {
       console.log(`📧 User Email: ${req.user.email || 'N/A'}`);
       console.log(`📦 App: ${purpose === 'cma' ? 'Community Management (Company Page)' : 'Share on LinkedIn (personal)'}`);
       console.log(`↩️  Return origin: ${returnOrigin || env.FRONTEND_URL}`);
+      console.log(`↩️  Return URL: ${returnUrl || '(default /job)'}`);
       console.log(
         `🔗 Redirect URI: ${
           purpose === 'cma' ? env.LINKEDIN_CMA_REDIRECT_URI : env.LINKEDIN_REDIRECT_URI
@@ -204,17 +248,19 @@ export const linkedinController = {
     try {
       const { code, state, error, error_description: errorDescription } = req.query;
       const parsed = parseLinkedInOAuthState(state);
-      const jobsBase = frontendJobsUrl(parsed.returnOrigin);
+      const returnTo = parsed.returnUrl || parsed.returnOrigin;
 
       if (error) {
         const detail = String(errorDescription || error || 'LinkedIn authorization failed').replace(/\+/g, ' ');
         return res.redirect(
-          `${jobsBase}/job?linkedin=error&message=${encodeURIComponent(detail)}`,
+          linkedInAppRedirect(returnTo, { linkedin: 'error', message: detail }),
         );
       }
 
       if (!code) {
-        return res.redirect(`${jobsBase}/job?linkedin=error&message=Authorization code missing`);
+        return res.redirect(
+          linkedInAppRedirect(returnTo, { linkedin: 'error', message: 'Authorization code missing' }),
+        );
       }
 
       const finalUserId = parsed.userId;
@@ -223,7 +269,10 @@ export const linkedinController = {
 
       if (!finalUserId) {
         return res.redirect(
-          `${jobsBase}/job?linkedin=error&message=Invalid state parameter. Please try connecting again.`,
+          linkedInAppRedirect(returnTo, {
+            linkedin: 'error',
+            message: 'Invalid state parameter. Please try connecting again.',
+          }),
         );
       }
 
@@ -293,6 +342,7 @@ export const linkedinController = {
           purpose: 'cma',
           linkedinSub: String(sub).replace(/^cma:/, ''),
           returnOrigin: parsed.returnOrigin,
+          returnUrl: parsed.returnUrl || parsed.returnOrigin,
         });
         return res.redirect(
           buildLinkedInAuthorizeUrl({
@@ -304,7 +354,7 @@ export const linkedinController = {
         );
       }
 
-      res.redirect(`${jobsBase}/job?linkedin=connected`);
+      res.redirect(linkedInAppRedirect(returnTo, { linkedin: 'connected' }));
     } catch (error) {
       console.error('\n❌ LinkedIn Connection Failed!');
       console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -313,9 +363,12 @@ export const linkedinController = {
         console.error(`Stack: ${error.stack.split('\n').slice(0, 3).join('\n')}`);
       }
       console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
-      const fallbackOrigin = parseLinkedInOAuthState(req.query?.state).returnOrigin;
+      const fallback = parseLinkedInOAuthState(req.query?.state);
       res.redirect(
-        `${frontendJobsUrl(fallbackOrigin)}/job?linkedin=error&message=${encodeURIComponent(error.message)}`,
+        linkedInAppRedirect(fallback.returnUrl || fallback.returnOrigin, {
+          linkedin: 'error',
+          message: error.message,
+        }),
       );
     }
   },

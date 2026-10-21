@@ -207,6 +207,15 @@ export function toCmaLinkedInSub(linkedinSub) {
   return raw ? `cma:${raw}` : 'cma:unknown';
 }
 
+function isMongoObjectId(value) {
+  return /^[a-fA-F0-9]{24}$/.test(String(value || '').trim());
+}
+
+function pageMatchesOrg(page, orgId) {
+  const pageId = String(page?.id || '').replace(/^org:/, '').trim();
+  return pageId && pageId === String(orgId || '').replace(/^org:/, '').trim();
+}
+
 function flattenAccountsFromTokens(tokens, viewerUserId = null) {
   const accounts = [];
   for (const token of tokens) {
@@ -243,13 +252,27 @@ function flattenAccountsFromTokens(tokens, viewerUserId = null) {
     const pages = Array.isArray(token.organizations) ? token.organizations : [];
     for (const page of pages) {
       if (!page?.id) continue;
+      const organizationId = String(page.id).replace(/^org:/, '');
+      const key = `org:${organizationId}`;
+      const existing = accounts.find((account) => account.key === key);
+      if (existing) {
+        if (!existing.isOwn && isOwn) {
+          existing.parentAccountId = token.id;
+          existing.ownerUserId = ownerUserId || existing.ownerUserId;
+          existing.ownerName = ownerName || existing.ownerName;
+          existing.isOwn = true;
+          existing.connected = existing.connected || !expired;
+          existing.expired = existing.expired && expired;
+        }
+        continue;
+      }
       accounts.push({
-        id: `org:${page.id}`,
-        key: `org:${page.id}`,
+        id: key,
+        key,
         type: 'page',
         name: page.name || 'Company Page',
         parentAccountId: token.id,
-        organizationId: String(page.id),
+        organizationId,
         picture: null,
         connected: !expired,
         expired,
@@ -460,14 +483,51 @@ export const linkedinService = {
 
   async deleteToken(userId, tokenId = null) {
     ensureLinkedInModel();
-    if (tokenId) {
+    const raw = String(tokenId || '').trim();
+    if (!raw) {
+      await prisma.linkedInToken.deleteMany({ where: { userId } });
+      return { message: 'LinkedIn connections disconnected' };
+    }
+
+    const personalId = raw.replace(/^personal:/, '');
+    if (isMongoObjectId(personalId)) {
       await prisma.linkedInToken.deleteMany({
-        where: { id: tokenId, userId },
+        where: { id: personalId, userId },
       });
       return { message: 'LinkedIn account disconnected' };
     }
-    await prisma.linkedInToken.deleteMany({ where: { userId } });
-    return { message: 'LinkedIn connections disconnected' };
+
+    if (raw.startsWith('org:') || /^\d+$/.test(raw)) {
+      const orgId = raw.replace(/^org:/, '');
+      const tokens = await this.getTokensForTenant();
+      const owned = tokens.filter((token) => String(token.userId) === String(userId));
+      const matching = owned.filter((token) => {
+        const pages = Array.isArray(token.organizations) ? token.organizations : [];
+        return pages.some((page) => pageMatchesOrg(page, orgId));
+      });
+      if (!matching.length) {
+        throw new Error('LinkedIn company page not found');
+      }
+
+      for (const token of matching) {
+        const remaining = (Array.isArray(token.organizations) ? token.organizations : []).filter(
+          (page) => !pageMatchesOrg(page, orgId),
+        );
+        if (isCmaLinkedInSub(token.linkedinSub) && remaining.length === 0) {
+          await prisma.linkedInToken.deleteMany({
+            where: { id: token.id, userId },
+          });
+        } else {
+          await prisma.linkedInToken.update({
+            where: { id: token.id },
+            data: { organizations: remaining, updatedAt: new Date() },
+          });
+        }
+      }
+      return { message: 'LinkedIn company page disconnected' };
+    }
+
+    throw new Error('LinkedIn account not found');
   },
 
   async getStatus(userId) {

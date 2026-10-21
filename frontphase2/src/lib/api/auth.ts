@@ -475,8 +475,12 @@ export const gradeAssessmentSession = async (
 };
 
 export const apiInitiateLinkedInAuth = async () => {
-  const origin = typeof window !== 'undefined' ? window.location.origin : '';
-  const q = origin ? `?returnOrigin=${encodeURIComponent(origin)}` : '';
+  if (typeof window === 'undefined') {
+    return apiFetch<{ authUrl: string; state: string }>('/linkedin/auth/linkedin', { auth: true });
+  }
+  const origin = window.location.origin;
+  const returnUrl = window.location.href;
+  const q = `?returnOrigin=${encodeURIComponent(origin)}&returnUrl=${encodeURIComponent(returnUrl)}`;
   return apiFetch<{ authUrl: string; state: string }>(`/linkedin/auth/linkedin${q}`, { auth: true });
 };
 

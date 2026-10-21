@@ -38,6 +38,7 @@ import { normalizeDirectorList, resolveDirectorList } from '../lib/directorFormD
 import { directorNameFromContact, isClientTeamMemberContact, resolveDirectorBackendContact } from '../lib/clientContactRoles';
 import { formatIndustriesDisplay } from '../lib/industryOptions';
 import { type LocationSelection } from '../components/LocationAutocomplete';
+import { DRAWER_QUERY, readAllowedDrawerQuery, useBindDrawerQuery } from '../lib/drawerUrlState';
 import { CscLocationFields } from '../components/location/CscLocationFields';
 import { LeadLocationFields } from '../components/location/LeadLocationFields';
 import { AddLeadFieldLabel } from '../components/drawers/drawerFormUi';
@@ -127,9 +128,21 @@ const {
     onClose,
   });
 const clientFieldVisibility = useClientPageFieldVisibility();
+const CLIENT_DRAWER_TABS = [
+    'overview',
+    'contacts',
+    'jobs',
+    'placements',
+    'billing',
+    'activity',
+    'notes',
+    'files',
+    'schedule',
+    'chat',
+  ] as const;
 const [activeTab, setActiveTab] = useState<
     'overview' | 'contacts' | 'jobs' | 'placements' | 'billing' | 'activity' | 'notes' | 'files' | 'schedule' | 'chat'
-  >('overview');
+  >(() => readAllowedDrawerQuery(DRAWER_QUERY.clientTab, CLIENT_DRAWER_TABS, 'overview'));
 const [orgRecruitmentUiVersion, setOrgRecruitmentUiVersion] = useState(0);
 useEffect(() => {
     const bump = () => setOrgRecruitmentUiVersion((v: any) => v + 1);
@@ -244,6 +257,7 @@ const [overviewOpen, setOverviewOpen] = useState<Record<string, boolean>>(
   );
 const isAddMode = propIsAddMode;
 type AddClientTab = 'details' | 'agreements' | 'kyc';
+const ADD_CLIENT_TAB_IDS: AddClientTab[] = ['details', 'agreements', 'kyc'];
 const ADD_CLIENT_TABS: Array<{
     id: AddClientTab;
     label: string;
@@ -269,7 +283,12 @@ const ADD_CLIENT_TABS: Array<{
       icon: Shield,
     },
   ];
-const [addClientTab, setAddClientTab] = useState<AddClientTab>('details');
+const [addClientTab, setAddClientTab] = useState<AddClientTab>(() =>
+    readAllowedDrawerQuery(DRAWER_QUERY.clientTab, ADD_CLIENT_TAB_IDS, 'details'),
+  );
+useBindDrawerQuery(drawerIsOpen, {
+    [DRAWER_QUERY.clientTab]: isAddMode ? addClientTab : activeTab,
+  });
 const [addClientSectionsOpen, setAddClientSectionsOpen] = useState(DEFAULT_ADD_CLIENT_SECTIONS);
 const toggleAddClientSection = (key: keyof typeof DEFAULT_ADD_CLIENT_SECTIONS) => {
     setAddClientSectionsOpen((prev: any) => ({ ...prev, [key]: !prev[key] }));
@@ -277,7 +296,9 @@ const toggleAddClientSection = (key: keyof typeof DEFAULT_ADD_CLIENT_SECTIONS) =
 useEffect(() => {
     if (!client && !isAddMode) return;
     setOverviewOpen(DEFAULT_CLIENT_OVERVIEW_SECTIONS);
-    if (isAddMode) setAddClientTab('details');
+    if (isAddMode) {
+      setAddClientTab(readAllowedDrawerQuery(DRAWER_QUERY.clientTab, ADD_CLIENT_TAB_IDS, 'details'));
+    }
   }, [client?.id, isAddMode]);
 const [overviewEditMode, setOverviewEditMode] = useState(isAddMode);
 const timezoneManuallyEditedRef = useRef(false);

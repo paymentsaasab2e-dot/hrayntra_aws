@@ -67,6 +67,7 @@ import { DrawerCloseButton } from '../components/drawers/DrawerCloseButton';
 import { DetailsModalShell } from '../components/drawers/DetailsModalShell';
 import { DrawerTabBar } from '../components/drawers/DrawerTabBar';
 import { useDrawerUnsavedGuard } from './useDrawerUnsavedGuard';
+import { DRAWER_QUERY, readAllowedDrawerQuery, useBindDrawerQuery } from '../lib/drawerUrlState';
 import { AddLeadFieldLabel, AddLeadIconInput, AddLeadSectionCard, AddLeadSelectDropdown, ADD_LEAD_INPUT } from '../components/drawers/drawerFormUi';
 import { LeadSourceFields, formatLeadSourceDisplay } from '../components/drawers/LeadSourceFields';
 import { LeadLocationFields } from '../components/location/LeadLocationFields';
@@ -107,8 +108,10 @@ const isPublicIntakeMode = Boolean(createLeadOverride) && !hqMode;
 const drawerIsOpen = Boolean(lead) || addLeadMode;
 const leadAiGate = useAiCoinGate('ai.lead_chat');
 const [hqProductLine, setHqProductLine] = useState<HqProductLine[]>(['crm']);
+const LEAD_DRAWER_TABS = ['overview', 'activities', 'notes', 'files', 'chat', 'followup', 'add'] as const;
+const ALL_LEAD_WIZARD_STEPS: AddLeadWizardStep[] = ['workspace', ...TENANT_ADD_LEAD_WIZARD_STEPS];
 const [activeTab, setActiveTab] = useState<'overview' | 'activities' | 'notes' | 'files' | 'chat' | 'followup' | 'add'>(
-    'overview'
+    () => readAllowedDrawerQuery(DRAWER_QUERY.leadTab, LEAD_DRAWER_TABS, 'overview'),
   );
 const [leadFilesTypeFilter, setLeadFilesTypeFilter] = useState<'All' | 'Contract' | 'Proposal' | 'Other'>('All');
 const fileInputRef = useRef<HTMLInputElement>(null);
@@ -751,7 +754,17 @@ const DEFAULT_ADD_LEAD_SECTIONS = {
     leadDetails: false,
   };
 const [addLeadSectionsOpen, setAddLeadSectionsOpen] = useState(DEFAULT_ADD_LEAD_SECTIONS);
-const [addLeadWizardStep, setAddLeadWizardStep] = useState<AddLeadWizardStep>('company');
+const [addLeadWizardStep, setAddLeadWizardStep] = useState<AddLeadWizardStep>(() =>
+    readAllowedDrawerQuery(DRAWER_QUERY.leadStep, ALL_LEAD_WIZARD_STEPS, 'company'),
+  );
+useBindDrawerQuery(drawerIsOpen && !addLeadMode, {
+    [DRAWER_QUERY.leadTab]: activeTab,
+    [DRAWER_QUERY.leadStep]: null,
+  });
+useBindDrawerQuery(drawerIsOpen && addLeadMode, {
+    [DRAWER_QUERY.leadTab]: null,
+    [DRAWER_QUERY.leadStep]: addLeadWizardStep,
+  });
 const addLeadWizardSteps = useMemo((): AddLeadWizardStep[] => {
     return isHqOverrideMode ? ['workspace', ...TENANT_ADD_LEAD_WIZARD_STEPS] : TENANT_ADD_LEAD_WIZARD_STEPS;
   }, [isHqOverrideMode]);
@@ -811,7 +824,13 @@ useEffect(() => {
       markLeadDrawerClean();
       setOverviewOpen(DEFAULT_LEAD_OVERVIEW_SECTIONS);
       setAddLeadSectionsOpen(DEFAULT_ADD_LEAD_SECTIONS);
-      setAddLeadWizardStep(isHqOverrideMode ? 'workspace' : 'company');
+      setAddLeadWizardStep(
+        readAllowedDrawerQuery(
+          DRAWER_QUERY.leadStep,
+          ALL_LEAD_WIZARD_STEPS,
+          isHqOverrideMode ? 'workspace' : 'company',
+        ),
+      );
       setHqProductLine(['crm']);
     } else if (lead) {
       setOverviewOpen(DEFAULT_LEAD_OVERVIEW_SECTIONS);
