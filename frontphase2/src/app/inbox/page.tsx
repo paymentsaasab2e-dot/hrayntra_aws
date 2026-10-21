@@ -15,6 +15,7 @@ import {
   Download,
   FileText,
   Filter,
+  Loader2,
   Mail,
   Menu,
   MoreVertical,
@@ -29,6 +30,7 @@ import {
   Tag,
   Trash2,
   UserCircle2,
+  UserPlus,
 } from 'lucide-react';
 import { formatDateDMY, formatDateTimeDMY } from '../../utils/dateDisplay';
 import {
@@ -42,11 +44,14 @@ import {
   apiGetMailboxStatus,
   apiGetOutlookInbox,
   apiGetOutlookMessage,
+  apiImportGmailAttachmentCandidate,
+  apiImportOutlookAttachmentCandidate,
   apiTrashGmailMessage,
   apiTrashOutlookMessage,
   apiUpdateGmailMessageFlags,
   apiUpdateOutlookMessageFlags,
   type GmailInboxMessage,
+  type InboxMailAttachment,
 } from '../../lib/api';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
 import { InboxComposePanel, type InboxComposeValues } from '../../components/inbox/InboxComposePanel';
@@ -105,6 +110,25 @@ function getMailTab(subject = '', sender = ''): MailTab {
 function getAvatarLabel(name?: string) {
   const parts = String(name || 'Gmail').trim().split(/\s+/);
   return parts.slice(0, 2).map((part) => part[0]?.toUpperCase() || '').join('') || 'GM';
+}
+
+function formatInboxFileSize(bytes = 0) {
+  const size = Number(bytes) || 0;
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+const INBOX_IMPORT_STEPS = [
+  'Downloading resume from email…',
+  'Extracting text from the file…',
+  'Parsing with the CV engine…',
+  'Creating the candidate profile…',
+];
+
+function getInboxImportBusyId(actionBusy?: string | null) {
+  const raw = String(actionBusy || '');
+  return raw.startsWith('import:') ? raw.slice('import:'.length) : '';
 }
 
 function ResizeHandle({
@@ -730,11 +754,16 @@ function MailDetail({
   onReply,
   onReplyAll,
   onDownload,
+  onImportCandidate,
+  actionHref,
+  mailProvider,
 }: {
   email: GmailInboxMessage | null;
   connectedEmail?: string;
   actionBusy?: string | null;
   actionMessage?: string;
+  actionHref?: string;
+  mailProvider?: MailProvider;
   onBack: () => void;
   onCreateCalendar: (email: GmailInboxMessage) => void;
   onTrash: (email: GmailInboxMessage) => void;
@@ -744,12 +773,31 @@ function MailDetail({
   onReply: (email: GmailInboxMessage) => void;
   onReplyAll: (email: GmailInboxMessage) => void;
   onDownload: (email: GmailInboxMessage) => void;
+  onImportCandidate: (email: GmailInboxMessage, attachment: InboxMailAttachment) => void;
 }) {
   const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [importStep, setImportStep] = useState(0);
+  const importBusyId = getInboxImportBusyId(actionBusy);
+  const isImporting = Boolean(importBusyId);
+  const importingAttachment = Array.isArray(email?.attachments)
+    ? email.attachments.find((item) => item.id === importBusyId)
+    : undefined;
 
   useEffect(() => {
     setShowMoreMenu(false);
   }, [email?.id]);
+
+  useEffect(() => {
+    if (!isImporting) {
+      setImportStep(0);
+      return;
+    }
+    setImportStep(0);
+    const timer = window.setInterval(() => {
+      setImportStep((prev) => Math.min(prev + 1, INBOX_IMPORT_STEPS.length - 1));
+    }, 5500);
+    return () => window.clearInterval(timer);
+  }, [isImporting, importBusyId]);
 
   if (!email) {
     return (
@@ -770,16 +818,45 @@ function MailDetail({
 
   const hasRenderableHtml = !!email.htmlBody && /<[^>]+>/.test(email.htmlBody);
 
+  const mailboxLabel = mailProvider === 'outlook' ? 'Outlook' : 'Gmail';
+  const importFileName = importingAttachment?.filename || 'resume';
+  const importStatusText = INBOX_IMPORT_STEPS[importStep] || INBOX_IMPORT_STEPS[0];
+
   return (
-    <div className="flex h-full flex-col">
+    <div className="relative flex h-full flex-col">
+      {isImporting ? (
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/80 px-6 backdrop-blur-[2px]">
+          <div className="w-full max-w-md rounded-3xl border border-[#dadce0] bg-white px-6 py-7 text-center shadow-lg">
+            <Loader2 className="mx-auto h-9 w-9 animate-spin text-[#1a73e8]" />
+            <p className="mt-4 text-base font-medium text-[#202124]">{importStatusText}</p>
+            <p className="mt-2 text-sm text-[#5f6368]">
+              {importFileName} · {mailboxLabel}
+            </p>
+            <p className="mt-1 text-xs text-[#80868b]">
+              Parsing can take 20–30 seconds. Keep this tab open.
+            </p>
+            <div className="mt-5 flex justify-center gap-1.5">
+              {INBOX_IMPORT_STEPS.map((step, index) => (
+                <span
+                  key={step}
+                  className={`h-1.5 w-8 rounded-full ${
+                    index <= importStep ? 'bg-[#1a73e8]' : 'bg-[#e8eaed]'
+                  }`}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
       <div className="border-b border-[#dadce0] px-6 py-4">
         <div className="mb-4 flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-start gap-2">
             <button
               type="button"
               onClick={onBack}
-              className="mt-1 shrink-0 rounded-full p-2 text-[#5f6368] hover:bg-[#f1f3f4]"
-              title="Back to inbox"
+              disabled={isImporting}
+              className="mt-1 shrink-0 rounded-full p-2 text-[#5f6368] hover:bg-[#f1f3f4] disabled:cursor-not-allowed disabled:opacity-40"
+              title={isImporting ? 'Wait until the candidate is created' : 'Back to inbox'}
               aria-label="Back to inbox"
             >
               <ChevronLeft className="h-5 w-5" />
@@ -852,8 +929,28 @@ function MailDetail({
             ) : null}
           </div>
         </div>
-        {actionMessage ? (
-          <div className="mb-4 rounded-2xl bg-[#e8f0fe] px-4 py-2 text-sm text-[#174ea6]">{actionMessage}</div>
+        {isImporting ? (
+          <div className="mb-4 flex items-center gap-3 rounded-2xl bg-[#e8f0fe] px-4 py-3 text-sm text-[#174ea6]">
+            <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+            <div className="min-w-0">
+              <p className="font-medium">{importStatusText}</p>
+              <p className="text-xs text-[#174ea6]/80">
+                {importFileName} · this can take about 20–30 seconds
+              </p>
+            </div>
+          </div>
+        ) : actionMessage ? (
+          <div className="mb-4 rounded-2xl bg-[#e8f0fe] px-4 py-2 text-sm text-[#174ea6]">
+            {actionMessage}
+            {actionHref ? (
+              <>
+                {' '}
+                <a href={actionHref} className="font-medium underline">
+                  Open candidate
+                </a>
+              </>
+            ) : null}
+          </div>
         ) : null}
 
         <div className="flex items-start gap-4">
@@ -907,13 +1004,58 @@ function MailDetail({
           </div>
         )}
 
-        {email.hasAttachment ? (
+        {email.hasAttachment || (email.attachments && email.attachments.length > 0) ? (
           <div className="mt-8 rounded-2xl border border-[#dadce0] bg-[#f8f9fa] p-4">
-            <div className="mb-2 flex items-center gap-2 text-sm font-medium text-[#202124]">
+            <div className="mb-3 flex items-center gap-2 text-sm font-medium text-[#202124]">
               <Paperclip className="h-4 w-4 text-[#5f6368]" />
               Attachments
             </div>
-            <p className="text-xs text-[#5f6368]">This message includes attachment data from the mailbox.</p>
+            {!Array.isArray(email.attachments) ? (
+              <p className="text-xs text-[#5f6368]">Loading attachments…</p>
+            ) : email.attachments.length === 0 ? (
+              <p className="text-xs text-[#5f6368]">No downloadable file attachments on this message.</p>
+            ) : (
+              <div className="space-y-3">
+                {email.attachments.map((attachment) => {
+                  const importing = actionBusy === `import:${attachment.id}`;
+                  return (
+                    <div
+                      key={attachment.id}
+                      className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#dadce0] bg-white px-3 py-3"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-[#202124]">{attachment.filename}</p>
+                        <p className="text-xs text-[#5f6368]">
+                          {formatInboxFileSize(attachment.size)}
+                          {attachment.isResume ? ' · Resume' : ''}
+                        </p>
+                      </div>
+                      {attachment.isResume ? (
+                        <button
+                          type="button"
+                          disabled={Boolean(actionBusy)}
+                          onClick={() => onImportCandidate(email, attachment)}
+                          className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium disabled:cursor-not-allowed ${
+                            importing
+                              ? 'bg-[#1a73e8] text-white'
+                              : 'border border-[#dadce0] text-[#202124] hover:bg-[#f1f3f4] disabled:opacity-50'
+                          }`}
+                        >
+                          {importing ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <UserPlus className="h-3.5 w-3.5" />
+                          )}
+                          {importing ? 'Creating candidate…' : 'Download & create candidate'}
+                        </button>
+                      ) : (
+                        <span className="text-xs text-[#5f6368]">Not a resume file</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         ) : null}
       </div>
@@ -972,6 +1114,7 @@ export default function InboxPage() {
   const [requiresReconnect, setRequiresReconnect] = useState(false);
   const [detailActionBusy, setDetailActionBusy] = useState<string | null>(null);
   const [detailActionMessage, setDetailActionMessage] = useState('');
+  const [detailActionHref, setDetailActionHref] = useState('');
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined);
   const [activeFolder, setActiveFolder] = useState<GmailFolder>('INBOX');
   const [activeTab, setActiveTab] = useState<MailTab>('Primary');
@@ -1263,7 +1406,8 @@ export default function InboxPage() {
     const messageId = selectedEmail?.id;
     if (!messageId) return;
     const alreadyHasBody = Boolean(selectedEmail.htmlBody || (selectedEmail.body && selectedEmail.body !== selectedEmail.preview));
-    if (alreadyHasBody) return;
+    const attachmentsLoaded = Array.isArray(selectedEmail.attachments);
+    if (alreadyHasBody && (attachmentsLoaded || !selectedEmail.hasAttachment)) return;
 
     let cancelled = false;
     void (async () => {
@@ -1284,7 +1428,15 @@ export default function InboxPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedEmail?.id, selectedEmail?.htmlBody, selectedEmail?.body, selectedEmail?.preview, mailProvider]);
+  }, [
+    selectedEmail?.id,
+    selectedEmail?.htmlBody,
+    selectedEmail?.body,
+    selectedEmail?.preview,
+    selectedEmail?.hasAttachment,
+    selectedEmail?.attachments,
+    mailProvider,
+  ]);
 
   const handleRefresh = async () => {
     try {
@@ -1458,13 +1610,39 @@ export default function InboxPage() {
     try {
       setDetailActionBusy(actionKey);
       setDetailActionMessage('');
+      setDetailActionHref('');
       await task();
     } catch (error: any) {
       setDetailActionMessage(error?.message || 'Inbox action failed');
+      setDetailActionHref('');
     } finally {
       setDetailActionBusy(null);
     }
   };
+
+  const handleImportCandidate = (email: GmailInboxMessage, attachment: InboxMailAttachment) =>
+    void runDetailAction(`import:${attachment.id}`, async () => {
+      const result =
+        mailProvider === 'outlook'
+          ? await apiImportOutlookAttachmentCandidate(email.id, attachment.id, attachment.filename)
+          : await apiImportGmailAttachmentCandidate(email.id, attachment.id, attachment.filename);
+      const name =
+        [result?.candidate?.firstName, result?.candidate?.lastName].filter(Boolean).join(' ').trim() ||
+        'Candidate';
+      const profileHref = result?.candidate?.id
+        ? `/candidate?candidateId=${encodeURIComponent(result.candidate.id)}`
+        : '';
+      setDetailActionHref(profileHref);
+      if (result?.isDuplicate) {
+        setDetailActionMessage(
+          profileHref
+            ? `${name} already exists. Resume saved to their profile.`
+            : `${name} already exists.`
+        );
+      } else {
+        setDetailActionMessage(`${name} created from ${attachment.filename}.`);
+      }
+    });
 
   const handleArchive = (email: GmailInboxMessage) =>
     void runDetailAction('archive', async () => {
@@ -1565,11 +1743,14 @@ export default function InboxPage() {
                 <MailDetail
                   email={selectedEmail}
                   connectedEmail={connectedEmail}
+                  mailProvider={mailProvider}
                   actionBusy={detailActionBusy}
                   actionMessage={detailActionMessage}
+                  actionHref={detailActionHref}
                   onBack={() => {
                     setSelectedId(undefined);
                     setDetailActionMessage('');
+                    setDetailActionHref('');
                   }}
                   onCreateCalendar={handleCreateCalendar}
                   onTrash={handleTrash}
@@ -1579,6 +1760,7 @@ export default function InboxPage() {
                   onReply={handleReply}
                   onReplyAll={handleReplyAll}
                   onDownload={handleDownload}
+                  onImportCandidate={handleImportCandidate}
                 />
               </div>
             ) : (

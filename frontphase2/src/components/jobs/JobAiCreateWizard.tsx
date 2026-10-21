@@ -111,6 +111,7 @@ import {
 } from '@/lib/org/useOrgWorkspace';
 import { parseJobSalaryMoneyNumber, resolveJobSalaryCurrencySymbolForSave } from '@/constants/jobSalary';
 import { normalizeExtractedJobTitle } from '@/lib/normalizeExtractedJobTitle';
+import { DRAWER_QUERY, patchDrawerQuery, readAllowedDrawerQuery, readDrawerQuery, useBindDrawerQuery } from '@/lib/drawerUrlState';
 
 type WizardStep = 'client' | 'jd' | 'review';
 type PublishFlowStep = 'assessment' | 'distribution' | null;
@@ -119,6 +120,15 @@ type DistributionChannel =
   | 'hryantra'
   | 'external_platforms'
   | 'social_media';
+
+const JOB_AI_STEPS: WizardStep[] = ['client', 'jd', 'review'];
+const JOB_AI_PUBLISH_STEPS: Array<Exclude<PublishFlowStep, null>> = ['assessment', 'distribution'];
+const JOB_AI_DEST_TABS: DistributionChannel[] = [
+  'internal_company',
+  'hryantra',
+  'external_platforms',
+  'social_media',
+];
 
 const DISTRIBUTION_OPTIONS: Array<{
   id: DistributionChannel;
@@ -319,6 +329,8 @@ type JobAiWizardOauthDraft = {
   step: WizardStep;
   mode: 'ai' | 'manual';
   preScreenAssessments: JobPreScreenAssessmentLink[];
+  selectedLinkedInTargets?: string[];
+  showLinkedInAccountsModal?: boolean;
 };
 
 function normalizeWizardStep(step: unknown): WizardStep {
@@ -603,7 +615,9 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
     companies: orgCompanies,
     canSwitchCompanies,
   } = useOrgWorkspace();
-  const [step, setStep] = useState<WizardStep>('client');
+  const [step, setStep] = useState<WizardStep>(() =>
+    readAllowedDrawerQuery(DRAWER_QUERY.jobAiStep, JOB_AI_STEPS, 'client'),
+  );
   const [draft, setDraft] = useState<WizardDraft>({
     ...EMPTY_DRAFT,
     targetHireDate: defaultTargetHireDate(),
@@ -632,10 +646,16 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
   const [reviewJdOpen, setReviewJdOpen] = useState(false);
   const [reviewDetailsOpen, setReviewDetailsOpen] = useState(true);
   const jdFileInputRef = useRef<HTMLInputElement | null>(null);
-  const [publishFlowStep, setPublishFlowStep] = useState<PublishFlowStep>(null);
+  const [publishFlowStep, setPublishFlowStep] = useState<PublishFlowStep>(() => {
+    const fromUrl = readDrawerQuery(DRAWER_QUERY.jobAiPublish);
+    return JOB_AI_PUBLISH_STEPS.includes(fromUrl as Exclude<PublishFlowStep, null>)
+      ? (fromUrl as Exclude<PublishFlowStep, null>)
+      : null;
+  });
   const [preScreenAssessments, setPreScreenAssessments] = useState<JobPreScreenAssessmentLink[]>([]);
-  const [activeDistributionTab, setActiveDistributionTab] =
-    useState<DistributionChannel>('hryantra');
+  const [activeDistributionTab, setActiveDistributionTab] = useState<DistributionChannel>(() =>
+    readAllowedDrawerQuery(DRAWER_QUERY.jobAiDest, JOB_AI_DEST_TABS, 'hryantra'),
+  );
   const [selectedDistributionPlatforms, setSelectedDistributionPlatforms] = useState<
     Record<string, boolean>
   >({
@@ -654,7 +674,9 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
   const [linkedInPostSections, setLinkedInPostSections] = useState<LinkedInPostTemplateSection[] | null>(
     null,
   );
-  const [showLinkedInAccountsModal, setShowLinkedInAccountsModal] = useState(false);
+  const [showLinkedInAccountsModal, setShowLinkedInAccountsModal] = useState(
+    () => readDrawerQuery('linkedinAccounts') === '1',
+  );
   const [showLinkedInPostPreviewModal, setShowLinkedInPostPreviewModal] = useState(false);
   const [linkedInPostText, setLinkedInPostText] = useState('');
   const [linkedInPostTextTouched, setLinkedInPostTextTouched] = useState(false);
@@ -662,6 +684,13 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
   const [selectedLinkedInTargets, setSelectedLinkedInTargets] = useState<string[]>([]);
   const [disconnectingLinkedInId, setDisconnectingLinkedInId] = useState<string | null>(null);
   const [linkedinAccountsLoading, setLinkedinAccountsLoading] = useState(false);
+
+  useBindDrawerQuery(isOpen, {
+    [DRAWER_QUERY.jobAiStep]: step,
+    [DRAWER_QUERY.jobAiPublish]: publishFlowStep,
+    [DRAWER_QUERY.jobAiDest]: publishFlowStep === 'distribution' ? activeDistributionTab : null,
+    linkedinAccounts: showLinkedInAccountsModal ? '1' : null,
+  });
 
   const reset = useCallback(() => {
     const visibilityDefaults = visibilityDefaultsForNewJob();
@@ -904,8 +933,21 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
   useEffect(() => {
     if (!isOpen) return;
 
-    if (sessionStorage.getItem('reopen_job_ai_wizard') === '1') {
+    const params = new URLSearchParams(window.location.search);
+    const linkedinParam = params.get('linkedin');
+    const reopenWizard = sessionStorage.getItem('reopen_job_ai_wizard') === '1';
+    const reopenAccounts =
+      sessionStorage.getItem('reopen_linkedin_accounts') === '1' ||
+      params.get('linkedinAccounts') === '1';
+    const isOauthReturn =
+      reopenWizard ||
+      linkedinParam === 'connected' ||
+      linkedinParam === 'error';
+
+    if (isOauthReturn) {
       sessionStorage.removeItem('reopen_job_ai_wizard');
+      sessionStorage.removeItem('reopen_job_ai_wizard_mode');
+      sessionStorage.removeItem('reopen_linkedin_accounts');
       const saved = readJobAiWizardOauthDraft();
       clearJobAiWizardOauthDraft();
       if (saved?.draft) {
@@ -919,13 +961,19 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
         if (Array.isArray(saved.preScreenAssessments)) {
           setPreScreenAssessments(saved.preScreenAssessments);
         }
+        if (Array.isArray(saved.selectedLinkedInTargets)) {
+          setSelectedLinkedInTargets(saved.selectedLinkedInTargets);
+        }
         if (saved.step) setStep(normalizeWizardStep(saved.step));
       } else {
         setStep('review');
       }
-      setPublishFlowStep('distribution');
+      setPublishFlowStep(saved?.publishFlowStep || 'distribution');
       setActiveDistributionTab((prev) =>
         saved?.activeDistributionTab ? saved.activeDistributionTab : 'social_media',
+      );
+      setShowLinkedInAccountsModal(
+        Boolean(saved?.showLinkedInAccountsModal) || reopenAccounts || linkedinParam === 'connected',
       );
       markWizardDirty();
       return;
@@ -1625,9 +1673,15 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
         step: 'review',
         mode,
         preScreenAssessments,
+        selectedLinkedInTargets,
+        showLinkedInAccountsModal: platformId === 'linkedin' ? true : showLinkedInAccountsModal,
       });
+      patchDrawerQuery({ linkedinAccounts: platformId === 'linkedin' ? '1' : null });
       sessionStorage.setItem('reopen_job_ai_wizard', '1');
       sessionStorage.setItem('reopen_job_ai_wizard_mode', mode);
+      if (platformId === 'linkedin') {
+        sessionStorage.setItem('reopen_linkedin_accounts', '1');
+      }
       sessionStorage.removeItem('reopen_create_job_drawer');
 
       if (platformId === 'linkedin') {
@@ -1646,6 +1700,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
     } catch (err: unknown) {
       sessionStorage.removeItem('reopen_job_ai_wizard');
       sessionStorage.removeItem('reopen_job_ai_wizard_mode');
+      sessionStorage.removeItem('reopen_linkedin_accounts');
       clearJobAiWizardOauthDraft();
       setError(err instanceof Error ? err.message : 'Could not connect this platform.');
       setConnectingPlatformId(null);

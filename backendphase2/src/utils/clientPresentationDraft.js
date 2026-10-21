@@ -597,15 +597,89 @@ function preferReviewText(...values) {
   return '';
 }
 
+function hasCareerListValue(value) {
+  if (Array.isArray(value)) return value.some((item) => String(item || '').trim());
+  return Boolean(String(value ?? '').trim());
+}
+
+/**
+ * Match Overview Preferred Package merge:
+ * phase1 → extra → candidate.careerPreferences (later wins, including empty benefit arrays).
+ * Empty preferredBenefits from CRM must clear portal/Phase-1 checkbox lists.
+ */
+function mergeCareerPreferencesLikeOverview(candidate) {
+  const extra = parseExtra(candidate?.extraData);
+  const phase1 = resolveLivePhase1Snapshot(candidate);
+  const professional = pipelineSection(extra, 'professional');
+  const asPrefs = (value) =>
+    value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+
+  const merged = {
+    ...asPrefs(phase1?.careerPreferences),
+    ...asPrefs(extra.careerPreferences),
+    ...asPrefs(candidate?.careerPreferences),
+  };
+
+  if (!hasCareerListValue(merged.currentBenefits) && professional.currentBenefits) {
+    merged.currentBenefits = professional.currentBenefits;
+  }
+  if (!hasCareerListValue(merged.preferredBenefits) && professional.expectedBenefits) {
+    merged.preferredBenefits = professional.expectedBenefits;
+  }
+  if (!String(merged.currentCurrency ?? '').trim() && professional.currentSalaryCurrency) {
+    merged.currentCurrency = professional.currentSalaryCurrency;
+  }
+  if (!String(merged.preferredCurrency ?? '').trim() && professional.expectedSalaryCurrency) {
+    merged.preferredCurrency = professional.expectedSalaryCurrency;
+  }
+
+  return merged;
+}
+
+function preferredPackageSalary(prefs) {
+  return prefs?.preferredSalary ?? prefs?.salaryAmount ?? null;
+}
+
+function languageRowsHaveProficiency(value) {
+  return (
+    Array.isArray(value) &&
+    value.some(
+      (item) => item && typeof item === 'object' && (item.proficiency || item.level),
+    )
+  );
+}
+
+function formatLanguageProficiencyList(value) {
+  if (!Array.isArray(value)) return formatReviewText(value);
+  return value
+    .map((item) => {
+      if (item && typeof item === 'object') {
+        const lang = String(item.language || item.name || '').trim();
+        const prof = String(item.proficiency || item.level || '').trim();
+        return [lang, prof].filter(Boolean).join(' | ');
+      }
+      return String(item || '').trim();
+    })
+    .filter(Boolean)
+    .join(', ');
+}
+
+function overviewExperienceYears(candidate) {
+  const years = candidate?.experienceYears;
+  const exp = candidate?.experience;
+  const y = years != null && Number.isFinite(Number(years)) ? Number(years) : null;
+  const e = exp != null && Number.isFinite(Number(exp)) ? Number(exp) : null;
+  const pick = y != null && e != null ? (!Number.isInteger(y) ? y : !Number.isInteger(e) ? e : y) : y ?? e;
+  if (pick == null) return exp ?? years ?? '';
+  const rounded = Math.round(pick * 10) / 10;
+  return rounded;
+}
+
 function extraProfileBag(candidate) {
   const extra = parseExtra(candidate?.extraData);
   const phase1 = resolveLivePhase1Snapshot(candidate);
   const personal = phase1?.personalInfo && typeof phase1.personalInfo === 'object' ? phase1.personalInfo : {};
-  const prefs = mergeCareerPreferenceRecords(
-    candidate?.careerPreferences,
-    extra.careerPreferences,
-    phase1?.careerPreferences,
-  );
+  const prefs = mergeCareerPreferencesLikeOverview(candidate);
   return {
     extra,
     personal,
@@ -630,6 +704,7 @@ function applyTenantStoredProfile(candidate) {
   const socialPipe = pipelineSection(extra, 'social');
   const workPipe = pipelineSection(extra, 'work');
   const salary = readPlainObject(candidate.salary);
+  const prefs = mergeCareerPreferencesLikeOverview(candidate);
   const splitFromName = String(extra.fullName || extra.name || personalPipe.fullName || personalPipe.name || '')
     .trim()
     .split(/\s+/)
@@ -680,14 +755,43 @@ function applyTenantStoredProfile(candidate) {
       workPipe.entries || workPipe.workExperienceEntries || extra.workExperienceEntries,
     ),
     expectedSalary: pickPreferred(
-      candidate.expectedSalary,
-      extra.expectedSalary || salary.expected || salary.max || salary.amount,
+      preferredPackageSalary(prefs),
+      candidate.expectedSalary ??
+        (extra.expectedSalary || salary.expected || salary.max || salary.amount),
     ),
     currentSalary: pickPreferred(
-      candidate.currentSalary,
-      extra.currentSalary || salary.current || salary.min,
+      prefs.currentSalary,
+      candidate.currentSalary ?? (extra.currentSalary || salary.current || salary.min),
     ),
-    careerPreferences: pickPreferred(candidate.careerPreferences, extra.careerPreferences),
+    currentSalaryCurrency: preferReviewText(
+      prefs.currentCurrency,
+      candidate.currentSalaryCurrency,
+      salary.currency,
+    ),
+    expectedSalaryCurrency: preferReviewText(
+      prefs.preferredCurrency,
+      prefs.salaryCurrency,
+      candidate.expectedSalaryCurrency,
+      salary.currency,
+    ),
+    // Empty Preferred Package benefits must win over portal/Phase-1 checkbox lists.
+    currentBenefits: Object.prototype.hasOwnProperty.call(prefs, 'currentBenefits')
+      ? prefs.currentBenefits
+      : candidate.currentBenefits,
+    expectedBenefits: Object.prototype.hasOwnProperty.call(prefs, 'preferredBenefits')
+      ? prefs.preferredBenefits
+      : candidate.expectedBenefits,
+    careerPreferences: prefs,
+    experience: overviewExperienceYears({
+      ...candidate,
+      experienceYears: candidate.experienceYears,
+    }),
+    languageProficiency: pickPreferred(
+      formatLanguageProficiencyList(
+        languageRowsHaveProficiency(candidate.languages) ? candidate.languages : null,
+      ),
+      candidate.languageProficiency,
+    ),
   };
 }
 
@@ -705,19 +809,19 @@ function buildEditFormFromCandidate(hydrated) {
     phase1,
     salary,
   } = extraProfileBag(hydrated);
-  const languages = pickPreferred(
-    hydrated.languages,
-    Array.isArray(phase1?.languages)
-      ? phase1.languages.map((row) => row?.name || row).filter(Boolean)
-      : [],
-  );
+  const phase1Languages = Array.isArray(phase1?.languages) ? phase1.languages : [];
+  const languages = languageRowsHaveProficiency(hydrated.languages)
+    ? hydrated.languages
+    : languageRowsHaveProficiency(phase1Languages)
+      ? phase1Languages
+      : pickPreferred(hydrated.languages, phase1Languages);
   const skills = pickPreferred(
     hydrated.skills,
     Array.isArray(phase1?.skills) ? phase1.skills.map((row) => row?.name || row).filter(Boolean) : [],
   );
   const languageProficiency = pickPreferred(
-    formatListValue(summaryPipe.languageProficiency || extra.languageProficiency),
-    Array.isArray(languages) ? languages.join(', ') : languages,
+    formatLanguageProficiencyList(languages),
+    formatListValue(summaryPipe.languageProficiency || extra.languageProficiency || hydrated.languageProficiency),
   );
   return {
     firstName: pickPreferred(hydrated.firstName, personal.firstName || personalPipe.firstName),
@@ -777,7 +881,7 @@ function buildEditFormFromCandidate(hydrated) {
       formatPrefValue(prefs.currentOrganization || prefs.currentCompany || prefs.company),
     ),
     currentTitle: hydrated.designation || hydrated.currentTitle || formatPrefValue(prefs.currentRole),
-    experience: hydrated.experience,
+    experience: overviewExperienceYears(hydrated),
     education: pickPreferred(hydrated.education, educationPipe.summaryText),
     educationSummary: pickPreferred(
       educationPipe.summaryText,
@@ -807,8 +911,8 @@ function buildEditFormFromCandidate(hydrated) {
     portfolio: pickPreferred(hydrated.portfolio, extra.portfolio || socialPipe.website),
     remarks: pickPreferred(hydrated.remarks, professionalPipe.remarks || extra.remarks),
     currentSalary: pickPreferred(
-      hydrated.currentSalary,
-      prefs.currentSalary || extra.currentSalary || salary.current || salary.min,
+      prefs.currentSalary,
+      hydrated.currentSalary ?? (extra.currentSalary || salary.current || salary.min),
     ),
     currentSalaryCurrency: preferReviewText(
       prefs.currentCurrency,
@@ -816,19 +920,15 @@ function buildEditFormFromCandidate(hydrated) {
       extra.currentSalaryCurrency,
       salary.currency,
     ),
-    currentBenefits: preferReviewText(
-      prefs.currentBenefits,
-      professionalPipe.currentBenefits,
-      extra.currentBenefits,
-    ),
+    // Prefer Preferred Package lists (incl. empty → Not provided). Do not fall back to
+    // Phase-1 / portal benefit checkboxes when CRM preferred/current benefits are empty.
+    currentBenefits: Object.prototype.hasOwnProperty.call(prefs, 'currentBenefits')
+      ? formatReviewText(prefs.currentBenefits)
+      : preferReviewText(professionalPipe.currentBenefits, extra.currentBenefits),
     expectedSalary: pickPreferred(
-      hydrated.expectedSalary,
-      prefs.preferredSalary ||
-        prefs.salaryAmount ||
-        extra.expectedSalary ||
-        salary.expected ||
-        salary.max ||
-        salary.amount,
+      preferredPackageSalary(prefs),
+      hydrated.expectedSalary ??
+        (extra.expectedSalary || salary.expected || salary.max || salary.amount),
     ),
     expectedSalaryCurrency: preferReviewText(
       prefs.preferredCurrency,
@@ -837,11 +937,9 @@ function buildEditFormFromCandidate(hydrated) {
       extra.expectedSalaryCurrency,
       salary.currency,
     ),
-    expectedBenefits: preferReviewText(
-      prefs.preferredBenefits,
-      professionalPipe.expectedBenefits,
-      extra.expectedBenefits,
-    ),
+    expectedBenefits: Object.prototype.hasOwnProperty.call(prefs, 'preferredBenefits')
+      ? formatReviewText(prefs.preferredBenefits)
+      : preferReviewText(professionalPipe.expectedBenefits, extra.expectedBenefits),
     noticePeriod: pickPreferred(hydrated.noticePeriod, prefs.noticePeriod),
     workHistoryText: pickPreferred(
       summaryPipe.workHistory,

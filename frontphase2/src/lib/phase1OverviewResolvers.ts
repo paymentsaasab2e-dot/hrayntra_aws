@@ -164,13 +164,31 @@ export function resolvePhase1Education(
   candidate: CandidateProfileDrawerData,
 ): Array<Record<string, unknown>> {
   if (Array.isArray(snap?.education) && snap.education.length) return snap.education;
-  return (candidate.cvEducationEntries || []).map((entry) => ({
-    degreeProgram: entry.degree,
-    institutionName: entry.institution,
-    fieldOfStudy: (entry as { field?: string }).field,
-    startYear: entry.startYear,
-    endYear: entry.endYear,
-  }));
+  return (candidate.cvEducationEntries || []).map((entry) => {
+    const row = entry as Record<string, unknown>;
+    const qualification = String(row.degreeProgram || row.qualification || row.degree || '').trim();
+    const institution = String(
+      row.institutionName || row.instituteName || row.institution || '',
+    ).trim();
+    return {
+      educationLevel: String(row.educationLevel || '').trim() || undefined,
+      degreeProgram: qualification || undefined,
+      qualification: qualification || undefined,
+      degree: qualification || undefined,
+      institutionName: institution || undefined,
+      instituteName: institution || undefined,
+      institution: institution || undefined,
+      fieldOfStudy: String(row.fieldOfStudy || row.field || '').trim() || undefined,
+      startYear: row.startYear,
+      endYear: row.endYear,
+      startMonth: row.startMonth,
+      endMonth: row.endMonth,
+      currentlyStudying: row.currentlyStudying === true,
+      grade: row.grade,
+      courseDuration: row.courseDuration,
+      modeOfStudy: row.modeOfStudy,
+    };
+  });
 }
 
 export function resolvePhase1GapExplanations(

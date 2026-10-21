@@ -80,6 +80,7 @@ import {
 import { getActiveOrgUnitId } from '../../lib/org/orgWorkspaceStorage';
 import { formatAssigneeDisplayName } from '../../lib/assigneeDisplay';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { DRAWER_QUERY, readDrawerQuery, useBindDrawerQuery } from '../../lib/drawerUrlState';
 import { Toaster, toast } from 'sonner';
 import { splitDateTimeForDisplay } from '../../utils/formatLeadDateTime';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -539,6 +540,15 @@ export default function RecruitmentAgencyDashboard() {
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [selectedLeadDrawerMode, setSelectedLeadDrawerMode] = useState<'view' | 'edit'>('view');
   const [addLeadDrawerOpen, setAddLeadDrawerOpen] = useState(false);
+  useBindDrawerQuery(addLeadDrawerOpen, { [DRAWER_QUERY.addLead]: '1' });
+  useBindDrawerQuery(Boolean(selectedLeadId) && !addLeadDrawerOpen, {
+    [DRAWER_QUERY.leadId]: selectedLeadId,
+  });
+  useEffect(() => {
+    if (readDrawerQuery(DRAWER_QUERY.addLead) === '1') {
+      setAddLeadDrawerOpen(true);
+    }
+  }, []);
   const [addLeadWithAi, setAddLeadWithAi] = useState(false);
   const [createLeadMode, setCreateLeadMode] = useState<'ai' | 'manual'>('manual');
   const [importDrawerOpen, setImportDrawerOpen] = useState(false);

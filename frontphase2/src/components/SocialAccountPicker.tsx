@@ -1,7 +1,8 @@
 'use client';
 
 import React from 'react';
-import { Check, Linkedin, Loader2, Plus, Twitter, X } from 'lucide-react';
+import { Check, Linkedin, Loader2, Plus, Trash2, Twitter } from 'lucide-react';
+import { requestConfirm } from '../lib/appDialog';
 
 export type SocialAccountOption = {
   id: string;
@@ -82,6 +83,7 @@ export function SocialAccountPicker({
           <div className="space-y-2">
             {connectedAccounts.map((account) => {
               const checked = selectedKeys.includes(account.key);
+              const canRemove = account.isOwn !== false;
               return (
                 <label
                   key={account.key}
@@ -107,10 +109,15 @@ export function SocialAccountPicker({
                     </div>
                   )}
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-medium text-slate-900 truncate">
-                        {accountLabel(account, provider)}
+                        {account.type === 'page' ? account.name : accountLabel(account, provider)}
                       </span>
+                      {account.type === 'page' ? (
+                        <span className="inline-flex items-center px-2 py-0.5 bg-sky-100 text-sky-800 rounded text-[10px] font-semibold uppercase tracking-wide shrink-0">
+                          Company Page
+                        </span>
+                      ) : null}
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs font-medium shrink-0">
                         <Check size={12} />
                         Connected
@@ -127,23 +134,32 @@ export function SocialAccountPicker({
                       </p>
                     ) : null}
                   </div>
-                  {account.type !== 'page' && account.isOwn !== false ? (
+                  {canRemove ? (
                     <button
                       type="button"
                       onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
-                        onDisconnect(account.id);
+                        void (async () => {
+                          const label = account.type === 'page' ? `${account.name} company page` : account.name;
+                          const confirmed = await requestConfirm(
+                            `Remove ${label}? This disconnects it for publishing.`,
+                            { confirmLabel: 'Remove', tone: 'warning' },
+                          );
+                          if (!confirmed) return;
+                          onDisconnect(account.id);
+                        })();
                       }}
                       disabled={disconnectingId === account.id}
-                      className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
-                      title={`Disconnect ${account.name}`}
+                      className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-red-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      title={`Remove ${account.name}`}
                     >
                       {disconnectingId === account.id ? (
-                        <Loader2 size={14} className="animate-spin" />
+                        <Loader2 size={12} className="animate-spin" />
                       ) : (
-                        <X size={14} />
+                        <Trash2 size={12} />
                       )}
+                      Remove
                     </button>
                   ) : null}
                 </label>
@@ -154,6 +170,14 @@ export function SocialAccountPicker({
       ) : (
         <p className="text-xs text-slate-500">No {providerLabel} accounts connected yet.</p>
       )}
+
+      {provider === 'linkedin' &&
+      connectedAccounts.length > 0 &&
+      !connectedAccounts.some((account) => account.type === 'page') ? (
+        <p className="text-[11px] text-slate-500">
+          Company Pages are not connected yet. Click <span className="font-medium text-slate-700">Add another LinkedIn account</span> and approve access as a Page admin.
+        </p>
+      ) : null}
 
       <button
         type="button"

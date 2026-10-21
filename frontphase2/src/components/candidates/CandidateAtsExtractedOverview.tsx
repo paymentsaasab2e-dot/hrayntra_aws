@@ -14,7 +14,8 @@ import type { CandidateProfileDrawerData } from '../drawers/CandidateProfileDraw
 import { DrawerSectionCard } from '../drawers/drawerFormUi';
 import { DrawerLinkActions, looksLikeHttpUrl } from '../drawers/DrawerLinkActions';
 import {
-  buildEducationSummaryFromCvEntries,
+  buildPrimaryEducationSummary,
+  cleanEducationQualification,
   isGarbageEducationSummary,
 } from '@/lib/candidateEducation';
 import {
@@ -134,19 +135,25 @@ function SectionBlock({
 
 
 function EducationEntryCard({ entry, index }: { entry: Record<string, unknown>; index: number }) {
-  const qual = display(entry.qualification || entry.degree);
-  const inst = display(entry.instituteName || entry.institution);
-  const dates = [entry.startYear, entry.endYear].filter(Boolean).join(' → ');
+  const level = display(entry.educationLevel);
+  const qual = cleanEducationQualification(entry.qualification || entry.degreeProgram || entry.degree);
+  const inst = display(entry.instituteName || entry.institutionName || entry.institution);
+  const start = [entry.startMonth, entry.startYear].filter(Boolean).join(' ');
+  const end = [entry.endMonth, entry.endYear].filter(Boolean).join(' ');
+  const dates = [start || entry.startYear, end || entry.endYear].filter(Boolean).join(' → ');
   const grade = display(entry.grade);
+  const duration = display(entry.courseDuration);
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-sm">
-      <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Entry {index + 1}</p>
+      <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+        {level ? `Entry ${index + 1} · ${level}` : `Entry ${index + 1}`}
+      </p>
       <p className="mt-1 text-sm font-semibold text-slate-900">{qual || 'Qualification'}</p>
       {inst ? <p className="mt-0.5 text-sm text-slate-600">{inst}</p> : null}
-      {dates || grade ? (
+      {dates || grade || duration ? (
         <p className="mt-2 text-xs text-slate-500">
-          {[dates, grade ? `Grade ${grade}` : ''].filter(Boolean).join(' · ')}
+          {[dates, grade ? `Grade ${grade}` : '', duration].filter(Boolean).join(' · ')}
         </p>
       ) : null}
     </div>
@@ -253,11 +260,18 @@ function buildOverviewModel(candidate: CandidateProfileDrawerData) {
       ? (educationPipe.entries as Array<Record<string, unknown>>)
       : Array.isArray(phase1?.education) && phase1.education.length
         ? phase1.education.map((e) => ({
-            degree: e.degreeProgram || e.degree,
-            institution: e.institutionName || e.institution,
+            educationLevel: e.educationLevel,
+            qualification: e.qualification || e.degreeProgram || e.degree,
+            degree: e.degreeProgram || e.degree || e.qualification,
+            instituteName: e.instituteName || e.institutionName || e.institution,
+            institution: e.institutionName || e.institution || e.instituteName,
             field: e.fieldOfStudy,
             startYear: e.startYear,
             endYear: e.endYear,
+            startMonth: e.startMonth,
+            endMonth: e.endMonth,
+            grade: e.grade,
+            courseDuration: e.courseDuration,
           }))
         : candidate.cvEducationEntries || []
   ) as Array<Record<string, unknown>>;
@@ -265,12 +279,12 @@ function buildOverviewModel(candidate: CandidateProfileDrawerData) {
   const workEntries = collectCandidateWorkEntries(candidate);
 
   const educationSummaryText =
-    display(educationPipe.summaryText) ||
-    display((summaryPipe as Record<string, unknown>).educationSummary) ||
+    buildPrimaryEducationSummary(eduEntries) ||
     (isGarbageEducationSummary(candidate.cvEducation)
       ? ''
-      : display(candidate.cvEducation)) ||
-    buildEducationSummaryFromCvEntries(eduEntries);
+      : display(candidate.cvEducation).split(/\s*\|\s*/)[0]) ||
+    display(educationPipe.summaryText).split(/\s*\|\s*/)[0] ||
+    display((summaryPipe as Record<string, unknown>).educationSummary).split(/\s*\|\s*/)[0];
 
   const educationCourses = Array.isArray(educationPipe.courses)
     ? (educationPipe.courses as string[]).join('; ')
@@ -362,7 +376,13 @@ function buildOverviewModel(candidate: CandidateProfileDrawerData) {
           candidate.salaryCurrency,
         salaryType: normalizeSalaryTypeLabel(careerPrefs.currentSalaryType),
         salary: formatAmount(careerPrefs.currentSalary) || formatAmount(candidate.currentSalaryValue),
-        location: display(careerPrefs.currentLocation) || candidate.location || candidate.cvAddress,
+        location:
+          (display(careerPrefs.currentLocation).toUpperCase() ===
+          display(careerPrefs.currentCurrency).toUpperCase()
+            ? ''
+            : display(careerPrefs.currentLocation)) ||
+          (/^[A-Z]{3}$/.test(display(candidate.location)) ? '' : display(candidate.location)) ||
+          candidate.cvAddress,
         benefits: normalizeLabelList(careerPrefs.currentBenefits || professional.currentBenefits),
       },
       preferredPackage: {
@@ -581,7 +601,16 @@ export function CandidateAtsExtractedOverview({
           {show('age') ? <FieldRow label="Age" value={p.age} /> : null}
           {show('candidateScore') ? <FieldRow label="Candidate Score" value={p.candidateScore} /> : null}
           {show('city') || show('state') ? <FieldRow label="City & State" value={p.cityState} /> : null}
-          {show('location') ? <FieldRow label="Current Location" value={candidate.location} /> : null}
+          {show('location') ? (
+            <FieldRow
+              label="Current Location"
+              value={
+                /^[A-Z]{3}$/.test(String(candidate.location || '').trim())
+                  ? [p.cityState].filter(Boolean).join(', ')
+                  : candidate.location
+              }
+            />
+          ) : null}
           {show('address') ? <FieldRow label="Current Address" value={p.address} /> : null}
           {show('zip') ? <FieldRow label="Zip" value={p.zip} /> : null}
           {show('avatar') ? (

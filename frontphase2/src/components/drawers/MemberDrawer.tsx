@@ -28,6 +28,7 @@ import {
 } from 'recharts';
 import { ImageWithFallback } from '../ImageWithFallback';
 import { formatDateDMY } from '../../utils/dateDisplay';
+import { DRAWER_QUERY, readAllowedDrawerQuery, useBindDrawerQuery } from '../../lib/drawerUrlState';
 
 interface MemberDrawerProps {
   member: TeamMember | null;
@@ -36,7 +37,14 @@ interface MemberDrawerProps {
 }
 
 export const MemberDrawer: React.FC<MemberDrawerProps> = ({ member, isOpen, onClose }) => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'performance' | 'assignments' | 'commission'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'performance' | 'assignments' | 'commission'>(() =>
+    readAllowedDrawerQuery(
+      DRAWER_QUERY.memberTab,
+      ['overview', 'performance', 'assignments', 'commission'] as const,
+      'overview',
+    ),
+  );
+  useBindDrawerQuery(isOpen, { [DRAWER_QUERY.memberTab]: activeTab });
 
   if (!member) return null;
 

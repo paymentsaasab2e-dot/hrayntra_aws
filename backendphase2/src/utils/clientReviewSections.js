@@ -1281,9 +1281,16 @@ function fallbackValuesFromCandidate(candidate, matchScore) {
     .split(/\s+/)
     .filter(Boolean);
   const score = Number.isFinite(Number(matchScore)) ? String(Math.round(Number(matchScore))) : '';
-  const experience = Number.isFinite(Number(candidate?.experience))
-    ? String(candidate.experience)
-    : String(candidate?.experience || '').trim();
+  const experienceRaw =
+    candidate?.experienceYears != null && Number.isFinite(Number(candidate.experienceYears))
+      ? Number(candidate.experienceYears)
+      : candidate?.experience;
+  const experienceNum =
+    experienceRaw != null && Number.isFinite(Number(experienceRaw)) ? Number(experienceRaw) : null;
+  const experience =
+    experienceNum == null
+      ? String(candidate?.experience || '').trim()
+      : String(Math.round(experienceNum * 10) / 10);
   const birthDate = String(
     candidate?.birthDate || candidate?.dob || candidate?.dateOfBirth || '',
   ).trim();
@@ -1322,18 +1329,27 @@ function fallbackValuesFromCandidate(candidate, matchScore) {
     'current employer': String(candidate?.currentCompany || '').trim(),
     'experience (years)': experience,
     'candidate score': score,
-    'current salary': money(candidate?.currentSalary ?? prefs.currentSalary),
+    'current salary': money(prefs.currentSalary ?? candidate?.currentSalary),
     'current salary currency': formatReviewText(
-      candidate?.currentSalaryCurrency || prefs.currentCurrency,
+      prefs.currentCurrency || candidate?.currentSalaryCurrency,
     ),
-    'current benefits': formatReviewText(candidate?.currentBenefits || prefs.currentBenefits),
+    'current benefits': formatReviewText(
+      Object.prototype.hasOwnProperty.call(prefs, 'currentBenefits')
+        ? prefs.currentBenefits
+        : candidate?.currentBenefits,
+    ),
+    // Preferred Package salary wins over stale Candidate.expectedSalary column (Overview parity).
     'expected salary': money(
-      candidate?.expectedSalary ?? prefs.preferredSalary ?? prefs.salaryAmount,
+      prefs.preferredSalary ?? prefs.salaryAmount ?? candidate?.expectedSalary,
     ),
     'expected salary currency': formatReviewText(
-      candidate?.expectedSalaryCurrency || prefs.preferredCurrency || prefs.salaryCurrency,
+      prefs.preferredCurrency || prefs.salaryCurrency || candidate?.expectedSalaryCurrency,
     ),
-    'expected benefits': formatReviewText(candidate?.expectedBenefits || prefs.preferredBenefits),
+    'expected benefits': formatReviewText(
+      Object.prototype.hasOwnProperty.call(prefs, 'preferredBenefits')
+        ? prefs.preferredBenefits
+        : candidate?.expectedBenefits,
+    ),
     'notice period': formatReviewText(candidate?.noticePeriod || prefs.noticePeriod),
     'preferred job titles': formatReviewText(prefs.preferredJobTitles || prefs.preferredRoles),
     'preferred industries': formatReviewText(prefs.preferredIndustries || prefs.preferredIndustry),
@@ -1349,7 +1365,10 @@ function fallbackValuesFromCandidate(candidate, matchScore) {
     remarks: String(candidate?.remarks || '').trim(),
     skills: joinClientReviewList(candidate?.skills),
     'language & proficiency': joinClientReviewList(
-      candidate?.languageProficiency || candidate?.languages,
+      Array.isArray(candidate?.languages) &&
+        candidate.languages.some((item) => item && typeof item === 'object' && (item.proficiency || item.level))
+        ? candidate.languages
+        : candidate?.languageProficiency || candidate?.languages,
     ),
     languages: joinClientReviewList(candidate?.languages),
     summary: String(candidate?.cvSummary || '').trim(),
@@ -1369,17 +1388,34 @@ function fallbackValuesFromCandidate(candidate, matchScore) {
   };
 }
 
+const OVERVIEW_LIVE_LABELS = new Set([
+  'expected salary',
+  'expected salary currency',
+  'current salary',
+  'current salary currency',
+  'current benefits',
+  'expected benefits',
+  'experience (years)',
+  'language & proficiency',
+  'languages',
+  'current designation',
+  'current employer',
+]);
+
 /** Fill empty drawer fields from the same candidate + match payload the table uses. */
 export function hydrateClientReviewSections(sections, { candidate, matchScore } = {}) {
   const fallbacks = fallbackValuesFromCandidate(candidate || {}, matchScore);
   return (Array.isArray(sections) ? sections : []).map((section) => {
     const fields = Array.isArray(section?.fields)
       ? section.fields.map((row) => {
-          if (!isBlankClientReviewValue(row?.value)) return row;
           const key = String(row?.label || '')
             .trim()
             .toLowerCase();
           const next = fallbacks[key];
+          if (next && OVERVIEW_LIVE_LABELS.has(key) && String(row?.value ?? '').trim() !== String(next)) {
+            return { ...row, value: next };
+          }
+          if (!isBlankClientReviewValue(row?.value)) return row;
           if (!next) return row;
           return { ...row, value: next };
         })

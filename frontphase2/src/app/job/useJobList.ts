@@ -54,6 +54,17 @@ import { WorkspaceAlertTableCell, WorkspaceAlertTableHeader } from '../../compon
 import type { AuditMeta } from '../../types/audit';
 
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import {
+  DRAWER_QUERY,
+  applyDrawerReturnPath,
+  isCreateJobUrlStep,
+  patchDrawerQuery,
+  readDrawerQuery,
+  stripOauthCallbackQuery,
+  takeCreateJobStep,
+  takeDrawerReturnPath,
+  useBindDrawerQuery,
+} from '../../lib/drawerUrlState';
 import PaginationAll from '../../components/PaginationAll';
 import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../constants/tablePagination';
 import { requestConfirm, requestError } from '../../lib/appDialog';
@@ -257,6 +268,16 @@ interface JobPipelineStageSummary {
 }
 
 /** Drop legacy "Apply" when an Applied/APPLIED stage exists (standalone double-bucket bug). */
+function isSubmitToClientLikeStage(stage: JobPipelineStageSummary): boolean {
+  const nameKey = normalizePipelineStageKey(stage.name);
+  const roleKey = normalizePipelineStageKey(String(stage.systemRole || ''));
+  if (roleKey === 'submittedtoclient' || roleKey === 'submittoclient') return true;
+  return (
+    (nameKey.includes('submit') && nameKey.includes('client')) ||
+    nameKey.includes('submittedtoclient')
+  );
+}
+
 function dedupeRedundantApplyPipelineStages(stages: JobPipelineStageSummary[]): JobPipelineStageSummary[] {
   if (!Array.isArray(stages) || stages.length < 2) return stages;
   const hasAppliedLike = stages.some(
@@ -264,8 +285,27 @@ function dedupeRedundantApplyPipelineStages(stages: JobPipelineStageSummary[]): 
       String(s.systemRole || '').toUpperCase() === 'APPLIED' ||
       /^applied$/i.test(String(s.name || '').trim())
   );
-  if (!hasAppliedLike) return stages;
-  return stages.filter((s) => String(s.name || '').trim().toLowerCase() !== 'apply');
+  let next = hasAppliedLike
+    ? stages.filter((s) => String(s.name || '').trim().toLowerCase() !== 'apply')
+    : stages;
+
+  // Jobs sometimes carry both "Submit to Client" and "Submitted to Client" (or duplicates).
+  // Collapse to one chip so Columns → Submit to Client never renders SUB twice.
+  const submitLike = next.filter(isSubmitToClientLikeStage);
+  if (submitLike.length > 1) {
+    const preferred =
+      submitLike.find((s) => String(s.systemRole || '').toUpperCase() === 'SUBMITTED_TO_CLIENT') ||
+      submitLike.find((s) => /^submit to client$/i.test(String(s.name || '').trim())) ||
+      [...submitLike].sort((a, b) => a.order - b.order)[0];
+    const mergedCount = submitLike.reduce((sum, s) => sum + (Number(s.count) || 0), 0);
+    const dropIds = new Set(submitLike.map((s) => s.id));
+    dropIds.delete(preferred.id);
+    next = next
+      .filter((s) => !dropIds.has(s.id))
+      .map((s) => (s.id === preferred.id ? { ...s, count: mergedCount } : s));
+  }
+
+  return next;
 }
 
 export interface Job {
@@ -527,8 +567,11 @@ function pipelineStageMatchesKey(stage: JobPipelineStageSummary, stageKey: strin
   if (key === 'screening') {
     return roleKey === 'screening' || /screen|short|long/.test(nameKey);
   }
-  if (key === 'submittoclient' || key === 'submit-to-client') {
+  if (key === 'submittoclient') {
+    // systemRole is SUBMITTED_TO_CLIENT → normalized "submittedtoclient"
     return (
+      roleKey === 'submittedtoclient' ||
+      roleKey === 'submittoclient' ||
       (nameKey.includes('submit') && nameKey.includes('client')) ||
       nameKey.includes('submittedtoclient')
     );
@@ -546,9 +589,16 @@ function pipelineStageMatchesKey(stage: JobPipelineStageSummary, stageKey: strin
     return nameKey.includes('reject');
   }
 
-  return nameKey.includes(key) || key.includes(nameKey);
+  // Avoid short-token false positives (e.g. key "submittoclient" vs name "submit").
+  if (nameKey.length >= 4 && key.includes(nameKey)) return true;
+  return nameKey.includes(key);
 }
 
+/**
+ * Columns → Pipeline picks canonical stage *keys* (applied, submit-to-client, …).
+ * Return at most one chip per selected key so jobs with duplicate submit-like
+ * stages never render APP / SUB / SUB.
+ */
 export function filterPipelineStagesForColumns(
   stages: JobPipelineStageSummary[] | undefined,
   visibleStageKeys: string[] | null | undefined,
@@ -557,9 +607,37 @@ export function filterPipelineStagesForColumns(
   // null/undefined = no Columns filter yet → show all. Empty array = user hid every stage.
   if (visibleStageKeys == null) return list;
   if (visibleStageKeys.length === 0) return [];
-  return list.filter((stage) =>
-    visibleStageKeys.some((key) => pipelineStageMatchesKey(stage, key)),
-  );
+
+  const result: JobPipelineStageSummary[] = [];
+  const usedIds = new Set<string>();
+
+  for (const stageKey of visibleStageKeys) {
+    const matches = list.filter(
+      (stage) => !usedIds.has(stage.id) && pipelineStageMatchesKey(stage, stageKey),
+    );
+    if (!matches.length) continue;
+
+    const keyNorm = normalizePipelineStageKey(stageKey);
+    const exactName = matches.find(
+      (s) => normalizePipelineStageKey(s.name) === keyNorm,
+    );
+    const byRole = matches.find((s) => {
+      const role = normalizePipelineStageKey(String(s.systemRole || ''));
+      if (keyNorm === 'submittoclient') {
+        return role === 'submittedtoclient' || role === 'submittoclient';
+      }
+      return role === keyNorm || (keyNorm === 'interviewing' && role === 'interview');
+    });
+    const primary =
+      exactName ||
+      byRole ||
+      [...matches].sort((a, b) => a.order - b.order)[0];
+    const count = matches.reduce((sum, s) => sum + (Number(s.count) || 0), 0);
+    matches.forEach((s) => usedIds.add(s.id));
+    result.push({ ...primary, count });
+  }
+
+  return result;
 }
 
 export const LEGACY_PIPELINE_BUCKETS: Array<{
@@ -1186,6 +1264,7 @@ export function useJobList() {
   const [jobDrawerOpen, setJobDrawerOpen] = useState(false);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const pendingDeepLinkJobIdRef = useRef<string | null>(null);
+  const pendingNestedCandidateIdRef = useRef<string | null>(null);
   const [currentPage, setCurrentPage] = useState(DEFAULT_PAGE);
   const [pageSize, setPageSize] = useState<TablePageSize>(DEFAULT_PAGE_SIZE);
   const [jobs, setJobs] = useState<Job[]>(() => {
@@ -1441,10 +1520,24 @@ export function useJobList() {
     const linkedinParam = params.get('linkedin');
     const integrationConnected = params.get('integration_connected');
     const integrationError = params.get('integration_error');
-    const shouldReopenAiWizard = sessionStorage.getItem('reopen_job_ai_wizard') === '1';
+    const linkedinAccountsParam = params.get('linkedinAccounts') === '1';
+    const hasOauthCallback = Boolean(linkedinParam || integrationConnected || integrationError);
+    const savedReopenAiWizard = sessionStorage.getItem('reopen_job_ai_wizard') === '1';
+    const savedReopenDrawer = sessionStorage.getItem('reopen_create_job_drawer') === '1';
+
+    if (hasOauthCallback || savedReopenAiWizard || savedReopenDrawer) {
+      const returnPath = takeDrawerReturnPath();
+      if (returnPath) applyDrawerReturnPath(returnPath);
+    }
+
+    const afterParams = new URLSearchParams(window.location.search);
+    const jobAiOpen =
+      afterParams.get(DRAWER_QUERY.jobAi) === '1' || params.get(DRAWER_QUERY.jobAi) === '1';
+    const shouldReopenAiWizard =
+      savedReopenAiWizard || (hasOauthCallback && jobAiOpen) || (linkedinAccountsParam && jobAiOpen);
     const shouldReopenDrawer =
       !shouldReopenAiWizard &&
-      (sessionStorage.getItem('reopen_create_job_drawer') === '1' ||
+      (savedReopenDrawer ||
         linkedinParam === 'connected' ||
         linkedinParam === 'error' ||
         integrationConnected === 'twitter' ||
@@ -1452,10 +1545,19 @@ export function useJobList() {
         integrationError === 'twitter' ||
         integrationError === 'facebook');
 
+    const savedStep = shouldReopenDrawer ? takeCreateJobStep() : '';
+
     if (shouldReopenAiWizard) {
       const savedWizardMode = sessionStorage.getItem('reopen_job_ai_wizard_mode');
-      sessionStorage.removeItem('reopen_job_ai_wizard_mode');
+      sessionStorage.setItem('reopen_job_ai_wizard', '1');
+      if (linkedinAccountsParam || linkedinParam === 'connected' || linkedinParam === 'error') {
+        sessionStorage.setItem('reopen_linkedin_accounts', '1');
+      }
       setCreateJobMode(savedWizardMode === 'manual' ? 'manual' : 'ai');
+      if (readDrawerQuery(DRAWER_QUERY.jobAi) !== '1') {
+        patchDrawerQuery({ [DRAWER_QUERY.jobAi]: '1' });
+      }
+      setCreateJobDrawerOpen(false);
       setJobAiWizardOpen(true);
       if (linkedinParam === 'connected') {
         toast.success('LinkedIn connected successfully.');
@@ -1465,6 +1567,20 @@ export function useJobList() {
         );
       }
     } else if (shouldReopenDrawer) {
+      const stepFromUrl = readDrawerQuery(DRAWER_QUERY.jobStep);
+      const nextStep = isCreateJobUrlStep(savedStep)
+        ? savedStep
+        : isCreateJobUrlStep(stepFromUrl)
+          ? stepFromUrl
+          : 'publish';
+      if (readDrawerQuery(DRAWER_QUERY.editJob)) {
+        patchDrawerQuery({ [DRAWER_QUERY.jobStep]: nextStep });
+      } else {
+        patchDrawerQuery({
+          [DRAWER_QUERY.createJob]: '1',
+          [DRAWER_QUERY.jobStep]: nextStep,
+        });
+      }
       setCreateJobMode('manual');
       setCreateJobDrawerOpen(true);
       sessionStorage.removeItem('reopen_create_job_drawer');
@@ -1482,15 +1598,7 @@ export function useJobList() {
       toast.error('Failed to connect Facebook account. Please try again.');
     }
 
-    if (linkedinParam || integrationConnected || integrationError) {
-      const url = new URL(window.location.href);
-      url.searchParams.delete('linkedin');
-      url.searchParams.delete('message');
-      url.searchParams.delete('integration_connected');
-      url.searchParams.delete('integration_error');
-      url.searchParams.delete('email');
-      window.history.replaceState({}, '', url.pathname + (url.search || ''));
-    }
+    stripOauthCallbackQuery();
   }, []);
 
   useEffect(() => {
@@ -1719,6 +1827,27 @@ export function useJobList() {
   const [jobPipelineStages, setJobPipelineStages] = useState<any[]>([]);
   const [editJobDrawerOpen, setEditJobDrawerOpen] = useState(false);
   const [editingJobId, setEditingJobId] = useState<string | null>(null);
+  useBindDrawerQuery(jobAiWizardOpen, { [DRAWER_QUERY.jobAi]: '1' });
+  useBindDrawerQuery(
+    jobDrawerOpen && Boolean(selectedJob?.id) && !createJobDrawerOpen && !editJobDrawerOpen,
+    { [DRAWER_QUERY.jobId]: selectedJob?.id || null },
+  );
+  useBindDrawerQuery(candidateProfileDrawerOpen && Boolean(selectedCandidateProfile?.id), {
+    [DRAWER_QUERY.candidateId]: selectedCandidateProfile?.id || null,
+  });
+  useEffect(() => {
+    if (readDrawerQuery(DRAWER_QUERY.createJob) === '1') {
+      setCreateJobDrawerOpen(true);
+    }
+    const editId = readDrawerQuery(DRAWER_QUERY.editJob);
+    if (editId) {
+      setEditingJobId(editId);
+      setEditJobDrawerOpen(true);
+    }
+    if (readDrawerQuery(DRAWER_QUERY.jobAi) === '1' && readDrawerQuery(DRAWER_QUERY.createJob) !== '1') {
+      setJobAiWizardOpen(true);
+    }
+  }, []);
   const [jobMetrics, setJobMetrics] = useState<JobMetrics | null>(() => {
     const cached = readJobsMetricsCache();
     const parsed = cached?.data;
@@ -2004,6 +2133,42 @@ export function useJobList() {
     window.addEventListener('jobportal:candidates-changed', onCandidatesChanged);
     return () => window.removeEventListener('jobportal:candidates-changed', onCandidatesChanged);
   }, [loadCandidateProfileInJobContext, selectedCandidateProfile?.id]);
+
+  useEffect(() => {
+    if (!jobDrawerOpen) {
+      pendingNestedCandidateIdRef.current = null;
+      return;
+    }
+    const candidateId = searchParams.get('candidateId') || readDrawerQuery(DRAWER_QUERY.candidateId);
+    if (!candidateId || pendingNestedCandidateIdRef.current === candidateId) return;
+    if (selectedCandidateProfile?.id === candidateId && candidateProfileDrawerOpen) {
+      pendingNestedCandidateIdRef.current = candidateId;
+      return;
+    }
+    pendingNestedCandidateIdRef.current = candidateId;
+    let cancelled = false;
+    void (async () => {
+      setCandidateDrawerMode('view');
+      setCandidateProfileDrawerOpen(true);
+      setLoadingCandidateProfile(true);
+      try {
+        await loadCandidateProfileInJobContext(candidateId);
+      } catch (error) {
+        if (!cancelled) console.error('Failed to restore candidate drawer:', error);
+      } finally {
+        if (!cancelled) setLoadingCandidateProfile(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    jobDrawerOpen,
+    searchParams,
+    loadCandidateProfileInJobContext,
+    selectedCandidateProfile?.id,
+    candidateProfileDrawerOpen,
+  ]);
 
   const openJobDrawerCandidateView = useCallback(
     async (candidate: Candidate) => {

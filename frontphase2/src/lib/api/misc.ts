@@ -4,7 +4,7 @@ import { dedupeContactsPayload } from '../clientContactDedupe';
 import { emitNotificationsUpdated } from './core-helpers';
 import type { CreatePlacementPayload, MarkFailedPayload, MarkJoinedPayload, Placement, PlacementFilters, PlacementStats, RequestReplacementPayload, ScheduleJoiningPayload } from '../../types/placement';
 import type { CreatePlacementInvoicePayload } from '../../types/recruitmentInvoice';
-import type { ActivityVisibilityCapabilities, AlertChannelSettings, AlertManagementPayload, AppNotification, AppNotificationCategory, AriaUndoPayload, AssistantActionLogItem, AssistantChatMessage, AssistantConversationMemory, AssistantHistoryMessage, AssistantHistoryRecord, AssistantStructuredResponse, AssistantTaskChain, BackendActivity, BackendContact, BackendContactActivity, BackendContactCommunication, BackendContactNote, BackendGlobalActivity, BackendTask, BackendUser, BrainAskResult, CommunicationConnections, CommunicationFullResponse, CommunicationSettingsShape, CompanyServiceSuggestion, ContactFilters, ContactImportExecuteResult, ContactImportPreviewResult, ContactStats, CreateContactData, CreateScheduledMeetingData, CreateTaskData, EntityChatType, GmailInboxMessage, GmailInboxResponse, GmailMessageActionResult, HqSupportTicket, HqSupportTicketCategory, HqSupportTicketMessage, HqSupportTicketPriority, HqSupportTicketStats, HqSupportTicketStatus, InboxMessage, InboxThread, IndustrySuggestion, IntegrationProvider, IntegrationStatusResponse, InvoiceActivityResponse, InvoicePaymentReminder, LanguageSuggestion, LinkedInStatus, MailboxSignatureResult, MailboxStatusResponse, NotificationTriggerEffectiveTemplate, NotificationTriggerSettingsPayload, NotificationTriggerTemplateOverride, NotificationsListResponse, OutlookComposeDraftResult, OutlookSendMailResult, PlacementInvoiceCreateResponse, PlacementPaginatedResponse, PutCommunicationBody, RecruitmentForwardTargets, ScheduledAnalysisSettings, ScheduledMeeting, SendInvoiceReminderPayload, SocialPublishingAccount, StatusCatalogResponse, TaskStats, UnifiedCalendarResponse, UpdateScheduledMeetingData, UpdateTaskData } from './types';
+import type { ActivityVisibilityCapabilities, AlertChannelSettings, AlertManagementPayload, AppNotification, AppNotificationCategory, AriaUndoPayload, AssistantActionLogItem, AssistantChatMessage, AssistantConversationMemory, AssistantHistoryMessage, AssistantHistoryRecord, AssistantStructuredResponse, AssistantTaskChain, BackendActivity, BackendContact, BackendContactActivity, BackendContactCommunication, BackendContactNote, BackendGlobalActivity, BackendTask, BackendUser, BrainAskResult, CommunicationConnections, CommunicationFullResponse, CommunicationSettingsShape, CompanyServiceSuggestion, ContactFilters, ContactImportExecuteResult, ContactImportPreviewResult, ContactStats, CreateContactData, CreateScheduledMeetingData, CreateTaskData, EntityChatType, GmailInboxMessage, GmailInboxResponse, GmailMessageActionResult, InboxCandidateImportResult, HqSupportTicket, HqSupportTicketCategory, HqSupportTicketMessage, HqSupportTicketPriority, HqSupportTicketStats, HqSupportTicketStatus, InboxMessage, InboxThread, IndustrySuggestion, IntegrationProvider, IntegrationStatusResponse, InvoiceActivityResponse, InvoicePaymentReminder, LanguageSuggestion, LinkedInStatus, MailboxSignatureResult, MailboxStatusResponse, NotificationTriggerEffectiveTemplate, NotificationTriggerSettingsPayload, NotificationTriggerTemplateOverride, NotificationsListResponse, OutlookComposeDraftResult, OutlookSendMailResult, PlacementInvoiceCreateResponse, PlacementPaginatedResponse, PutCommunicationBody, RecruitmentForwardTargets, ScheduledAnalysisSettings, ScheduledMeeting, SendInvoiceReminderPayload, SocialPublishingAccount, StatusCatalogResponse, TaskStats, UnifiedCalendarResponse, UpdateScheduledMeetingData, UpdateTaskData } from './types';
 
 
 export async function apiGetTableColumnVisibility() {
@@ -913,6 +913,22 @@ export const apiGetGmailMessage = async (messageId: string) => {
   return res.data;
 };
 
+export const apiImportGmailAttachmentCandidate = async (
+  messageId: string,
+  attachmentId: string,
+  filename?: string
+) => {
+  const res = await apiFetch<InboxCandidateImportResult>(
+    `/inbox/gmail/messages/${encodeURIComponent(messageId)}/import-candidate`,
+    {
+      method: 'POST',
+      body: { attachmentId, filename: filename || undefined },
+      auth: true,
+    }
+  );
+  return res.data;
+};
+
 export const apiArchiveGmailMessage = async (messageId: string) => {
   const res = await apiFetch<GmailMessageActionResult>(`/inbox/gmail/messages/${messageId}/archive`, {
     method: 'POST',
@@ -981,6 +997,22 @@ export const apiGetOutlookMessage = async (messageId: string) => {
     `/inbox/outlook/messages/${encodeURIComponent(messageId)}`,
     {
       method: 'GET',
+      auth: true,
+    }
+  );
+  return res.data;
+};
+
+export const apiImportOutlookAttachmentCandidate = async (
+  messageId: string,
+  attachmentId: string,
+  filename?: string
+) => {
+  const res = await apiFetch<InboxCandidateImportResult>(
+    `/inbox/outlook/messages/${encodeURIComponent(messageId)}/import-candidate`,
+    {
+      method: 'POST',
+      body: { attachmentId, filename: filename || undefined },
       auth: true,
     }
   );
@@ -1232,7 +1264,7 @@ export const apiGetLinkedInAccounts = async () => {
 };
 
 export const apiDisconnectLinkedInAccount = async (accountId: string) => {
-  return apiFetch<{ message: string }>(`/linkedin/accounts/${accountId}`, {
+  return apiFetch<{ message: string }>(`/linkedin/accounts/${encodeURIComponent(accountId)}`, {
     method: 'DELETE',
     auth: true,
   });

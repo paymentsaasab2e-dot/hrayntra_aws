@@ -42,6 +42,7 @@ import { useJobPipelineTab } from '../../hooks/useJobPipelineTab';
 import { useJobTabData } from '../../hooks/useJobTabData';
 import { useJobAssignmentTab } from '../../hooks/useJobAssignmentTab';
 import { useJobDrawerHeader } from '../../hooks/useJobDrawerHeader';
+import { DRAWER_QUERY, readAllowedDrawerQuery, useBindDrawerQuery } from '../../lib/drawerUrlState';
 export type {
   JobDrawerStatus,
   JobForDrawer,
@@ -74,6 +75,7 @@ const TAB_CONFIG = [
 ];
 /** Analytics is only opened via header button, not shown in tab bar */
 const TABS_VISIBLE_IN_BAR = TAB_CONFIG.filter((t) => t.id !== 'analytics');
+const JOB_DRAWER_TAB_IDS = TAB_CONFIG.map((tab) => tab.id);
 
 const JobDrawerStatusDropdown = ({
   value,
@@ -242,7 +244,10 @@ export function JobDetailsDrawer({
     }
   }, [isOpen, job?.id, markJobDrawerClean]);
 
-  const [activeTab, setActiveTab] = useState<(typeof TAB_CONFIG)[number]['id']>('overview');
+  const [activeTab, setActiveTab] = useState<(typeof TAB_CONFIG)[number]['id']>(() =>
+    readAllowedDrawerQuery(DRAWER_QUERY.jobTab, JOB_DRAWER_TAB_IDS, 'overview'),
+  );
+  useBindDrawerQuery(isOpen, { [DRAWER_QUERY.jobTab]: activeTab });
 
 const {
     aiMatchCandidates,

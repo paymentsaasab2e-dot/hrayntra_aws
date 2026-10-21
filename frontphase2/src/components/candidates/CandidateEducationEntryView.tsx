@@ -141,7 +141,13 @@ export function CandidateEducationEntryView({
           </div>
         </EducationSection>
 
-        {!isSchoolCert ? (
+        {isSchoolCert ? (
+          <EducationSection title="Academic Details" show={Boolean(gradeDisplay)}>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <FieldBlock label="Grade / Percentage / GPA" value={gradeDisplay} />
+            </div>
+          </EducationSection>
+        ) : (
           <EducationSection title="Academic Details" show={hasAcademic}>
             <div className="grid gap-3 sm:grid-cols-2">
               <FieldBlock label="Grade / Percentage / GPA" value={gradeDisplay} />
@@ -149,7 +155,7 @@ export function CandidateEducationEntryView({
               <FieldBlock label="Course Duration" value={durationDisplay} />
             </div>
           </EducationSection>
-        ) : null}
+        )}
 
         <EducationSection title="Certificates & Documents" show={hasDocuments}>
           <CandidateWorkExperienceDocumentsField

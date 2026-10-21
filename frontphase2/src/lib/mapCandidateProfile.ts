@@ -1,7 +1,7 @@
 import type { BackendCandidate } from './api';
 import { displayCandidateEmail } from './bulkCvEmail';
 import {
-  buildEducationSummaryFromCvEntries,
+  buildPrimaryEducationSummary,
   isGarbageEducationSummary,
 } from './candidateEducation';
 import {
@@ -758,13 +758,11 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
       ) || null,
     cvEducation: (() => {
       const entries = Array.isArray(c.cvEducationEntries) ? c.cvEducationEntries : [];
-      const fromEntries = buildEducationSummaryFromCvEntries(
-        entries as Array<Record<string, unknown>>
-      );
-      if (fromEntries) return fromEntries;
-      const raw = c.education || null;
-      if (raw && isGarbageEducationSummary(raw)) return null;
-      return raw;
+      const primary = buildPrimaryEducationSummary(entries as Array<Record<string, unknown>>);
+      if (primary) return primary;
+      const raw = String(c.education || '').trim();
+      if (!raw || isGarbageEducationSummary(raw)) return null;
+      return raw.split(/\s*\|\s*/)[0] || raw;
     })(),
     cvEducationEntries: Array.isArray(c.cvEducationEntries) ? c.cvEducationEntries : [],
     cvWorkExperienceEntries: Array.isArray(c.cvWorkExperienceEntries) ? c.cvWorkExperienceEntries : [],

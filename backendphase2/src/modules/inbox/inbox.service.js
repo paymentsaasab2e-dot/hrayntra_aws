@@ -13,7 +13,10 @@ import {
   sendOutlookComposeMail,
   getOutlookSignature,
   plainTextToEmailHtml,
+  downloadOutlookMessageAttachment,
 } from './inbox-outlook.util.js';
+import { importResumeBufferAsCandidate } from './inbox-resume-import.service.js';
+import { summarizeMailAttachment } from './inbox-attachments.util.js';
 
 function decodeBase64Url(value = '') {
   try {
@@ -150,6 +153,127 @@ function hasAttachment(payload) {
   if (payload.filename) return true;
   if (Array.isArray(payload.parts)) return payload.parts.some((part) => hasAttachment(part));
   return false;
+}
+
+function filenameFromGmailPart(payload) {
+  const direct = String(payload?.filename || '').trim();
+  if (direct) return direct;
+  const disposition = getHeader(payload?.headers || [], 'Content-Disposition');
+  const starMatch = String(disposition).match(/filename\*\s*=\s*(?:UTF-8'')?([^;]+)/i);
+  if (starMatch?.[1]) {
+    try {
+      return decodeURIComponent(starMatch[1].replace(/["']/g, '').trim());
+    } catch {
+      return starMatch[1].replace(/["']/g, '').trim();
+    }
+  }
+  const plainMatch = String(disposition).match(/filename\s*=\s*"?([^";]+)"?/i);
+  if (plainMatch?.[1]) return plainMatch[1].trim();
+  return '';
+}
+
+function decodeMaybeUri(value = '') {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
+function collectGmailAttachmentParts(payload, acc = []) {
+  if (!payload) return acc;
+  const filename = filenameFromGmailPart(payload);
+  const mimeType = String(payload.mimeType || '');
+  const gmailAttachmentId = String(payload.body?.attachmentId || '').trim();
+  const inlineData = String(payload.body?.data || '');
+  const isMultipart = mimeType.toLowerCase().startsWith('multipart/');
+  const isTextPart = mimeType.toLowerCase().startsWith('text/');
+  const looksLikeFile = Boolean(filename || (gmailAttachmentId && !isMultipart && !isTextPart));
+  if (looksLikeFile && (gmailAttachmentId || inlineData)) {
+    const name = filename || 'attachment';
+    const size = Number(payload.body?.size) || 0;
+    acc.push({
+      ...summarizeMailAttachment({
+        id: gmailAttachmentId || `inline:${name}:${size}`,
+        filename: name,
+        mimeType,
+        size,
+      }),
+      gmailAttachmentId,
+      inlineData,
+    });
+  }
+  if (Array.isArray(payload.parts)) {
+    for (const part of payload.parts) collectGmailAttachmentParts(part, acc);
+  }
+  return acc;
+}
+
+function collectGmailAttachments(payload) {
+  return collectGmailAttachmentParts(payload).map(({ gmailAttachmentId, inlineData, ...item }) => item);
+}
+
+function resolveGmailAttachmentPart(parts, attachmentId, filename) {
+  const list = Array.isArray(parts) ? parts : [];
+  const wanted = String(attachmentId || '').trim();
+  const wantedDecoded = decodeMaybeUri(wanted);
+  if (wanted) {
+    const exact = list.find(
+      (item) =>
+        item.id === wanted ||
+        item.gmailAttachmentId === wanted ||
+        item.id === wantedDecoded ||
+        item.gmailAttachmentId === wantedDecoded
+    );
+    if (exact) return exact;
+  }
+
+  const wantedName = String(filename || '').trim().toLowerCase();
+  if (wantedName) {
+    const byName = list.find((item) => String(item.filename || '').trim().toLowerCase() === wantedName);
+    if (byName) return byName;
+  }
+
+  const resumes = list.filter((item) => item.isResume);
+  if (resumes.length === 1) return resumes[0];
+  if (list.length === 1) return list[0];
+  return null;
+}
+
+function decodeBase64UrlBuffer(value = '') {
+  const normalized = String(value || '').replace(/-/g, '+').replace(/_/g, '/');
+  return Buffer.from(normalized, 'base64');
+}
+
+async function fetchGmailAttachmentBytes(accessToken, messageId, attachmentId) {
+  const encodedMsg = encodeURIComponent(String(messageId || '').trim());
+  const rawId = String(attachmentId || '').trim();
+  const encodedAtt = encodeURIComponent(rawId);
+  try {
+    const fetched = await fetchGmailJson(accessToken, `messages/${encodedMsg}/attachments/${encodedAtt}`);
+    return decodeBase64UrlBuffer(fetched?.data || '');
+  } catch (error) {
+    if (encodedAtt !== rawId) {
+      const fetched = await fetchGmailJson(accessToken, `messages/${encodedMsg}/attachments/${rawId}`);
+      return decodeBase64UrlBuffer(fetched?.data || '');
+    }
+    throw error;
+  }
+}
+
+async function downloadGmailAttachmentBuffer(accessToken, message, part) {
+  if (part?.inlineData) {
+    return decodeBase64UrlBuffer(part.inlineData);
+  }
+  const gmailId = String(part?.gmailAttachmentId || part?.id || '').trim();
+  if (!gmailId || gmailId.startsWith('inline:')) {
+    const error = new Error('Attachment was not found on this Gmail message');
+    error.status = 404;
+    throw error;
+  }
+  return fetchGmailAttachmentBytes(accessToken, message.id, gmailId);
 }
 
 function sleep(ms) {
@@ -476,13 +600,14 @@ async function getGmailAccessContext(userId, { requireModify = false, requireCom
   return { oauth, accessToken };
 }
 
-function toMessageListItem(message, fallbackEmail = '') {
+function toMessageListItem(message, fallbackEmail = '', { includeAttachments = false } = {}) {
   const headers = message.payload?.headers || [];
   const from = parseMailbox(getHeader(headers, 'From'));
   const to = getHeader(headers, 'To');
   const subject = getHeader(headers, 'Subject') || '(No subject)';
   const internalDate = message.internalDate ? new Date(Number(message.internalDate)) : null;
   const bodies = extractBodiesFromPayload(message.payload);
+  const attachments = includeAttachments ? collectGmailAttachments(message.payload) : undefined;
 
   return {
     id: message.id,
@@ -503,7 +628,7 @@ function toMessageListItem(message, fallbackEmail = '') {
     cc: getHeader(headers, 'Cc'),
     body: bodies.text || message.snippet || '',
     htmlBody: bodies.html ? sanitizeHtmlDocument(bodies.html) : '',
-    attachments: [],
+    ...(includeAttachments ? { attachments } : {}),
   };
 }
 
@@ -748,7 +873,30 @@ export const inboxService = {
   async getGmailMessage(userId, messageId) {
     const { oauth, accessToken } = await getGmailAccessContext(userId);
     const message = await fetchGmailJson(accessToken, `messages/${messageId}?format=full`);
-    return toMessageListItem(message, oauth.googleEmail || '');
+    return toMessageListItem(message, oauth.googleEmail || '', { includeAttachments: true });
+  },
+
+  async importGmailAttachmentAsCandidate(user, messageId, attachmentId, filename) {
+    const userId = user?.id;
+    const { accessToken } = await getGmailAccessContext(userId);
+    const message = await fetchGmailJson(accessToken, `messages/${messageId}?format=full`);
+    const parts = collectGmailAttachmentParts(message.payload);
+    const meta = resolveGmailAttachmentPart(parts, attachmentId, filename);
+    if (!meta) {
+      const error = new Error('Attachment was not found on this Gmail message');
+      error.status = 404;
+      throw error;
+    }
+    const buffer = await downloadGmailAttachmentBuffer(accessToken, message, meta);
+    return importResumeBufferAsCandidate({
+      userId,
+      orgUnitId: user?.orgUnitId || null,
+      buffer,
+      filename: meta.filename,
+      mimeType: meta.mimeType,
+      source: 'Gmail',
+      attachmentId: meta.id,
+    });
   },
 
   async archiveGmailMessage(userId, messageId) {
@@ -856,6 +1004,19 @@ export const inboxService = {
 
   async getOutlookMessage(userId, messageId) {
     return getOutlookMessage(userId, messageId);
+  },
+
+  async importOutlookAttachmentAsCandidate(user, messageId, attachmentId) {
+    const downloaded = await downloadOutlookMessageAttachment(user?.id, messageId, attachmentId);
+    return importResumeBufferAsCandidate({
+      userId: user?.id,
+      orgUnitId: user?.orgUnitId || null,
+      buffer: downloaded.buffer,
+      filename: downloaded.filename,
+      mimeType: downloaded.mimeType,
+      source: 'Outlook',
+      attachmentId: downloaded.id,
+    });
   },
 
   async archiveOutlookMessage(userId, messageId) {

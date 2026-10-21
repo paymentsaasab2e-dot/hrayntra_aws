@@ -3094,8 +3094,9 @@ export async function finalizeCvPipelineFromStage5(
     String(tenantDbNameOpt || getActiveTenantDbName() || 'default').trim() || 'default';
   const tPipeline = Date.now();
   const shouldLog = isCvVerboseLoggingEnabled(options?.verboseLogs);
-  const stageLog = (...args) => {
-    if (shouldLog) logStageBanner(...args);
+  const tag = options?.logTag ? `[${options.logTag}] ` : '';
+  const stageLog = (stageNum, title) => {
+    if (shouldLog) logStageBanner(stageNum, `${tag}${title}`);
   };
   const narrativeLog = (lines) => {
     if (shouldLog) logNarrative(lines);
@@ -3393,8 +3394,11 @@ export async function finalizeCvPipelineFromStage5(
   return cvParseMeta ? { ...normalizedData, cvParseMeta } : normalizedData;
 }
 
-export async function processCandidateCv(file, { candidateId } = {}) {
-  const stage4 = await runCvPipelineThroughStage4(file);
+export async function processCandidateCv(file, { candidateId, verboseLogs, logTag } = {}) {
+  const stage4 = await runCvPipelineThroughStage4(file, { verboseLogs, logTag });
   const tenantDbName = String(getActiveTenantDbName() || 'default').trim() || 'default';
-  return finalizeCvPipelineFromStage5(file, candidateId, stage4, null, tenantDbName);
+  return finalizeCvPipelineFromStage5(file, candidateId, stage4, null, tenantDbName, {
+    verboseLogs,
+    logTag,
+  });
 }

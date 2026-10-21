@@ -132,6 +132,7 @@ import { shouldIncludePhase1CommonPool } from '../../lib/phase1CommonPoolAccess'
 import { getAllTeamMembersForAssign } from '../../lib/api/teamApi';
 import { getActiveOrgUnitId } from '../../lib/org/orgWorkspaceStorage';
 import { usePathname, useSearchParams, useRouter } from 'next/navigation';
+import { DRAWER_QUERY, useBindDrawerQuery } from '../../lib/drawerUrlState';
 import { usePermissions } from '../../hooks/usePermissions';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
 import {
@@ -520,6 +521,9 @@ export function useCandidateList() {
 
   const [selectedCandidateProfile, setSelectedCandidateProfile] = useState<CandidateProfileDrawerData | null>(null);
   const [candidateDrawerOpen, setCandidateDrawerOpen] = useState(false);
+  useBindDrawerQuery(candidateDrawerOpen && Boolean(selectedCandidateProfile?.id), {
+    [DRAWER_QUERY.candidateId]: selectedCandidateProfile?.id || null,
+  });
   const [candidateDrawerMode, setCandidateDrawerMode] = useState<'view' | 'edit'>('view');
   const [candidateEditOpenToken, setCandidateEditOpenToken] = useState<number | null>(null);
   const pendingDeepLinkCandidateIdRef = useRef<string | null>(null);

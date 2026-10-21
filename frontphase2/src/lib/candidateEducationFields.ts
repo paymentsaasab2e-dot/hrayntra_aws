@@ -241,6 +241,10 @@ export function formatCourseDurationDisplay(stored: string): string {
   const raw = String(stored || '').trim();
   if (!raw) return '';
   const n = Number(raw);
+  const parsed = Number.isFinite(n) && n > 0 ? n : Number(raw.replace(/[^\d.]/g, ''));
+  if (Number.isFinite(parsed) && parsed > 0 && parsed < 0.2 && !/\bmonth/i.test(raw)) {
+    return '';
+  }
   if (!Number.isFinite(n) || n <= 0) return raw;
   if (n < 1) {
     const months = Math.max(1, Math.round(n * 12));
@@ -264,7 +268,10 @@ export function normalizeEducationRecord(
 ): CandidateEducationRecord {
   const row = entry as Record<string, unknown>;
   const educationLevel = str(row.educationLevel);
-  const degreeProgram = str(row.degreeProgram) || str(row.degree);
+  const degreeProgram = str(row.degreeProgram || row.qualification || row.degree)
+    .replace(/\bXilin\b/gi, 'XII')
+    .replace(/\bXi\s*in\b/gi, 'XII')
+    .replace(/\bXin\b/gi, 'X');
   const institutionName = str(row.institutionName) || str(row.institution);
   const currentlyStudying = row.currentlyStudying === true;
 
@@ -285,15 +292,19 @@ export function normalizeEducationRecord(
     currentlyStudying,
     grade: str(row.grade),
     modeOfStudy: str(row.modeOfStudy),
-    courseDuration:
-      str(row.courseDuration) ||
-      computeCourseDurationFromDates(
+    courseDuration: (() => {
+      const stored = str(row.courseDuration);
+      const numeric = Number(stored.replace(/[^\d.]/g, ''));
+      const junk = Number.isFinite(numeric) && numeric > 0 && numeric < 0.2 && !/\bmonth/i.test(stored);
+      if (stored && !junk) return stored;
+      return computeCourseDurationFromDates(
         str(row.startYear),
         str(row.startMonth),
         currentlyStudying ? '' : str(row.endYear),
         currentlyStudying ? '' : str(row.endMonth),
         currentlyStudying,
-      ),
+      );
+    })(),
     documents: parseEducationDocuments(row.documents ?? row.educationDocuments ?? row.certificates),
   };
 }

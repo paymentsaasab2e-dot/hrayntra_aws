@@ -60,7 +60,10 @@ const PROVIDERS = {
   linkedin: {
     label: 'LinkedIn',
     family: 'linkedin',
-    scopes: ['openid', 'profile', 'email', 'w_member_social'],
+    scopes:
+      Array.isArray(env.LINKEDIN_OAUTH_SCOPES) && env.LINKEDIN_OAUTH_SCOPES.length
+        ? env.LINKEDIN_OAUTH_SCOPES
+        : ['openid', 'profile', 'email', 'w_member_social'],
   },
   zoom: {
     label: 'Zoom',

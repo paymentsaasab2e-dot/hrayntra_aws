@@ -21,6 +21,8 @@ export type Phase1ProfileSnapshot = {
     address?: string;
     nationality?: string;
     passportNumber?: string;
+    maritalStatus?: string;
+    age?: string | number;
     employment?: string;
     linkedinUrl?: string;
   } | null;
@@ -325,6 +327,11 @@ export function resolvePhase1PersonalInfo(
   if (!String(pi.country || '').trim()) {
     pi.country = String(candidate.cvCountry || candidate.country || '').trim() || pi.country;
   }
+  const addressText = String(pi.address || '').trim();
+  const cityText = String(pi.city || '').trim();
+  if (addressText && cityText && addressText.toLowerCase() === cityText.toLowerCase()) {
+    pi.address = '';
+  }
   if (!String(pi.email || '').trim()) {
     pi.email = String(candidate.email || '').trim() || pi.email;
   }
@@ -348,11 +355,53 @@ export function resolvePhase1PersonalInfo(
     pi.gender = String(candidate.gender).trim();
   }
 
+  const pipelinePersonal =
+    extra.pipeline && typeof extra.pipeline === 'object' && !Array.isArray(extra.pipeline)
+      ? ((extra.pipeline as Record<string, unknown>).personal as Record<string, unknown> | undefined)
+      : undefined;
+  const extraPersonal =
+    extra.personal && typeof extra.personal === 'object' && !Array.isArray(extra.personal)
+      ? (extra.personal as Record<string, unknown>)
+      : undefined;
+  if (pi.age == null || String(pi.age).trim() === '') {
+    const age = pipelinePersonal?.age ?? extraPersonal?.age ?? extra.age;
+    if (age != null && String(age).trim()) pi.age = age as string | number;
+  }
+  if (!String(pi.maritalStatus || '').trim()) {
+    pi.maritalStatus =
+      String(pipelinePersonal?.maritalStatus || extraPersonal?.maritalStatus || '').trim() ||
+      pi.maritalStatus;
+  }
+
   const nationalityFromCountry = resolveNationalityFromCountry(
     pi.nationality,
     pi.country || candidate.cvCountry || candidate.country,
   );
   if (nationalityFromCountry) pi.nationality = nationalityFromCountry;
+
+  const placeHaystack = [
+    pi.nationality,
+    pi.country,
+    pi.city,
+    pi.address,
+    candidate.cvCity,
+    candidate.cvCountry,
+    candidate.country,
+  ]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean)
+    .join(' ');
+  if (
+    !String(pi.nationality || '').trim() &&
+    /\b(india|mumbai|navi mumbai|delhi|new delhi|bengaluru|bangalore|hyderabad|chennai|kolkata|pune|andheri|thane|panvel)\b/i.test(
+      placeHaystack,
+    )
+  ) {
+    pi.nationality = 'India';
+  }
+  if (!String(pi.country || '').trim() && /^india$/i.test(String(pi.nationality || ''))) {
+    pi.country = 'India';
+  }
 
   return pi;
 }

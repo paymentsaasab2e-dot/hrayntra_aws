@@ -19,6 +19,7 @@ import { EntityAuditSummary } from '../table/TableAuditCell';
 import { DrawerEntityChatTab } from '../drawers/DrawerEntityChatTab';
 import { DrawerLinkActions } from '../drawers/DrawerLinkActions';
 import { requestAlert } from '../../lib/appDialog';
+import { DRAWER_QUERY, readAllowedDrawerQuery, useBindDrawerQuery } from '../../lib/drawerUrlState';
 
 interface ContactDetailDrawerProps {
   contact: BackendContact | null;
@@ -30,7 +31,14 @@ interface ContactDetailDrawerProps {
 
 export function ContactDetailDrawer({ contact, isOpen, onClose, onEdit, onDelete }: ContactDetailDrawerProps) {
   usePageDrawerLifecycle(isOpen && Boolean(contact));
-  const [activeTab, setActiveTab] = useState<'overview' | 'activity' | 'communication' | 'jobs' | 'chat'>('overview');
+  const CONTACT_DRAWER_TABS = ['overview', 'activity', 'communication', 'jobs', 'chat'] as const;
+  const [activeTab, setActiveTab] = useState<'overview' | 'activity' | 'communication' | 'jobs' | 'chat'>(() =>
+    readAllowedDrawerQuery(DRAWER_QUERY.contactTab, CONTACT_DRAWER_TABS, 'overview'),
+  );
+  useBindDrawerQuery(isOpen && Boolean(contact?.id), {
+    [DRAWER_QUERY.contactId]: contact?.id || null,
+    [DRAWER_QUERY.contactTab]: activeTab,
+  });
 
   if (!contact) return null;
 

@@ -19,6 +19,20 @@ function display(value: unknown): string {
   return String(value).trim();
 }
 
+const CURRENCY_CODES = new Set([
+  'XAF', 'XOF', 'USD', 'EUR', 'GBP', 'INR', 'AED', 'CAD', 'AUD', 'NGN', 'KES', 'ZAR', 'CHF', 'JPY', 'CNY', 'SGD', 'HKD',
+]);
+
+function placeLabel(value: unknown, currency?: unknown): string {
+  const text = display(value);
+  if (!text) return '';
+  const upper = text.toUpperCase();
+  if (CURRENCY_CODES.has(upper)) return '';
+  const cur = display(currency).toUpperCase();
+  if (cur && upper === cur) return '';
+  return text;
+}
+
 function normalizeLabelList(value: unknown): string[] {
   if (Array.isArray(value)) {
     return value.map((item) => String(item || '').trim()).filter(Boolean);
@@ -205,8 +219,8 @@ export function buildCareerPreferencesViewModel(
         formatCareerAmount(careerPrefs.currentSalary) ||
         formatCareerAmount(candidate.currentSalaryValue),
       location:
-        display(careerPrefs.currentLocation) ||
-        candidate.location ||
+        placeLabel(careerPrefs.currentLocation, careerPrefs.currentCurrency) ||
+        placeLabel(candidate.location, careerPrefs.currentCurrency) ||
         candidate.cvAddress ||
         '',
       benefits: normalizeLabelList(careerPrefs.currentBenefits),

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { DRAWER_QUERY, readAllowedDrawerQuery, useBindDrawerQuery } from '../../lib/drawerUrlState';
 import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 import { AnimatePresence, motion } from 'motion/react';
 import { DetailsModalShell } from '../drawers/DetailsModalShell';
@@ -64,6 +65,7 @@ const tabs: Array<{ id: DrawerTab; label: string; icon: typeof LayoutGrid }> = [
   { id: 'files', label: 'Files', icon: FileText },
   { id: 'chat', label: 'Chat', icon: MessageSquare },
 ];
+const INTERVIEW_DRAWER_TAB_IDS = tabs.map((tab) => tab.id);
 
 export function InterviewDrawer({
   isOpen,
@@ -84,7 +86,10 @@ export function InterviewDrawer({
   zIndexClass = 'z-[100]',
 }: InterviewDrawerProps) {
   usePageDrawerLifecycle(isOpen);
-  const [activeTab, setActiveTab] = useState<DrawerTab>('overview');
+  const [activeTab, setActiveTab] = useState<DrawerTab>(() =>
+    readAllowedDrawerQuery(DRAWER_QUERY.interviewTab, INTERVIEW_DRAWER_TAB_IDS, 'overview'),
+  );
+  useBindDrawerQuery(isOpen, { [DRAWER_QUERY.interviewTab]: activeTab });
   const router = useRouter();
   const interviewLocked = interview ? isInterviewCompleted(interview) : false;
 
