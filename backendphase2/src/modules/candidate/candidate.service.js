@@ -106,7 +106,7 @@ function isPhase1CandidateRecord(candidate) {
 }
 
 /** All non-deleted job ids in the active tenant DB (used to scope cross-pool merges). */
-const TENANT_JOB_ID_CACHE_TTL_MS = 30_000;
+const TENANT_JOB_ID_CACHE_TTL_MS = 120_000;
 const TENANT_JOB_ID_CACHE = new Map();
 
 function tenantJobCacheKey(suffix = 'all') {
@@ -1309,16 +1309,23 @@ async function hydrateCandidateListRows(client, ids) {
   });
 }
 
-async function hydrateMergedCandidatePage(mergedIndex, skip, limit, { req, loadCommonPool }) {
+async function hydrateMergedCandidatePage(
+  mergedIndex,
+  skip,
+  limit,
+  { req, loadCommonPool, livePortalMerge = false },
+) {
   const slice = mergedIndex.slice(skip, skip + limit);
   const pageIds = slice.map((row) => row.id);
   if (!pageIds.length) return [];
 
   let portalClient = null;
-  try {
-    portalClient = getJobPortalPrismaClient();
-  } catch {
-    portalClient = null;
+  if (livePortalMerge) {
+    try {
+      portalClient = getJobPortalPrismaClient();
+    } catch {
+      portalClient = null;
+    }
   }
 
   const [tenantRows, portalRows, commonRows] = await Promise.all([
@@ -4048,9 +4055,42 @@ function resolveMineLinkTake() {
   return 2000;
 }
 
-const MINE_LINK_CACHE_TTL_MS = 30_000;
+const MINE_LINK_CACHE_TTL_MS = 120_000;
 const MINE_LINK_CACHE = new Map();
 const MINE_LINK_CACHE_MAX = 48;
+const CANDIDATE_LIST_INDEX_READY = new Set();
+
+/** Fire-and-forget: Mine prefetch filters applications by jobId (schema lacked the index). */
+function warmupCandidateListIndexes() {
+  let dbKey = '_default';
+  try {
+    dbKey = String(getActiveTenantDbName?.() || '_default');
+  } catch {
+    dbKey = '_default';
+  }
+  if (CANDIDATE_LIST_INDEX_READY.has(dbKey)) return;
+  CANDIDATE_LIST_INDEX_READY.add(dbKey);
+  if (typeof prisma?.$runCommandRaw !== 'function') return;
+  void prisma
+    .$runCommandRaw({
+      createIndexes: 'applications',
+      indexes: [
+        {
+          key: { jobId: 1, appliedAt: -1 },
+          name: 'applications_jobId_appliedAt',
+          background: true,
+        },
+      ],
+    })
+    .catch((err) => {
+      const msg = String(err?.message || err);
+      if (/already exists|IndexOptionsConflict|IndexKeySpecsConflict/i.test(msg)) {
+        return;
+      }
+      CANDIDATE_LIST_INDEX_READY.delete(dbKey);
+      console.warn('[candidates.list] applications jobId index skipped:', msg.split('\n')[0]);
+    });
+}
 
 function mineLinkCacheKey(jobIds) {
   const ids = Array.isArray(jobIds) ? jobIds : [];
@@ -5252,6 +5292,7 @@ export const candidateService = {
 
   async getAll(req) {
     warmupCandidateSmartSearchTextIndex();
+    warmupCandidateListIndexes();
     const pagination = getPaginationParams(req);
     // Prefer batches ≤100 for list UX; allow larger for export via env override.
     const page = pagination.page;
@@ -5441,6 +5482,7 @@ export const candidateService = {
       const pageRows = await hydrateMergedCandidatePage(pageIndex, 0, pageIndex.length, {
         req,
         loadCommonPool,
+        livePortalMerge,
       });
       const attached = await attachPlacementsToCandidates(pageRows);
       perfMarks.hydrate = Math.round(candidatePerfNow() - tHydrate);
@@ -5463,10 +5505,15 @@ export const candidateService = {
         4000,
         Math.max(400, Number(process.env.CANDIDATE_PORTAL_QUERY_MS || 1500) || 1500),
       );
-      // Phase 1 common pool is the source of truth for discovery profiles — give it more time.
+      const isFirstBrowsePage = page === 1 && !String(search || '').trim();
+      // First All paint must not wait 4–8s for a 500-row common scan. Later pages can wait longer.
+      const commonBudgetDefault = isFirstBrowsePage ? 1200 : 4000;
       const COMMON_QUERY_BUDGET_MS = Math.min(
-        8000,
-        Math.max(PORTAL_QUERY_BUDGET_MS, Number(process.env.CANDIDATE_COMMON_QUERY_MS || 4000) || 4000),
+        isFirstBrowsePage ? 1500 : 8000,
+        Math.max(
+          isFirstBrowsePage ? 400 : PORTAL_QUERY_BUDGET_MS,
+          Number(process.env.CANDIDATE_COMMON_QUERY_MS || commonBudgetDefault) || commonBudgetDefault,
+        ),
       );
       const withBudget = (promise, label, fallback, budgetMs = PORTAL_QUERY_BUDGET_MS) =>
         Promise.race([
@@ -5670,18 +5717,43 @@ export const candidateService = {
           status ||
           assignedToId,
       );
-      const [rowTotal, pageIndexRows] = await Promise.all([
-        prisma.candidate.count({ where }),
-        prisma.candidate.findMany({
-          where,
-          select: { id: true },
-          ...(candidateListFindOrderBy(search)
-            ? { orderBy: candidateListFindOrderBy(search) }
-            : {}),
-          skip,
-          take: limit,
-        }),
+      const countCacheKey = buildCandidateCountCacheKey(req, {
+        loadCommonPool,
+        mine,
+        tenantWhere: where,
+      });
+      const cachedTotal = readCandidateCountCache(countCacheKey);
+      const COUNT_WAIT_MS = Math.min(
+        800,
+        Math.max(250, Number(process.env.CANDIDATE_MINE_COUNT_WAIT_MS || 500) || 500),
+      );
+      const countPromise = prisma.candidate.count({ where }).then((value) => {
+        writeCandidateCountCache(countCacheKey, value);
+        return value;
+      });
+      const pageIndexPromise = prisma.candidate.findMany({
+        where,
+        select: { id: true },
+        ...(candidateListFindOrderBy(search)
+          ? { orderBy: candidateListFindOrderBy(search) }
+          : {}),
+        skip,
+        take: limit,
+      });
+      const [pageIndexRows, racedCount] = await Promise.all([
+        pageIndexPromise,
+        cachedTotal != null
+          ? Promise.resolve(cachedTotal)
+          : Promise.race([
+              countPromise,
+              new Promise((resolve) => {
+                setTimeout(() => resolve(null), COUNT_WAIT_MS);
+              }),
+            ]),
       ]);
+      if (cachedTotal == null && racedCount == null) {
+        void countPromise.catch(() => null);
+      }
       const pageIds = pageIndexRows.map((row) => String(row.id)).filter(Boolean);
       let pageRows = [];
       if (pageIds.length) {
@@ -5692,8 +5764,17 @@ export const candidateService = {
         const byId = new Map(hydrated.map((row) => [String(row.id), row]));
         pageRows = pageIds.map((id) => byId.get(id)).filter(Boolean);
       }
+      let rowTotal = racedCount;
+      if (rowTotal == null) {
+        rowTotal =
+          skip +
+          pageIndexRows.length +
+          (pageIndexRows.length === limit ? 1 : 0);
+        perfMarks.count = `timeout>${COUNT_WAIT_MS}ms→estimate`;
+      } else {
+        perfMarks.count = Math.round(candidatePerfNow() - tQ);
+      }
       perfMarks.tenantQuery = Math.round(candidatePerfNow() - tQ);
-      perfMarks.count = perfMarks.tenantQuery;
       perfMarks.sourceCounts = `tenant-only mine=${mine ? '1' : '0'} filtered=${hasActiveListFilters ? 1 : 0}`;
       total = rowTotal;
       candidates = await attachPlacementsToCandidates(pageRows);

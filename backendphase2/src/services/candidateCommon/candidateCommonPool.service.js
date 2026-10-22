@@ -391,14 +391,10 @@ const commonListIndexCache = new Map(); // key -> { at, rows }
 const commonListIndexInflight = new Map(); // key -> Promise<rows>
 
 function roundCommonIndexTake(limit, envMax, searchActive) {
-  if (searchActive) return Math.min(envMax, Math.max(1, limit));
-  // Empty browse: bucket so page=1/2/3 warm requests reuse the same fetch.
-  const bucketFloor = Math.min(
-    envMax,
-    Math.max(500, Number(process.env.CANDIDATES_COMMON_INDEX_BUCKET || 500) || 500),
-  );
-  const stepped = Math.ceil(Math.max(limit, bucketFloor) / 150) * 150;
-  return Math.min(envMax, Math.max(bucketFloor, stepped));
+  // First paint must not pull a 500-row common-pool window. Page 2+ fetches its own K.
+  const requested = Math.max(1, Number(limit) || 1);
+  if (searchActive) return Math.min(envMax, requested);
+  return Math.min(envMax, requested);
 }
 
 /**

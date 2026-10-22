@@ -982,29 +982,34 @@ export function useCandidateList() {
           filterSig: candidatesFilterSig,
         });
 
-        void (async () => {
-          for (let apiPage = 2; apiPage <= 1 + CANDIDATE_WARM_NEIGHBOR_PAGES; apiPage += 1) {
-            if (prefetchGen !== candidatePrefetchGenRef.current) return;
-            if (abortController.signal.aborted) return;
-            try {
-              const warm = await fetchListPage(apiPage);
-              if (!warm) continue;
+        // All + Phase 1: neighbor warm re-runs the common-pool merge and starves first load.
+        // Mine: sequential neighbor warm is cheap after the 120s mine-link cache is hot.
+        const skipNeighborWarm = Boolean(listFilterBits.includeCommonPool);
+        if (!skipNeighborWarm) {
+          void (async () => {
+            for (let apiPage = 2; apiPage <= 1 + CANDIDATE_WARM_NEIGHBOR_PAGES; apiPage += 1) {
               if (prefetchGen !== candidatePrefetchGenRef.current) return;
-              cacheCandidateUiPagesFromBatch({
-                mapped: warm.mapped,
-                total: warm.total || first.total,
-                apiPage: warm.apiPage,
-                batchSize: pageSize,
-                pageSize,
-                tab: activeListTab,
-                search: debouncedSearch || '',
-                filterSig: candidatesFilterSig,
-              });
-            } catch {
-              // Warm is best-effort; page navigation will fetch on demand.
+              if (abortController.signal.aborted) return;
+              try {
+                const warm = await fetchListPage(apiPage);
+                if (!warm) continue;
+                if (prefetchGen !== candidatePrefetchGenRef.current) return;
+                cacheCandidateUiPagesFromBatch({
+                  mapped: warm.mapped,
+                  total: warm.total || first.total,
+                  apiPage: warm.apiPage,
+                  batchSize: pageSize,
+                  pageSize,
+                  tab: activeListTab,
+                  search: debouncedSearch || '',
+                  filterSig: candidatesFilterSig,
+                });
+              } catch {
+                // Warm is best-effort; page navigation will fetch on demand.
+              }
             }
-          }
-        })();
+          })();
+        }
         return;
       }
 
@@ -1033,7 +1038,11 @@ export function useCandidateList() {
       const total = extractCandidatesPaginationTotal(payload as any, mapped.length);
       paintPage(mapped, backendCandidates, total);
 
-      if (!smartSearchCandidateIds?.length && !debouncedSearch) {
+      if (
+        !smartSearchCandidateIds?.length &&
+        !debouncedSearch &&
+        !listFilterBits.includeCommonPool
+      ) {
         const neighbors = [activePage - 1, activePage + 1].filter((p) => p >= 1);
         void Promise.allSettled(
           neighbors.map((p) => {
