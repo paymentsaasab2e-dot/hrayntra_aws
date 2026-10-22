@@ -36,7 +36,7 @@ export function TenantPausedHost() {
     if (!getAccessToken()) return undefined;
     const firstPause = window.setTimeout(() => {
       void syncOrgRecruitmentSummaryFromApi().then(() => syncPauseState());
-    }, 1100);
+    }, 200);
     // Poll less often — FE/BE caches already cover short gaps; 30s + 8s HQ was saturating the API.
     const interval = window.setInterval(() => {
       void syncOrgRecruitmentSummaryFromApi().then(() => syncPauseState());

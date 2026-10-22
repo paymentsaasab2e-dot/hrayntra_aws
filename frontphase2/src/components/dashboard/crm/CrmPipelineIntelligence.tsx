@@ -6,7 +6,7 @@ import { HqInfoTip } from '@/components/hq/analytics/HqPhase2DashboardParts';
 import { buildKpiDrillDown } from './crmDrillDown';
 import { buildCrmPipelineStats, type CrmComboMetric } from './crmInsights';
 import { CrmClientCompareTimeline, CrmLeadCompareTimeline } from './CrmCompareTimeline';
-import { formatMoney, formatMoneyCompact, formatNum, useCrmDashboard } from './crmShared';
+import { formatMoney, formatMoneyCompact, formatNum, useCrmCurrency, useCrmDashboard } from './crmShared';
 import type { CrmPipelineSection } from './CrmRecordScopePicker';
 import { CrmStatNumber, sparkDelta } from './crmStatNumber';
 
@@ -208,6 +208,7 @@ function MiniPulse({
 }
 
 export function CrmPipelineIntelligence({ overview, section = 'leads', leadCharts, clientCharts }: Props) {
+  const currency = useCrmCurrency();
   const { openDrillDown } = useCrmDashboard();
   const metrics = useMemo(() => buildCrmPipelineStats(overview), [overview]);
   const byKey = (key: string) => metrics.find((m) => m.key === key);
@@ -359,7 +360,7 @@ export function CrmPipelineIntelligence({ overview, section = 'leads', leadChart
                 converted > 0
                   ? formatNum(converted)
                   : pipelineValue
-                    ? formatMoneyCompact(pipelineValue)
+                    ? formatMoneyCompact(pipelineValue, currency)
                     : formatNum(today?.followupsPending)
               }
               unit={converted > 0 ? 'won' : pipelineValue ? 'value' : 'due'}
@@ -428,7 +429,7 @@ export function CrmPipelineIntelligence({ overview, section = 'leads', leadChart
             />
             <MiniPulse
               label="Book value"
-              value={clientBook ? formatMoneyCompact(clientBook) : formatMoney(0)}
+              value={clientBook ? formatMoneyCompact(clientBook, currency) : formatMoney(0, currency)}
               unit="book"
               hint={`${formatNum(totalClients)} accounts`}
               tone="emerald"

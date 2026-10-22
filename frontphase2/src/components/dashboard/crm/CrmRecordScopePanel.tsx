@@ -4,7 +4,7 @@ import React from 'react';
 import Link from 'next/link';
 import { AlertTriangle, ArrowUpRight, TrendingUp, X } from 'lucide-react';
 import type { CrmOverview } from '@/lib/dashboard/api';
-import { dashCard, formatMoney, formatNum, relativeTime } from './crmShared';
+import { dashCard, formatMoney, formatNum, relativeTime, useCrmCurrency } from './crmShared';
 import { CrmStatNumber } from './crmStatNumber';
 
 type LeadRow = NonNullable<CrmOverview['leadsTable']>[number];
@@ -264,6 +264,7 @@ type Props = {
 };
 
 export function CrmRecordScopePanel({ record, overview, onClear }: Props) {
+  const currency = useCrmCurrency();
   const isLead = record.kind === 'lead';
   const row = record.row;
   const name = String(row.name || 'Record');
@@ -383,7 +384,7 @@ export function CrmRecordScopePanel({ record, overview, onClear }: Props) {
             <p className="text-[11px] font-medium text-slate-500">Value</p>
             <CrmStatNumber
               className="mt-0.5"
-              value={formatMoney(Number((isLead ? lead?.value : client?.value) || 0))}
+              value={formatMoney(Number((isLead ? lead?.value : client?.value) || 0), currency)}
               label="value"
               size="sm"
             />

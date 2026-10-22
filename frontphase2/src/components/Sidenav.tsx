@@ -166,7 +166,7 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
         .then((m) => m.fetchAndCacheOrgWatermark())
         .catch(() => undefined);
     };
-    const firstModules = window.setTimeout(refreshModules, 800);
+    const firstModules = window.setTimeout(refreshModules, 200);
     const onFocus = () => refreshModules();
     window.addEventListener('focus', onFocus);
     return () => {

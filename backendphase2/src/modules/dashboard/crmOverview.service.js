@@ -371,7 +371,7 @@ export async function getCrmOverview(req) {
           createdAt: { gte: range.start || daysAgo30, ...(range.end ? { lte: range.end } : {}) },
         },
         select: { createdAt: true },
-        take: 400,
+        take: 2000,
       })
       .catch(() => []),
     prisma.client
@@ -381,7 +381,7 @@ export async function getCrmOverview(req) {
           createdAt: { gte: range.start || daysAgo60, ...(range.end ? { lte: range.end } : {}) },
         },
         select: { createdAt: true },
-        take: 400,
+        take: 2000,
       })
       .catch(() => []),
     prisma.activity
@@ -455,14 +455,12 @@ export async function getCrmOverview(req) {
       .findMany({
         where: leadOpen,
         select: { expectedBusinessValue: true, companyName: true, id: true, status: true },
-        take: 120,
       })
       .catch(() => []),
     prisma.client
       .findMany({
         where: clientBase,
         select: { expectedBusinessValue: true, companyName: true, id: true, status: true },
-        take: 120,
       })
       .catch(() => []),
     prisma.lead
@@ -478,7 +476,7 @@ export async function getCrmOverview(req) {
       .findMany({
         where: leadOpen,
         select: { id: true, companyName: true, expectedBusinessValue: true, priority: true },
-        take: 40,
+        take: 200,
       })
       .catch(() => []),
   ]);
@@ -1535,7 +1533,7 @@ export async function getCrmOverview(req) {
     generatedAt: new Date().toISOString(),
   };
   console.warn(
-    `[crm-overview] totalMs=${Date.now() - overviewStartedAt} kpiMs=${kpiMs} leaderboardMs=${leaderboardMs} people=${leaderboard.length}`,
+    `[crm-overview] totalMs=${Date.now() - overviewStartedAt} kpiMs=${kpiMs} leaderboardMs=${leaderboardMs} people=${leaderboard.length} valueLeads=${leadValues.length} est=${Math.round(potentialBusinessValue)}`,
   );
   return payload;
 }

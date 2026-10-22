@@ -4110,6 +4110,11 @@ function warmupCandidateListIndexes() {
           name: 'candidates_assignedToId_updatedAt',
           background: true,
         },
+        {
+          key: { assignedJobs: 1, updatedAt: -1 },
+          name: 'candidates_assignedJobs_updatedAt',
+          background: true,
+        },
       ],
     })
     .catch(ignoreExists);
@@ -5459,6 +5464,16 @@ export const candidateService = {
     const skip = (page - 1) * limit;
     const { status, assignedToId, search, ids } = req.query;
     const listFilters = parseCandidateListFilters(req.query);
+    const hasActiveMineFilters = Boolean(
+      String(search || '').trim() ||
+        listFilters?.stage ||
+        listFilters?.company ||
+        listFilters?.location ||
+        listFilters?.jobId ||
+        listFilters?.experienceRange ||
+        status ||
+        assignedToId,
+    );
     const mine =
       req.query?.mine === 'true' || req.query?.mine === '1' || req.query?.mine === true;
     const pickerMode =
@@ -5546,11 +5561,15 @@ export const candidateService = {
     // candidates applied on my jobs but not directly assigned/created get excluded.
     if (!requestedIds.length) {
       if (mine && req.user?.id) {
-        andParts.push(
-          await buildMineCandidatesScope(req.user.id, myJobIds, {
-            viewAll: canViewAllTenantJobs,
-          }),
-        );
+        // Indexed union first page does not use this OR. Building it still
+        // prefetched job-link ids and delayed My Candidates first paint.
+        if (hasActiveMineFilters) {
+          andParts.push(
+            await buildMineCandidatesScope(req.user.id, myJobIds, {
+              viewAll: canViewAllTenantJobs,
+            }),
+          );
+        }
       } else if (superAdminScope) {
         andParts.push(superAdminScope);
       } else if (!canViewAllCandidates && req.user?.id) {
@@ -5869,16 +5888,7 @@ export const candidateService = {
     } else {
       // Fast path: tenant CRM only — lean id page + hydrate (filters must stay snappy).
       const tQ = candidatePerfNow();
-      const hasActiveListFilters = Boolean(
-        String(search || '').trim() ||
-          listFilters?.stage ||
-          listFilters?.company ||
-          listFilters?.location ||
-          listFilters?.jobId ||
-          listFilters?.experienceRange ||
-          status ||
-          assignedToId,
-      );
+      const hasActiveListFilters = hasActiveMineFilters;
       const useMineUnion =
         Boolean(mine) && Boolean(req.user?.id) && !hasActiveListFilters && !requestedIds.length;
       const countCacheKey =
