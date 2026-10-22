@@ -4185,9 +4185,15 @@ async function prefetchMineLinkedCandidateIds(jobIds) {
  * NEVER use nested Candidate.applications/pipeline/interviews.some here —
  * those correlated scans hang the Mongo pool for ~5 minutes.
  */
-async function buildMineCandidatesScope(userId, knownJobIds) {
+async function buildMineCandidatesScope(userId, knownJobIds, { viewAll = false } = {}) {
   if (!userId) {
     return { id: { in: [] } };
+  }
+  // View-all Mine is tenant CRM minus unlinked Phase 1 — the same indexed
+  // clause All already uses. Prefetching 2k link IDs + hasSome(jobIds) made
+  // first click ~3s and still under-counted vs the real CRM set.
+  if (viewAll) {
+    return buildCrmCandidatesListScopeClause();
   }
   const myJobIds = Array.isArray(knownJobIds)
     ? knownJobIds.map((id) => String(id || '').trim()).filter(Boolean)
@@ -4775,6 +4781,7 @@ async function buildPortalCandidatesWhere(
     const mineScope = await buildMineCandidatesScope(
       req.user.id,
       Array.isArray(myJobIds) ? myJobIds : undefined,
+      { viewAll: canViewAllCandidates || canViewAllJobs(req) },
     );
     andParts.push(mineScope);
   } else if (superAdminScope) {
@@ -5388,7 +5395,11 @@ export const candidateService = {
     // candidates applied on my jobs but not directly assigned/created get excluded.
     if (!requestedIds.length) {
       if (mine && req.user?.id) {
-        andParts.push(await buildMineCandidatesScope(req.user.id, myJobIds));
+        andParts.push(
+          await buildMineCandidatesScope(req.user.id, myJobIds, {
+            viewAll: canViewAllTenantJobs,
+          }),
+        );
       } else if (superAdminScope) {
         andParts.push(superAdminScope);
       } else if (!canViewAllCandidates && req.user?.id) {
@@ -5727,11 +5738,8 @@ export const candidateService = {
         800,
         Math.max(250, Number(process.env.CANDIDATE_MINE_COUNT_WAIT_MS || 500) || 500),
       );
-      const countPromise = prisma.candidate.count({ where }).then((value) => {
-        writeCandidateCountCache(countCacheKey, value);
-        return value;
-      });
-      const pageIndexPromise = prisma.candidate.findMany({
+      // Page first. A parallel count of the mine OR starved Atlas (~2.5s page).
+      const pageIndexRows = await prisma.candidate.findMany({
         where,
         select: { id: true },
         ...(candidateListFindOrderBy(search)
@@ -5740,19 +5748,21 @@ export const candidateService = {
         skip,
         take: limit,
       });
-      const [pageIndexRows, racedCount] = await Promise.all([
-        pageIndexPromise,
-        cachedTotal != null
-          ? Promise.resolve(cachedTotal)
-          : Promise.race([
-              countPromise,
-              new Promise((resolve) => {
-                setTimeout(() => resolve(null), COUNT_WAIT_MS);
-              }),
-            ]),
-      ]);
-      if (cachedTotal == null && racedCount == null) {
-        void countPromise.catch(() => null);
+      let racedCount = cachedTotal;
+      if (cachedTotal == null) {
+        const countPromise = prisma.candidate.count({ where }).then((value) => {
+          writeCandidateCountCache(countCacheKey, value);
+          return value;
+        });
+        racedCount = await Promise.race([
+          countPromise,
+          new Promise((resolve) => {
+            setTimeout(() => resolve(null), COUNT_WAIT_MS);
+          }),
+        ]);
+        if (racedCount == null) {
+          void countPromise.catch(() => null);
+        }
       }
       const pageIds = pageIndexRows.map((row) => String(row.id)).filter(Boolean);
       let pageRows = [];
@@ -8055,7 +8065,9 @@ export const candidateService = {
     }
 
     const superAdminScope = buildSuperAdminOwnerScope(req, ['createdById', 'assignedToId']);
-    const mineScope = mine ? await buildMineCandidatesScope(userId, myJobIds) : null;
+    const mineScope = mine
+      ? await buildMineCandidatesScope(userId, myJobIds, { viewAll: canViewAllTenantJobs })
+      : null;
     const scopeWhere = mine ? mineScope : superAdminScope;
 
     const stages = [
