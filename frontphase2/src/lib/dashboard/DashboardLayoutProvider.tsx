@@ -76,7 +76,10 @@ export function DashboardLayoutProvider({ children }: { children: React.ReactNod
   }, []);
 
   useEffect(() => {
-    void reloadLayout();
+    const first = window.setTimeout(() => {
+      void reloadLayout();
+    }, 700);
+    return () => window.clearTimeout(first);
   }, [reloadLayout]);
 
   const saveLayout = useCallback(
