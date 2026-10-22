@@ -144,10 +144,9 @@ function buildLinkedInAuthorizeUrl({ clientId, redirectUri, scopes, state, promp
   return authUrl.toString();
 }
 
-/** User-started Connect / Add another: always show LinkedIn login, even if a session exists. */
+/** User-started Connect / Add another: ask LinkedIn to show login (OIDC prompt=login). */
 function buildLinkedInLoginAuthorizeUrl(options) {
-  const authorizeUrl = buildLinkedInAuthorizeUrl({ ...options, prompt: 'login' });
-  return `https://www.linkedin.com/uas/logout?session_redirect=${encodeURIComponent(authorizeUrl)}`;
+  return buildLinkedInAuthorizeUrl({ ...options, prompt: 'login' });
 }
 
 async function exchangeLinkedInCode({ code, redirectUri, clientId, clientSecret }) {

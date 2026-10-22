@@ -424,8 +424,7 @@ export const integrationService = {
         state,
         prompt: 'login',
       });
-      const authorizeUrl = `https://www.linkedin.com/oauth/v2/authorization?${params.toString()}`;
-      return `https://www.linkedin.com/uas/logout?session_redirect=${encodeURIComponent(authorizeUrl)}`;
+      return `https://www.linkedin.com/oauth/v2/authorization?${params.toString()}`;
     }
 
     if (config.family === 'zoom') {

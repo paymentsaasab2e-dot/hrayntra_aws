@@ -26,8 +26,7 @@ export const linkedinOAuthSettingsController = {
       state,
       prompt: 'login',
     });
-    const authorizeUrl = `https://www.linkedin.com/oauth/v2/authorization?${params.toString()}`;
-    const url = `https://www.linkedin.com/uas/logout?session_redirect=${encodeURIComponent(authorizeUrl)}`;
+    const url = `https://www.linkedin.com/oauth/v2/authorization?${params.toString()}`;
     return sendResponse(res, 200, 'OAuth URL ready', { url });
   },
 
