@@ -3991,13 +3991,20 @@ async function getMyJobIds(userId, { take } = {}) {
       : Number(take) > 0
         ? Number(take)
         : resolveMineJobTake();
+  const cacheKey = tenantJobCacheKey(`myjobs:${userId}:${resolvedTake || 'all'}`);
+  const hit = TENANT_JOB_ID_CACHE.get(cacheKey);
+  if (hit && Date.now() - hit.at < TENANT_JOB_ID_CACHE_TTL_MS) {
+    return hit.ids.slice();
+  }
   const myJobs = await prisma.job.findMany({
     where: buildMyJobsWhereClause(userId),
     select: { id: true },
     orderBy: { updatedAt: 'desc' },
     ...(resolvedTake ? { take: resolvedTake } : {}),
   });
-  return myJobs.map((j) => String(j.id));
+  const ids = myJobs.map((j) => String(j.id));
+  TENANT_JOB_ID_CACHE.set(cacheKey, { at: Date.now(), ids });
+  return ids;
 }
 
 /**
@@ -4041,12 +4048,33 @@ function resolveMineLinkTake() {
   return 2000;
 }
 
+const MINE_LINK_CACHE_TTL_MS = 30_000;
+const MINE_LINK_CACHE = new Map();
+const MINE_LINK_CACHE_MAX = 48;
+
+function mineLinkCacheKey(jobIds) {
+  const ids = Array.isArray(jobIds) ? jobIds : [];
+  let hash = 0;
+  for (const id of ids) {
+    const s = String(id);
+    for (let i = 0; i < s.length; i += 1) {
+      hash = (hash * 31 + s.charCodeAt(i)) | 0;
+    }
+  }
+  return tenantJobCacheKey(`mine-links:${ids.length}:${hash}`);
+}
+
 async function prefetchMineLinkedCandidateIds(jobIds) {
   const capped = (Array.isArray(jobIds) ? jobIds : [])
     .map((id) => String(id || '').trim())
     .filter(Boolean)
     .slice(0, resolveMineJobTake());
   if (!capped.length) return [];
+  const cacheKey = mineLinkCacheKey(capped);
+  const hit = MINE_LINK_CACHE.get(cacheKey);
+  if (hit && Date.now() - hit.at < MINE_LINK_CACHE_TTL_MS) {
+    return hit.ids.slice();
+  }
   const LINK_TAKE = resolveMineLinkTake();
   const take = LINK_TAKE;
   const [apps, matches, pipes, interviews, placements] = await Promise.all([
@@ -4095,13 +4123,19 @@ async function prefetchMineLinkedCandidateIds(jobIds) {
   const crmMatches = (Array.isArray(matches) ? matches : []).filter((row) =>
     matchRepresentsCrmJobLink(row),
   );
-  return [
+  const linkedIds = [
     ...new Set(
       [...apps, ...crmMatches, ...pipes, ...interviews, ...placements]
         .map((row) => String(row?.candidateId || '').trim())
         .filter(Boolean),
     ),
   ].slice(0, LINK_TAKE);
+  MINE_LINK_CACHE.set(cacheKey, { at: Date.now(), ids: linkedIds });
+  while (MINE_LINK_CACHE.size > MINE_LINK_CACHE_MAX) {
+    const oldest = MINE_LINK_CACHE.keys().next().value;
+    MINE_LINK_CACHE.delete(oldest);
+  }
+  return linkedIds;
 }
 
 /**
@@ -5653,7 +5687,7 @@ export const candidateService = {
       if (pageIds.length) {
         const hydrated = await prisma.candidate.findMany({
           where: { id: { in: pageIds } },
-          include: hasActiveListFilters ? candidateListIncludeFast : candidateListInclude,
+          include: candidateListIncludeFast,
         });
         const byId = new Map(hydrated.map((row) => [String(row.id), row]));
         pageRows = pageIds.map((id) => byId.get(id)).filter(Boolean);
@@ -5684,30 +5718,8 @@ export const candidateService = {
         portalClientForList = null;
       }
       if (portalClientForList) {
-        const hasActiveListFilters = Boolean(
-          String(search || '').trim() ||
-            listFilters?.stage ||
-            listFilters?.company ||
-            listFilters?.location ||
-            listFilters?.jobId ||
-            listFilters?.experienceRange ||
-            status ||
-            assignedToId ||
-            mine,
-        );
-        // Filter / My list changes must stay snappy — never wait on portal resume I/O.
-        if (hasActiveListFilters) {
-          void batchHydrateCandidatesResumeFromPortal(candidates, portalClientForList).catch(() => null);
-        } else {
-          const RESUME_HYDRATE_MS = Math.min(
-            2500,
-            Math.max(200, Number(process.env.CANDIDATE_RESUME_HYDRATE_MS || 800) || 800),
-          );
-          await Promise.race([
-            batchHydrateCandidatesResumeFromPortal(candidates, portalClientForList).catch(() => null),
-            new Promise((resolve) => setTimeout(resolve, RESUME_HYDRATE_MS)),
-          ]);
-        }
+        // Never block the table on portal resume I/O — first paint is the SLA.
+        void batchHydrateCandidatesResumeFromPortal(candidates, portalClientForList).catch(() => null);
         const candidateIds = candidates
           .map((row) => String(row?.id || '').trim())
           .filter(Boolean);
@@ -5792,28 +5804,8 @@ export const candidateService = {
     // candidate-self-updated values (notice period, expected salary, availability,
     // preferred location) appear in the list response too.
     // Skip waiting when filters / My tab are active — table latency matters more.
-    const skipCareerPrefsWait = Boolean(
-      String(search || '').trim() ||
-        listFilters?.stage ||
-        listFilters?.company ||
-        listFilters?.location ||
-        listFilters?.jobId ||
-        listFilters?.experienceRange ||
-        status ||
-        assignedToId ||
-        mine,
-    );
     let careerPrefsByCandidate = new Map();
-    if (!skipCareerPrefsWait && candidates.length) {
-      const CAREER_PREFS_MS = Math.min(
-        2500,
-        Math.max(200, Number(process.env.CANDIDATE_CAREER_PREFS_MS || 1000) || 1000),
-      );
-      careerPrefsByCandidate = await Promise.race([
-        fetchCareerPreferencesForCandidates(candidates.map((c) => c.id).filter(Boolean)),
-        new Promise((resolve) => setTimeout(() => resolve(new Map()), CAREER_PREFS_MS)),
-      ]);
-    } else if (candidates.length) {
+    if (candidates.length) {
       void fetchCareerPreferencesForCandidates(candidates.map((c) => c.id).filter(Boolean)).catch(
         () => null,
       );
@@ -5926,6 +5918,10 @@ export const candidateService = {
       memT0 != null && typeof process !== 'undefined' && process.memoryUsage
         ? Math.round((process.memoryUsage().heapUsed - memT0) / 1024)
         : null;
+    const totalMs = Math.round(candidatePerfNow() - perfT0);
+    console.info(
+      `[candidates.list] mine=${mine ? 1 : 0} common=${loadCommonPool ? 1 : 0} page=${page} limit=${limit} fetched=${candidates.length} total=${total} tenantQuery=${perfMarks.tenantQuery ?? '-'}ms commonQuery=${perfMarks.commonQuery ?? '-'}ms hydrate=${perfMarks.hydrate ?? '-'}ms count=${perfMarks.count ?? '-'} totalMs=${totalMs}`,
+    );
     logCandidatePerf({
       searchKind: classifyCandidateSearch(search).kind,
       K: perfMarks.K,
@@ -5939,7 +5935,7 @@ export const candidateService = {
       fetched: candidates.length,
       total,
       memoryDeltaKb: memDelta,
-      totalMs: `${Math.round(candidatePerfNow() - perfT0)}ms`,
+      totalMs: `${totalMs}ms`,
     });
     return formatPaginationResponse(withAudit, page, limit, total);
   },
