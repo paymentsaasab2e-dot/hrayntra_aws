@@ -40,6 +40,50 @@ function accountLabel(account: SocialAccountOption, provider: 'linkedin' | 'twit
   return account.name;
 }
 
+function SocialAccountAvatar({
+  picture,
+  name,
+  provider,
+}: {
+  picture?: string | null;
+  name: string;
+  provider: 'linkedin' | 'twitter';
+}) {
+  const src = String(picture || '').trim();
+  const [failed, setFailed] = React.useState(false);
+  React.useEffect(() => {
+    setFailed(false);
+  }, [src]);
+
+  const showImage = /^https?:\/\//i.test(src) && !failed;
+  if (!showImage) {
+    return (
+      <div
+        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
+          provider === 'linkedin' ? 'bg-[#0077b5]' : 'bg-slate-900'
+        }`}
+        aria-hidden
+      >
+        {provider === 'linkedin' ? (
+          <Linkedin size={16} className="text-white" />
+        ) : (
+          <Twitter size={16} className="text-white" />
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={src}
+      alt={name}
+      referrerPolicy="no-referrer"
+      onError={() => setFailed(true)}
+      className="h-8 w-8 shrink-0 rounded-full bg-slate-100 object-cover"
+    />
+  );
+}
+
 export function SocialAccountPicker({
   provider,
   accounts,
@@ -61,7 +105,6 @@ export function SocialAccountPicker({
     onSelectionChange([...selectedKeys, key]);
   };
 
-  const ProviderIcon = provider === 'linkedin' ? Linkedin : Twitter;
   const providerLabel = provider === 'linkedin' ? 'LinkedIn' : 'X';
 
   if (loading) {
@@ -97,17 +140,11 @@ export function SocialAccountPicker({
                     onChange={() => toggleAccount(account.key)}
                     className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500"
                   />
-                  {account.picture ? (
-                    <img src={account.picture} alt={account.name} className="w-8 h-8 rounded-full object-cover" />
-                  ) : (
-                    <div
-                      className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                        provider === 'linkedin' ? 'bg-blue-600' : 'bg-slate-900'
-                      }`}
-                    >
-                      <ProviderIcon size={16} className="text-white" />
-                    </div>
-                  )}
+                  <SocialAccountAvatar
+                    picture={account.picture}
+                    name={account.name}
+                    provider={provider}
+                  />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-medium text-slate-900 truncate">
