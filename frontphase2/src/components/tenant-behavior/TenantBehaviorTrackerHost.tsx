@@ -157,12 +157,15 @@ export function TenantBehaviorTrackerHost() {
       }
     };
 
-    void syncCrm();
+    const firstCrm = window.setTimeout(() => {
+      if (!cancelled) void syncCrm();
+    }, 2500);
     const onBehave =
       (pathname || '').startsWith('/thebehave') || (pathname || '').startsWith('/tenant-behave');
     const timer = window.setInterval(syncCrm, onBehave ? 45_000 : CRM_SYNC_MS);
     return () => {
       cancelled = true;
+      window.clearTimeout(firstCrm);
       window.clearInterval(timer);
     };
   }, [loading, userId, tenantDbName, pathname]);

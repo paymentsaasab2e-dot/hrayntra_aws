@@ -11,6 +11,7 @@ import { TenantCoinsProvider } from "../components/coins/TenantCoinsContext";
 import { TenantIntelligenceHost } from "../components/phase2-intelligence/TenantIntelligenceHost";
 import { WritingAssistHost } from "../components/common/WritingAssistHost";
 import { RouteErrorBoundary } from "../components/PageErrorBoundary";
+import { IdleMount } from "../components/IdleMount";
 import "./globals.css";
 import "../styles/nexus-dashboard.css";
 
@@ -34,14 +35,16 @@ export default function RootLayout({
           <TenantImpersonationBanner />
           <RouteErrorBoundary>{children}</RouteErrorBoundary>
           <PageTitleSync />
-          <UserPermissionsSync />
           <GlobalAlertHost />
           <TrialPlanHost />
           <TenantPausedHost />
           <ActiveSessionManager />
-          <TenantIntelligenceHost />
-          <WritingAssistHost />
-          <FloatingBotMount />
+          <IdleMount delayMs={1600}>
+            <UserPermissionsSync />
+            <TenantIntelligenceHost />
+            <WritingAssistHost />
+            <FloatingBotMount />
+          </IdleMount>
         </TenantCoinsProvider>
       </body>
     </html>

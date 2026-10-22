@@ -154,6 +154,7 @@ function sparkFromDaily(rows, days = 7) {
  * CRM-only overview: Leads + Clients (no jobs/candidates/placements).
  */
 export async function getCrmOverview(req) {
+  const overviewStartedAt = Date.now();
   const q = req?.query || {};
   const search = String(q.search || '').trim() || undefined;
   const range = resolveRangeBounds(q);
@@ -683,47 +684,48 @@ export async function getCrmOverview(req) {
     });
   }
 
-  const assignedCounts = await prisma.lead
-    .groupBy({
-      by: ['assignedToId'],
-      where: {
-        isDeleted: { not: true },
-        assignedToId: assignedTo || { not: null },
-        ...periodCreated,
-      },
-      _count: { _all: true },
-    })
-    .catch(() => []);
-
-  const convertedByUser = await prisma.lead
-    .groupBy({
-      by: ['assignedToId'],
-      where: {
-        isDeleted: { not: true },
-        status: 'Converted',
-        assignedToId: assignedTo || { not: null },
-        ...periodCreated,
-      },
-      _count: { _all: true },
-    })
-    .catch(() => []);
+  const leaderboardStartedAt = Date.now();
+  const [assignedCounts, convertedByUser, clientAssignedCounts] = await Promise.all([
+    prisma.lead
+      .groupBy({
+        by: ['assignedToId'],
+        where: {
+          isDeleted: { not: true },
+          assignedToId: assignedTo || { not: null },
+          ...periodCreated,
+        },
+        _count: { _all: true },
+      })
+      .catch(() => []),
+    prisma.lead
+      .groupBy({
+        by: ['assignedToId'],
+        where: {
+          isDeleted: { not: true },
+          status: 'Converted',
+          assignedToId: assignedTo || { not: null },
+          ...periodCreated,
+        },
+        _count: { _all: true },
+      })
+      .catch(() => []),
+    prisma.client
+      .groupBy({
+        by: ['assignedToId'],
+        where: {
+          isDeleted: { not: true },
+          assignedToId: assignedTo || { not: null },
+          ...periodCreated,
+        },
+        _count: { _all: true },
+      })
+      .catch(() => []),
+  ]);
 
   const userMap = new Map((teamUsers || []).map((u) => [u.id, u]));
   const convMap = new Map(
     (convertedByUser || []).map((r) => [r.assignedToId, Number(r._count?._all || 0)]),
   );
-
-  const clientAssignedCounts = await prisma.client
-    .groupBy({
-      by: ['assignedToId'],
-      where: {
-        isDeleted: { not: true },
-        assignedToId: assignedTo || { not: null },
-        ...periodCreated,
-      },
-      _count: { _all: true },
-    })
-    .catch(() => []);
   const clientAssignMap = new Map(
     (clientAssignedCounts || []).map((r) => [r.assignedToId, Number(r._count?._all || 0)]),
   );
@@ -756,77 +758,122 @@ export async function getCrmOverview(req) {
     .sort((a, b) => b.conversions - a.conversions || b.assignedLeads - a.assignedLeads)
     .slice(0, 40);
 
-  for (const row of leaderboard) {
-    const [calls, meetings, emails, followups, overdueFollowups, valueRows, lastLeadTouch, nextFu] =
-      await Promise.all([
-        prisma.task
-          .count({ where: { assignedToId: row.id, taskType: { in: ['Call', 'call'] } } })
-          .catch(() => 0),
-        prisma.task
-          .count({ where: { assignedToId: row.id, taskType: { in: ['Meeting', 'meeting'] } } })
-          .catch(() => 0),
-        prisma.task
-          .count({ where: { assignedToId: row.id, taskType: { in: ['Email', 'email'] } } })
-          .catch(() => 0),
-        prisma.lead
-          .count({
-            where: {
-              assignedToId: row.id,
-              isDeleted: { not: true },
-              nextFollowUp: { not: null },
-              status: { notIn: ['Converted', 'Lost'] },
-            },
-          })
-          .catch(() => 0),
-        prisma.lead
-          .count({
-            where: {
-              assignedToId: row.id,
-              isDeleted: { not: true },
-              nextFollowUp: { lt: startOfToday },
-              status: { notIn: ['Converted', 'Lost'] },
-            },
-          })
-          .catch(() => 0),
-        prisma.lead
-          .findMany({
-            where: { assignedToId: row.id, isDeleted: { not: true }, status: 'Converted' },
-            select: { expectedBusinessValue: true },
-            take: 200,
-          })
-          .catch(() => []),
-        prisma.lead
-          .findFirst({
-            where: { assignedToId: row.id, isDeleted: { not: true } },
-            orderBy: { updatedAt: 'desc' },
-            select: { updatedAt: true, lastFollowUp: true },
-          })
-          .catch(() => null),
-        prisma.lead
-          .findFirst({
-            where: {
-              assignedToId: row.id,
-              isDeleted: { not: true },
-              nextFollowUp: { not: null },
-              status: { notIn: ['Converted', 'Lost'] },
-            },
-            orderBy: { nextFollowUp: 'asc' },
-            select: { nextFollowUp: true },
-          })
-          .catch(() => null),
-      ]);
-    row.calls = calls;
-    row.meetings = meetings;
-    row.emails = emails;
-    row.followups = followups;
-    row.overdueFollowups = overdueFollowups;
-    row.businessGenerated = (valueRows || []).reduce(
-      (s, l) => s + parseMoney(l.expectedBusinessValue),
-      0,
+  const leaderIds = leaderboard.map((row) => row.id).filter(Boolean);
+  if (leaderIds.length) {
+    const [
+      taskTypeCounts,
+      followupCounts,
+      overdueCounts,
+      convertedValueRows,
+      lastTouchByUser,
+      nextFuByUser,
+    ] = await Promise.all([
+      prisma.task
+        .groupBy({
+          by: ['assignedToId', 'taskType'],
+          where: { assignedToId: { in: leaderIds } },
+          _count: { _all: true },
+        })
+        .catch(() => []),
+      prisma.lead
+        .groupBy({
+          by: ['assignedToId'],
+          where: {
+            assignedToId: { in: leaderIds },
+            isDeleted: { not: true },
+            nextFollowUp: { not: null },
+            status: { notIn: ['Converted', 'Lost'] },
+          },
+          _count: { _all: true },
+        })
+        .catch(() => []),
+      prisma.lead
+        .groupBy({
+          by: ['assignedToId'],
+          where: {
+            assignedToId: { in: leaderIds },
+            isDeleted: { not: true },
+            nextFollowUp: { lt: startOfToday },
+            status: { notIn: ['Converted', 'Lost'] },
+          },
+          _count: { _all: true },
+        })
+        .catch(() => []),
+      prisma.lead
+        .findMany({
+          where: {
+            assignedToId: { in: leaderIds },
+            isDeleted: { not: true },
+            status: 'Converted',
+          },
+          select: { assignedToId: true, expectedBusinessValue: true },
+          take: 5000,
+        })
+        .catch(() => []),
+      prisma.lead
+        .groupBy({
+          by: ['assignedToId'],
+          where: { assignedToId: { in: leaderIds }, isDeleted: { not: true } },
+          _max: { updatedAt: true, lastFollowUp: true },
+        })
+        .catch(() => []),
+      prisma.lead
+        .groupBy({
+          by: ['assignedToId'],
+          where: {
+            assignedToId: { in: leaderIds },
+            isDeleted: { not: true },
+            nextFollowUp: { not: null },
+            status: { notIn: ['Converted', 'Lost'] },
+          },
+          _min: { nextFollowUp: true },
+        })
+        .catch(() => []),
+    ]);
+
+    const callsBy = new Map();
+    const meetingsBy = new Map();
+    const emailsBy = new Map();
+    for (const row of taskTypeCounts || []) {
+      const id = row.assignedToId;
+      const type = String(row.taskType || '').toLowerCase();
+      const n = Number(row._count?._all || 0);
+      if (type === 'call') callsBy.set(id, (callsBy.get(id) || 0) + n);
+      else if (type === 'meeting') meetingsBy.set(id, (meetingsBy.get(id) || 0) + n);
+      else if (type === 'email') emailsBy.set(id, (emailsBy.get(id) || 0) + n);
+    }
+    const followBy = new Map(
+      (followupCounts || []).map((r) => [r.assignedToId, Number(r._count?._all || 0)]),
     );
-    row.lastActivity = lastLeadTouch?.lastFollowUp || lastLeadTouch?.updatedAt || null;
-    row.nextFollowUp = nextFu?.nextFollowUp || null;
+    const overdueBy = new Map(
+      (overdueCounts || []).map((r) => [r.assignedToId, Number(r._count?._all || 0)]),
+    );
+    const valueBy = new Map();
+    for (const lead of convertedValueRows || []) {
+      const id = lead.assignedToId;
+      if (!id) continue;
+      valueBy.set(id, (valueBy.get(id) || 0) + parseMoney(lead.expectedBusinessValue));
+    }
+    const lastBy = new Map();
+    for (const row of lastTouchByUser || []) {
+      lastBy.set(row.assignedToId, row._max?.lastFollowUp || row._max?.updatedAt || null);
+    }
+    const nextBy = new Map(
+      (nextFuByUser || []).map((r) => [r.assignedToId, r._min?.nextFollowUp || null]),
+    );
+
+    for (const row of leaderboard) {
+      row.calls = callsBy.get(row.id) || 0;
+      row.meetings = meetingsBy.get(row.id) || 0;
+      row.emails = emailsBy.get(row.id) || 0;
+      row.followups = followBy.get(row.id) || 0;
+      row.overdueFollowups = overdueBy.get(row.id) || 0;
+      row.businessGenerated = valueBy.get(row.id) || 0;
+      row.lastActivity = lastBy.get(row.id) || null;
+      row.nextFollowUp = nextBy.get(row.id) || null;
+    }
   }
+  const leaderboardMs = Date.now() - leaderboardStartedAt;
 
   const teamOptions = (teamUsers || []).map((u) => ({
     id: u.id,
@@ -1345,7 +1392,7 @@ export async function getCrmOverview(req) {
     return true;
   });
 
-  return {
+  const payload = {
     scope: 'crm',
     kpis,
     health: { score: health, label: healthLabel },
@@ -1483,4 +1530,8 @@ export async function getCrmOverview(req) {
     },
     generatedAt: new Date().toISOString(),
   };
+  console.warn(
+    `[crm-overview] totalMs=${Date.now() - overviewStartedAt} leaderboardMs=${leaderboardMs} people=${leaderboard.length}`,
+  );
+  return payload;
 }

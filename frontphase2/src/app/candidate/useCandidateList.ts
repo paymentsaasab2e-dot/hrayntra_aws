@@ -1354,7 +1354,11 @@ export function useCandidateList() {
     router.replace(`/candidate?${params.toString()}`, { scroll: false });
   }, [listTab, filters, columnFilters, router]);
 
+  const pipelineOptionsStartedRef = useRef(false);
   useEffect(() => {
+    if (loading) return;
+    if (pipelineOptionsStartedRef.current) return;
+    pipelineOptionsStartedRef.current = true;
     let cancelled = false;
 
     async function loadPipelineOptions() {
@@ -1417,11 +1421,11 @@ export function useCandidateList() {
       }
     }
 
-    loadPipelineOptions();
+    void loadPipelineOptions();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loading]);
 
   const filteredCandidates = useMemo(() => {
     if (smartSearchCandidateIds.length > 0) {
