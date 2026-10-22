@@ -63,6 +63,40 @@ function normalizeStringMap(value: unknown): Record<string, string> {
   );
 }
 
+/** Portal checkbox lists (6500 USD / car allowance) vs Overview package (2M XAF / health coverage). */
+export function isPortalCheckboxCareerPrefs(prefs: Record<string, unknown> | null | undefined): boolean {
+  if (!prefs || typeof prefs !== 'object' || Array.isArray(prefs)) return false;
+  const preferred = Number(prefs.preferredSalary ?? prefs.salaryAmount);
+  const current = Number(prefs.currentSalary);
+  const prefCur = String(prefs.preferredCurrency || prefs.salaryCurrency || '').trim().toUpperCase();
+  const curCur = String(prefs.currentCurrency || '').trim().toUpperCase();
+  const benefitText = [
+    ...(Array.isArray(prefs.preferredBenefits) ? prefs.preferredBenefits : []),
+    ...(Array.isArray(prefs.currentBenefits) ? prefs.currentBenefits : []),
+  ]
+    .map((item) => String(item || '').toLowerCase())
+    .join(' | ');
+  if (/health coverage|13th month|performance bonus|other bonuses/.test(benefitText)) return false;
+  if (prefCur && curCur && prefCur === curCur && Number.isFinite(preferred) && preferred >= 100000) {
+    return false;
+  }
+  if (
+    Number.isFinite(preferred) &&
+    Number.isFinite(current) &&
+    prefCur &&
+    curCur &&
+    prefCur !== curCur &&
+    preferred < 50000 &&
+    current > 100000
+  ) {
+    return true;
+  }
+  return (
+    /car allowance|bachelor accommodation|food allowance|fuel and driver/.test(benefitText) &&
+    (!Number.isFinite(preferred) || preferred < 50000)
+  );
+}
+
 export function formatCareerAmount(value: unknown): string {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return value.toLocaleString();
@@ -141,49 +175,54 @@ export function mergeCareerPreferencesRecord(
     extra.careerPreferences && typeof extra.careerPreferences === 'object' && !Array.isArray(extra.careerPreferences)
       ? (extra.careerPreferences as Record<string, unknown>)
       : {};
+  const snapshotCareer =
+    ((phase1?.careerPreferences as Record<string, unknown> | null) || {});
+  const portalCareer =
+    ((candidate.careerPreferences as Record<string, unknown> | null) || {});
 
-  // Recruiter Current/Preferred Package (extraData.careerPreferences) wins over
-  // stale portal career_preferences and Phase-1 checkbox lists.
-  const merged: Record<string, unknown> = {
-    ...(((phase1?.careerPreferences as Record<string, unknown> | null) || {})),
-    ...(((candidate.careerPreferences as Record<string, unknown> | null) || {})),
-    ...extraCareer,
-    ...(override || {}),
-  };
+  const crmSources = [snapshotCareer, extraCareer, override || {}].filter(
+    (row) => row && Object.keys(row).length && !isPortalCheckboxCareerPrefs(row),
+  );
+  const merged: Record<string, unknown> = Object.assign(
+    {},
+    ...(crmSources.length ? crmSources : [portalCareer, snapshotCareer, extraCareer, override || {}]),
+  );
 
   const hasList = (value: unknown) => {
     if (Array.isArray(value)) return value.some((item) => String(item || '').trim());
     return Boolean(String(value ?? '').trim());
   };
 
-  if (
-    !hasList(merged.currentBenefits) &&
-    professional.currentBenefits &&
-    !Object.prototype.hasOwnProperty.call(extraCareer, 'currentBenefits')
-  ) {
-    merged.currentBenefits = professional.currentBenefits;
-  }
-  if (
-    !hasList(merged.preferredBenefits) &&
-    professional.expectedBenefits &&
-    !Object.prototype.hasOwnProperty.call(extraCareer, 'preferredBenefits')
-  ) {
-    merged.preferredBenefits = professional.expectedBenefits;
-  }
-  if (
-    !String(merged.currentCurrency ?? '').trim() &&
-    professional.currentSalaryCurrency &&
-    !Object.prototype.hasOwnProperty.call(extraCareer, 'currentCurrency')
-  ) {
-    merged.currentCurrency = professional.currentSalaryCurrency;
-  }
-  if (
-    !String(merged.preferredCurrency ?? '').trim() &&
-    professional.expectedSalaryCurrency &&
-    !Object.prototype.hasOwnProperty.call(extraCareer, 'preferredCurrency') &&
-    !Object.prototype.hasOwnProperty.call(extraCareer, 'salaryCurrency')
-  ) {
-    merged.preferredCurrency = professional.expectedSalaryCurrency;
+  if (!crmSources.length) {
+    if (
+      !hasList(merged.currentBenefits) &&
+      professional.currentBenefits &&
+      !Object.prototype.hasOwnProperty.call(extraCareer, 'currentBenefits')
+    ) {
+      merged.currentBenefits = professional.currentBenefits;
+    }
+    if (
+      !hasList(merged.preferredBenefits) &&
+      professional.expectedBenefits &&
+      !Object.prototype.hasOwnProperty.call(extraCareer, 'preferredBenefits')
+    ) {
+      merged.preferredBenefits = professional.expectedBenefits;
+    }
+    if (
+      !String(merged.currentCurrency ?? '').trim() &&
+      professional.currentSalaryCurrency &&
+      !Object.prototype.hasOwnProperty.call(extraCareer, 'currentCurrency')
+    ) {
+      merged.currentCurrency = professional.currentSalaryCurrency;
+    }
+    if (
+      !String(merged.preferredCurrency ?? '').trim() &&
+      professional.expectedSalaryCurrency &&
+      !Object.prototype.hasOwnProperty.call(extraCareer, 'preferredCurrency') &&
+      !Object.prototype.hasOwnProperty.call(extraCareer, 'salaryCurrency')
+    ) {
+      merged.preferredCurrency = professional.expectedSalaryCurrency;
+    }
   }
   if (!String(merged.reasonForJobChange ?? '').trim()) {
     const fromRemarks =

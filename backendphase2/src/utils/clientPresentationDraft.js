@@ -178,24 +178,31 @@ function mergePhase1Snapshots(primary, secondary) {
     merged[key] = fromA.length >= fromB.length ? fromA : fromB;
   }
   merged.summaryText = pickPreferred(a.summaryText, b.summaryText);
-  merged.careerPreferences = mergeCareerPreferenceRecords(b.careerPreferences, a.careerPreferences);
+  merged.careerPreferences = mergeCareerPrefsPreferringCrm(b.careerPreferences, a.careerPreferences);
   merged.visaWorkAuthorization = pickPreferred(a.visaWorkAuthorization, b.visaWorkAuthorization);
   merged.vaccination = pickPreferred(a.vaccination, b.vaccination);
   merged.resume = pickPreferred(a.resume, b.resume);
   return merged;
 }
 
+function asSnapshotObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+}
+
 /** Live Phase 1 profile wins over a sparse snapshot saved at submit time. */
 export function resolveLivePhase1Snapshot(candidate) {
   const extra = parseExtra(candidate?.extraData);
-  const live = extra.phase1ProfileSnapshot;
-  const profileSnap =
-    candidate?.profileSnapshot && typeof candidate.profileSnapshot === 'object'
-      ? candidate.profileSnapshot
-      : null;
-  const saved = readClientPresentation(extra)?.phase1Snapshot;
-  const ranked = [live, profileSnap, saved]
-    .filter((item) => item && typeof item === 'object' && !Array.isArray(item))
+  const live = asSnapshotObject(extra.phase1ProfileSnapshot);
+  const profileSnap = asSnapshotObject(candidate?.profileSnapshot);
+  const saved = asSnapshotObject(readClientPresentation(extra)?.phase1Snapshot);
+  const fillers = [profileSnap, saved].filter(Boolean);
+  // Live extra.phase1ProfileSnapshot is the Overview source of truth. Do not let a
+  // fuller submit-time portal snapshot (6500 USD checkboxes) replace it.
+  if (live) {
+    return fillers.reduce((acc, item) => mergePhase1Snapshots(acc, item), live);
+  }
+  const ranked = fillers
+    .slice()
     .sort((left, right) => snapshotFillScore(right) - snapshotFillScore(left));
   if (!ranked.length) return null;
   return ranked.slice(1).reduce((acc, item) => mergePhase1Snapshots(acc, item), ranked[0]);
@@ -605,9 +612,54 @@ function hasCareerListValue(value) {
 }
 
 /**
- * Match Overview Preferred Package merge:
- * phase1 → portal/candidate.careerPreferences → extraData.careerPreferences (later wins).
- * Empty preferredBenefits from CRM must clear portal/Phase-1 checkbox lists.
+ * Portal/ATS career_preferences (6500 USD + car-allowance checkboxes) must not
+ * replace the recruiter Current/Preferred Package (2,000,000 XAF + health coverage).
+ */
+export function isPortalCheckboxCareerPrefs(prefs) {
+  if (!prefs || typeof prefs !== 'object' || Array.isArray(prefs)) return false;
+  const preferred = Number(prefs.preferredSalary ?? prefs.salaryAmount);
+  const current = Number(prefs.currentSalary);
+  const prefCur = String(prefs.preferredCurrency || prefs.salaryCurrency || '').trim().toUpperCase();
+  const curCur = String(prefs.currentCurrency || '').trim().toUpperCase();
+  const benefitText = []
+    .concat(prefs.preferredBenefits || [])
+    .concat(prefs.currentBenefits || [])
+    .map((item) => String(item || '').toLowerCase())
+    .join(' | ');
+  if (/health coverage|13th month|performance bonus|other bonuses/.test(benefitText)) {
+    return false;
+  }
+  if (prefCur && curCur && prefCur === curCur && Number.isFinite(preferred) && preferred >= 100000) {
+    return false;
+  }
+  if (
+    Number.isFinite(preferred) &&
+    Number.isFinite(current) &&
+    prefCur &&
+    curCur &&
+    prefCur !== curCur &&
+    preferred < 50000 &&
+    current > 100000
+  ) {
+    return true;
+  }
+  const hasPortalBenefits = /car allowance|bachelor accommodation|food allowance|fuel and driver/.test(
+    benefitText,
+  );
+  return hasPortalBenefits && (!Number.isFinite(preferred) || preferred < 50000);
+}
+
+function mergeCareerPrefsPreferringCrm(...sources) {
+  const rows = sources.filter(
+    (row) => row && typeof row === 'object' && !Array.isArray(row) && Object.keys(row).length,
+  );
+  const crm = rows.filter((row) => !isPortalCheckboxCareerPrefs(row));
+  return mergeCareerPreferenceRecords(...(crm.length ? crm : rows));
+}
+
+/**
+ * Match Overview Preferred Package merge.
+ * CRM extra / snapshot win; portal checkbox lists only fill gaps.
  */
 function mergeCareerPreferencesLikeOverview(candidate) {
   const extra = parseExtra(candidate?.extraData);
@@ -616,42 +668,45 @@ function mergeCareerPreferencesLikeOverview(candidate) {
   const asPrefs = (value) =>
     value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 
-  const merged = {
-    ...asPrefs(phase1?.careerPreferences),
-    ...asPrefs(candidate?.careerPreferences),
-    // Recruiter Current/Preferred Package in extraData wins over portal/ATS lists.
-    ...asPrefs(extra.careerPreferences),
-  };
-
+  const portalPrefs = asPrefs(candidate?.careerPreferences);
+  const snapshotPrefs = asPrefs(phase1?.careerPreferences);
   const extraPrefs = asPrefs(extra.careerPreferences);
-  if (
-    !hasCareerListValue(merged.currentBenefits) &&
-    professional.currentBenefits &&
-    !Object.prototype.hasOwnProperty.call(extraPrefs, 'currentBenefits')
-  ) {
-    merged.currentBenefits = professional.currentBenefits;
-  }
-  if (
-    !hasCareerListValue(merged.preferredBenefits) &&
-    professional.expectedBenefits &&
-    !Object.prototype.hasOwnProperty.call(extraPrefs, 'preferredBenefits')
-  ) {
-    merged.preferredBenefits = professional.expectedBenefits;
-  }
-  if (
-    !String(merged.currentCurrency ?? '').trim() &&
-    professional.currentSalaryCurrency &&
-    !Object.prototype.hasOwnProperty.call(extraPrefs, 'currentCurrency')
-  ) {
-    merged.currentCurrency = professional.currentSalaryCurrency;
-  }
-  if (
-    !String(merged.preferredCurrency ?? '').trim() &&
-    professional.expectedSalaryCurrency &&
-    !Object.prototype.hasOwnProperty.call(extraPrefs, 'preferredCurrency') &&
-    !Object.prototype.hasOwnProperty.call(extraPrefs, 'salaryCurrency')
-  ) {
-    merged.preferredCurrency = professional.expectedSalaryCurrency;
+  const crmSources = [snapshotPrefs, extraPrefs].filter(
+    (row) => Object.keys(row).length && !isPortalCheckboxCareerPrefs(row),
+  );
+  const merged = crmSources.length
+    ? mergeCareerPreferenceRecords(...crmSources)
+    : mergeCareerPrefsPreferringCrm(portalPrefs, snapshotPrefs, extraPrefs);
+  if (!crmSources.length) {
+    if (
+      !hasCareerListValue(merged.currentBenefits) &&
+      professional.currentBenefits &&
+      !Object.prototype.hasOwnProperty.call(extraPrefs, 'currentBenefits')
+    ) {
+      merged.currentBenefits = professional.currentBenefits;
+    }
+    if (
+      !hasCareerListValue(merged.preferredBenefits) &&
+      professional.expectedBenefits &&
+      !Object.prototype.hasOwnProperty.call(extraPrefs, 'preferredBenefits')
+    ) {
+      merged.preferredBenefits = professional.expectedBenefits;
+    }
+    if (
+      !String(merged.currentCurrency ?? '').trim() &&
+      professional.currentSalaryCurrency &&
+      !Object.prototype.hasOwnProperty.call(extraPrefs, 'currentCurrency')
+    ) {
+      merged.currentCurrency = professional.currentSalaryCurrency;
+    }
+    if (
+      !String(merged.preferredCurrency ?? '').trim() &&
+      professional.expectedSalaryCurrency &&
+      !Object.prototype.hasOwnProperty.call(extraPrefs, 'preferredCurrency') &&
+      !Object.prototype.hasOwnProperty.call(extraPrefs, 'salaryCurrency')
+    ) {
+      merged.preferredCurrency = professional.expectedSalaryCurrency;
+    }
   }
 
   return merged;
@@ -730,6 +785,18 @@ function applyTenantStoredProfile(candidate) {
   const workPipe = pipelineSection(extra, 'work');
   const salary = readPlainObject(candidate.salary);
   const prefs = mergeCareerPreferencesLikeOverview(candidate);
+  const workEntries = pickPreferred(
+    candidate.cvWorkExperienceEntries,
+    workPipe.entries ||
+      workPipe.workExperienceEntries ||
+      extra.workExperienceEntries ||
+      mapPhase1WorkEntries(resolveLivePhase1Snapshot(candidate)),
+  );
+  const experienceYears = overviewExperienceYears({
+    ...candidate,
+    cvWorkExperienceEntries: workEntries,
+    experienceYears: candidate.experienceYears,
+  });
   const splitFromName = String(extra.fullName || extra.name || personalPipe.fullName || personalPipe.name || '')
     .trim()
     .split(/\s+/)
@@ -775,10 +842,15 @@ function applyTenantStoredProfile(candidate) {
     website: pickPreferred(candidate.website, socialPipe.website || extra.website),
     portfolio: pickPreferred(candidate.portfolio, extra.portfolio || socialPipe.website),
     cvEducationEntries: pickPreferred(candidate.cvEducationEntries, educationPipe.entries),
-    cvWorkExperienceEntries: pickPreferred(
-      candidate.cvWorkExperienceEntries,
-      workPipe.entries || workPipe.workExperienceEntries || extra.workExperienceEntries,
+    currentCompany: pickPreferred(
+      candidate.currentCompany,
+      formatPrefValue(prefs.currentOrganization || prefs.currentCompany || prefs.company),
     ),
+    currentTitle: pickPreferred(
+      candidate.currentTitle || candidate.designation,
+      formatPrefValue(prefs.currentRole),
+    ),
+    cvWorkExperienceEntries: workEntries,
     expectedSalary: pickPreferred(
       preferredPackageSalary(prefs),
       candidate.expectedSalary ??
@@ -807,10 +879,8 @@ function applyTenantStoredProfile(candidate) {
       ? prefs.preferredBenefits
       : candidate.expectedBenefits,
     careerPreferences: prefs,
-    experience: overviewExperienceYears({
-      ...candidate,
-      experienceYears: candidate.experienceYears,
-    }),
+    experience: experienceYears,
+    experienceYears,
     languageProficiency: pickPreferred(
       formatLanguageProficiencyList(
         languageRowsHaveProficiency(candidate.languages) ? candidate.languages : null,
@@ -1212,7 +1282,8 @@ export function buildTenantClientReviewPersistPatch(original, hydrated) {
 
   if (
     !isNonEmptyValue(origExtra.careerPreferences) &&
-    isNonEmptyValue(hydrated.careerPreferences)
+    isNonEmptyValue(hydrated.careerPreferences) &&
+    !isPortalCheckboxCareerPrefs(hydrated.careerPreferences)
   ) {
     nextExtra.careerPreferences = cloneJsonValue(hydrated.careerPreferences);
     extraChanged = true;

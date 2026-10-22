@@ -1,3 +1,4 @@
+import { isPortalCheckboxCareerPrefs } from './candidateCareerPreferencesModel';
 import type { ClientReviewBatchRow, ClientReviewData } from './clientReviewTypes';
 import type { ClientReviewSection } from './clientPresentationSections';
 import {
@@ -365,9 +366,24 @@ function careerPrefsOf(candidate: ClientReviewData['candidate']): Record<string,
     : {};
 }
 
+function flattenedPackagePrefs(candidate: ClientReviewData['candidate']): Record<string, unknown> {
+  return {
+    preferredSalary: candidate?.expectedSalary,
+    preferredCurrency: candidate?.expectedSalaryCurrency,
+    currentSalary: candidate?.currentSalary,
+    currentCurrency: candidate?.currentSalaryCurrency,
+    preferredBenefits: candidate?.expectedBenefits,
+    currentBenefits: candidate?.currentBenefits,
+  };
+}
+
 function overviewExpectedSalary(candidate: ClientReviewData['candidate']): unknown {
   const prefs = careerPrefsOf(candidate);
-  return prefs.preferredSalary ?? prefs.salaryAmount ?? candidate?.expectedSalary;
+  if (isPortalCheckboxCareerPrefs(prefs)) return undefined;
+  const fromPrefs = prefs.preferredSalary ?? prefs.salaryAmount;
+  if (fromPrefs != null && fromPrefs !== '') return fromPrefs;
+  if (isPortalCheckboxCareerPrefs(flattenedPackagePrefs(candidate))) return undefined;
+  return candidate?.expectedSalary;
 }
 
 function overviewCurrentSalary(candidate: ClientReviewData['candidate']): unknown {
@@ -397,6 +413,8 @@ export function clientReviewFieldFallbacks(
     !scoreHidden && Number.isFinite(Number(rawScore)) ? String(Math.round(Number(rawScore))) : '';
   const experience = overviewExperience(candidate);
   const prefs = careerPrefsOf(candidate);
+  const portalPackage = isPortalCheckboxCareerPrefs(prefs)
+    || isPortalCheckboxCareerPrefs(flattenedPackagePrefs(candidate));
   const birthDate = String(candidate.birthDate || '').trim();
   const age = storedAge(candidate.age) || ageFromBirthDate(birthDate);
   const extra = candidateExtra(candidate);
@@ -445,18 +463,26 @@ export function clientReviewFieldFallbacks(
       prefs.currentCurrency || candidate.currentSalaryCurrency || '',
     ).trim(),
     currentBenefits: joinList(
-      Object.prototype.hasOwnProperty.call(prefs, 'currentBenefits')
-        ? prefs.currentBenefits
-        : candidate.currentBenefits,
+      portalPackage
+        ? (isPortalCheckboxCareerPrefs(prefs) ? '' : prefs.currentBenefits)
+        : Object.prototype.hasOwnProperty.call(prefs, 'currentBenefits')
+          ? prefs.currentBenefits
+          : candidate.currentBenefits,
     ),
     expectedSalary: money(overviewExpectedSalary(candidate)),
     expectedSalaryCurrency: String(
-      prefs.preferredCurrency || prefs.salaryCurrency || candidate.expectedSalaryCurrency || '',
+      portalPackage
+        ? (isPortalCheckboxCareerPrefs(prefs)
+            ? ''
+            : prefs.preferredCurrency || prefs.salaryCurrency || '')
+        : prefs.preferredCurrency || prefs.salaryCurrency || candidate.expectedSalaryCurrency || '',
     ).trim(),
     expectedBenefits: joinList(
-      Object.prototype.hasOwnProperty.call(prefs, 'preferredBenefits')
-        ? prefs.preferredBenefits
-        : candidate.expectedBenefits,
+      portalPackage
+        ? (isPortalCheckboxCareerPrefs(prefs) ? '' : prefs.preferredBenefits)
+        : Object.prototype.hasOwnProperty.call(prefs, 'preferredBenefits')
+          ? prefs.preferredBenefits
+          : candidate.expectedBenefits,
     ),
     noticePeriod: String(candidate.noticePeriod || '').trim(),
     remarks: String(candidate.remarks || '').trim(),

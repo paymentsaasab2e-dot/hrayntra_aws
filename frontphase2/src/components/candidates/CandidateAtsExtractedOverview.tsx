@@ -250,9 +250,14 @@ function buildOverviewModel(candidate: CandidateProfileDrawerData) {
   const socialPipe = (pipeline.social || extra.social || {}) as Record<string, unknown>;
   const summaryPipe = (pipeline.summary || {}) as Record<string, unknown>;
   const educationPipe = (pipeline.education || {}) as Record<string, unknown>;
+  const extraCareer =
+    extra.careerPreferences && typeof extra.careerPreferences === 'object' && !Array.isArray(extra.careerPreferences)
+      ? (extra.careerPreferences as Record<string, unknown>)
+      : {};
   const careerPrefs = {
     ...(((phase1?.careerPreferences as Record<string, unknown> | null) || {})),
     ...(((candidate.careerPreferences as Record<string, unknown> | null) || {})),
+    ...extraCareer,
   };
 
   const eduEntries = (

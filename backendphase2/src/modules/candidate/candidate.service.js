@@ -51,6 +51,7 @@ import activityService, { ENTITY_TYPES } from '../../services/activityService.js
 import { appendEntityActivityVisibilityToWhere } from '../../services/activityVisibility.service.js';
 import { dbLogger } from '../../utils/db-logger.js';
 import { normalizePortalCareerPreferences } from '../../utils/normalizePortalCareerPreferences.js';
+import { isPortalCheckboxCareerPrefs } from '../../utils/clientPresentationDraft.js';
 import { generateMeetingLink } from '../../services/meetingService.js';
 import {
   sendCandidateAssignmentEmail,
@@ -3630,10 +3631,19 @@ function mergeCareerPreferencesIntoCandidate(candidate, careerPrefs) {
 
   // Preferred Package on Overview is source of truth: extraData.careerPreferences
   // (recruiter save), then snapshot, then portal career_preferences.
+  const hasCrmPackage =
+    (snapPrefs && !isPortalCheckboxCareerPrefs(snapPrefs)) ||
+    (extraPrefs && !isPortalCheckboxCareerPrefs(extraPrefs));
   const normalized = {
-    ...compactCareerPrefs(fromPortal, careerPrefs),
-    ...compactCareerPrefs(fromSnap, snapPrefs),
-    ...compactCareerPrefs(fromExtra, extraPrefs),
+    ...(hasCrmPackage && isPortalCheckboxCareerPrefs(careerPrefs)
+      ? {}
+      : compactCareerPrefs(fromPortal, careerPrefs)),
+    ...(hasCrmPackage && isPortalCheckboxCareerPrefs(snapPrefs)
+      ? {}
+      : compactCareerPrefs(fromSnap, snapPrefs)),
+    ...(hasCrmPackage && extraPrefs && isPortalCheckboxCareerPrefs(extraPrefs)
+      ? {}
+      : compactCareerPrefs(fromExtra, extraPrefs)),
   };
   const hasNormalized = Object.values(normalized).some((value) => {
     if (value == null || value === '') return false;

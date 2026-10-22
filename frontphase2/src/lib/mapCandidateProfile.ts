@@ -13,6 +13,7 @@ import {
 } from './phase1ProfileSnapshot';
 import { resolveCandidateExperienceYears } from './candidateExperience';
 import { normalizeCareerPreferencesRecord } from './normalizeCareerPreferencesRecord';
+import { isPortalCheckboxCareerPrefs } from './candidateCareerPreferencesModel';
 import {
   resolveCandidateAssignedJobTitles,
   resolveCandidateListStage,
@@ -671,14 +672,21 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
       ? (extraData.careerPreferences as Record<string, unknown>)
       : {};
   const careerPrefs = c.careerPreferences || null;
+  const snapCareerPrefs = (phase1Snap?.careerPreferences as Record<string, unknown> | null) || {};
+  const portalCareerPrefs = (careerPrefs as Record<string, unknown> | null) || {};
+  const crmCareerSources = [snapCareerPrefs, extraCareerPrefs].filter(
+    (row) => row && Object.keys(row).length && !isPortalCheckboxCareerPrefs(row),
+  );
   const mergedCareerPrefsRaw =
-    careerPrefs || phase1Snap?.careerPreferences || Object.keys(extraCareerPrefs).length
-      ? {
-          ...((phase1Snap?.careerPreferences as Record<string, unknown> | null) || {}),
-          ...((careerPrefs as Record<string, unknown> | null) || {}),
-          ...extraCareerPrefs,
-        }
-      : null;
+    crmCareerSources.length
+      ? Object.assign({}, ...crmCareerSources)
+      : careerPrefs || phase1Snap?.careerPreferences || Object.keys(extraCareerPrefs).length
+        ? {
+            ...snapCareerPrefs,
+            ...portalCareerPrefs,
+            ...extraCareerPrefs,
+          }
+        : null;
   const mergedCareerPrefs = normalizeCareerPreferencesRecord(
     mergedCareerPrefsRaw,
     c,

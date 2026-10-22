@@ -1612,15 +1612,17 @@ async function hydrateCandidateForPublicClientReview(candidate) {
         certifications: pickFilledClientReviewValue(next.certifications, common.certifications),
         resume: pickFilledClientReviewValue(next.resume || next.resumeUrl, common.resume || common.resumeUrl),
         resumeUrl: pickFilledClientReviewValue(next.resumeUrl || next.resume, common.resumeUrl || common.resume),
-        careerPreferences: pickFilledClientReviewValue(next.careerPreferences, common.careerPreferences),
+        // Never attach portal/common career_preferences (6500 USD checkboxes) over
+        // the tenant Overview package stored in extraData / phase1 snapshot.
+        careerPreferences: isFilledClientReviewValue(extra.careerPreferences)
+          ? extra.careerPreferences
+          : next.careerPreferences,
         profileSnapshot: pickFilledClientReviewValue(next.profileSnapshot, common.profileSnapshot),
         extraData: {
           ...commonExtra,
           ...extra,
           pipeline: mergeClientReviewPipeline(extra.pipeline, commonExtra.pipeline),
-          careerPreferences: isFilledClientReviewValue(extra.careerPreferences)
-            ? extra.careerPreferences
-            : common.careerPreferences || commonExtra.careerPreferences || extra.careerPreferences,
+          careerPreferences: extra.careerPreferences,
           phase1ProfileSnapshot:
             extra.phase1ProfileSnapshot && Object.keys(extra.phase1ProfileSnapshot).length
               ? extra.phase1ProfileSnapshot
@@ -1709,8 +1711,8 @@ async function serializeInterviewForClientReview(
     currentCompany: c.currentCompany || '',
     designation: c.designation || c.currentTitle || '',
     currentTitle: c.currentTitle || c.designation || '',
-    experience: c.experienceYears ?? c.experience ?? null,
-    experienceYears: c.experienceYears ?? c.experience ?? null,
+    experience: c.experience ?? c.experienceYears ?? null,
+    experienceYears: c.experience ?? c.experienceYears ?? null,
     skills: Array.isArray(c.skills) ? c.skills : [],
     languages: Array.isArray(c.languages) ? c.languages : [],
     languageProficiency: c.languageProficiency || '',
