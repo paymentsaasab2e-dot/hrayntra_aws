@@ -133,14 +133,21 @@ function buildLinkedInOAuthState({
   return `${core}${RETURN_ORIGIN_MARK}${encodeReturnOrigin(encodedReturn)}`;
 }
 
-function buildLinkedInAuthorizeUrl({ clientId, redirectUri, scopes, state }) {
+function buildLinkedInAuthorizeUrl({ clientId, redirectUri, scopes, state, prompt = '' }) {
   const authUrl = new URL('https://www.linkedin.com/oauth/v2/authorization');
   authUrl.searchParams.set('response_type', 'code');
   authUrl.searchParams.set('client_id', clientId);
   authUrl.searchParams.set('redirect_uri', redirectUri);
   authUrl.searchParams.set('scope', Array.isArray(scopes) ? scopes.join(' ') : String(scopes || ''));
   authUrl.searchParams.set('state', state);
+  if (prompt) authUrl.searchParams.set('prompt', prompt);
   return authUrl.toString();
+}
+
+/** User-started Connect / Add another: always show LinkedIn login, even if a session exists. */
+function buildLinkedInLoginAuthorizeUrl(options) {
+  const authorizeUrl = buildLinkedInAuthorizeUrl({ ...options, prompt: 'login' });
+  return `https://www.linkedin.com/uas/logout?session_redirect=${encodeURIComponent(authorizeUrl)}`;
 }
 
 async function exchangeLinkedInCode({ code, redirectUri, clientId, clientSecret }) {
@@ -188,17 +195,10 @@ export const linkedinController = {
       const tenantDbName = String(getActiveTenantDbName() || '').trim();
       const returnUrl = sanitizeReturnUrl(req.query?.returnUrl || req.query?.returnOrigin);
       const returnOrigin = sanitizeReturnOrigin(returnUrl || req.query?.returnOrigin);
-      const tokens = await linkedinService.getTokensByUserId(req.user.id);
-      const hasPersonal = tokens.some(
-        (token) => !isCmaLinkedInSub(token.linkedinSub) && new Date(token.expiresAt) > new Date(),
-      );
-      const hasCma = tokens.some(
-        (token) => isCmaLinkedInSub(token.linkedinSub) && new Date(token.expiresAt) > new Date(),
-      );
 
-      // Personal already connected and CMA app is configured → connect Company Page next.
-      const startCma = hasCmaLinkedInApp() && hasPersonal && !hasCma;
-      const purpose = startCma ? 'cma' : 'personal';
+      // Always start as personal + login. After that callback we attach Company Pages
+      // for the same LinkedIn member without asking them to log in a second time.
+      const purpose = 'personal';
       const state = buildLinkedInOAuthState({
         userId: req.user.id,
         tenantDbName,
@@ -206,32 +206,21 @@ export const linkedinController = {
         returnOrigin,
         returnUrl,
       });
-      const authUrl = startCma
-        ? buildLinkedInAuthorizeUrl({
-            clientId: env.LINKEDIN_CMA_CLIENT_ID,
-            redirectUri: env.LINKEDIN_CMA_REDIRECT_URI,
-            scopes: env.LINKEDIN_CMA_OAUTH_SCOPES,
-            state,
-          })
-        : buildLinkedInAuthorizeUrl({
-            clientId: env.LINKEDIN_CLIENT_ID,
-            redirectUri: env.LINKEDIN_REDIRECT_URI,
-            scopes: env.LINKEDIN_OAUTH_SCOPES,
-            state,
-          });
+      const authUrl = buildLinkedInLoginAuthorizeUrl({
+        clientId: env.LINKEDIN_CLIENT_ID,
+        redirectUri: env.LINKEDIN_REDIRECT_URI,
+        scopes: env.LINKEDIN_OAUTH_SCOPES,
+        state,
+      });
 
       console.log('\n🔗 LinkedIn OAuth Initiated');
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       console.log(`👤 User ID: ${req.user.id}`);
       console.log(`📧 User Email: ${req.user.email || 'N/A'}`);
-      console.log(`📦 App: ${purpose === 'cma' ? 'Community Management (Company Page)' : 'Share on LinkedIn (personal)'}`);
+      console.log('📦 App: Share on LinkedIn (personal) → Company Pages in same connect');
       console.log(`↩️  Return origin: ${returnOrigin || env.FRONTEND_URL}`);
       console.log(`↩️  Return URL: ${returnUrl || '(default /job)'}`);
-      console.log(
-        `🔗 Redirect URI: ${
-          purpose === 'cma' ? env.LINKEDIN_CMA_REDIRECT_URI : env.LINKEDIN_REDIRECT_URI
-        }`,
-      );
+      console.log(`🔗 Redirect URI: ${env.LINKEDIN_REDIRECT_URI}`);
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
       sendResponse(res, 200, 'LinkedIn auth URL generated', {
@@ -334,7 +323,7 @@ export const linkedinController = {
       console.log(`⏰ Token Expires: ${new Date(Date.now() + expires_in * 1000).toLocaleString()}`);
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
-      // After personal connect, continue into Company Page (CMA) OAuth when configured.
+      // Same LinkedIn session now grants Company Pages — do not prompt login again.
       if (!isCma && hasCmaLinkedInApp()) {
         const cmaState = buildLinkedInOAuthState({
           userId: finalUserId,

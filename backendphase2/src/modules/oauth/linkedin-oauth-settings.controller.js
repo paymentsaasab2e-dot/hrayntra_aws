@@ -24,8 +24,10 @@ export const linkedinOAuthSettingsController = {
       redirect_uri: env.LINKEDIN_OAUTH_REDIRECT_URI,
       scope: env.LINKEDIN_OAUTH_SCOPES.join(' '),
       state,
+      prompt: 'login',
     });
-    const url = `https://www.linkedin.com/oauth/v2/authorization?${params.toString()}`;
+    const authorizeUrl = `https://www.linkedin.com/oauth/v2/authorization?${params.toString()}`;
+    const url = `https://www.linkedin.com/uas/logout?session_redirect=${encodeURIComponent(authorizeUrl)}`;
     return sendResponse(res, 200, 'OAuth URL ready', { url });
   },
 
