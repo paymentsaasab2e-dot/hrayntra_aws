@@ -5,6 +5,7 @@ import {
   type Phase1ProfileSnapshot,
 } from '@/lib/phase1ProfileSnapshot';
 import { normalizeCareerPreferencesRecord } from '@/lib/normalizeCareerPreferencesRecord';
+import { isPortalCheckboxCareerPrefs } from '@/lib/candidateCareerPreferencesModel';
 import {
   dedupePortfolioLinksByUrl,
   filterPortfolioLinks,
@@ -296,14 +297,23 @@ export function resolvePhase1CareerPreferences(
   candidate: CandidateProfileDrawerData,
 ): Record<string, unknown> | null {
   const snapCareer = (snap?.careerPreferences as Record<string, unknown> | null) || null;
+  const extraCareer =
+    candidate.extraData?.careerPreferences &&
+    typeof candidate.extraData.careerPreferences === 'object' &&
+    !Array.isArray(candidate.extraData.careerPreferences)
+      ? (candidate.extraData.careerPreferences as Record<string, unknown>)
+      : null;
   const portalCareer = (candidate.careerPreferences as Record<string, unknown> | null) || null;
-  const snapAt = Date.parse(String(snap?._phase1SnapshotSavedAt || snap?._savedAt || ''));
-  const preferSnap = Boolean(snapCareer && Number.isFinite(snapAt) && snapAt > 0);
-
-  // Stamped Overview / Phase 1 snapshot wins over portal collection so CRM edits stick.
-  const merged = preferSnap
-    ? { ...(portalCareer || {}), ...(snapCareer || {}) }
-    : { ...(snapCareer || {}), ...(portalCareer || {}) };
+  const crmSources = [snapCareer, extraCareer].filter(
+    (row) => row && Object.keys(row).length && !isPortalCheckboxCareerPrefs(row),
+  );
+  const merged = crmSources.length
+    ? Object.assign({}, ...crmSources)
+    : {
+        ...(snapCareer || {}),
+        ...(portalCareer || {}),
+        ...(extraCareer || {}),
+      };
   return normalizeCareerPreferencesRecord(merged, candidate);
 }
 

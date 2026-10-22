@@ -3,7 +3,7 @@
  */
 
 import { buildPhase1ClientReviewSections } from './phase1ClientReviewSections.js';
-import { formatReviewText } from './clientPresentationDraft.js';
+import { formatReviewText, isPortalCheckboxCareerPrefs } from './clientPresentationDraft.js';
 
 const SECTION_LABELS = {
   personal: 'Personal Information',
@@ -1445,6 +1445,7 @@ export function hydrateClientReviewSections(sections, { candidate, matchScore } 
           const canOverwritePackage =
             OVERVIEW_LIVE_LABELS.has(key) &&
             next &&
+            (key === 'experience (years)' || !isPortalCheckboxCareerPrefs(prefs)) &&
             (!packageKeys || hasCareerPrefValue(prefs, packageKeys) || key === 'experience (years)');
           if (canOverwritePackage && String(row?.value ?? '').trim() !== String(next)) {
             return { ...row, value: next };

@@ -587,6 +587,24 @@ function mergeSectionsById(sections: ClientReviewSection[]): ClientReviewSection
         }
         continue;
       }
+      if (
+        key === 'expected salary' ||
+        key === 'expected salary currency' ||
+        key === 'current benefits' ||
+        key === 'expected benefits' ||
+        key === 'experience (years)'
+      ) {
+        const existing = professional.fields.find(
+          (field) => reviewFieldDedupeKey(field.label) === key,
+        );
+        if (existing && String(existing.value || '').trim()) continue;
+        const portalLike =
+          /car allowance|bachelor accommodation|food allowance|fuel and driver/.test(
+            String(row.value || '').toLowerCase(),
+          ) ||
+          (key === 'expected salary' && Number(String(row.value || '').replace(/,/g, '')) < 50000);
+        if (portalLike) continue;
+      }
       if (key === 'expected salary') {
         mappedPrefs.push({ label: 'Expected Salary', value: row.value });
         continue;

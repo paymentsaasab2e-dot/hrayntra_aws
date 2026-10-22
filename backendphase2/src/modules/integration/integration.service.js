@@ -422,6 +422,7 @@ export const integrationService = {
         redirect_uri: callbackUrl,
         scope: config.scopes.join(' '),
         state,
+        prompt: 'login',
       });
       return `https://www.linkedin.com/oauth/v2/authorization?${params.toString()}`;
     }
