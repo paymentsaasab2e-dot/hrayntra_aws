@@ -4348,19 +4348,34 @@ async function countMineUnionFast({ userId, jobIds }) {
     .filter(Boolean)
     .slice(0, resolveViewAllMineJobTake());
   const base = { isDeleted: { not: true } };
-  const [created, extraOnJobs] = await Promise.all([
+  // Mongo `$ne` does not match missing createdById — subtract two indexed counts instead.
+  const [createdKeep, onJobs, onJobsCreatedByMe] = await Promise.all([
     prisma.candidate.count({
-      where: { AND: [base, { createdById: uid }, { NOT: { source: 'phase1' } }] },
+      where: {
+        AND: [
+          base,
+          { createdById: uid },
+          {
+            OR: [
+              { NOT: { source: 'phase1' } },
+              ...(jobs.length ? [{ assignedJobs: { hasSome: jobs } }] : []),
+            ],
+          },
+        ],
+      },
     }),
     jobs.length
       ? prisma.candidate.count({
-          where: {
-            AND: [base, { assignedJobs: { hasSome: jobs } }, { NOT: { createdById: uid } }],
-          },
+          where: { AND: [base, { assignedJobs: { hasSome: jobs } }] },
+        })
+      : Promise.resolve(0),
+    jobs.length
+      ? prisma.candidate.count({
+          where: { AND: [base, { assignedJobs: { hasSome: jobs } }, { createdById: uid }] },
         })
       : Promise.resolve(0),
   ]);
-  return created + extraOnJobs;
+  return createdKeep + Math.max(0, onJobs - onJobsCreatedByMe);
 }
 
 /**
@@ -5864,18 +5879,19 @@ export const candidateService = {
           status ||
           assignedToId,
       );
-      const countCacheKey = buildCandidateCountCacheKey(req, {
-        loadCommonPool,
-        mine,
-        tenantWhere: where,
-      });
+      const useMineUnion =
+        Boolean(mine) && Boolean(req.user?.id) && !hasActiveListFilters && !requestedIds.length;
+      const countCacheKey =
+        buildCandidateCountCacheKey(req, {
+          loadCommonPool,
+          mine,
+          tenantWhere: where,
+        }) + (useMineUnion ? '\u0001union-v2' : '');
       const cachedTotal = readCandidateCountCache(countCacheKey);
       const COUNT_WAIT_MS = Math.min(
         800,
         Math.max(250, Number(process.env.CANDIDATE_MINE_COUNT_WAIT_MS || 500) || 500),
       );
-      const useMineUnion =
-        Boolean(mine) && Boolean(req.user?.id) && !hasActiveListFilters && !requestedIds.length;
       let pageIndexRows;
       let racedCount = cachedTotal;
       if (useMineUnion) {
