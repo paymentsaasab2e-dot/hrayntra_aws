@@ -178,17 +178,17 @@ export function CandidateStreamlinedProfileEdit({
     onChange('careerPreferences', { ...prefs, ...updates });
   };
 
-  const currentSalaryValue = form.currentSalary || careerScalar(prefs, 'currentSalary');
+  const currentSalaryValue = careerScalar(prefs, 'currentSalary') || form.currentSalary;
   const currentBenefitsValue =
-    form.currentBenefits || careerScalar(prefs, 'currentBenefits');
+    careerScalar(prefs, 'currentBenefits') || form.currentBenefits;
   const expectedSalaryValue =
-    form.expectedSalary ||
     careerScalar(prefs, 'preferredSalary') ||
-    careerScalar(prefs, 'salaryAmount');
+    careerScalar(prefs, 'salaryAmount') ||
+    form.expectedSalary;
   const expectedBenefitsValue =
-    form.expectedBenefits || careerScalar(prefs, 'preferredBenefits');
-  const noticePeriodValue = form.noticePeriod || careerScalar(prefs, 'noticePeriod');
-  const locationValue = form.location || careerScalar(prefs, 'currentLocation');
+    careerScalar(prefs, 'preferredBenefits') || form.expectedBenefits;
+  const noticePeriodValue = careerScalar(prefs, 'noticePeriod') || form.noticePeriod;
+  const locationValue = careerScalar(prefs, 'currentLocation') || form.location;
 
   return (
     <div className="space-y-5">

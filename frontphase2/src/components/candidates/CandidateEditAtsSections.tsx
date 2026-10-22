@@ -125,6 +125,23 @@ function str(value: unknown): string {
   return String(value).trim();
 }
 
+function formatCareerPrefList(value: unknown): string {
+  if (Array.isArray(value)) {
+    return value.map((item) => str(item)).filter(Boolean).join(', ');
+  }
+  return str(value);
+}
+
+function formatCareerPrefNumber(value: unknown): string {
+  if (value === null || value === undefined || value === '') return '';
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? String(numeric) : str(value);
+}
+
+function hasCareerPrefKey(record: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, key);
+}
+
 const GENDER_OPTIONS = [
   { label: 'Male', value: 'Male' },
   { label: 'Female', value: 'Female' },
@@ -291,12 +308,18 @@ export function buildCandidateEditForm(candidate: CandidateProfileDrawerData): C
     phone: candidate.phone && candidate.phone !== 'â€”' ? candidate.phone : '',
     linkedIn: candidate.linkedIn || str(social.linkedIn) || '',
     currentTitle:
-      candidate.currentTitle && candidate.currentTitle !== 'â€”' ? candidate.currentTitle : '',
+      str(careerPreferences.currentRole) ||
+      (candidate.currentTitle && candidate.currentTitle !== 'â€”' ? candidate.currentTitle : ''),
     currentCompany:
-      candidate.currentCompany && candidate.currentCompany !== 'â€”' ? candidate.currentCompany : '',
+      str(careerPreferences.currentOrganization) ||
+      str(careerPreferences.currentCompany) ||
+      (candidate.currentCompany && candidate.currentCompany !== 'â€”' ? candidate.currentCompany : ''),
     experience:
-      candidate.totalNoOfExperience != null ? String(candidate.totalNoOfExperience) : '',
-    location: candidate.location && candidate.location !== 'â€”' ? candidate.location : '',
+      formatCareerPrefNumber(candidate.experience) ||
+      (candidate.totalNoOfExperience != null ? String(candidate.totalNoOfExperience) : ''),
+    location:
+      str(careerPreferences.currentLocation) ||
+      (candidate.location && candidate.location !== 'â€”' ? candidate.location : ''),
     stage: candidate.stage && candidate.stage !== 'â€”' ? candidate.stage : 'Applied',
     status: candidate.status && candidate.status !== 'â€”' ? candidate.status : 'NEW',
     source: candidate.source && candidate.source !== 'â€”' ? candidate.source : '',
@@ -312,13 +335,25 @@ export function buildCandidateEditForm(candidate: CandidateProfileDrawerData): C
       return [...new Set(merged)];
     })(),
     noticePeriod:
-      candidate.noticePeriod && candidate.noticePeriod !== 'â€”' ? candidate.noticePeriod : '',
-    availability: candidate.cvAvailability || candidate.availability || 'available',
-    salaryCurrency: candidate.salaryCurrency || 'INR',
+      str(careerPreferences.noticePeriod) ||
+      (candidate.noticePeriod && candidate.noticePeriod !== 'â€”' ? candidate.noticePeriod : ''),
+    availability:
+      str(careerPreferences.availabilityToStart) ||
+      candidate.cvAvailability ||
+      candidate.availability ||
+      'available',
+    salaryCurrency:
+      str(careerPreferences.preferredCurrency) ||
+      str(careerPreferences.currentCurrency) ||
+      candidate.salaryCurrency ||
+      'INR',
     expectedSalary:
-      candidate.expectedSalaryValue != null ? String(candidate.expectedSalaryValue) : '',
+      formatCareerPrefNumber(careerPreferences.preferredSalary) ||
+      formatCareerPrefNumber(careerPreferences.salaryAmount) ||
+      (candidate.expectedSalaryValue != null ? String(candidate.expectedSalaryValue) : ''),
     currentSalary:
-      candidate.currentSalaryValue != null ? String(candidate.currentSalaryValue) : '',
+      formatCareerPrefNumber(careerPreferences.currentSalary) ||
+      (candidate.currentSalaryValue != null ? String(candidate.currentSalaryValue) : ''),
     address: candidate.cvAddress || str(personal.currentAddress) || '',
     city: candidate.cvCity || resolvedPersonal.city || '',
     state: str(personal.state),
@@ -372,22 +407,18 @@ export function buildCandidateEditForm(candidate: CandidateProfileDrawerData): C
       str(professional.remarks) ||
       str(extra.remarks) ||
       '',
-    currentBenefits:
-      str(professional.currentBenefits) ||
-      (Array.isArray(careerPreferences.currentBenefits)
-        ? careerPreferences.currentBenefits.join('; ')
-        : str(careerPreferences.currentBenefits)),
-    expectedBenefits:
-      str(professional.expectedBenefits) ||
-      (Array.isArray(careerPreferences.preferredBenefits)
-        ? careerPreferences.preferredBenefits.join('; ')
-        : str(careerPreferences.preferredBenefits)),
+    currentBenefits: hasCareerPrefKey(careerPreferences, 'currentBenefits')
+      ? formatCareerPrefList(careerPreferences.currentBenefits)
+      : str(professional.currentBenefits),
+    expectedBenefits: hasCareerPrefKey(careerPreferences, 'preferredBenefits')
+      ? formatCareerPrefList(careerPreferences.preferredBenefits)
+      : str(professional.expectedBenefits),
     currentSalaryCurrency:
-      str(professional.currentSalaryCurrency) || str(careerPreferences.currentCurrency),
+      str(careerPreferences.currentCurrency) || str(professional.currentSalaryCurrency),
     expectedSalaryCurrency:
-      str(professional.expectedSalaryCurrency) ||
       str(careerPreferences.preferredCurrency) ||
-      str(careerPreferences.salaryCurrency),
+      str(careerPreferences.salaryCurrency) ||
+      str(professional.expectedSalaryCurrency),
     extracurricular:
       joinSemicolonList(professional.extracurricularActivities) ||
       joinSemicolonList(extra.extracurricularActivities),
@@ -410,6 +441,23 @@ export function buildCandidateEditForm(candidate: CandidateProfileDrawerData): C
     projects: joinSemicolonList(extra.projects),
     hackathons: joinSemicolonList(extra.hackathons),
     careerPreferences,
+    p1CurrentRole: str(careerPreferences.currentRole),
+    p1PreferredJobTitles: formatCareerPrefList(
+      careerPreferences.preferredJobTitles || careerPreferences.preferredRoles,
+    ),
+    p1PreferredIndustries: formatCareerPrefList(
+      careerPreferences.preferredIndustries || careerPreferences.preferredIndustry,
+    ),
+    p1FunctionalAreas: formatCareerPrefList(
+      careerPreferences.functionalAreas || careerPreferences.functionalArea,
+    ),
+    p1JobTypes: formatCareerPrefList(careerPreferences.jobTypes),
+    p1WorkModes: formatCareerPrefList(
+      careerPreferences.workModes || careerPreferences.preferredWorkMode,
+    ),
+    p1PreferredLocations: formatCareerPrefList(careerPreferences.preferredLocations),
+    p1Relocation: str(careerPreferences.relocationPreference),
+    p1AvailabilityToStart: str(careerPreferences.availabilityToStart),
   };
 }
 

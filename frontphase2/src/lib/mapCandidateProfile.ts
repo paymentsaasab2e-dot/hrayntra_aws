@@ -660,20 +660,38 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
     color: getTagColor(String(tag)),
   }));
 
+  const extraData =
+    c.extraData && typeof c.extraData === 'object' && !Array.isArray(c.extraData)
+      ? (c.extraData as Record<string, unknown>)
+      : {};
+  const extraCareerPrefs =
+    extraData.careerPreferences &&
+    typeof extraData.careerPreferences === 'object' &&
+    !Array.isArray(extraData.careerPreferences)
+      ? (extraData.careerPreferences as Record<string, unknown>)
+      : {};
   const careerPrefs = c.careerPreferences || null;
   const mergedCareerPrefsRaw =
-    careerPrefs || phase1Snap?.careerPreferences
+    careerPrefs || phase1Snap?.careerPreferences || Object.keys(extraCareerPrefs).length
       ? {
           ...((phase1Snap?.careerPreferences as Record<string, unknown> | null) || {}),
           ...((careerPrefs as Record<string, unknown> | null) || {}),
+          ...extraCareerPrefs,
         }
       : null;
   const mergedCareerPrefs = normalizeCareerPreferencesRecord(
     mergedCareerPrefsRaw,
     c,
   ) as CandidateProfileDrawerData['careerPreferences'] | null;
+  const packagePreferredSalary = toNum(
+    mergedCareerPrefs?.preferredSalary ?? c.expectedSalary ?? null,
+  );
+  const packageCurrentSalary = toNum(
+    mergedCareerPrefs?.currentSalary ?? c.currentSalary ?? null,
+  );
+  const resolvedExperienceYears = resolveCandidateExperienceYears(c);
   const expectedSalaryFromPrefs = formatCandidateSalaryDisplay(
-    toNum(c.expectedSalary ?? mergedCareerPrefs?.preferredSalary ?? null),
+    packagePreferredSalary,
     mergedCareerPrefs?.preferredCurrency || c.salary?.currency || null,
     mergedCareerPrefs?.preferredSalaryType || null
   );
@@ -703,8 +721,9 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
     currentTitle: c.currentTitle || null,
     currentCompany: c.currentCompany || null,
     stage,
-    experience: resolveCandidateExperienceYears(c) ?? 0,
+    experience: resolvedExperienceYears ?? 0,
     totalNoOfExperience:
+      resolvedExperienceYears ??
       toNum(c.experience) ??
       toNum((c as { experienceYears?: number | null }).experienceYears),
     location: c.location || '—',
@@ -713,9 +732,13 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
     linkedIn: c.linkedIn || null,
     designation: c.currentTitle || null,
     expectedSalary: expectedSalaryDisplay || '—',
-    expectedSalaryValue: toNum(c.expectedSalary ?? mergedCareerPrefs?.preferredSalary ?? null),
-    currentSalaryValue: toNum(c.currentSalary ?? mergedCareerPrefs?.currentSalary ?? null),
-    salaryCurrency: mergedCareerPrefs?.preferredCurrency || c.salary?.currency || 'INR',
+    expectedSalaryValue: packagePreferredSalary,
+    currentSalaryValue: packageCurrentSalary,
+    salaryCurrency:
+      mergedCareerPrefs?.preferredCurrency ||
+      mergedCareerPrefs?.currentCurrency ||
+      c.salary?.currency ||
+      'INR',
     noticePeriod: c.noticePeriod || mergedCareerPrefs?.noticePeriod || '—',
     careerPreferences: mergedCareerPrefs,
     // Prefer the explicitly-assigned job (set via the candidate edit modal) over
@@ -746,13 +769,13 @@ export function mapCandidateProfile(raw: BackendCandidate): CandidateProfileDraw
     cvAvailability: c.availability || mergedCareerPrefs?.availabilityToStart || null,
     cvExpectedSalary:
       formatCandidateSalaryDisplay(
-        toNum(c.expectedSalary ?? mergedCareerPrefs?.preferredSalary ?? null),
+        packagePreferredSalary,
         mergedCareerPrefs?.preferredCurrency || c.salary?.currency || null,
         mergedCareerPrefs?.preferredSalaryType || null
       ) || salary.expected || null,
     cvCurrentSalary:
       formatCandidateSalaryDisplay(
-        toNum(c.currentSalary ?? mergedCareerPrefs?.currentSalary ?? null),
+        packageCurrentSalary,
         mergedCareerPrefs?.currentCurrency || mergedCareerPrefs?.preferredCurrency || c.salary?.currency || null,
         mergedCareerPrefs?.currentSalaryType || null
       ) || null,

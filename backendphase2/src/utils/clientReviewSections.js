@@ -1402,9 +1402,38 @@ const OVERVIEW_LIVE_LABELS = new Set([
   'current employer',
 ]);
 
+const PACKAGE_LIVE_PREF_KEYS = {
+  'expected salary': ['preferredSalary', 'salaryAmount'],
+  'expected salary currency': ['preferredCurrency', 'salaryCurrency'],
+  'current salary': ['currentSalary'],
+  'current salary currency': ['currentCurrency'],
+  'current benefits': ['currentBenefits'],
+  'expected benefits': ['preferredBenefits'],
+  'notice period': ['noticePeriod'],
+  'current designation': ['currentRole'],
+  'current employer': ['currentOrganization', 'currentCompany'],
+};
+
+function hasCareerPrefValue(prefs, keys) {
+  if (!prefs || !Array.isArray(keys)) return false;
+  return keys.some((key) => {
+    if (!Object.prototype.hasOwnProperty.call(prefs, key)) return false;
+    const value = prefs[key];
+    if (value == null || value === '') return false;
+    if (Array.isArray(value)) return value.some((item) => String(item || '').trim());
+    return true;
+  });
+}
+
 /** Fill empty drawer fields from the same candidate + match payload the table uses. */
 export function hydrateClientReviewSections(sections, { candidate, matchScore } = {}) {
   const fallbacks = fallbackValuesFromCandidate(candidate || {}, matchScore);
+  const prefs =
+    candidate?.careerPreferences &&
+    typeof candidate.careerPreferences === 'object' &&
+    !Array.isArray(candidate.careerPreferences)
+      ? candidate.careerPreferences
+      : {};
   return (Array.isArray(sections) ? sections : []).map((section) => {
     const fields = Array.isArray(section?.fields)
       ? section.fields.map((row) => {
@@ -1412,7 +1441,12 @@ export function hydrateClientReviewSections(sections, { candidate, matchScore } 
             .trim()
             .toLowerCase();
           const next = fallbacks[key];
-          if (next && OVERVIEW_LIVE_LABELS.has(key) && String(row?.value ?? '').trim() !== String(next)) {
+          const packageKeys = PACKAGE_LIVE_PREF_KEYS[key];
+          const canOverwritePackage =
+            OVERVIEW_LIVE_LABELS.has(key) &&
+            next &&
+            (!packageKeys || hasCareerPrefValue(prefs, packageKeys) || key === 'experience (years)');
+          if (canOverwritePackage && String(row?.value ?? '').trim() !== String(next)) {
             return { ...row, value: next };
           }
           if (!isBlankClientReviewValue(row?.value)) return row;

@@ -142,10 +142,12 @@ export function mergeCareerPreferencesRecord(
       ? (extra.careerPreferences as Record<string, unknown>)
       : {};
 
+  // Recruiter Current/Preferred Package (extraData.careerPreferences) wins over
+  // stale portal career_preferences and Phase-1 checkbox lists.
   const merged: Record<string, unknown> = {
     ...(((phase1?.careerPreferences as Record<string, unknown> | null) || {})),
-    ...extraCareer,
     ...(((candidate.careerPreferences as Record<string, unknown> | null) || {})),
+    ...extraCareer,
     ...(override || {}),
   };
 
@@ -154,16 +156,33 @@ export function mergeCareerPreferencesRecord(
     return Boolean(String(value ?? '').trim());
   };
 
-  if (!hasList(merged.currentBenefits) && professional.currentBenefits) {
+  if (
+    !hasList(merged.currentBenefits) &&
+    professional.currentBenefits &&
+    !Object.prototype.hasOwnProperty.call(extraCareer, 'currentBenefits')
+  ) {
     merged.currentBenefits = professional.currentBenefits;
   }
-  if (!hasList(merged.preferredBenefits) && professional.expectedBenefits) {
+  if (
+    !hasList(merged.preferredBenefits) &&
+    professional.expectedBenefits &&
+    !Object.prototype.hasOwnProperty.call(extraCareer, 'preferredBenefits')
+  ) {
     merged.preferredBenefits = professional.expectedBenefits;
   }
-  if (!String(merged.currentCurrency ?? '').trim() && professional.currentSalaryCurrency) {
+  if (
+    !String(merged.currentCurrency ?? '').trim() &&
+    professional.currentSalaryCurrency &&
+    !Object.prototype.hasOwnProperty.call(extraCareer, 'currentCurrency')
+  ) {
     merged.currentCurrency = professional.currentSalaryCurrency;
   }
-  if (!String(merged.preferredCurrency ?? '').trim() && professional.expectedSalaryCurrency) {
+  if (
+    !String(merged.preferredCurrency ?? '').trim() &&
+    professional.expectedSalaryCurrency &&
+    !Object.prototype.hasOwnProperty.call(extraCareer, 'preferredCurrency') &&
+    !Object.prototype.hasOwnProperty.call(extraCareer, 'salaryCurrency')
+  ) {
     merged.preferredCurrency = professional.expectedSalaryCurrency;
   }
   if (!String(merged.reasonForJobChange ?? '').trim()) {
