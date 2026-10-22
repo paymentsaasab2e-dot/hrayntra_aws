@@ -1009,7 +1009,8 @@ export function useCandidateList() {
       if (
         !smartSearchCandidateIds?.length &&
         !debouncedSearch &&
-        !listFilterBits.includeCommonPool
+        !listFilterBits.includeCommonPool &&
+        !listFilterBits.mine
       ) {
         const neighbors = [activePage - 1, activePage + 1].filter((p) => p >= 1);
         void Promise.allSettled(

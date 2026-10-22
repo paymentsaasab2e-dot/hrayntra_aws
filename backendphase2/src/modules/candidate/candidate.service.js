@@ -1220,7 +1220,7 @@ const candidateListIncludeFast = {
   applications: {
     select: { id: true, jobId: true, status: true, job: { select: { id: true, title: true } } },
     orderBy: { appliedAt: 'desc' },
-    take: 15,
+    take: 4,
   },
   pipelineEntries: {
     select: {
@@ -1228,7 +1228,7 @@ const candidateListIncludeFast = {
       jobId: true,
       stage: { select: { name: true } },
     },
-    take: 15,
+    take: 4,
   },
   matches: {
     select: {
@@ -1239,12 +1239,12 @@ const candidateListIncludeFast = {
       job: { select: { id: true, title: true } },
     },
     orderBy: { createdAt: 'desc' },
-    take: 10,
+    take: 3,
   },
   interviews: {
     select: { id: true, jobId: true, status: true, scheduledAt: true, job: { select: { id: true, title: true } } },
     orderBy: { scheduledAt: 'desc' },
-    take: 8,
+    take: 3,
   },
 };
 
@@ -4078,6 +4078,12 @@ function warmupCandidateListIndexes() {
   if (CANDIDATE_LIST_INDEX_READY.has(dbKey)) return;
   CANDIDATE_LIST_INDEX_READY.add(dbKey);
   if (typeof prisma?.$runCommandRaw !== 'function') return;
+  const ignoreExists = (err) => {
+    const msg = String(err?.message || err);
+    if (/already exists|IndexOptionsConflict|IndexKeySpecsConflict/i.test(msg)) return;
+    CANDIDATE_LIST_INDEX_READY.delete(dbKey);
+    console.warn('[candidates.list] list index skipped:', msg.split('\n')[0]);
+  };
   void prisma
     .$runCommandRaw({
       createIndexes: 'applications',
@@ -4089,14 +4095,24 @@ function warmupCandidateListIndexes() {
         },
       ],
     })
-    .catch((err) => {
-      const msg = String(err?.message || err);
-      if (/already exists|IndexOptionsConflict|IndexKeySpecsConflict/i.test(msg)) {
-        return;
-      }
-      CANDIDATE_LIST_INDEX_READY.delete(dbKey);
-      console.warn('[candidates.list] applications jobId index skipped:', msg.split('\n')[0]);
-    });
+    .catch(ignoreExists);
+  void prisma
+    .$runCommandRaw({
+      createIndexes: 'candidates',
+      indexes: [
+        {
+          key: { createdById: 1, updatedAt: -1 },
+          name: 'candidates_createdById_updatedAt',
+          background: true,
+        },
+        {
+          key: { assignedToId: 1, updatedAt: -1 },
+          name: 'candidates_assignedToId_updatedAt',
+          background: true,
+        },
+      ],
+    })
+    .catch(ignoreExists);
 }
 
 function mineLinkCacheKey(jobIds) {
@@ -4252,6 +4268,99 @@ async function buildMineCandidatesScope(userId, knownJobIds, { viewAll = false }
       },
     ],
   };
+}
+
+function mineListSortTs(row) {
+  const t = row?.updatedAt || row?.createdAt;
+  const n = t ? new Date(t).getTime() : 0;
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * Mine first page must not OR 13k+ documents. Take N from each indexed membership
+ * (createdBy / assignedTo / participant / assignedJobs) and merge. Same people as
+ * buildMineCandidatesScope; cost stays O(page) as the tenant grows toward millions.
+ */
+async function fetchMineUnionPageIndex({ userId, jobIds, skip, limit }) {
+  const uid = String(userId || '').trim();
+  const take = Math.min(500, Math.max(Number(limit) || 25, Number(skip) + Number(limit)));
+  if (!uid || take <= 0) return [];
+  const jobs = (Array.isArray(jobIds) ? jobIds : [])
+    .map((id) => String(id || '').trim())
+    .filter(Boolean)
+    .slice(0, resolveViewAllMineJobTake());
+  const base = { isDeleted: { not: true } };
+  const orderBy = [{ updatedAt: 'desc' }, { createdAt: 'desc' }];
+  const select = { id: true, updatedAt: true, createdAt: true };
+  const queries = [
+    prisma.candidate.findMany({
+      where: { AND: [base, { createdById: uid }, { NOT: { source: 'phase1' } }] },
+      select,
+      orderBy,
+      take,
+    }),
+    prisma.candidate.findMany({
+      where: { AND: [base, { assignedToId: uid }] },
+      select,
+      orderBy,
+      take,
+    }),
+    prisma.candidate.findMany({
+      where: { AND: [base, { participantIds: { has: uid } }] },
+      select,
+      orderBy,
+      take,
+    }),
+  ];
+  if (jobs.length) {
+    queries.push(
+      prisma.candidate.findMany({
+        where: { AND: [base, { assignedJobs: { hasSome: jobs } }] },
+        select,
+        orderBy,
+        take,
+      }),
+    );
+  }
+  const buckets = await Promise.all(queries.map((promise) => promise.catch(() => [])));
+  const byId = new Map();
+  for (const rows of buckets) {
+    for (const row of rows) {
+      const id = String(row?.id || '').trim();
+      if (!id) continue;
+      const prior = byId.get(id);
+      if (!prior || mineListSortTs(row) >= mineListSortTs(prior)) byId.set(id, row);
+    }
+  }
+  return [...byId.values()]
+    .sort((a, b) => {
+      const delta = mineListSortTs(b) - mineListSortTs(a);
+      return delta !== 0 ? delta : String(b.id).localeCompare(String(a.id));
+    })
+    .slice(Math.max(0, skip), Math.max(0, skip) + Math.max(1, Number(limit) || 25));
+}
+
+async function countMineUnionFast({ userId, jobIds }) {
+  const uid = String(userId || '').trim();
+  if (!uid) return 0;
+  const jobs = (Array.isArray(jobIds) ? jobIds : [])
+    .map((id) => String(id || '').trim())
+    .filter(Boolean)
+    .slice(0, resolveViewAllMineJobTake());
+  const base = { isDeleted: { not: true } };
+  const [created, extraOnJobs] = await Promise.all([
+    prisma.candidate.count({
+      where: { AND: [base, { createdById: uid }, { NOT: { source: 'phase1' } }] },
+    }),
+    jobs.length
+      ? prisma.candidate.count({
+          where: {
+            AND: [base, { assignedJobs: { hasSome: jobs } }, { NOT: { createdById: uid } }],
+          },
+        })
+      : Promise.resolve(0),
+  ]);
+  return created + extraOnJobs;
 }
 
 /**
@@ -5765,30 +5874,53 @@ export const candidateService = {
         800,
         Math.max(250, Number(process.env.CANDIDATE_MINE_COUNT_WAIT_MS || 500) || 500),
       );
-      // Page first. A parallel count of the mine OR starved Atlas (~2.5s page).
-      const pageIndexRows = await prisma.candidate.findMany({
-        where,
-        select: { id: true },
-        ...(candidateListFindOrderBy(search)
-          ? { orderBy: candidateListFindOrderBy(search) }
-          : {}),
-        skip,
-        take: limit,
-      });
+      const useMineUnion =
+        Boolean(mine) && Boolean(req.user?.id) && !hasActiveListFilters && !requestedIds.length;
+      let pageIndexRows;
       let racedCount = cachedTotal;
-      if (cachedTotal == null) {
-        const countPromise = prisma.candidate.count({ where }).then((value) => {
-          writeCandidateCountCache(countCacheKey, value);
-          return value;
-        });
-        racedCount = await Promise.race([
-          countPromise,
-          new Promise((resolve) => {
-            setTimeout(() => resolve(null), COUNT_WAIT_MS);
+      if (useMineUnion) {
+        const [unionRows, unionTotal] = await Promise.all([
+          fetchMineUnionPageIndex({
+            userId: req.user.id,
+            jobIds: myJobIds,
+            skip,
+            limit,
           }),
+          cachedTotal != null
+            ? Promise.resolve(cachedTotal)
+            : countMineUnionFast({ userId: req.user.id, jobIds: myJobIds }).then((value) => {
+                writeCandidateCountCache(countCacheKey, value);
+                return value;
+              }),
         ]);
-        if (racedCount == null) {
-          void countPromise.catch(() => null);
+        pageIndexRows = unionRows;
+        racedCount = unionTotal;
+        perfMarks.sourceCounts = `mine-union jobs=${Array.isArray(myJobIds) ? myJobIds.length : 0}`;
+      } else {
+        // Page first. A parallel count of the mine OR starved Atlas (~2.5s page).
+        pageIndexRows = await prisma.candidate.findMany({
+          where,
+          select: { id: true },
+          ...(candidateListFindOrderBy(search)
+            ? { orderBy: candidateListFindOrderBy(search) }
+            : {}),
+          skip,
+          take: limit,
+        });
+        if (cachedTotal == null) {
+          const countPromise = prisma.candidate.count({ where }).then((value) => {
+            writeCandidateCountCache(countCacheKey, value);
+            return value;
+          });
+          racedCount = await Promise.race([
+            countPromise,
+            new Promise((resolve) => {
+              setTimeout(() => resolve(null), COUNT_WAIT_MS);
+            }),
+          ]);
+          if (racedCount == null) {
+            void countPromise.catch(() => null);
+          }
         }
       }
       const pageIds = pageIndexRows.map((row) => String(row.id)).filter(Boolean);
@@ -5812,7 +5944,9 @@ export const candidateService = {
         perfMarks.count = Math.round(candidatePerfNow() - tQ);
       }
       perfMarks.tenantQuery = Math.round(candidatePerfNow() - tQ);
-      perfMarks.sourceCounts = `tenant-only mine=${mine ? '1' : '0'} filtered=${hasActiveListFilters ? 1 : 0}`;
+      if (!perfMarks.sourceCounts) {
+        perfMarks.sourceCounts = `tenant-only mine=${mine ? '1' : '0'} filtered=${hasActiveListFilters ? 1 : 0}`;
+      }
       total = rowTotal;
       candidates = await attachPlacementsToCandidates(pageRows);
     }
