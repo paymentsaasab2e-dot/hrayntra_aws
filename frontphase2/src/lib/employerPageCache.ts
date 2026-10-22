@@ -69,8 +69,8 @@ const jobsMetricsCache = createSessionCache<Record<string, unknown>>({
 });
 
 const candidatesCache = createSessionCache<EmployerCandidatesSnapshot>({
-  // v2: stage dropdown needs pipelineJobId from applications/matches, not only assignedJobs
-  prefix: `${PREFIX}candidates:v2:`,
+  // v3: My Candidates membership is tenant-job/owner, not All's 21k CRM clause
+  prefix: `${PREFIX}candidates:v3:`,
   staleMs: EMPLOYER_LIST_STALE_MS,
   isValid: isCandidatesSnap,
 });

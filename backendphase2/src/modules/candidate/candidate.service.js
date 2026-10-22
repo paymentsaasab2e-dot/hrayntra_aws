@@ -4028,10 +4028,10 @@ async function resolveMineListJobIds(req, { canViewAll = false, tenantJobIdSet =
       return Array.from(tenantJobIdSet)
         .map((id) => String(id || '').trim())
         .filter(Boolean)
-        .slice(0, Math.max(resolveMineJobTake(), 500));
+        .slice(0, resolveViewAllMineJobTake());
     }
     const visible = await getVisibleTenantJobIds(req, false, {
-      take: Math.max(resolveMineJobTake(), 500),
+      take: resolveViewAllMineJobTake(),
     });
     if (visible.length) return visible.map((id) => String(id));
   }
@@ -4047,6 +4047,13 @@ function resolveMineJobTake() {
   const raw = Number(process.env.CANDIDATE_MINE_JOB_TAKE);
   if (Number.isFinite(raw) && raw > 0) return Math.min(500, Math.max(50, raw));
   return 200;
+}
+
+/** View-all Mine membership uses tenant job ids (not a 2k candidate-id union). */
+function resolveViewAllMineJobTake() {
+  const raw = Number(process.env.CANDIDATE_MINE_VIEW_ALL_JOB_TAKE);
+  if (Number.isFinite(raw) && raw > 0) return Math.min(2000, Math.max(200, raw));
+  return 2000;
 }
 
 function resolveMineLinkTake() {
@@ -4189,11 +4196,29 @@ async function buildMineCandidatesScope(userId, knownJobIds, { viewAll = false }
   if (!userId) {
     return { id: { in: [] } };
   }
-  // View-all Mine is tenant CRM minus unlinked Phase 1 — the same indexed
-  // clause All already uses. Prefetching 2k link IDs + hasSome(jobIds) made
-  // first click ~3s and still under-counted vs the real CRM set.
+  // View-all Mine: created/assigned to me, or assigned to a tenant job.
+  // Do NOT use All's CRM clause — that includes unassigned / Phase 1 rows and
+  // made the tab show ~21k (All) instead of ~19k. Do NOT prefetch 2k link IDs.
   if (viewAll) {
-    return buildCrmCandidatesListScopeClause();
+    const tenantJobIds = (Array.isArray(knownJobIds) ? knownJobIds : [])
+      .map((id) => String(id || '').trim())
+      .filter(Boolean)
+      .slice(0, resolveViewAllMineJobTake());
+    const orClause = buildAssigneeVisibilityOr(userId);
+    if (tenantJobIds.length) {
+      orClause.push({ assignedJobs: { hasSome: tenantJobIds } });
+    }
+    return {
+      AND: [
+        { OR: orClause },
+        {
+          OR: [
+            { NOT: { source: 'phase1' } },
+            ...(tenantJobIds.length ? [{ assignedJobs: { hasSome: tenantJobIds } }] : []),
+          ],
+        },
+      ],
+    };
   }
   const myJobIds = Array.isArray(knownJobIds)
     ? knownJobIds.map((id) => String(id || '').trim()).filter(Boolean)
@@ -5366,7 +5391,9 @@ export const candidateService = {
     // the soft-delete column existed) without tripping Prisma's "Argument isDeleted is missing".
     andParts.push({ isDeleted: { not: true } });
     // Smart Search / ?ids= is an exact lookup. Extra list scopes drop valid matches.
-    if (!requestedIds.length && tenantJobIdSet && tenantJobIdSet.size > 0) {
+    // Mine must not use the All-tab `assignedJobs isEmpty` clause — that re-includes
+    // unassigned Phase 1 / empty-job rows and inflates My Candidates to the All count.
+    if (!requestedIds.length && !mine && tenantJobIdSet && tenantJobIdSet.size > 0) {
       const tenantJobIds = Array.from(tenantJobIdSet)
         .map((id) => String(id || '').trim())
         .filter(Boolean)
