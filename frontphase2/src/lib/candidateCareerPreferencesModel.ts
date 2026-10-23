@@ -224,6 +224,48 @@ export function mergeCareerPreferencesRecord(
       merged.preferredCurrency = professional.expectedSalaryCurrency;
     }
   }
+
+  const filled = (value: unknown) => {
+    if (value === undefined || value === null || value === '') return false;
+    return true;
+  };
+  const skipSmallXafPortalAmount = (value: unknown, currency: string) => {
+    const amount = Number(String(value ?? '').replace(/[^\d.-]/g, ''));
+    return Number.isFinite(amount) && amount > 0 && amount < 50000 && /^(XAF|XOF)$/.test(currency);
+  };
+  if (!filled(merged.preferredSalary) && !filled(merged.salaryAmount)) {
+    const crmCurrency = String(merged.preferredCurrency || merged.salaryCurrency || '')
+      .trim()
+      .toUpperCase();
+    const salaryFallbacks = [
+      professional.expectedSalary,
+      extra.expectedSalary,
+      candidate.expectedSalaryValue,
+      (candidate as { expectedSalary?: unknown }).expectedSalary,
+    ];
+    for (const fallback of salaryFallbacks) {
+      if (!filled(fallback)) continue;
+      if (skipSmallXafPortalAmount(fallback, crmCurrency)) continue;
+      merged.preferredSalary = fallback;
+      merged.salaryAmount = fallback;
+      break;
+    }
+  }
+  if (!filled(merged.currentSalary)) {
+    const currentCurrency = String(merged.currentCurrency || '').trim().toUpperCase();
+    const currentFallbacks = [
+      professional.currentSalary,
+      extra.currentSalary,
+      candidate.currentSalaryValue,
+      (candidate as { currentSalary?: unknown }).currentSalary,
+    ];
+    for (const fallback of currentFallbacks) {
+      if (!filled(fallback)) continue;
+      if (skipSmallXafPortalAmount(fallback, currentCurrency)) continue;
+      merged.currentSalary = fallback;
+      break;
+    }
+  }
   if (!String(merged.reasonForJobChange ?? '').trim()) {
     const fromRemarks =
       display(professional.remarks) ||

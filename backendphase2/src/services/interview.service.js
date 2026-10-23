@@ -1766,7 +1766,13 @@ async function serializeInterviewForClientReview(
     maritalStatus: c.maritalStatus || '',
     passportNumber: c.passportNumber || '',
     currentCompanyWebsite: c.currentCompanyWebsite || '',
-    currentSalary: c.careerPreferences?.currentSalary ?? c.currentSalary ?? '',
+    currentSalary:
+      [
+        c.careerPreferences?.currentSalary,
+        c.currentSalary,
+        c.salary?.current,
+        c.salary?.min,
+      ].find((value) => value !== undefined && value !== null && value !== '') ?? '',
     currentSalaryCurrency:
       c.careerPreferences?.currentCurrency || c.currentSalaryCurrency || '',
     // Prefer empty Preferred Package benefits over stale portal checkbox strings.
@@ -1774,10 +1780,13 @@ async function serializeInterviewForClientReview(
       c.currentBenefits === undefined || c.currentBenefits === null ? '' : c.currentBenefits,
     careerPreferences: c.careerPreferences || null,
     expectedSalary:
-      c.careerPreferences?.preferredSalary ??
-      c.careerPreferences?.salaryAmount ??
-      c.expectedSalary ??
-      '',
+      [
+        c.careerPreferences?.preferredSalary,
+        c.careerPreferences?.salaryAmount,
+        c.expectedSalary,
+        c.salary?.expected,
+        c.salary?.max,
+      ].find((value) => value !== undefined && value !== null && value !== '') ?? '',
     expectedSalaryCurrency:
       c.careerPreferences?.preferredCurrency ||
       c.careerPreferences?.salaryCurrency ||

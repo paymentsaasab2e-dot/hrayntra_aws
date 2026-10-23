@@ -355,7 +355,17 @@ function storedAge(value: unknown): string {
 
 function money(value: unknown): string {
   if (value === undefined || value === null || value === '') return '';
-  return String(value).trim();
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value.toLocaleString();
+  }
+  const text = String(value).trim();
+  if (!text) return '';
+  const compact = text.replace(/[^\d.-]/g, '');
+  const numeric = Number(compact);
+  if (Number.isFinite(numeric) && /^\d[\d,.\s']*$/.test(text)) {
+    return numeric.toLocaleString();
+  }
+  return text;
 }
 
 function careerPrefsOf(candidate: ClientReviewData['candidate']): Record<string, unknown> {
@@ -377,18 +387,50 @@ function flattenedPackagePrefs(candidate: ClientReviewData['candidate']): Record
   };
 }
 
+function firstFilledSalary(...values: unknown[]): unknown {
+  for (const value of values) {
+    if (value === undefined || value === null || value === '') continue;
+    return value;
+  }
+  return undefined;
+}
+
 function overviewExpectedSalary(candidate: ClientReviewData['candidate']): unknown {
   const prefs = careerPrefsOf(candidate);
-  if (isPortalCheckboxCareerPrefs(prefs)) return undefined;
-  const fromPrefs = prefs.preferredSalary ?? prefs.salaryAmount;
-  if (fromPrefs != null && fromPrefs !== '') return fromPrefs;
-  if (isPortalCheckboxCareerPrefs(flattenedPackagePrefs(candidate))) return undefined;
-  return candidate?.expectedSalary;
+  const rec = candidate as Record<string, unknown> | undefined;
+  const salary = rec?.salary && typeof rec.salary === 'object' && !Array.isArray(rec.salary)
+    ? (rec.salary as Record<string, unknown>)
+    : {};
+  const fromPrefs = firstFilledSalary(prefs.preferredSalary, prefs.salaryAmount);
+  if (fromPrefs != null && !isPortalCheckboxCareerPrefs(prefs)) return fromPrefs;
+  const fromCandidate = firstFilledSalary(
+    candidate?.expectedSalary,
+    salary.expected,
+    salary.max,
+  );
+  if (fromCandidate != null && !isPortalCheckboxCareerPrefs(flattenedPackagePrefs(candidate))) {
+    return fromCandidate;
+  }
+  return fromPrefs ?? fromCandidate;
 }
 
 function overviewCurrentSalary(candidate: ClientReviewData['candidate']): unknown {
   const prefs = careerPrefsOf(candidate);
-  return prefs.currentSalary ?? candidate?.currentSalary;
+  const rec = candidate as Record<string, unknown> | undefined;
+  const salary = rec?.salary && typeof rec.salary === 'object' && !Array.isArray(rec.salary)
+    ? (rec.salary as Record<string, unknown>)
+    : {};
+  const fromPrefs = firstFilledSalary(prefs.currentSalary);
+  if (fromPrefs != null && !isPortalCheckboxCareerPrefs(prefs)) return fromPrefs;
+  const fromCandidate = firstFilledSalary(
+    candidate?.currentSalary,
+    salary.current,
+    salary.min,
+  );
+  if (fromCandidate != null && !isPortalCheckboxCareerPrefs(flattenedPackagePrefs(candidate))) {
+    return fromCandidate;
+  }
+  return fromPrefs ?? fromCandidate;
 }
 
 function overviewExperience(candidate: ClientReviewData['candidate']): string {

@@ -709,11 +709,57 @@ function mergeCareerPreferencesLikeOverview(candidate) {
     }
   }
 
+  const skipSmallXafPortalAmount = (value, currency) => {
+    const amount = Number(String(value).replace(/[^\d.-]/g, ''));
+    return Number.isFinite(amount) && amount > 0 && amount < 50000 && /^(XAF|XOF)$/.test(currency);
+  };
+
+  if (!isNonEmptyValue(merged.preferredSalary) && !isNonEmptyValue(merged.salaryAmount)) {
+    const crmCurrency = String(merged.preferredCurrency || merged.salaryCurrency || '')
+      .trim()
+      .toUpperCase();
+    const salaryFallbacks = [
+      professional.expectedSalary,
+      extra.expectedSalary,
+      candidate?.expectedSalary,
+      readPlainObject(candidate?.salary).expected,
+      readPlainObject(candidate?.salary).max,
+    ];
+    for (const fallback of salaryFallbacks) {
+      if (!isNonEmptyValue(fallback)) continue;
+      if (skipSmallXafPortalAmount(fallback, crmCurrency)) continue;
+      merged.preferredSalary = fallback;
+      merged.salaryAmount = fallback;
+      break;
+    }
+  }
+
+  if (!isNonEmptyValue(merged.currentSalary)) {
+    const currentCurrency = String(merged.currentCurrency || '')
+      .trim()
+      .toUpperCase();
+    const currentFallbacks = [
+      professional.currentSalary,
+      extra.currentSalary,
+      candidate?.currentSalary,
+      readPlainObject(candidate?.salary).current,
+      readPlainObject(candidate?.salary).min,
+    ];
+    for (const fallback of currentFallbacks) {
+      if (!isNonEmptyValue(fallback)) continue;
+      if (skipSmallXafPortalAmount(fallback, currentCurrency)) continue;
+      merged.currentSalary = fallback;
+      break;
+    }
+  }
+
   return merged;
 }
 
 function preferredPackageSalary(prefs) {
-  return prefs?.preferredSalary ?? prefs?.salaryAmount ?? null;
+  if (isNonEmptyValue(prefs?.preferredSalary)) return prefs.preferredSalary;
+  if (isNonEmptyValue(prefs?.salaryAmount)) return prefs.salaryAmount;
+  return null;
 }
 
 function languageRowsHaveProficiency(value) {
