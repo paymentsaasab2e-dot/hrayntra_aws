@@ -388,15 +388,23 @@ const applyPickerCvMeta = useCallback((
   const defaultVersion =
     meta.resumeVersions.find((row) => row.isPrimary) || meta.resumeVersions[0] || null;
   if (defaultVersion?.id) {
-    setPickerResumeFileIdById((prev) => ({ ...prev, [candidateId]: defaultVersion.id }));
+    setPickerResumeFileIdById((prev) =>
+      prev[candidateId] ? prev : { ...prev, [candidateId]: defaultVersion.id },
+    );
   }
   const mode = resolveDefaultCvShareMode(candidate, meta.hasOriginal, meta.hasSaasa);
-  if (mode === 'original' || mode === 'saasa') {
-    setPickerCvModeById((prev) => ({ ...prev, [candidateId]: mode }));
-  } else if (meta.hasOriginal) {
-    setPickerCvModeById((prev) => ({ ...prev, [candidateId]: 'original' }));
-  } else if (meta.hasSaasa) {
-    setPickerCvModeById((prev) => ({ ...prev, [candidateId]: 'saasa' }));
+  const fallbackMode =
+    mode === 'original' || mode === 'saasa'
+      ? mode
+      : meta.hasOriginal
+        ? 'original'
+        : meta.hasSaasa
+          ? 'saasa'
+          : null;
+  if (fallbackMode) {
+    setPickerCvModeById((prev) =>
+      prev[candidateId] ? prev : { ...prev, [candidateId]: fallbackMode },
+    );
   }
   return meta;
 }, []);

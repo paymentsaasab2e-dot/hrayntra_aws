@@ -545,7 +545,14 @@ export async function resolveSaasaCvShareUrl(candidate, candidateFiles = [], sna
     normalizeShareableFileUrl(bag?.fileUrl),
     normalizeShareableFileUrl(snapshotUrl),
   ].filter(Boolean);
-  return candidates.find((url) => !urlsLookLikeSameFile(url, originalResume)) || '';
+  const distinct = candidates.find((url) => !urlsLookLikeSameFile(url, originalResume));
+  if (distinct) return distinct;
+  const looksLikeHryantraFile =
+    row &&
+    (/^SAASA_CV$/i.test(String(row.fileType || '').trim()) ||
+      /hryantra[_\s-]*cv/i.test(String(row.fileName || '')));
+  if (looksLikeHryantraFile) return normalizeShareableFileUrl(row.fileUrl);
+  return normalizeShareableFileUrl(bag?.fileUrl) || '';
 }
 
 const readCandidateCvShareMode = (candidate) => {
@@ -554,12 +561,32 @@ const readCandidateCvShareMode = (candidate) => {
   return normalizeCvShareMode(extra.cvSubmission?.shareMode);
 };
 
+/**
+ * Batch review links store one JWT `cvShareMode` (the candidate who owns the
+ * short code). Each picker pill is persisted on that candidate's
+ * extraData.cvSubmission.shareMode — that per-candidate value must win.
+ */
+const resolveReviewCvShareMode = (candidate, decoded = null) =>
+  readCandidateCvShareMode(candidate) ||
+  normalizeCvShareMode(decoded?.cvShareMode) ||
+  'edited';
+
 const readCandidateResumeFileId = (candidate, decoded = null) => {
-  const fromToken = String(decoded?.resumeFileId || '').trim();
-  if (fromToken) return fromToken;
   const extra = candidate?.extraData;
-  if (!extra || typeof extra !== 'object' || Array.isArray(extra)) return '';
-  return String(extra.cvSubmission?.resumeFileId || '').trim();
+  const fromCandidate =
+    extra && typeof extra === 'object' && !Array.isArray(extra)
+      ? String(extra.cvSubmission?.resumeFileId || '').trim()
+      : '';
+  if (fromCandidate) return fromCandidate;
+  const tokenCandidateId = String(decoded?.candidateId || '').trim();
+  const thisId = String(candidate?.id || '').trim();
+  if (tokenCandidateId && thisId && tokenCandidateId !== thisId) return '';
+  return String(decoded?.resumeFileId || '').trim();
+};
+
+const resolveReviewResumeFileId = (candidate, decoded = null) => {
+  if (resolveReviewCvShareMode(candidate, decoded) !== 'original') return '';
+  return readCandidateResumeFileId(candidate, decoded);
 };
 
 async function resolveSharedResumeFileUrl(candidateId, resumeFileId, files = []) {
@@ -1694,6 +1721,10 @@ async function serializeInterviewForClientReview(
 ) {
   const tenantRow = await loadFullTenantCandidateForClientReview(interview.candidate);
   const cRaw = await hydrateCandidateForPublicClientReview(tenantRow);
+  cvShareMode =
+    readCandidateCvShareMode(cRaw) ||
+    normalizeCvShareMode(cvShareMode) ||
+    'edited';
   // Public review uses the live tenant + Phase 1 snapshot, not a sparse saved overlay.
   const c = candidateFromTenantDbForClientReview(cRaw);
   await persistMissingClientReviewProfileToTenant(tenantRow, c);
@@ -1803,9 +1834,9 @@ async function serializeInterviewForClientReview(
   const saasaFullSnapshot = Boolean(saasaCvUrl) && saasaBag?.fullSnapshot === true;
 
   const resolvedResumeFileId =
-    String(resumeFileId || '').trim() ||
-    readCandidateResumeFileId(cRaw) ||
-    '';
+    cvShareMode === 'original'
+      ? String(resumeFileId || '').trim() || readCandidateResumeFileId(cRaw) || ''
+      : '';
   const versionResumeUrl =
     cvShareMode === 'original' && resolvedResumeFileId
       ? await resolveSharedResumeFileUrl(
@@ -3124,8 +3155,6 @@ export const interviewService = {
     const publicToken = access.publicToken || token;
     const tenantDbName = await resolveReviewTenant(decoded);
     const submissionType = normalizeSubmissionType(decoded?.submissionType) || 'GENERAL';
-    const cvShareMode = normalizeCvShareMode(decoded?.cvShareMode) || 'edited';
-    const tokenResumeFileId = String(decoded?.resumeFileId || '').trim();
     const batchMatchIds = normalizeBatchMatchIds(decoded);
     const isBatchReview = !decoded.interviewId && batchMatchIds.length > 1;
 
@@ -3157,12 +3186,8 @@ export const interviewService = {
             ]);
             return serializeInterviewForClientReview(interview, {
               submissionType,
-              cvShareMode:
-                normalizeCvShareMode(decoded?.cvShareMode) ||
-                readCandidateCvShareMode(match.candidate) ||
-                cvShareMode,
-              resumeFileId:
-                readCandidateResumeFileId(match.candidate, decoded) || tokenResumeFileId,
+              cvShareMode: resolveReviewCvShareMode(match.candidate, decoded),
+              resumeFileId: resolveReviewResumeFileId(match.candidate, decoded),
               offerLetterFile: offerFile,
               matchId: match.id,
               trackerOptions: resolveReviewTrackerOptions(match.candidate, decoded),
@@ -3256,12 +3281,8 @@ export const interviewService = {
 
     const payload = await serializeInterviewForClientReview(interview, {
       submissionType,
-      cvShareMode:
-        normalizeCvShareMode(decoded?.cvShareMode) ||
-        readCandidateCvShareMode(interview.candidate) ||
-        cvShareMode,
-      resumeFileId:
-        readCandidateResumeFileId(interview.candidate, decoded) || tokenResumeFileId,
+      cvShareMode: resolveReviewCvShareMode(interview.candidate, decoded),
+      resumeFileId: resolveReviewResumeFileId(interview.candidate, decoded),
       offerLetterFile,
       matchId: decoded.matchId || interview.id,
       trackerOptions: resolveReviewTrackerOptions(interview.candidate, decoded),
