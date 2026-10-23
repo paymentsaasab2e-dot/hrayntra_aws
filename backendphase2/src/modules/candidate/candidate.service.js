@@ -50,7 +50,7 @@ import { resolveInterviewTimeZone, zonedWallClockToDate } from '../../utils/zone
 import activityService, { ENTITY_TYPES } from '../../services/activityService.js';
 import { appendEntityActivityVisibilityToWhere } from '../../services/activityVisibility.service.js';
 import { dbLogger } from '../../utils/db-logger.js';
-import { normalizePortalCareerPreferences } from '../../utils/normalizePortalCareerPreferences.js';
+import { normalizePortalCareerPreferences, parseSalaryNumber } from '../../utils/normalizePortalCareerPreferences.js';
 import { isPortalCheckboxCareerPrefs } from '../../utils/clientPresentationDraft.js';
 import { generateMeetingLink } from '../../services/meetingService.js';
 import {
@@ -6402,8 +6402,8 @@ export const candidateService = {
         updateData[key] = null;
         continue;
       }
-      const parsed = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
-      updateData[key] = Number.isFinite(parsed) ? parsed : null;
+      const parsed = parseSalaryNumber(raw);
+      updateData[key] = parsed == null ? null : Math.round(parsed);
     }
 
     if (Object.prototype.hasOwnProperty.call(data || {}, 'dateOfBirth')) {

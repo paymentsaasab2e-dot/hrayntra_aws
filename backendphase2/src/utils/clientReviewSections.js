@@ -1329,7 +1329,10 @@ function fallbackValuesFromCandidate(candidate, matchScore) {
     'current employer': String(candidate?.currentCompany || '').trim(),
     'experience (years)': experience,
     'candidate score': score,
-    'current salary': money(prefs.currentSalary ?? candidate?.currentSalary),
+    'current salary': money(
+      [prefs.currentSalary, candidate?.currentSalary, candidate?.salary?.current, candidate?.salary?.min]
+        .find((value) => value !== undefined && value !== null && value !== '') ?? '',
+    ),
     'current salary currency': formatReviewText(
       prefs.currentCurrency || candidate?.currentSalaryCurrency,
     ),
@@ -1340,7 +1343,8 @@ function fallbackValuesFromCandidate(candidate, matchScore) {
     ),
     // Preferred Package salary wins over stale Candidate.expectedSalary column (Overview parity).
     'expected salary': money(
-      prefs.preferredSalary ?? prefs.salaryAmount ?? candidate?.expectedSalary,
+      [prefs.preferredSalary, prefs.salaryAmount, candidate?.expectedSalary, candidate?.salary?.expected, candidate?.salary?.max]
+        .find((value) => value !== undefined && value !== null && value !== '') ?? '',
     ),
     'expected salary currency': formatReviewText(
       prefs.preferredCurrency || prefs.salaryCurrency || candidate?.expectedSalaryCurrency,
@@ -1446,7 +1450,11 @@ export function hydrateClientReviewSections(sections, { candidate, matchScore } 
             OVERVIEW_LIVE_LABELS.has(key) &&
             next &&
             (key === 'experience (years)' || !isPortalCheckboxCareerPrefs(prefs)) &&
-            (!packageKeys || hasCareerPrefValue(prefs, packageKeys) || key === 'experience (years)');
+            (!packageKeys ||
+              hasCareerPrefValue(prefs, packageKeys) ||
+              key === 'experience (years)' ||
+              key === 'expected salary' ||
+              key === 'current salary');
           if (canOverwritePackage && String(row?.value ?? '').trim() !== String(next)) {
             return { ...row, value: next };
           }

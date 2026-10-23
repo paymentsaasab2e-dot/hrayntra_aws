@@ -66,10 +66,35 @@ function filterPassportNumbers(passportNumbersByLocation) {
   );
 }
 
-function parseNullableNumber(value) {
+export function parseSalaryNumber(value) {
   if (value === null || value === undefined || value === '') return null;
-  const parsed = Number(value);
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  const text = String(value).trim();
+  if (!text) return null;
+  let normalized = text.replace(/[^\d.,-]/g, '');
+  if (!normalized) return null;
+  const commaCount = (normalized.match(/,/g) || []).length;
+  const dotCount = (normalized.match(/\./g) || []).length;
+  if (commaCount > 1 && dotCount === 0) {
+    normalized = normalized.replace(/,/g, '');
+  } else if (dotCount > 1 && commaCount === 0) {
+    normalized = normalized.replace(/\./g, '');
+  } else if (commaCount && dotCount) {
+    normalized =
+      normalized.lastIndexOf(',') > normalized.lastIndexOf('.')
+        ? normalized.replace(/\./g, '').replace(',', '.')
+        : normalized.replace(/,/g, '');
+  } else if (commaCount === 1 && /,\d{3}$/.test(normalized)) {
+    normalized = normalized.replace(',', '');
+  } else if (commaCount === 1) {
+    normalized = normalized.replace(',', '.');
+  }
+  const parsed = Number(normalized);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseNullableNumber(value) {
+  return parseSalaryNumber(value);
 }
 
 /**
