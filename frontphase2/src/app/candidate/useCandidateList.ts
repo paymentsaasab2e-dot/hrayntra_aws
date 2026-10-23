@@ -242,10 +242,6 @@ function extractCandidatesPaginationTotal(
   return Number.isFinite(total) && total >= 0 ? total : fallbackLength;
 }
 
-/** Parallel warm batches: ~75–100 rows × 2–3 requests (same All/My filters). */
-const CANDIDATE_WARM_BATCH_SIZE = 75;
-const CANDIDATE_WARM_PARALLEL_BATCHES = 3;
-
 function cacheCandidateUiPagesFromBatch(opts: {
   mapped: Candidate[];
   total: number;
@@ -893,13 +889,10 @@ export function useCandidateList() {
         matchingCandidateIds: smartSearchCandidateIds,
       };
 
-      const includeCommonPool =
-        activeListTab === 'all' && shouldIncludePhase1CommonPool();
-      const useWarmParallel =
+      const paintFirstPageOnly =
         !smartSearchCandidateIds?.length &&
         !debouncedSearch &&
-        activePage === 1 &&
-        pageSize <= CANDIDATE_WARM_BATCH_SIZE;
+        activePage === 1;
 
       const paintPage = (
         mapped: Candidate[],
@@ -935,17 +928,14 @@ export function useCandidateList() {
         }
       };
 
-      if (useWarmParallel) {
-        // With Phase 1 common pool: fetch page 1 first (avoids stampedes that timeout
-        // commonQuery), then warm neighbor pages sequentially so they hit the backend cache.
-        // Without common pool: keep 2–3 parallel warm batches.
-        const batchSize = CANDIDATE_WARM_BATCH_SIZE;
-        const batchCount = includeCommonPool ? 1 : CANDIDATE_WARM_PARALLEL_BATCHES;
-
-        const fetchWarmBatch = (apiPage: number) => {
+      if (paintFirstPageOnly) {
+        // First paint is one page at the UI page size. Parallel 75-row warms used
+        // to stampede Atlas on My Candidates (3× mine-scope + hydrate) and made
+        // the first click slower, not faster. Neighbors warm after the table shows.
+        const fetchListPage = (apiPage: number) => {
           const queryParams = buildCandidatesListApiParams({
             page: apiPage,
-            limit: batchSize,
+            limit: pageSize,
             ...listFilterBits,
           });
           return apiGetCandidates(queryParams, { signal: abortController.signal })
@@ -973,95 +963,21 @@ export function useCandidateList() {
             });
         };
 
-        const batchPromises = Array.from({ length: batchCount }, (_, idx) =>
-          fetchWarmBatch(idx + 1),
-        );
-
-        const settled = await Promise.allSettled(batchPromises);
+        const first = await fetchListPage(1);
         if (requestId !== loadCandidatesRequestIdRef.current) return;
+        if (!first) return;
 
-        const firstOk = settled.find(
-          (row): row is PromiseFulfilledResult<{
-            apiPage: number;
-            mapped: Candidate[];
-            backendCandidates: BackendCandidate[];
-            total: number;
-          } | null> =>
-            row.status === 'fulfilled' && row.value != null && row.value.apiPage === 1,
-        );
-        const first =
-          firstOk?.value ||
-          settled.find(
-            (row): row is PromiseFulfilledResult<{
-              apiPage: number;
-              mapped: Candidate[];
-              backendCandidates: BackendCandidate[];
-              total: number;
-            } | null> => row.status === 'fulfilled' && row.value != null,
-          )?.value;
-
-        if (!first) {
-          const rejected = settled.find((row) => row.status === 'rejected') as
-            | PromiseRejectedResult
-            | undefined;
-          if (rejected?.reason) throw rejected.reason;
-          return;
-        }
-
-        const uiSlice = first.mapped.slice(0, pageSize);
-        paintPage(uiSlice, first.backendCandidates.slice(0, pageSize), first.total);
+        paintPage(first.mapped, first.backendCandidates, first.total);
         cacheCandidateUiPagesFromBatch({
           mapped: first.mapped,
           total: first.total,
-          apiPage: first.apiPage,
-          batchSize,
+          apiPage: 1,
+          batchSize: pageSize,
           pageSize,
           tab: activeListTab,
           search: debouncedSearch || '',
           filterSig: candidatesFilterSig,
         });
-
-        for (const result of settled) {
-          if (result.status !== 'fulfilled' || !result.value) continue;
-          if (result.value.apiPage === first.apiPage) continue;
-          if (prefetchGen !== candidatePrefetchGenRef.current) break;
-          cacheCandidateUiPagesFromBatch({
-            mapped: result.value.mapped,
-            total: result.value.total || first.total,
-            apiPage: result.value.apiPage,
-            batchSize,
-            pageSize,
-            tab: activeListTab,
-            search: debouncedSearch || '',
-            filterSig: candidatesFilterSig,
-          });
-        }
-
-        if (includeCommonPool && CANDIDATE_WARM_PARALLEL_BATCHES > 1) {
-          void (async () => {
-            for (let apiPage = 2; apiPage <= CANDIDATE_WARM_PARALLEL_BATCHES; apiPage += 1) {
-              if (prefetchGen !== candidatePrefetchGenRef.current) return;
-              if (abortController.signal.aborted) return;
-              try {
-                const warm = await fetchWarmBatch(apiPage);
-                if (!warm) continue;
-                if (prefetchGen !== candidatePrefetchGenRef.current) return;
-                cacheCandidateUiPagesFromBatch({
-                  mapped: warm.mapped,
-                  total: warm.total || first.total,
-                  apiPage: warm.apiPage,
-                  batchSize,
-                  pageSize,
-                  tab: activeListTab,
-                  search: debouncedSearch || '',
-                  filterSig: candidatesFilterSig,
-                });
-              } catch {
-                // Warm is best-effort; page navigation will fetch on demand.
-              }
-            }
-          })();
-        }
         return;
       }
 
@@ -1090,7 +1006,12 @@ export function useCandidateList() {
       const total = extractCandidatesPaginationTotal(payload as any, mapped.length);
       paintPage(mapped, backendCandidates, total);
 
-      if (!smartSearchCandidateIds?.length && !debouncedSearch) {
+      if (
+        !smartSearchCandidateIds?.length &&
+        !debouncedSearch &&
+        !listFilterBits.includeCommonPool &&
+        !listFilterBits.mine
+      ) {
         const neighbors = [activePage - 1, activePage + 1].filter((p) => p >= 1);
         void Promise.allSettled(
           neighbors.map((p) => {
@@ -1433,7 +1354,11 @@ export function useCandidateList() {
     router.replace(`/candidate?${params.toString()}`, { scroll: false });
   }, [listTab, filters, columnFilters, router]);
 
+  const pipelineOptionsStartedRef = useRef(false);
   useEffect(() => {
+    if (loading) return;
+    if (pipelineOptionsStartedRef.current) return;
+    pipelineOptionsStartedRef.current = true;
     let cancelled = false;
 
     async function loadPipelineOptions() {
@@ -1496,11 +1421,11 @@ export function useCandidateList() {
       }
     }
 
-    loadPipelineOptions();
+    void loadPipelineOptions();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loading]);
 
   const filteredCandidates = useMemo(() => {
     if (smartSearchCandidateIds.length > 0) {

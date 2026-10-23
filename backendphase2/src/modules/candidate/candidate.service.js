@@ -106,7 +106,7 @@ function isPhase1CandidateRecord(candidate) {
 }
 
 /** All non-deleted job ids in the active tenant DB (used to scope cross-pool merges). */
-const TENANT_JOB_ID_CACHE_TTL_MS = 30_000;
+const TENANT_JOB_ID_CACHE_TTL_MS = 120_000;
 const TENANT_JOB_ID_CACHE = new Map();
 
 function tenantJobCacheKey(suffix = 'all') {
@@ -1220,7 +1220,7 @@ const candidateListIncludeFast = {
   applications: {
     select: { id: true, jobId: true, status: true, job: { select: { id: true, title: true } } },
     orderBy: { appliedAt: 'desc' },
-    take: 15,
+    take: 4,
   },
   pipelineEntries: {
     select: {
@@ -1228,7 +1228,7 @@ const candidateListIncludeFast = {
       jobId: true,
       stage: { select: { name: true } },
     },
-    take: 15,
+    take: 4,
   },
   matches: {
     select: {
@@ -1239,12 +1239,12 @@ const candidateListIncludeFast = {
       job: { select: { id: true, title: true } },
     },
     orderBy: { createdAt: 'desc' },
-    take: 10,
+    take: 3,
   },
   interviews: {
     select: { id: true, jobId: true, status: true, scheduledAt: true, job: { select: { id: true, title: true } } },
     orderBy: { scheduledAt: 'desc' },
-    take: 8,
+    take: 3,
   },
 };
 
@@ -1309,16 +1309,23 @@ async function hydrateCandidateListRows(client, ids) {
   });
 }
 
-async function hydrateMergedCandidatePage(mergedIndex, skip, limit, { req, loadCommonPool }) {
+async function hydrateMergedCandidatePage(
+  mergedIndex,
+  skip,
+  limit,
+  { req, loadCommonPool, livePortalMerge = false },
+) {
   const slice = mergedIndex.slice(skip, skip + limit);
   const pageIds = slice.map((row) => row.id);
   if (!pageIds.length) return [];
 
   let portalClient = null;
-  try {
-    portalClient = getJobPortalPrismaClient();
-  } catch {
-    portalClient = null;
+  if (livePortalMerge) {
+    try {
+      portalClient = getJobPortalPrismaClient();
+    } catch {
+      portalClient = null;
+    }
   }
 
   const [tenantRows, portalRows, commonRows] = await Promise.all([
@@ -3991,13 +3998,20 @@ async function getMyJobIds(userId, { take } = {}) {
       : Number(take) > 0
         ? Number(take)
         : resolveMineJobTake();
+  const cacheKey = tenantJobCacheKey(`myjobs:${userId}:${resolvedTake || 'all'}`);
+  const hit = TENANT_JOB_ID_CACHE.get(cacheKey);
+  if (hit && Date.now() - hit.at < TENANT_JOB_ID_CACHE_TTL_MS) {
+    return hit.ids.slice();
+  }
   const myJobs = await prisma.job.findMany({
     where: buildMyJobsWhereClause(userId),
     select: { id: true },
     orderBy: { updatedAt: 'desc' },
     ...(resolvedTake ? { take: resolvedTake } : {}),
   });
-  return myJobs.map((j) => String(j.id));
+  const ids = myJobs.map((j) => String(j.id));
+  TENANT_JOB_ID_CACHE.set(cacheKey, { at: Date.now(), ids });
+  return ids;
 }
 
 /**
@@ -4014,10 +4028,10 @@ async function resolveMineListJobIds(req, { canViewAll = false, tenantJobIdSet =
       return Array.from(tenantJobIdSet)
         .map((id) => String(id || '').trim())
         .filter(Boolean)
-        .slice(0, Math.max(resolveMineJobTake(), 500));
+        .slice(0, resolveViewAllMineJobTake());
     }
     const visible = await getVisibleTenantJobIds(req, false, {
-      take: Math.max(resolveMineJobTake(), 500),
+      take: resolveViewAllMineJobTake(),
     });
     if (visible.length) return visible.map((id) => String(id));
   }
@@ -4035,10 +4049,89 @@ function resolveMineJobTake() {
   return 200;
 }
 
+/** View-all Mine membership uses tenant job ids (not a 2k candidate-id union). */
+function resolveViewAllMineJobTake() {
+  const raw = Number(process.env.CANDIDATE_MINE_VIEW_ALL_JOB_TAKE);
+  if (Number.isFinite(raw) && raw > 0) return Math.min(2000, Math.max(200, raw));
+  return 2000;
+}
+
 function resolveMineLinkTake() {
   const raw = Number(process.env.CANDIDATE_MINE_LINK_TAKE);
   if (Number.isFinite(raw) && raw > 0) return Math.min(5000, Math.max(300, raw));
   return 2000;
+}
+
+const MINE_LINK_CACHE_TTL_MS = 120_000;
+const MINE_LINK_CACHE = new Map();
+const MINE_LINK_CACHE_MAX = 48;
+const CANDIDATE_LIST_INDEX_READY = new Set();
+
+/** Fire-and-forget: Mine prefetch filters applications by jobId (schema lacked the index). */
+function warmupCandidateListIndexes() {
+  // Live promote: never create indexes unless explicitly enabled. Queries still work.
+  if (String(process.env.CANDIDATE_CREATE_INDEXES || '').trim() !== '1') return;
+  let dbKey = '_default';
+  try {
+    dbKey = String(getActiveTenantDbName?.() || '_default');
+  } catch {
+    dbKey = '_default';
+  }
+  if (CANDIDATE_LIST_INDEX_READY.has(dbKey)) return;
+  CANDIDATE_LIST_INDEX_READY.add(dbKey);
+  if (typeof prisma?.$runCommandRaw !== 'function') return;
+  const ignoreExists = (err) => {
+    const msg = String(err?.message || err);
+    if (/already exists|IndexOptionsConflict|IndexKeySpecsConflict/i.test(msg)) return;
+    CANDIDATE_LIST_INDEX_READY.delete(dbKey);
+    console.warn('[candidates.list] list index skipped:', msg.split('\n')[0]);
+  };
+  void prisma
+    .$runCommandRaw({
+      createIndexes: 'applications',
+      indexes: [
+        {
+          key: { jobId: 1, appliedAt: -1 },
+          name: 'applications_jobId_appliedAt',
+          background: true,
+        },
+      ],
+    })
+    .catch(ignoreExists);
+  void prisma
+    .$runCommandRaw({
+      createIndexes: 'candidates',
+      indexes: [
+        {
+          key: { createdById: 1, updatedAt: -1 },
+          name: 'candidates_createdById_updatedAt',
+          background: true,
+        },
+        {
+          key: { assignedToId: 1, updatedAt: -1 },
+          name: 'candidates_assignedToId_updatedAt',
+          background: true,
+        },
+        {
+          key: { assignedJobs: 1, updatedAt: -1 },
+          name: 'candidates_assignedJobs_updatedAt',
+          background: true,
+        },
+      ],
+    })
+    .catch(ignoreExists);
+}
+
+function mineLinkCacheKey(jobIds) {
+  const ids = Array.isArray(jobIds) ? jobIds : [];
+  let hash = 0;
+  for (const id of ids) {
+    const s = String(id);
+    for (let i = 0; i < s.length; i += 1) {
+      hash = (hash * 31 + s.charCodeAt(i)) | 0;
+    }
+  }
+  return tenantJobCacheKey(`mine-links:${ids.length}:${hash}`);
 }
 
 async function prefetchMineLinkedCandidateIds(jobIds) {
@@ -4047,6 +4140,11 @@ async function prefetchMineLinkedCandidateIds(jobIds) {
     .filter(Boolean)
     .slice(0, resolveMineJobTake());
   if (!capped.length) return [];
+  const cacheKey = mineLinkCacheKey(capped);
+  const hit = MINE_LINK_CACHE.get(cacheKey);
+  if (hit && Date.now() - hit.at < MINE_LINK_CACHE_TTL_MS) {
+    return hit.ids.slice();
+  }
   const LINK_TAKE = resolveMineLinkTake();
   const take = LINK_TAKE;
   const [apps, matches, pipes, interviews, placements] = await Promise.all([
@@ -4095,13 +4193,19 @@ async function prefetchMineLinkedCandidateIds(jobIds) {
   const crmMatches = (Array.isArray(matches) ? matches : []).filter((row) =>
     matchRepresentsCrmJobLink(row),
   );
-  return [
+  const linkedIds = [
     ...new Set(
       [...apps, ...crmMatches, ...pipes, ...interviews, ...placements]
         .map((row) => String(row?.candidateId || '').trim())
         .filter(Boolean),
     ),
   ].slice(0, LINK_TAKE);
+  MINE_LINK_CACHE.set(cacheKey, { at: Date.now(), ids: linkedIds });
+  while (MINE_LINK_CACHE.size > MINE_LINK_CACHE_MAX) {
+    const oldest = MINE_LINK_CACHE.keys().next().value;
+    MINE_LINK_CACHE.delete(oldest);
+  }
+  return linkedIds;
 }
 
 /**
@@ -4111,9 +4215,33 @@ async function prefetchMineLinkedCandidateIds(jobIds) {
  * NEVER use nested Candidate.applications/pipeline/interviews.some here —
  * those correlated scans hang the Mongo pool for ~5 minutes.
  */
-async function buildMineCandidatesScope(userId, knownJobIds) {
+async function buildMineCandidatesScope(userId, knownJobIds, { viewAll = false } = {}) {
   if (!userId) {
     return { id: { in: [] } };
+  }
+  // View-all Mine: created/assigned to me, or assigned to a tenant job.
+  // Do NOT use All's CRM clause — that includes unassigned / Phase 1 rows and
+  // made the tab show ~21k (All) instead of ~19k. Do NOT prefetch 2k link IDs.
+  if (viewAll) {
+    const tenantJobIds = (Array.isArray(knownJobIds) ? knownJobIds : [])
+      .map((id) => String(id || '').trim())
+      .filter(Boolean)
+      .slice(0, resolveViewAllMineJobTake());
+    const orClause = buildAssigneeVisibilityOr(userId);
+    if (tenantJobIds.length) {
+      orClause.push({ assignedJobs: { hasSome: tenantJobIds } });
+    }
+    return {
+      AND: [
+        { OR: orClause },
+        {
+          OR: [
+            { NOT: { source: 'phase1' } },
+            ...(tenantJobIds.length ? [{ assignedJobs: { hasSome: tenantJobIds } }] : []),
+          ],
+        },
+      ],
+    };
   }
   const myJobIds = Array.isArray(knownJobIds)
     ? knownJobIds.map((id) => String(id || '').trim()).filter(Boolean)
@@ -4147,6 +4275,114 @@ async function buildMineCandidatesScope(userId, knownJobIds) {
       },
     ],
   };
+}
+
+function mineListSortTs(row) {
+  const t = row?.updatedAt || row?.createdAt;
+  const n = t ? new Date(t).getTime() : 0;
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * Mine first page must not OR 13k+ documents. Take N from each indexed membership
+ * (createdBy / assignedTo / participant / assignedJobs) and merge. Same people as
+ * buildMineCandidatesScope; cost stays O(page) as the tenant grows toward millions.
+ */
+async function fetchMineUnionPageIndex({ userId, jobIds, skip, limit }) {
+  const uid = String(userId || '').trim();
+  const take = Math.min(500, Math.max(Number(limit) || 25, Number(skip) + Number(limit)));
+  if (!uid || take <= 0) return [];
+  const jobs = (Array.isArray(jobIds) ? jobIds : [])
+    .map((id) => String(id || '').trim())
+    .filter(Boolean)
+    .slice(0, resolveViewAllMineJobTake());
+  const base = { isDeleted: { not: true } };
+  const orderBy = [{ updatedAt: 'desc' }, { createdAt: 'desc' }];
+  const select = { id: true, updatedAt: true, createdAt: true };
+  const queries = [
+    prisma.candidate.findMany({
+      where: { AND: [base, { createdById: uid }, { NOT: { source: 'phase1' } }] },
+      select,
+      orderBy,
+      take,
+    }),
+    prisma.candidate.findMany({
+      where: { AND: [base, { assignedToId: uid }] },
+      select,
+      orderBy,
+      take,
+    }),
+    prisma.candidate.findMany({
+      where: { AND: [base, { participantIds: { has: uid } }] },
+      select,
+      orderBy,
+      take,
+    }),
+  ];
+  if (jobs.length) {
+    queries.push(
+      prisma.candidate.findMany({
+        where: { AND: [base, { assignedJobs: { hasSome: jobs } }] },
+        select,
+        orderBy,
+        take,
+      }),
+    );
+  }
+  const buckets = await Promise.all(queries.map((promise) => promise.catch(() => [])));
+  const byId = new Map();
+  for (const rows of buckets) {
+    for (const row of rows) {
+      const id = String(row?.id || '').trim();
+      if (!id) continue;
+      const prior = byId.get(id);
+      if (!prior || mineListSortTs(row) >= mineListSortTs(prior)) byId.set(id, row);
+    }
+  }
+  return [...byId.values()]
+    .sort((a, b) => {
+      const delta = mineListSortTs(b) - mineListSortTs(a);
+      return delta !== 0 ? delta : String(b.id).localeCompare(String(a.id));
+    })
+    .slice(Math.max(0, skip), Math.max(0, skip) + Math.max(1, Number(limit) || 25));
+}
+
+async function countMineUnionFast({ userId, jobIds }) {
+  const uid = String(userId || '').trim();
+  if (!uid) return 0;
+  const jobs = (Array.isArray(jobIds) ? jobIds : [])
+    .map((id) => String(id || '').trim())
+    .filter(Boolean)
+    .slice(0, resolveViewAllMineJobTake());
+  const base = { isDeleted: { not: true } };
+  // Mongo `$ne` does not match missing createdById — subtract two indexed counts instead.
+  const [createdKeep, onJobs, onJobsCreatedByMe] = await Promise.all([
+    prisma.candidate.count({
+      where: {
+        AND: [
+          base,
+          { createdById: uid },
+          {
+            OR: [
+              { NOT: { source: 'phase1' } },
+              ...(jobs.length ? [{ assignedJobs: { hasSome: jobs } }] : []),
+            ],
+          },
+        ],
+      },
+    }),
+    jobs.length
+      ? prisma.candidate.count({
+          where: { AND: [base, { assignedJobs: { hasSome: jobs } }] },
+        })
+      : Promise.resolve(0),
+    jobs.length
+      ? prisma.candidate.count({
+          where: { AND: [base, { assignedJobs: { hasSome: jobs } }, { createdById: uid }] },
+        })
+      : Promise.resolve(0),
+  ]);
+  return createdKeep + Math.max(0, onJobs - onJobsCreatedByMe);
 }
 
 /**
@@ -4701,6 +4937,7 @@ async function buildPortalCandidatesWhere(
     const mineScope = await buildMineCandidatesScope(
       req.user.id,
       Array.isArray(myJobIds) ? myJobIds : undefined,
+      { viewAll: canViewAllCandidates || canViewAllJobs(req) },
     );
     andParts.push(mineScope);
   } else if (superAdminScope) {
@@ -5218,6 +5455,7 @@ export const candidateService = {
 
   async getAll(req) {
     warmupCandidateSmartSearchTextIndex();
+    warmupCandidateListIndexes();
     const pagination = getPaginationParams(req);
     // Prefer batches ≤100 for list UX; allow larger for export via env override.
     const page = pagination.page;
@@ -5228,6 +5466,16 @@ export const candidateService = {
     const skip = (page - 1) * limit;
     const { status, assignedToId, search, ids } = req.query;
     const listFilters = parseCandidateListFilters(req.query);
+    const hasActiveMineFilters = Boolean(
+      String(search || '').trim() ||
+        listFilters?.stage ||
+        listFilters?.company ||
+        listFilters?.location ||
+        listFilters?.jobId ||
+        listFilters?.experienceRange ||
+        status ||
+        assignedToId,
+    );
     const mine =
       req.query?.mine === 'true' || req.query?.mine === '1' || req.query?.mine === true;
     const pickerMode =
@@ -5284,7 +5532,9 @@ export const candidateService = {
     // the soft-delete column existed) without tripping Prisma's "Argument isDeleted is missing".
     andParts.push({ isDeleted: { not: true } });
     // Smart Search / ?ids= is an exact lookup. Extra list scopes drop valid matches.
-    if (!requestedIds.length && tenantJobIdSet && tenantJobIdSet.size > 0) {
+    // Mine must not use the All-tab `assignedJobs isEmpty` clause — that re-includes
+    // unassigned Phase 1 / empty-job rows and inflates My Candidates to the All count.
+    if (!requestedIds.length && !mine && tenantJobIdSet && tenantJobIdSet.size > 0) {
       const tenantJobIds = Array.from(tenantJobIdSet)
         .map((id) => String(id || '').trim())
         .filter(Boolean)
@@ -5313,7 +5563,15 @@ export const candidateService = {
     // candidates applied on my jobs but not directly assigned/created get excluded.
     if (!requestedIds.length) {
       if (mine && req.user?.id) {
-        andParts.push(await buildMineCandidatesScope(req.user.id, myJobIds));
+        // Indexed union first page does not use this OR. Building it still
+        // prefetched job-link ids and delayed My Candidates first paint.
+        if (hasActiveMineFilters) {
+          andParts.push(
+            await buildMineCandidatesScope(req.user.id, myJobIds, {
+              viewAll: canViewAllTenantJobs,
+            }),
+          );
+        }
       } else if (superAdminScope) {
         andParts.push(superAdminScope);
       } else if (!canViewAllCandidates && req.user?.id) {
@@ -5407,6 +5665,7 @@ export const candidateService = {
       const pageRows = await hydrateMergedCandidatePage(pageIndex, 0, pageIndex.length, {
         req,
         loadCommonPool,
+        livePortalMerge,
       });
       const attached = await attachPlacementsToCandidates(pageRows);
       perfMarks.hydrate = Math.round(candidatePerfNow() - tHydrate);
@@ -5429,10 +5688,15 @@ export const candidateService = {
         4000,
         Math.max(400, Number(process.env.CANDIDATE_PORTAL_QUERY_MS || 1500) || 1500),
       );
-      // Phase 1 common pool is the source of truth for discovery profiles — give it more time.
+      const isFirstBrowsePage = page === 1 && !String(search || '').trim();
+      // First All paint must not wait 4–8s for a 500-row common scan. Later pages can wait longer.
+      const commonBudgetDefault = isFirstBrowsePage ? 1200 : 4000;
       const COMMON_QUERY_BUDGET_MS = Math.min(
-        8000,
-        Math.max(PORTAL_QUERY_BUDGET_MS, Number(process.env.CANDIDATE_COMMON_QUERY_MS || 4000) || 4000),
+        isFirstBrowsePage ? 1500 : 8000,
+        Math.max(
+          isFirstBrowsePage ? 400 : PORTAL_QUERY_BUDGET_MS,
+          Number(process.env.CANDIDATE_COMMON_QUERY_MS || commonBudgetDefault) || commonBudgetDefault,
+        ),
       );
       const withBudget = (promise, label, fallback, budgetMs = PORTAL_QUERY_BUDGET_MS) =>
         Promise.race([
@@ -5626,19 +5890,43 @@ export const candidateService = {
     } else {
       // Fast path: tenant CRM only — lean id page + hydrate (filters must stay snappy).
       const tQ = candidatePerfNow();
-      const hasActiveListFilters = Boolean(
-        String(search || '').trim() ||
-          listFilters?.stage ||
-          listFilters?.company ||
-          listFilters?.location ||
-          listFilters?.jobId ||
-          listFilters?.experienceRange ||
-          status ||
-          assignedToId,
+      const hasActiveListFilters = hasActiveMineFilters;
+      const useMineUnion =
+        Boolean(mine) && Boolean(req.user?.id) && !hasActiveListFilters && !requestedIds.length;
+      const countCacheKey =
+        buildCandidateCountCacheKey(req, {
+          loadCommonPool,
+          mine,
+          tenantWhere: where,
+        }) + (useMineUnion ? '\u0001union-v2' : '');
+      const cachedTotal = readCandidateCountCache(countCacheKey);
+      const COUNT_WAIT_MS = Math.min(
+        800,
+        Math.max(250, Number(process.env.CANDIDATE_MINE_COUNT_WAIT_MS || 500) || 500),
       );
-      const [rowTotal, pageIndexRows] = await Promise.all([
-        prisma.candidate.count({ where }),
-        prisma.candidate.findMany({
+      let pageIndexRows;
+      let racedCount = cachedTotal;
+      if (useMineUnion) {
+        const [unionRows, unionTotal] = await Promise.all([
+          fetchMineUnionPageIndex({
+            userId: req.user.id,
+            jobIds: myJobIds,
+            skip,
+            limit,
+          }),
+          cachedTotal != null
+            ? Promise.resolve(cachedTotal)
+            : countMineUnionFast({ userId: req.user.id, jobIds: myJobIds }).then((value) => {
+                writeCandidateCountCache(countCacheKey, value);
+                return value;
+              }),
+        ]);
+        pageIndexRows = unionRows;
+        racedCount = unionTotal;
+        perfMarks.sourceCounts = `mine-union jobs=${Array.isArray(myJobIds) ? myJobIds.length : 0}`;
+      } else {
+        // Page first. A parallel count of the mine OR starved Atlas (~2.5s page).
+        pageIndexRows = await prisma.candidate.findMany({
           where,
           select: { id: true },
           ...(candidateListFindOrderBy(search)
@@ -5646,21 +5934,47 @@ export const candidateService = {
             : {}),
           skip,
           take: limit,
-        }),
-      ]);
+        });
+        if (cachedTotal == null) {
+          const countPromise = prisma.candidate.count({ where }).then((value) => {
+            writeCandidateCountCache(countCacheKey, value);
+            return value;
+          });
+          racedCount = await Promise.race([
+            countPromise,
+            new Promise((resolve) => {
+              setTimeout(() => resolve(null), COUNT_WAIT_MS);
+            }),
+          ]);
+          if (racedCount == null) {
+            void countPromise.catch(() => null);
+          }
+        }
+      }
       const pageIds = pageIndexRows.map((row) => String(row.id)).filter(Boolean);
       let pageRows = [];
       if (pageIds.length) {
         const hydrated = await prisma.candidate.findMany({
           where: { id: { in: pageIds } },
-          include: hasActiveListFilters ? candidateListIncludeFast : candidateListInclude,
+          include: candidateListIncludeFast,
         });
         const byId = new Map(hydrated.map((row) => [String(row.id), row]));
         pageRows = pageIds.map((id) => byId.get(id)).filter(Boolean);
       }
+      let rowTotal = racedCount;
+      if (rowTotal == null) {
+        rowTotal =
+          skip +
+          pageIndexRows.length +
+          (pageIndexRows.length === limit ? 1 : 0);
+        perfMarks.count = `timeout>${COUNT_WAIT_MS}ms→estimate`;
+      } else {
+        perfMarks.count = Math.round(candidatePerfNow() - tQ);
+      }
       perfMarks.tenantQuery = Math.round(candidatePerfNow() - tQ);
-      perfMarks.count = perfMarks.tenantQuery;
-      perfMarks.sourceCounts = `tenant-only mine=${mine ? '1' : '0'} filtered=${hasActiveListFilters ? 1 : 0}`;
+      if (!perfMarks.sourceCounts) {
+        perfMarks.sourceCounts = `tenant-only mine=${mine ? '1' : '0'} filtered=${hasActiveListFilters ? 1 : 0}`;
+      }
       total = rowTotal;
       candidates = await attachPlacementsToCandidates(pageRows);
     }
@@ -5684,30 +5998,8 @@ export const candidateService = {
         portalClientForList = null;
       }
       if (portalClientForList) {
-        const hasActiveListFilters = Boolean(
-          String(search || '').trim() ||
-            listFilters?.stage ||
-            listFilters?.company ||
-            listFilters?.location ||
-            listFilters?.jobId ||
-            listFilters?.experienceRange ||
-            status ||
-            assignedToId ||
-            mine,
-        );
-        // Filter / My list changes must stay snappy — never wait on portal resume I/O.
-        if (hasActiveListFilters) {
-          void batchHydrateCandidatesResumeFromPortal(candidates, portalClientForList).catch(() => null);
-        } else {
-          const RESUME_HYDRATE_MS = Math.min(
-            2500,
-            Math.max(200, Number(process.env.CANDIDATE_RESUME_HYDRATE_MS || 800) || 800),
-          );
-          await Promise.race([
-            batchHydrateCandidatesResumeFromPortal(candidates, portalClientForList).catch(() => null),
-            new Promise((resolve) => setTimeout(resolve, RESUME_HYDRATE_MS)),
-          ]);
-        }
+        // Never block the table on portal resume I/O — first paint is the SLA.
+        void batchHydrateCandidatesResumeFromPortal(candidates, portalClientForList).catch(() => null);
         const candidateIds = candidates
           .map((row) => String(row?.id || '').trim())
           .filter(Boolean);
@@ -5792,28 +6084,8 @@ export const candidateService = {
     // candidate-self-updated values (notice period, expected salary, availability,
     // preferred location) appear in the list response too.
     // Skip waiting when filters / My tab are active — table latency matters more.
-    const skipCareerPrefsWait = Boolean(
-      String(search || '').trim() ||
-        listFilters?.stage ||
-        listFilters?.company ||
-        listFilters?.location ||
-        listFilters?.jobId ||
-        listFilters?.experienceRange ||
-        status ||
-        assignedToId ||
-        mine,
-    );
     let careerPrefsByCandidate = new Map();
-    if (!skipCareerPrefsWait && candidates.length) {
-      const CAREER_PREFS_MS = Math.min(
-        2500,
-        Math.max(200, Number(process.env.CANDIDATE_CAREER_PREFS_MS || 1000) || 1000),
-      );
-      careerPrefsByCandidate = await Promise.race([
-        fetchCareerPreferencesForCandidates(candidates.map((c) => c.id).filter(Boolean)),
-        new Promise((resolve) => setTimeout(() => resolve(new Map()), CAREER_PREFS_MS)),
-      ]);
-    } else if (candidates.length) {
+    if (candidates.length) {
       void fetchCareerPreferencesForCandidates(candidates.map((c) => c.id).filter(Boolean)).catch(
         () => null,
       );
@@ -5926,6 +6198,10 @@ export const candidateService = {
       memT0 != null && typeof process !== 'undefined' && process.memoryUsage
         ? Math.round((process.memoryUsage().heapUsed - memT0) / 1024)
         : null;
+    const totalMs = Math.round(candidatePerfNow() - perfT0);
+    console.info(
+      `[candidates.list] mine=${mine ? 1 : 0} common=${loadCommonPool ? 1 : 0} page=${page} limit=${limit} fetched=${candidates.length} total=${total} tenantQuery=${perfMarks.tenantQuery ?? '-'}ms commonQuery=${perfMarks.commonQuery ?? '-'}ms hydrate=${perfMarks.hydrate ?? '-'}ms count=${perfMarks.count ?? '-'} totalMs=${totalMs}`,
+    );
     logCandidatePerf({
       searchKind: classifyCandidateSearch(search).kind,
       K: perfMarks.K,
@@ -5939,7 +6215,7 @@ export const candidateService = {
       fetched: candidates.length,
       total,
       memoryDeltaKb: memDelta,
-      totalMs: `${Math.round(candidatePerfNow() - perfT0)}ms`,
+      totalMs: `${totalMs}ms`,
     });
     return formatPaginationResponse(withAudit, page, limit, total);
   },
@@ -7978,7 +8254,9 @@ export const candidateService = {
     }
 
     const superAdminScope = buildSuperAdminOwnerScope(req, ['createdById', 'assignedToId']);
-    const mineScope = mine ? await buildMineCandidatesScope(userId, myJobIds) : null;
+    const mineScope = mine
+      ? await buildMineCandidatesScope(userId, myJobIds, { viewAll: canViewAllTenantJobs })
+      : null;
     const scopeWhere = mine ? mineScope : superAdminScope;
 
     const stages = [

@@ -166,11 +166,12 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
         .then((m) => m.fetchAndCacheOrgWatermark())
         .catch(() => undefined);
     };
-    refreshModules();
+    const firstModules = window.setTimeout(refreshModules, 200);
     const onFocus = () => refreshModules();
     window.addEventListener('focus', onFocus);
     return () => {
       cancelled = true;
+      window.clearTimeout(firstModules);
       window.removeEventListener('focus', onFocus);
     };
   }, []);
@@ -195,12 +196,15 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
         /* silent — bell badge is non-critical */
       }
     };
-    void refresh();
+    const firstBell = window.setTimeout(() => {
+      void refresh();
+    }, 700);
     const onUpdated = () => void refresh();
     window.addEventListener(NOTIFICATIONS_UPDATED_EVENT, onUpdated);
     const interval = window.setInterval(refresh, 60_000);
     return () => {
       cancelled = true;
+      window.clearTimeout(firstBell);
       window.removeEventListener(NOTIFICATIONS_UPDATED_EVENT, onUpdated);
       window.clearInterval(interval);
     };

@@ -11,7 +11,7 @@ import { HqInfoTip } from '@/components/hq/analytics/HqPhase2DashboardParts';
 import { useUser } from '@/hooks/useUser';
 import { CrmInsightCharts } from './CrmInsightCharts';
 import { CrmAlertsPanel, CrmFollowupActivity } from './CrmPanels';
-import { formatMoney, formatNum, useCrmDashboard } from './crmShared';
+import { formatMoney, formatNum, useCrmCurrency, useCrmDashboard } from './crmShared';
 import { buildFollowupDrillDown, buildKpiDrillDown } from './crmDrillDown';
 import { CrmStatNumber, sparkDelta } from './crmStatNumber';
 
@@ -207,6 +207,7 @@ function PulseStat({
 }
 
 export function CrmDecisionInsights({ overview, loading }: Props) {
+  const currency = useCrmCurrency();
   const { openDrillDown, hiddenSections } = useCrmDashboard();
   const showAlerts = !hiddenSections.has('alerts');
   const { user } = useUser();
@@ -330,7 +331,7 @@ export function CrmDecisionInsights({ overview, loading }: Props) {
           />
           <PulseStat
             label="Est. value"
-            value={formatMoney(today?.estimatedBusinessValue)}
+            value={formatMoney(today?.estimatedBusinessValue, currency)}
             unit="value"
             hint="Org currency · today’s signal"
             tone="emerald"

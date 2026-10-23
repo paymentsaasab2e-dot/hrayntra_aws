@@ -101,7 +101,9 @@ export function TenantCoinsProvider({ children }: { children: React.ReactNode })
       setLoading(false);
       return;
     }
-    void refresh();
+    const firstCoins = window.setTimeout(() => {
+      void refresh();
+    }, 900);
     const onFocus = () => void refresh();
     const onVisibility = () => {
       if (document.visibilityState === 'visible') void refresh();
@@ -143,6 +145,7 @@ export function TenantCoinsProvider({ children }: { children: React.ReactNode })
       window.removeEventListener(TENANT_COINS_REFRESH_EVENT, onCoins);
       window.removeEventListener(AI_FEATURE_COSTS_UPDATED_EVENT, onCostsUpdated);
       window.removeEventListener('storage', onStorage);
+      window.clearTimeout(firstCoins);
       window.clearInterval(poll);
       if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
     };

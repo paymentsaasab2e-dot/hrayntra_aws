@@ -242,10 +242,13 @@ export default function ActiveSessionManager() {
       }
     };
 
-    tick();
+    const firstBeat = window.setTimeout(() => {
+      void tick();
+    }, 1600);
     const id = window.setInterval(tick, HEARTBEAT_MS);
     return () => {
       cancelled = true;
+      window.clearTimeout(firstBeat);
       window.clearInterval(id);
     };
   }, [forceLogout, isAuthRoute, pathname]);

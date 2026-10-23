@@ -293,12 +293,7 @@ function CrmDashboardInner() {
 }
 
 function CrmDashboardWithLayout() {
-  const { layout, setLayout, saveLayout, loading: layoutLoading } = useDashboardLayoutStore();
-  const [ready, setReady] = useState(false);
-
-  useEffect(() => {
-    if (!layoutLoading) setReady(true);
-  }, [layoutLoading]);
+  const { layout, setLayout, saveLayout } = useDashboardLayoutStore();
 
   const onHiddenChange = useCallback(
     (hiddenSections: string[]) => {
@@ -312,19 +307,6 @@ function CrmDashboardWithLayout() {
     },
     [layout, setLayout, saveLayout],
   );
-
-  if (!ready) {
-    return (
-      <div className="space-y-4">
-        <div className="h-24 animate-pulse rounded-2xl bg-white" />
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="h-28 animate-pulse rounded-2xl bg-white" />
-          ))}
-        </div>
-      </div>
-    );
-  }
 
   return (
     <CrmDashboardProvider

@@ -1287,6 +1287,7 @@ model Application {
 
   @@unique([candidateId, jobId])
   @@index([candidateId])
+  @@index([jobId])
   @@index([status])
   @@index([appliedAt])
   @@map("applications")

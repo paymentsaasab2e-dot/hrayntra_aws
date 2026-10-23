@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useMemo, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import type { CrmDashboardFilters, DrillDownPayload } from '@/lib/dashboard/api';
 
 export type CrmSectionId = 'insights' | 'portfolio' | 'team' | 'alerts';
@@ -132,6 +132,22 @@ export function getCrmCurrency(): string {
   } catch {
     return 'USD';
   }
+}
+
+/** Re-renders money tiles when HQ/org currency cache arrives after first paint. */
+export function useCrmCurrency(): string {
+  const [code, setCode] = useState(getCrmCurrency);
+  useEffect(() => {
+    const sync = () => setCode(getCrmCurrency());
+    window.addEventListener('hrayntra:org-recruitment-cache', sync);
+    window.addEventListener('storage', sync);
+    sync();
+    return () => {
+      window.removeEventListener('hrayntra:org-recruitment-cache', sync);
+      window.removeEventListener('storage', sync);
+    };
+  }, []);
+  return code;
 }
 
 /** Locale-aware money for CRM dashboard (uses org default currency). */
