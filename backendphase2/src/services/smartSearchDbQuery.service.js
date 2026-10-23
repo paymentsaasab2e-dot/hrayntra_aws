@@ -77,6 +77,10 @@ function searchTermsFromText(value) {
 }
 
 function kickCandidateSmartSearchTextIndex() {
+  // Live promote: do not create Mongo indexes unless explicitly enabled.
+  if (String(process.env.CANDIDATE_CREATE_INDEXES || '').trim() !== '1') {
+    return Promise.resolve(false);
+  }
   const dbKey = getActiveTenantDbName() || '_default';
   if (textIndexReadyByDb.get(dbKey) === true) return Promise.resolve(true);
   if (textIndexBuildByDb.has(dbKey)) return textIndexBuildByDb.get(dbKey);

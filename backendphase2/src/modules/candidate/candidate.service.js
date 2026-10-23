@@ -4069,6 +4069,8 @@ const CANDIDATE_LIST_INDEX_READY = new Set();
 
 /** Fire-and-forget: Mine prefetch filters applications by jobId (schema lacked the index). */
 function warmupCandidateListIndexes() {
+  // Live promote: never create indexes unless explicitly enabled. Queries still work.
+  if (String(process.env.CANDIDATE_CREATE_INDEXES || '').trim() !== '1') return;
   let dbKey = '_default';
   try {
     dbKey = String(getActiveTenantDbName?.() || '_default');
