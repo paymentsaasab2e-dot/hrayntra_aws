@@ -1482,6 +1482,8 @@ export function SubmitToClientDrawer({
             notifyClient: index === 0,
             submissionType,
             cvShareMode: item.entryCvShareMode || undefined,
+            resumeFileId:
+              item.entryCvShareMode === 'original' ? item.entry.resumeFileId : undefined,
             toEmail: index === 0 ? primaryRecipient?.toEmail : undefined,
             additionalClients: index === 0 ? additionalClients : undefined,
             batchMatchIds: batchMatchIds.length > 1 ? batchMatchIds : undefined,
