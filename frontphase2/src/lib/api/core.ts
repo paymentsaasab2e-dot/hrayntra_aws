@@ -32,6 +32,9 @@ export const LONG_RUNNING_API_PATH_PREFIXES = [
   '/hq/portal/jobs/sync-to-phase1',
   '/agreements/parse-document',
   '/kyc/parse-document',
+  // Create Placement posts a PDF through FormData. The same-origin Vercel proxy
+  // 502s that upload as "Unable to connect right now".
+  '/placements',
 ];
 
 export function isLongRunningApiPath(path: string): boolean {
