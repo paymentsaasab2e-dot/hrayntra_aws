@@ -783,6 +783,17 @@ export const placementService = {
     });
     if (!client) throw new Error('Client not found');
 
+    // Upload the offer letter before the DB transaction so a slow S3 call cannot
+    // hold an Atlas transaction open until the proxy times out.
+    let pendingOfferLetter = null;
+    if (file?.path) {
+      const fileUrl = await persistPlacementOfferFile(file);
+      pendingOfferLetter = {
+        fileUrl,
+        fileName: file.originalname,
+      };
+    }
+
     const placement = await runPlacementTransaction(async (tx) => {
       const createdPlacement = await tx.placement.create({
         data: {
@@ -846,18 +857,17 @@ export const placementService = {
       });
 
       let offerLetterSync = null;
-      if (file?.path) {
-        const fileUrl = await persistPlacementOfferFile(file);
+      if (pendingOfferLetter?.fileUrl) {
         await tx.placementDocument.create({
           data: {
             placementId: createdPlacement.id,
             documentType: 'OFFER_LETTER',
-            fileUrl,
-            fileName: file.originalname,
+            fileUrl: pendingOfferLetter.fileUrl,
+            fileName: pendingOfferLetter.fileName,
             uploadedBy: userId,
           },
         });
-        offerLetterSync = { fileUrl, fileName: file.originalname };
+        offerLetterSync = pendingOfferLetter;
       } else {
         // Recruiter didn't attach a fresh offer letter at placement time.
         // The client may have already uploaded one through the public
@@ -1761,6 +1771,14 @@ export const placementService = {
     }
 
     let offerLetterSync = null;
+    let pendingOfferLetter = null;
+    if (file?.path) {
+      const fileUrl = await persistPlacementOfferFile(file);
+      pendingOfferLetter = {
+        fileUrl,
+        fileName: file.originalname,
+      };
+    }
 
     await runPlacementTransaction(async (tx) => {
       await tx.placement.update({
@@ -1771,18 +1789,17 @@ export const placementService = {
         },
       });
 
-      if (file?.path) {
-        const fileUrl = await persistPlacementOfferFile(file);
+      if (pendingOfferLetter?.fileUrl) {
         await tx.placementDocument.create({
           data: {
             placementId: id,
             documentType: 'OFFER_LETTER',
-            fileUrl,
-            fileName: file.originalname,
+            fileUrl: pendingOfferLetter.fileUrl,
+            fileName: pendingOfferLetter.fileName,
             uploadedBy: userId,
           },
         });
-        offerLetterSync = { fileUrl, fileName: file.originalname };
+        offerLetterSync = pendingOfferLetter;
       } else {
         const latestOffer = (existing.documents || []).find(
           (doc) => String(doc.documentType || '').toUpperCase() === 'OFFER_LETTER'

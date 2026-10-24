@@ -61,7 +61,13 @@ router.use(authMiddleware);
 router.get('/stats', requireAnyPermission(['placements_read']), placementController.getStats);
 router.get('/export', requireAnyPermission(['placements_read']), placementController.exportCsv);
 router.get('/', requireAnyPermission(['placements_read']), placementController.getAll);
-router.post('/', requireAnyPermission(['placements_create']), upload.single('offerLetter'), placementController.create);
+router.post(
+  '/',
+  requireAnyPermission(['placements_create']),
+  upload.single('offerLetter'),
+  authenticatedTenantAfterMulter,
+  placementController.create
+);
 router.post(
   '/:id/invoice',
   requireAnyPermission(['create_invoice']),
