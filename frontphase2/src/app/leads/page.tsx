@@ -57,7 +57,6 @@ import { isLeadSource, LEAD_SOURCE_OPTIONS } from '../../components/drawers/Lead
 import { LeadImportDrawer } from '../../components/drawers/LeadImportDrawer';
 import { ShareLeadFormMemberModal } from '../../components/leads/ShareLeadFormMemberModal';
 import { LeadFormAccessButton } from '../../components/leads/LeadFormAccessPopup';
-import { DrawerLinkActions } from '../../components/drawers/DrawerLinkActions';
 import ModuleRecycleBinDrawer from '../../components/ModuleRecycleBinDrawer';
 import PaginationAll from '../../components/PaginationAll';
 import type { Lead, LeadStatus, Priority } from './types';
@@ -92,11 +91,7 @@ import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
 import { TableSkeleton } from '../../components/ui/Skeleton';
 import { SummaryCard, SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
 import { PH2_KPI_ROW_CLASS } from '../../components/layout/Ph2ModulePageLayout';
-import {
-  PH2_FIT_ROW_TABLE_CLASS,
-  Ph2TableRefreshingOverlay,
-  useFitVisibleTableRows,
-} from '../../components/layout/ph2FitVisibleTableRows';
+import { Ph2TableRefreshingOverlay } from '../../components/layout/ph2FitVisibleTableRows';
 import { ShowSummaryCardsButton } from '../../components/layout/ShowSummaryCardsButton';
 import { TableBrandAvatar } from '../../components/ui/TableBrandAvatar';
 import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../constants/tablePagination';
@@ -116,7 +111,54 @@ const LeadDetailsDrawer = nextDynamic(
 );
 
 const LEADS_FILTER_SELECT =
-  'h-9 shrink-0 rounded-lg border border-indigo-100/90 bg-white/95 px-2.5 py-1.5 text-xs font-medium text-slate-800 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-300 cursor-pointer hover:border-indigo-200/90 hover:bg-indigo-50/40';
+  'h-9 shrink-0 rounded-full border border-white/70 bg-white/80 px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-[#3867FF]/25 focus:border-[#3867FF]/40 cursor-pointer hover:border-[#7864FF]/30 hover:bg-white';
+const LEADS_HEADER_PILL =
+  'hry-btn-glass inline-flex h-9 items-center gap-1.5 rounded-full px-3.5 text-xs font-semibold active:scale-[0.98]';
+const LEADS_HEADER_PILL_ICON =
+  'hry-btn-glass inline-flex h-9 w-9 items-center justify-center rounded-full text-slate-600 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50';
+const LEADS_HEADER_PILL_PRIMARY =
+  'hry-btn-primary inline-flex h-9 items-center gap-1.5 rounded-full px-4 text-xs font-semibold text-white active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50';
+const LEADS_HEADER_PILL_AI =
+  'hry-btn-ai inline-flex h-9 items-center gap-1.5 rounded-full px-3.5 text-xs font-semibold active:scale-[0.98]';
+const LEADS_TABLE_CLASS =
+  'w-max min-w-full text-left [&_th]:px-4 [&_th]:py-3 [&_td]:px-4 [&_td]:py-3.5 [&_td]:align-middle [&_th]:first:pl-5 [&_td]:first:pl-5 [&_th]:last:pr-5 [&_td]:last:pr-5';
+const LEADS_ACTION_BTN =
+  'flex h-8 w-8 items-center justify-center rounded-full transition-colors';
+
+function leadStatusChipClass(status: string): string {
+  const key = String(status || '').trim().toLowerCase();
+  const base =
+    'max-w-[10.5rem] cursor-pointer rounded-full border px-3 py-1 text-[12px] font-semibold shadow-none focus:outline-none focus:ring-2 focus:ring-[#3867FF]/20';
+  if (key === 'converted') return `${base} border-emerald-100 bg-emerald-50 text-emerald-700`;
+  if (key === 'qualified') return `${base} border-violet-100 bg-violet-50 text-violet-700`;
+  if (key === 'contacted') return `${base} border-cyan-100 bg-cyan-50 text-cyan-700`;
+  if (key === 'lost') return `${base} border-slate-200 bg-slate-100 text-slate-600`;
+  if (key === 'new') return `${base} border-blue-100 bg-blue-50 text-blue-700`;
+  return `${base} border-indigo-100 bg-indigo-50 text-indigo-700`;
+}
+
+function leadStatusDotClass(status: string): string {
+  const key = String(status || '').trim().toLowerCase();
+  if (key === 'converted') return 'bg-emerald-500';
+  if (key === 'qualified') return 'bg-violet-500';
+  if (key === 'contacted') return 'bg-cyan-500';
+  if (key === 'lost') return 'bg-slate-400';
+  if (key === 'new') return 'bg-blue-500';
+  return 'bg-indigo-500';
+}
+
+function formatRelativeFollowUp(value: string): string | null {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  const diffMs = Date.now() - parsed.getTime();
+  const days = Math.round(diffMs / 86_400_000);
+  if (days <= 0) return 'Today';
+  if (days === 1) return '1 day ago';
+  if (days < 7) return `${days} days ago`;
+  if (days < 14) return '1 week ago';
+  if (days < 45) return `${Math.max(1, Math.round(days / 7))} weeks ago`;
+  return null;
+}
 const LEADS_DYNAMIC_COLUMNS_STORAGE_KEY = 'leads.dynamicColumns';
 
 /** Last Follow-up column only — never fall back to next scheduled follow-up. */
@@ -128,10 +170,11 @@ function LeadFollowUpTableCell({ lastFollowUp }: { lastFollowUp: string }) {
   }
 
   const formatted = last.time ? `${last.date} - ${last.time}` : last.date;
+  const relative = formatRelativeFollowUp(lastFollowUp);
 
   return (
-    <span className="whitespace-nowrap text-sm font-normal text-slate-700 tabular-nums">
-      {formatted}
+    <span className="whitespace-nowrap text-[13px] font-medium text-slate-500" title={formatted}>
+      {relative || formatted}
     </span>
   );
 }
@@ -264,24 +307,12 @@ const INITIAL_LEADS: Lead[] = [
 
 // --- Components ---
 
-const StatusTag = ({ status }: { status: LeadStatus }) => {
-  const styles: Record<string, string> = {
-    New: 'bg-blue-500/10 text-blue-800 ring-1 ring-blue-500/20 shadow-sm shadow-blue-500/5',
-    Contacted: 'bg-amber-500/10 text-amber-900 ring-1 ring-amber-500/20 shadow-sm',
-    Qualified: 'bg-violet-500/10 text-violet-800 ring-1 ring-violet-500/20 shadow-sm',
-    Converted: 'bg-emerald-500/10 text-emerald-800 ring-1 ring-emerald-500/20 shadow-sm',
-    Lost: 'bg-slate-500/10 text-slate-700 ring-1 ring-slate-400/25',
-  };
-  const badgeClass =
-    styles[String(status || '').trim()] ||
-    'bg-indigo-500/10 text-indigo-800 ring-1 ring-indigo-500/20 shadow-sm';
-
-  return (
-    <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium tracking-wide ${badgeClass}`}>
-      {status}
-    </span>
-  );
-};
+const StatusTag = ({ status }: { status: LeadStatus }) => (
+  <span className={`inline-flex items-center gap-1.5 ${leadStatusChipClass(status)} cursor-default`}>
+    <span className={`h-1.5 w-1.5 rounded-full ${leadStatusDotClass(status)}`} aria-hidden />
+    {status}
+  </span>
+);
 
 const DEFAULT_LEAD_STATUS_OPTIONS: LeadStatus[] = ['New', 'Contacted', 'Qualified', 'Converted', 'Lost'];
 
@@ -1893,7 +1924,6 @@ export default function RecruitmentAgencyDashboard() {
   }, []);
 
   const leadsTableRef = useRef<HTMLTableElement>(null);
-  useFitVisibleTableRows(leadsTableRef, true, filteredLeads.length);
 
   return (
     <div className="ph2-page-shell flex h-[calc(100dvh-3.5rem)] w-full min-w-0 max-w-full flex-col overflow-hidden text-slate-900">
@@ -1904,14 +1934,16 @@ export default function RecruitmentAgencyDashboard() {
       />
       {/* Main Content — viewport-locked so only the table body scrolls */}
       <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <div className="hry-aurora" aria-hidden />
         {/* Header */}
-        <header className="flex min-h-0 shrink-0 flex-nowrap items-center justify-between gap-2 overflow-x-auto border-b border-indigo-100/50 bg-white/80 px-3 py-2 shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)] backdrop-blur-md sm:px-5">
+        <header className="flex min-h-0 shrink-0 flex-nowrap items-center justify-between gap-3 overflow-x-auto bg-transparent px-3 py-3 sm:px-6 sm:py-4">
           <div className="flex items-center gap-2.5 sm:gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-rose-500 via-orange-500 to-amber-500 text-white shadow-lg shadow-rose-500/30 ring-1 ring-white/20">
+            <div className="hry-title-icon flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-white ring-1 ring-white/30">
               <Target className="h-5 w-5" strokeWidth={2.2} />
             </div>
             <div>
-              <h1 className="text-xl sm:text-[1.35rem] font-bold tracking-tight text-slate-900 leading-none">Leads</h1>
+              <h1 className="text-xl sm:text-[1.4rem] font-semibold tracking-tight text-[#101B35] leading-none">Leads</h1>
+              <p className="mt-1 hidden text-xs font-medium text-slate-500 sm:block">Manage and track your leads efficiently</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -1921,25 +1953,19 @@ export default function RecruitmentAgencyDashboard() {
             />
             {canCreateLead ? (
               <>
-                <DrawerLinkActions
-                  url={publicLeadFormLink}
-                  shareTitle="Lead form"
-                  size="md"
-                  menuAlign="right"
-                />
                 <button
                   type="button"
                   disabled={!publicLeadFormLink || publicLeadFormLinkLoading}
                   onClick={() => setShareLeadFormMemberOpen(true)}
-                  className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-blue-600 px-3 text-xs font-semibold text-white shadow-[0_4px_14px_-4px_rgba(37,99,235,0.35)] transition-all hover:bg-blue-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
-                  title="Create a member and email this lead form"
+                  className={LEADS_HEADER_PILL_ICON}
+                  title="Send to member"
+                  aria-label="Send to member"
                 >
                   <Share2 size={16} strokeWidth={2.25} />
-                  Send to member
                 </button>
                 <LeadFormAccessButton
                   disabled={!publicLeadFormLink || publicLeadFormLinkLoading}
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-indigo-200/80 bg-white text-indigo-700 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.2)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                  className={LEADS_HEADER_PILL_ICON}
                 />
               </>
             ) : null}
@@ -1947,7 +1973,7 @@ export default function RecruitmentAgencyDashboard() {
               <button
                 type="button"
                 onClick={() => setRecycleBinDrawerOpen(true)}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-indigo-200/80 bg-white text-indigo-700 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.2)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98]"
+                className={LEADS_HEADER_PILL_ICON}
                 title="Deleted leads"
               >
                 <Inbox size={17} strokeWidth={2.25} />
@@ -1956,7 +1982,7 @@ export default function RecruitmentAgencyDashboard() {
             {isAuthenticated === false && (
               <a
                 href="/login"
-                className="text-sm text-slate-600 hover:text-blue-600 font-medium px-3 py-2 rounded-lg hover:bg-slate-50 transition-colors"
+                className="text-sm text-slate-600 hover:text-blue-600 font-medium px-3 py-2 rounded-full hover:bg-white/80 transition-colors"
               >
                 Log in
               </a>
@@ -1964,28 +1990,24 @@ export default function RecruitmentAgencyDashboard() {
             <button
               type="button"
               onClick={openExportModal}
-              className="bg-white hover:bg-indigo-50/90 text-indigo-900 px-3 py-2 rounded-lg font-semibold text-xs flex items-center gap-1.5 transition-all shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] border border-indigo-200/70 hover:border-indigo-300 hover:shadow-[0_6px_20px_-4px_rgba(99,102,241,0.35)] active:scale-[0.98]"
+              className={LEADS_HEADER_PILL}
               title="Choose columns and export visible leads to CSV"
             >
-              <Download size={16} className="text-indigo-600" strokeWidth={2.25} />
+              <Download size={16} className="text-indigo-500" strokeWidth={2.25} />
               <span>Export</span>
             </button>
             {canCreateLead && (
               <button
                 type="button"
                 onClick={() => setImportDrawerOpen(true)}
-                className="bg-white hover:bg-indigo-50/90 text-indigo-900 px-3 py-2 rounded-lg font-semibold text-xs flex items-center gap-1.5 transition-all shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] border border-indigo-200/70 hover:border-indigo-300 hover:shadow-[0_6px_20px_-4px_rgba(99,102,241,0.35)] active:scale-[0.98]"
+                className={LEADS_HEADER_PILL}
               >
-                <Upload size={16} className="text-indigo-600" strokeWidth={2.25} />
+                <Upload size={16} className="text-indigo-500" strokeWidth={2.25} />
                 <span>Import</span>
               </button>
             )}
             {canCreateLead && (
-              <div
-                role="group"
-                aria-label="Create lead"
-                className="inline-flex items-center rounded-lg border border-slate-200/90 bg-slate-100/90 p-0.5 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.18)]"
-              >
+              <>
                 <button
                   type="button"
                   aria-pressed={createLeadMode === 'ai'}
@@ -1998,12 +2020,8 @@ export default function RecruitmentAgencyDashboard() {
                     setAddLeadWithAi(true);
                     setAddLeadDrawerOpen(true);
                   }}
-                  className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-all ${
-                    leadAiGate.locked
-                      ? 'text-amber-800 hover:bg-amber-50'
-                      : createLeadMode === 'ai'
-                        ? 'bg-white text-violet-800 shadow-sm ring-1 ring-violet-200/70'
-                        : 'text-slate-500 hover:bg-white/60 hover:text-violet-700'
+                  className={`${leadAiGate.locked ? LEADS_HEADER_PILL : LEADS_HEADER_PILL_AI} ${
+                    leadAiGate.locked ? 'text-amber-800' : ''
                   }`}
                   title={
                     leadAiGate.locked
@@ -2014,7 +2032,7 @@ export default function RecruitmentAgencyDashboard() {
                   {leadAiGate.locked ? (
                     <Lock size={14} className="text-amber-600" strokeWidth={2.25} />
                   ) : (
-                    <Sparkles size={14} className="text-violet-600" strokeWidth={2.25} />
+                    <Sparkles size={14} className="text-violet-500" strokeWidth={2.25} />
                   )}
                   <span>Create with AI</span>
                   <AiCoinLockBadge featureId="ai.lead_chat" />
@@ -2027,21 +2045,13 @@ export default function RecruitmentAgencyDashboard() {
                     setAddLeadWithAi(false);
                     setAddLeadDrawerOpen(true);
                   }}
-                  className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-all ${
-                    createLeadMode === 'manual'
-                      ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-sm'
-                      : 'text-slate-500 hover:bg-white/60 hover:text-indigo-700'
-                  }`}
+                  className={LEADS_HEADER_PILL_PRIMARY}
                   title="Create a lead manually"
                 >
-                  <Plus
-                    size={14}
-                    className={createLeadMode === 'manual' ? 'text-white' : 'text-indigo-500'}
-                    strokeWidth={2.5}
-                  />
+                  <Plus size={14} className="text-white" strokeWidth={2.5} />
                   <span>Create Manually</span>
                 </button>
-              </div>
+              </>
             )}
           </div>
         </header>
@@ -2101,15 +2111,15 @@ export default function RecruitmentAgencyDashboard() {
             </div>
           ) : null}
 
-          {/* Table Controls + scrollable rows */}
-          <div className="mb-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-indigo-100/60 bg-white/70 shadow-[0_12px_40px_-18px_rgba(59,130,246,0.18)] backdrop-blur-sm transition-shadow hover:shadow-[0_16px_48px_-14px_rgba(79,70,229,0.16)]">
-            <div className="no-scrollbar flex shrink-0 flex-nowrap items-center gap-2 overflow-x-auto overflow-y-hidden border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20 p-2.5 sm:p-4">
+          {/* Floating glass filters + opaque table */}
+          <div className="mb-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+            <div className="hry-filter-bar no-scrollbar mb-3 flex shrink-0 flex-nowrap items-center gap-2 overflow-x-auto overflow-y-hidden rounded-2xl p-2.5 sm:p-3">
               <div className="relative w-44 shrink-0 sm:w-52">
                 <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-indigo-400" size={16} strokeWidth={2.25} />
                 <input 
                   type="text" 
                   placeholder="Search company, email, or contact..." 
-                  className="h-9 w-full rounded-xl border border-indigo-100/90 bg-white/95 pl-10 pr-3 text-xs text-slate-800 placeholder:text-slate-400 transition-all focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 [box-shadow:inset_0_1px_2px_rgba(15,23,42,0.04)]"
+                  className="h-9 w-full rounded-full border border-white/70 bg-white/85 pl-10 pr-3 text-xs text-slate-800 placeholder:text-slate-400 transition-all duration-200 focus:border-[#3867FF]/40 focus:outline-none focus:ring-2 focus:ring-[#3867FF]/20"
                   value={searchQuery}
                   onChange={(e) => {
                     setCurrentPage(1);
@@ -2201,7 +2211,7 @@ export default function RecruitmentAgencyDashboard() {
 
                 <button 
                   type="button"
-                  className="flex h-9 shrink-0 items-center gap-1 rounded-lg px-2 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700"
+                  className="flex h-9 shrink-0 items-center gap-1 rounded-full px-3 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700"
                   onClick={() => {
                     clearAllTableFilters();
                     leadsSmartSearch.setOpen(false);
@@ -2214,7 +2224,7 @@ export default function RecruitmentAgencyDashboard() {
             </div>
 
             {leadsSmartSearch.open ? (
-              <div className="shrink-0">
+              <div className="hry-glass mb-3 shrink-0 overflow-hidden rounded-2xl">
                 <SmartSearchPromptPanel
                   prompt={leadsSmartSearch.prompt}
                   onPromptChange={leadsSmartSearch.setPrompt}
@@ -2230,7 +2240,7 @@ export default function RecruitmentAgencyDashboard() {
             ) : null}
 
             {hasActiveTableFilters ? (
-              <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-indigo-100/40 bg-slate-50/60 px-3 py-2 sm:px-4">
+              <div className="hry-glass mb-3 flex shrink-0 flex-wrap items-center gap-2 rounded-2xl px-3 py-2 sm:px-4">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
                   Active keywords
                 </span>
@@ -2261,6 +2271,7 @@ export default function RecruitmentAgencyDashboard() {
               </div>
             ) : null}
 
+            <div className="hry-table-shell relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-2xl">
             {/* Leads Table — vertical + horizontal scroll stay inside this panel */}
             <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
               <Ph2TableRefreshingOverlay
@@ -2272,7 +2283,7 @@ export default function RecruitmentAgencyDashboard() {
                 }
               />
               <div className="ph2-table-body-scroll min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-auto">
-                {loading && leads.length === 0 && <TableSkeleton rows={8} columns={6} />}
+                {loading && leads.length === 0 && <TableSkeleton rows={8} columns={6} withAvatar />}
                 {error && !loading && leads.length === 0 && (
                   <div className="p-10 text-center text-sm text-rose-600 font-medium">Error: {error}</div>
                 )}
@@ -2280,80 +2291,80 @@ export default function RecruitmentAgencyDashboard() {
                   <table
                     id="leads-main-table"
                     ref={leadsTableRef}
-                    className={`w-max min-w-full text-left ${PH2_FIT_ROW_TABLE_CLASS}`}
+                    className={LEADS_TABLE_CLASS}
                     aria-label="Leads"
                   >
                     <thead className="sticky top-0 z-10">
-                      <tr className="bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 border-b border-indigo-100/50 text-indigo-950/70 uppercase text-xs font-bold tracking-[0.06em] backdrop-blur-sm">
-                        <th className="px-3 sm:px-4 py-2 w-10 first:pl-4">
+                      <tr className="border-b border-slate-100 bg-white text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+                        <th className="w-10">
                           <SelectionCheckbox
                             checked={allVisibleSelected}
                             onChange={toggleSelectAll}
                           />
                         </th>
-                        <th className="px-3 sm:px-4 py-2 min-w-[11rem]">Lead</th>
+                        <th className="min-w-[13rem]">Lead</th>
                         {leadColumnVisibility.isVisible('source') ? (
-                          <th className="px-3 sm:px-4 py-2">Source</th>
+                          <th>Source</th>
                         ) : null}
                         {leadColumnVisibility.isVisible('contact') ? (
-                          <th className="px-3 sm:px-4 py-2">Contact</th>
+                          <th>Contact</th>
                         ) : null}
                         {selectedDynamicColumnLabels.map((label) => (
-                          <th key={label} className="px-3 sm:px-4 py-2">
+                          <th key={label}>
                             {label}
                           </th>
                         ))}
                         {leadColumnVisibility.isVisible('status') ? (
-                          <th className="px-3 sm:px-4 py-2">Status</th>
+                          <th>Status</th>
                         ) : null}
                         {leadColumnVisibility.isVisible('assignedTo') ? (
-                          <th className="px-3 sm:px-4 py-2">Assigned To</th>
+                          <th>Assigned To</th>
                         ) : null}
                         {leadColumnVisibility.isVisible('followUp') ? (
-                          <th className="px-3 sm:px-4 py-2">Last Follow-up</th>
+                          <th>Last Follow-up</th>
                         ) : null}
                         {leadColumnVisibility.isVisible('type') ? (
-                          <th className="px-3 sm:px-4 py-2">Lead type</th>
+                          <th>Lead type</th>
                         ) : null}
                         {leadColumnVisibility.isVisible('priority') ? (
-                          <th className="px-3 sm:px-4 py-2">Priority</th>
+                          <th>Priority</th>
                         ) : null}
                         {leadColumnVisibility.isVisible('phone') ? (
-                          <th className="px-3 sm:px-4 py-2">Phone</th>
+                          <th>Phone</th>
                         ) : null}
                         {leadColumnVisibility.isVisible('industry') ? (
-                          <th className="px-3 sm:px-4 py-2">Industry</th>
+                          <th>Industry</th>
                         ) : null}
                         {leadColumnVisibility.isVisible('companySize') ? (
-                          <th className="px-3 sm:px-4 py-2">Company size</th>
+                          <th>Company size</th>
                         ) : null}
                         {leadColumnVisibility.isVisible('location') ? (
-                          <th className="px-3 sm:px-4 py-2">Location</th>
+                          <th>Location</th>
                         ) : null}
                         {leadColumnVisibility.isVisible('website') ? (
-                          <th className="px-3 sm:px-4 py-2">Website</th>
+                          <th>Website</th>
                         ) : null}
                         {leadColumnVisibility.isVisible('designation') ? (
-                          <th className="px-3 sm:px-4 py-2">Designation</th>
+                          <th>Designation</th>
                         ) : null}
                         {leadColumnVisibility.isVisible('needs') ? (
-                          <th className="px-3 sm:px-4 py-2">Services needed</th>
+                          <th>Services needed</th>
                         ) : null}
                         {leadColumnVisibility.isVisible('expectedValue') ? (
-                          <th className="px-3 sm:px-4 py-2">Expected value</th>
+                          <th>Expected value</th>
                         ) : null}
                         {leadColumnVisibility.isVisible('createdDate') ? (
-                          <th className="px-3 sm:px-4 py-2">Created</th>
+                          <th>Created</th>
                         ) : null}
                         {leadColumnVisibility.isVisible('convertedClient') ? (
-                          <th className="px-3 sm:px-4 py-2">Converted client</th>
+                          <th>Converted client</th>
                         ) : null}
                         {showLeadAiAlertColumn ? <WorkspaceAlertTableHeader /> : null}
                         {leadColumnVisibility.isVisible('audit') ? <TableAuditColumnHeader /> : null}
-                        <th className="px-3 sm:px-4 py-2 text-right">Actions</th>
+                        <th className="text-right">Actions</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100/80">
+                    <tbody>
                       {filteredLeads.length === 0 ? (
                         <tr>
                           <td
@@ -2372,36 +2383,37 @@ export default function RecruitmentAgencyDashboard() {
                         filteredLeads.map((lead) => (
                           <tr
                             key={lead.id}
-                            className={`group transition-colors duration-200 ${
+                            className={`group border-b border-slate-100/90 transition-colors duration-150 ${
                               highlightedRows.includes(lead.id)
                                 ? 'bg-amber-50/90 hover:bg-amber-50'
                                 : selectedLeadIds.includes(lead.id)
-                                  ? 'bg-indigo-50/90 hover:bg-indigo-50/95'
+                                  ? 'bg-indigo-50/70 hover:bg-indigo-50/90'
                                   : selectedLeadId === lead.id
-                                    ? 'bg-blue-50/70 hover:bg-blue-50/85'
-                                    : 'even:bg-slate-50/35 hover:bg-indigo-50/45'
+                                    ? 'bg-slate-50 hover:bg-slate-50'
+                                    : 'bg-white hover:bg-slate-50/80'
                             }`}
                           >
-                            <td className="px-3 sm:px-4 py-2" onClick={(e) => e.stopPropagation()}>
+                            <td onClick={(e) => e.stopPropagation()}>
                               <SelectionCheckbox
                                 checked={selectedLeadIds.includes(lead.id)}
                                 onChange={() => toggleLeadSelection(lead.id)}
                               />
                             </td>
-                            <td className="px-3 sm:px-4 py-2 min-w-[11rem] align-middle">
-                              <div className="flex items-center gap-2">
+                            <td className="min-w-[13rem]">
+                              <div className="flex items-center gap-3">
                                 <span className="shrink-0">
                                   <TableBrandAvatar
                                     name={lead.companyName}
-                                    size="xs"
-                                    showStatusDot={lead.status !== 'Lost'}
+                                    size="md"
+                                    showStatusDot={false}
                                     statusDotTitle={`Lead: ${lead.status}`}
                                   />
                                 </span>
+                                <div className="min-w-0">
                                 <div className="flex min-w-0 items-center gap-1.5">
                                 <button
                                   type="button"
-                                  className="min-w-0 truncate text-left text-sm font-medium leading-tight text-slate-900 hover:text-indigo-700 transition-colors"
+                                  className="min-w-0 truncate text-left text-[13.5px] font-semibold leading-tight text-slate-900 hover:text-indigo-700 transition-colors"
                                   title={lead.companyName}
                                   onClick={() => {
                                     void openLeadDrawerWithFreshData(lead, 'view');
@@ -2438,20 +2450,26 @@ export default function RecruitmentAgencyDashboard() {
                                   return null;
                                 })()}
                                 </div>
+                                {lead.industry ? (
+                                  <p className="mt-0.5 truncate text-[12px] font-medium text-slate-400">
+                                    {lead.industry}
+                                  </p>
+                                ) : null}
+                              </div>
                               </div>
                             </td>
                             {leadColumnVisibility.isVisible('source') ? (
-                              <td className="px-3 sm:px-4 py-2" onClick={(e) => e.stopPropagation()}>
+                              <td onClick={(e) => e.stopPropagation()}>
                                 <SourceCell lead={lead} />
                               </td>
                             ) : null}
                             {leadColumnVisibility.isVisible('contact') ? (
-                              <td className="px-3 sm:px-4 py-2">
+                              <td>
                                 <div className="flex flex-col gap-0.5">
-                                  <span className="text-[14px] font-medium text-slate-900 leading-tight">
+                                  <span className="text-[13.5px] font-semibold text-slate-800 leading-tight">
                                     {formatDirectorDisplay(lead.directorSalutation, lead.directorName || lead.contactPerson)}
                                   </span>
-                                  <span className="text-[12.5px] font-normal text-slate-500 leading-tight">
+                                  <span className="text-[12px] font-medium text-slate-400 leading-tight">
                                     {formatContactListDisplay(lead.emails, lead.email)}
                                   </span>
                                 </div>
@@ -2460,7 +2478,7 @@ export default function RecruitmentAgencyDashboard() {
                             {selectedDynamicColumnLabels.map((label) => {
                               const value = getLeadDynamicFieldValue(lead, label);
                               return (
-                                <td key={`${lead.id}-${label}`} className="px-3 sm:px-4 py-2">
+                                <td key={`${lead.id}-${label}`}>
                                   <span className="line-clamp-2 text-[13.5px] font-normal text-slate-700">
                                     {value || '—'}
                                   </span>
@@ -2468,11 +2486,11 @@ export default function RecruitmentAgencyDashboard() {
                               );
                             })}
                             {leadColumnVisibility.isVisible('status') ? (
-                              <td className="px-3 sm:px-4 py-2" onClick={(e) => e.stopPropagation()}>
+                              <td onClick={(e) => e.stopPropagation()}>
                                 <div className="flex flex-col gap-1.5">
                                   {canUpdateLead ? (
                                     <select
-                                      className="max-w-[10rem] rounded-full border-0 bg-slate-100/90 px-2.5 py-1 text-[13px] font-medium text-slate-800 ring-1 ring-slate-200/90 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 cursor-pointer hover:bg-slate-100"
+                                      className={leadStatusChipClass(lead.status)}
                                       value={lead.status}
                                       onChange={(e) =>
                                         handleInlineStatusChange(lead.id, e.target.value as LeadStatus)
@@ -2522,46 +2540,46 @@ export default function RecruitmentAgencyDashboard() {
                               </td>
                             ) : null}
                             {leadColumnVisibility.isVisible('assignedTo') ? (
-                              <td className="px-3 sm:px-4 py-2">
+                              <td>
                                 <AssigneeAvatars
                                   lead={lead}
                                 />
                               </td>
                             ) : null}
                             {leadColumnVisibility.isVisible('followUp') ? (
-                              <td className="px-3 sm:px-4 py-2">
+                              <td>
                                 <LeadFollowUpTableCell lastFollowUp={lead.lastFollowUp} />
                               </td>
                             ) : null}
                             {leadColumnVisibility.isVisible('type') ? (
-                              <td className="px-3 sm:px-4 py-2 text-[13.5px] text-slate-600">
+                              <td className="text-[13.5px] text-slate-600">
                                 {lead.type || '—'}
                               </td>
                             ) : null}
                             {leadColumnVisibility.isVisible('priority') ? (
-                              <td className="px-3 sm:px-4 py-2">
+                              <td>
                                 {lead.priority ? <PriorityTag priority={lead.priority} /> : (
                                   <span className="text-[13.5px] text-slate-400">—</span>
                                 )}
                               </td>
                             ) : null}
                             {leadColumnVisibility.isVisible('phone') ? (
-                              <td className="px-3 sm:px-4 py-2 text-[13.5px] text-slate-600">
+                              <td className="text-[13.5px] text-slate-600">
                                 {formatContactListDisplay(lead.phones, lead.phone) || '—'}
                               </td>
                             ) : null}
                             {leadColumnVisibility.isVisible('industry') ? (
-                              <td className="px-3 sm:px-4 py-2 text-[13.5px] text-slate-600">
+                              <td className="text-[13.5px] text-slate-600">
                                 {lead.industry || '—'}
                               </td>
                             ) : null}
                             {leadColumnVisibility.isVisible('companySize') ? (
-                              <td className="px-3 sm:px-4 py-2 text-[13.5px] text-slate-600">
+                              <td className="text-[13.5px] text-slate-600">
                                 {lead.companySize || '—'}
                               </td>
                             ) : null}
                             {leadColumnVisibility.isVisible('location') ? (
-                              <td className="px-3 sm:px-4 py-2 text-[13.5px] text-slate-600">
+                              <td className="text-[13.5px] text-slate-600">
                                 {formatLocationCell({
                                   location: lead.location,
                                   country: lead.country,
@@ -2571,7 +2589,7 @@ export default function RecruitmentAgencyDashboard() {
                               </td>
                             ) : null}
                             {leadColumnVisibility.isVisible('website') ? (
-                              <td className="px-3 sm:px-4 py-2">
+                              <td>
                                 {lead.website ? (
                                   <span
                                     className="block max-w-[10rem] truncate text-[13.5px] text-slate-600"
@@ -2585,12 +2603,12 @@ export default function RecruitmentAgencyDashboard() {
                               </td>
                             ) : null}
                             {leadColumnVisibility.isVisible('designation') ? (
-                              <td className="px-3 sm:px-4 py-2 text-[13.5px] text-slate-600">
+                              <td className="text-[13.5px] text-slate-600">
                                 {lead.designation || lead.teamMemberDesignation || '—'}
                               </td>
                             ) : null}
                             {leadColumnVisibility.isVisible('needs') ? (
-                              <td className="px-3 sm:px-4 py-2">
+                              <td>
                                 <span
                                   className="line-clamp-2 max-w-[12rem] text-[13.5px] text-slate-700"
                                   title={lead.interestedNeeds || lead.servicesNeeded || undefined}
@@ -2600,42 +2618,42 @@ export default function RecruitmentAgencyDashboard() {
                               </td>
                             ) : null}
                             {leadColumnVisibility.isVisible('expectedValue') ? (
-                              <td className="px-3 sm:px-4 py-2 text-[13.5px] text-slate-600">
+                              <td className="text-[13.5px] text-slate-600">
                                 {lead.expectedBusinessValue || '—'}
                               </td>
                             ) : null}
                             {leadColumnVisibility.isVisible('createdDate') ? (
-                              <td className="px-3 sm:px-4 py-2 text-[13.5px] text-slate-600">
+                              <td className="text-[13.5px] text-slate-600">
                                 {lead.createdDate ? formatDateDMY(lead.createdDate) || lead.createdDate : '—'}
                               </td>
                             ) : null}
                             {leadColumnVisibility.isVisible('convertedClient') ? (
-                              <td className="px-3 sm:px-4 py-2 text-[13.5px] text-slate-600">
+                              <td className="text-[13.5px] text-slate-600">
                                 {lead.convertedClientName || '—'}
                               </td>
                             ) : null}
                             {showLeadAiAlertColumn ? (
-                              <td className="px-3 sm:px-4 py-2">
+                              <td>
                                 <WorkspaceAlertTableCell alerts={workspaceAlertsByEntityId?.[lead.id]} />
                               </td>
                             ) : null}
                             {leadColumnVisibility.isVisible('audit') ? (
                               <TableAuditCell audit={lead.auditMeta} hideUnchangedUpdated />
                             ) : null}
-                            <td className="px-3 sm:px-4 py-2 text-right" onClick={(e) => e.stopPropagation()}>
-                              <div className="inline-flex items-center justify-end gap-0.5 rounded-xl bg-slate-100/70 p-0.5 ring-1 ring-slate-200/60">
+                            <td className="text-right" onClick={(e) => e.stopPropagation()}>
+                              <div className="inline-flex items-center justify-end gap-0.5">
                                 {SHOW_TABLE_ROW_EDIT_ICON &&
                                 lead.status !== 'Converted' &&
                                 !lead.convertedToClientId ? (
                                   <button
                                     type="button"
-                                    className="flex h-7 w-7 items-center justify-center rounded-lg text-amber-600 hover:bg-white hover:text-amber-800 hover:shadow-sm transition-all"
+                                    className={`${LEADS_ACTION_BTN} text-[#3867FF] hover:bg-blue-50 hover:text-[#274fd6]`}
                                     title="Edit Lead"
                                     onClick={() => {
                                       void openLeadDrawerWithFreshData(lead, 'edit');
                                     }}
                                   >
-                                    <Pencil size={15} strokeWidth={2.35} />
+                                    <Pencil size={15} strokeWidth={2.2} />
                                   </button>
                                 ) : null}
                                 {canConvertLead && lead.status !== 'Converted' && !lead.convertedToClientId && (
@@ -2648,11 +2666,11 @@ export default function RecruitmentAgencyDashboard() {
                                       return (
                                         <button
                                           type="button"
-                                          className="flex h-7 w-7 items-center justify-center rounded-lg text-emerald-600 hover:bg-white hover:text-emerald-800 hover:shadow-sm transition-all"
+                                          className={`${LEADS_ACTION_BTN} text-emerald-500 hover:bg-emerald-50 hover:text-emerald-700`}
                                           title="Resend conversion request"
                                           onClick={() => void handleConvert(lead.id)}
                                         >
-                                          <RefreshCcw size={15} strokeWidth={2.35} />
+                                          <RefreshCcw size={15} strokeWidth={2.2} />
                                         </button>
                                       );
                                     }
@@ -2661,9 +2679,9 @@ export default function RecruitmentAgencyDashboard() {
                                       <button
                                         type="button"
                                         disabled={!canSend}
-                                        className={`flex h-7 w-7 items-center justify-center rounded-lg transition-all ${
+                                        className={`${LEADS_ACTION_BTN} ${
                                           canSend
-                                            ? 'text-emerald-600 hover:bg-white hover:text-emerald-800 hover:shadow-sm'
+                                            ? 'text-emerald-500 hover:bg-emerald-50 hover:text-emerald-700'
                                             : 'cursor-not-allowed text-slate-300'
                                         }`}
                                         title={
@@ -2679,7 +2697,7 @@ export default function RecruitmentAgencyDashboard() {
                                           void handleConvert(lead.id);
                                         }}
                                       >
-                                        <UserPlus size={15} strokeWidth={2.35} />
+                                        <UserPlus size={15} strokeWidth={2.2} />
                                       </button>
                                     );
                                   })()
@@ -2687,7 +2705,7 @@ export default function RecruitmentAgencyDashboard() {
                                 {canDeleteLead && (
                                   <button
                                     type="button"
-                                    className="flex h-7 w-7 items-center justify-center rounded-lg text-rose-500 hover:bg-white hover:text-rose-800 hover:shadow-sm transition-all"
+                                    className={`${LEADS_ACTION_BTN} text-rose-400 hover:bg-rose-50 hover:text-rose-600`}
                                     title="Delete Lead"
                                     onClick={(e) => {
                                       e.stopPropagation();
@@ -2698,7 +2716,7 @@ export default function RecruitmentAgencyDashboard() {
                                       });
                                     }}
                                   >
-                                    <Trash2 size={15} strokeWidth={2.35} />
+                                    <Trash2 size={15} strokeWidth={2.2} />
                                   </button>
                                 )}
                               </div>
@@ -2712,7 +2730,7 @@ export default function RecruitmentAgencyDashboard() {
               </div>
             </div>
             {(leads.length > 0 || (!loading && !error)) && (
-              <div className="mt-0 w-full shrink-0 border-t border-indigo-100/50 bg-gradient-to-r from-slate-50/40 via-white to-indigo-50/25 px-3 py-2 sm:px-4">
+              <div className="mt-0 w-full shrink-0 border-t border-slate-100/80 bg-white/90 px-4 py-3">
                 <PaginationAll
                   initialPage={currentPage}
                   totalPages={Math.max(1, Math.ceil(totalEntries / pageSize))}
@@ -2729,6 +2747,7 @@ export default function RecruitmentAgencyDashboard() {
                 />
               </div>
             )}
+            </div>
           </div>
         </div>
 

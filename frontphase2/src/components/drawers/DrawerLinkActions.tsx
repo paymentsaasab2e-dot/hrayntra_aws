@@ -65,6 +65,7 @@ type DrawerLinkActionsProps = {
   showShare?: boolean;
   size?: 'sm' | 'md';
   menuAlign?: 'left' | 'right';
+  pill?: boolean;
 };
 
 export function DrawerLinkActions({
@@ -75,6 +76,7 @@ export function DrawerLinkActions({
   showShare = true,
   size = 'sm',
   menuAlign = 'left',
+  pill = false,
 }: DrawerLinkActionsProps) {
   const href = normalizeShareUrl(url);
   const [copied, setCopied] = useState(false);
@@ -124,12 +126,13 @@ export function DrawerLinkActions({
     setShareOpen(false);
   };
 
+  const radius = pill ? 'rounded-full' : 'rounded-lg';
   const copyButtonClass = compact
-    ? 'inline-flex h-8 w-8 items-center justify-center rounded-lg border border-indigo-100 bg-white text-indigo-700 shadow-sm transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50'
-    : 'inline-flex h-9 w-9 items-center justify-center rounded-lg border border-indigo-200/80 bg-white text-indigo-700 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.2)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50';
+    ? `inline-flex h-8 w-8 items-center justify-center ${radius} border border-indigo-100 bg-white text-indigo-700 shadow-sm transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50`
+    : `inline-flex h-9 w-9 items-center justify-center ${radius} border border-white/80 bg-white/95 text-slate-600 shadow-[0_8px_20px_-12px_rgba(15,23,42,0.28)] transition-all hover:bg-white hover:text-indigo-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50`;
   const shareButtonClass = compact
-    ? 'inline-flex h-8 items-center gap-1.5 rounded-lg border border-indigo-100 bg-white px-2.5 text-xs font-semibold text-indigo-700 shadow-sm transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50'
-    : 'inline-flex h-9 items-center gap-1.5 rounded-lg border border-indigo-200/70 bg-white px-3 text-xs font-semibold text-indigo-900 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50';
+    ? `inline-flex h-8 items-center gap-1.5 ${radius} border border-indigo-100 bg-white px-2.5 text-xs font-semibold text-indigo-700 shadow-sm transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50`
+    : `inline-flex h-9 items-center gap-1.5 ${radius} border border-white/80 bg-white/95 px-3.5 text-xs font-semibold text-slate-700 shadow-[0_8px_20px_-12px_rgba(15,23,42,0.28)] transition-all hover:bg-white hover:text-indigo-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50`;
 
   return (
     <div ref={rootRef} className={`relative inline-flex items-center gap-1.5 ${className}`}>

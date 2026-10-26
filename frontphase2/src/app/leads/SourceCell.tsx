@@ -10,27 +10,27 @@ import { formatLeadSourceDisplay, isLeadSource } from '../../components/drawers/
 /** Light visual style per source — keeps existing violet for fallback. */
 const SOURCE_STYLES: Record<LeadSource, { className: string; Icon: AppIcon }> = {
   Website: {
-    className: 'text-blue-700 bg-gradient-to-r from-blue-50 to-sky-50/80 border-blue-100 hover:from-blue-100 hover:to-sky-100',
+    className: 'text-blue-600 bg-white border-slate-200 hover:bg-slate-50',
     Icon: Globe,
   },
   LinkedIn: {
-    className: 'text-sky-700 bg-gradient-to-r from-sky-50 to-blue-50/80 border-sky-100 hover:from-sky-100 hover:to-blue-100',
+    className: 'text-sky-700 bg-sky-50 border-sky-100 hover:bg-sky-100',
     Icon: Linkedin,
   },
   Email: {
-    className: 'text-emerald-700 bg-gradient-to-r from-emerald-50 to-teal-50/80 border-emerald-100 hover:from-emerald-100 hover:to-teal-100',
+    className: 'text-emerald-700 bg-emerald-50 border-emerald-100 hover:bg-emerald-100',
     Icon: Mail,
   },
   Referral: {
-    className: 'text-amber-700 bg-gradient-to-r from-amber-50 to-orange-50/80 border-amber-100 hover:from-amber-100 hover:to-orange-100',
+    className: 'text-violet-700 bg-violet-50 border-violet-100 hover:bg-violet-100',
     Icon: Users,
   },
   Campaign: {
-    className: 'text-fuchsia-700 bg-gradient-to-r from-fuchsia-50 to-pink-50/80 border-fuchsia-100 hover:from-fuchsia-100 hover:to-pink-100',
+    className: 'text-fuchsia-700 bg-fuchsia-50 border-fuchsia-100 hover:bg-fuchsia-100',
     Icon: Megaphone,
   },
   Other: {
-    className: 'text-slate-700 bg-gradient-to-r from-slate-50 to-zinc-50/80 border-slate-200 hover:from-slate-100 hover:to-zinc-100',
+    className: 'text-slate-600 bg-white border-slate-200 hover:bg-slate-50',
     Icon: Pencil,
   },
 };
@@ -172,7 +172,7 @@ export function SourceCell({ lead }: SourceCellProps) {
 
   const personStyle = {
     className:
-      'text-indigo-700 bg-gradient-to-r from-indigo-50 to-violet-50/80 border-indigo-100 hover:from-indigo-100 hover:to-violet-100',
+      'text-violet-700 bg-violet-50 border-violet-100 hover:bg-violet-100',
     Icon: Users,
   };
   const style = addedBy ? personStyle : SOURCE_STYLES[source] ?? {
@@ -249,7 +249,7 @@ export function SourceCell({ lead }: SourceCellProps) {
     [target.href, target.newTab],
   );
 
-  const baseClass = `inline-flex items-center gap-1.5 text-xs font-medium border w-fit px-2.5 py-1.5 rounded-xl shadow-sm transition-colors ${style.className}`;
+  const baseClass = `inline-flex items-center gap-1.5 text-[12px] font-semibold border w-fit px-2.5 py-1 rounded-full transition-colors ${style.className}`;
   const interactiveClass = interactive ? 'cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/30' : 'cursor-default';
 
   return (

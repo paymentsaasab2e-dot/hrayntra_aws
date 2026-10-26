@@ -286,24 +286,25 @@ export const NavGroupFlyout = ({
         className="relative"
       >
         <div
-          className={`relative mx-2.5 my-0.5 flex h-11 cursor-pointer items-center rounded-xl transition-all duration-150 group ${
-            collapsed ? 'justify-center px-2' : 'pl-2.5 pr-2.5'
-          } ${
-            active || open
-              ? 'border border-white/20 bg-white/[0.08] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]'
-              : 'border border-transparent text-[#8899AA] hover:bg-white/[0.04] hover:text-white'
-          }`}
+          className={[
+            'relative mx-2.5 my-0.5 flex h-11 cursor-pointer items-center rounded-xl transition-all duration-150 group',
+            collapsed ? 'justify-center px-2' : 'pl-2.5 pr-2.5',
+            active
+              ? 'border border-transparent bg-gradient-to-r from-[#3867FF] to-[#7864FF] text-white shadow-[0_10px_22px_-8px_rgba(56,103,255,0.85)]'
+              : open
+                ? 'border border-white/20 bg-white/[0.08] text-white'
+                : 'border border-transparent text-[#8899AA] hover:bg-white/[0.04] hover:text-white',
+          ].join(' ')}
         >
-          {(active || open) && (
-            <div className="absolute -left-[3px] top-1/2 h-6 w-1 -translate-y-1/2 rounded-r-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.55)]" />
-          )}
-
+          {active ? (
+            <div className="absolute left-0 top-1/2 h-6 w-0.5 -translate-y-1/2 rounded-full bg-white/85" />
+          ) : null}
           <div
-            className={`flex shrink-0 items-center justify-center rounded-lg transition-all duration-150 ${
-              collapsed ? 'h-8 w-8' : 'mr-2.5 h-8 w-8'
-            } ${
-              active || open ? tone.activeWrap : `${tone.activeWrap} opacity-70`
-            }`}
+            className={[
+              'flex shrink-0 items-center justify-center rounded-lg transition-all duration-150',
+              collapsed ? 'h-8 w-8' : 'mr-2.5 h-8 w-8',
+              active ? 'bg-white/20' : open ? tone.activeWrap : `${tone.activeWrap} opacity-70`,
+            ].join(' ')}
           >
             {imageSrc ? (
               <img
@@ -316,7 +317,7 @@ export const NavGroupFlyout = ({
               <Icon
                 size={17}
                 strokeWidth={active || open ? 2 : 1.6}
-                className={active || open ? tone.activeIcon : tone.idle}
+                className={active ? 'text-white' : open ? tone.activeIcon : tone.idle}
               />
             )}
           </div>

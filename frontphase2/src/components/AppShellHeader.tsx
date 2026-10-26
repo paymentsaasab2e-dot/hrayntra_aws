@@ -322,7 +322,7 @@ export function AppShellHeader({
   return (
     <nav
       className="fixed left-0 right-0 z-50 flex h-14 min-w-0 items-center gap-1.5 px-2 sm:gap-2 sm:px-4 lg:px-5 top-[var(--ph2-impersonation-banner-h,0px)]"
-      style={{ backgroundColor: '#0b1220', borderBottom: '1px solid rgba(255,255,255,0.06)' }}
+      style={{ backgroundColor: 'var(--hry-navy, #0b1220)', borderBottom: '1px solid rgba(255,255,255,0.08)' }}
     >
       <div className="flex min-w-0 shrink-0 items-center gap-1.5 sm:gap-2 md:transition-all md:duration-300">
         <button

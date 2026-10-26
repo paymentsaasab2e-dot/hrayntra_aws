@@ -23,7 +23,7 @@ export const PH2_TABLE_CARD_FOOTER_CLASS =
 
 /** KPI / status tiles — stay in one row and shrink on small screens. */
 export const PH2_KPI_ROW_CLASS =
-  'mb-2 sm:mb-4 grid shrink-0 grid-cols-[repeat(auto-fit,minmax(0,1fr))] gap-1 sm:gap-2 lg:gap-3';
+  'mb-3 sm:mb-4 grid shrink-0 grid-cols-[repeat(auto-fit,minmax(0,1fr))] gap-2 sm:gap-3';
 
 /** Scroll region for table rows inside a PH2 table card. */
 export const PH2_TABLE_BODY_SCROLL_CLASS =
