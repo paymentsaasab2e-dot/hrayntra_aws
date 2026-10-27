@@ -234,6 +234,8 @@ export interface Candidate {
   stage: string;
   owner: string;
   lastActivity: string;
+  /** Epoch ms for newest-first chronology after CV upload / apply. */
+  addedAtMs?: number;
   auditMeta?: AuditMeta;
   hotlist: boolean;
   phone: string;

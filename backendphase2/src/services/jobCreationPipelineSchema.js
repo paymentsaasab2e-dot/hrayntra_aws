@@ -143,6 +143,13 @@ export function normalizeExtractedJobTitle(raw, { maxLength = 56, maxWords = 8 }
     title = lookingMatch[1].trim();
   }
 
+  title = title
+    .replace(
+      /^(?:please\s+)?(?:create|creat|generate|write|make)\s+(?:me\s+)?(?:a\s+|an\s+)?(?:job(?:\s+description|\s+jd)?\s+)?(?:for|of)\s+(?:an?\s+|the\s+)?/i,
+      '',
+    )
+    .trim();
+
   // Cut marketing / requirement tails that often get glued onto titles.
   title = title
     .replace(/\s*[|•·]\s*.*$/u, '')
@@ -152,6 +159,12 @@ export function normalizeExtractedJobTitle(raw, { maxLength = 56, maxWords = 8 }
     )
     .replace(/\s+(?:with|having)\s+\d+\+?\s*(?:-\s*\d+\+?\s*)?(?:years?|yrs?).*$/i, '')
     .replace(/\s+(?:with)\s+(?:\d+\+?\s*)?(?:years?|yrs?)\s+of\b.*$/i, '')
+    .replace(/,?\s*\d+\+?\s*(?:to\s+\d+\+?\s*)?(?:years?|yrs?)(?:\s+of\s+experience)?.*$/i, '')
+    .replace(/,?\s*(?:remote|hybrid|on[-\s]?site|wfh)(?:,.*)?$/i, '')
+    .replace(
+      /\s+\bin\s+(?:Mumbai|Delhi|Bengaluru|Bangalore|Hyderabad|Chennai|Pune|Kolkata|Gurgaon|Gurugram|Noida|Ahmedabad|Jaipur|India|USA|UK|UAE)(?:\s*,.*)?$/i,
+      '',
+    )
     .replace(/\s+(?:based\s+in|located\s+in|work\s+from|working\s+from)\b.*$/i, '')
     .replace(/\s+(?:for\s+our|to\s+join|who\s+(?:can|will|have)|responsible\s+for)\b.*$/i, '')
     .replace(/\s+(?:salary|ctc|lpa|compensation|package|₹|\$|usd|inr)\b.*$/i, '')

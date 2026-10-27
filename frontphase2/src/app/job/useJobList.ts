@@ -1041,6 +1041,7 @@ function toJobCandidateItemFromApplied(match: any, fallbackRecruiter = 'Unassign
     ),
     interviewStatus: 'Not scheduled',
     lastActivity: match.createdAt ? formatDateTimeDMY(match.createdAt) : '—',
+    addedAt: match.createdAt ? String(match.createdAt) : undefined,
   };
 }
 
@@ -1065,6 +1066,11 @@ function toJobCandidateItemFromAssigned(candidate: BackendCandidate): JobCandida
       : candidate.createdAt
       ? formatDateTimeDMY(candidate.createdAt)
       : '-',
+    addedAt: candidate.createdAt
+      ? String(candidate.createdAt)
+      : candidate.updatedAt
+        ? String(candidate.updatedAt)
+        : undefined,
   };
 }
 

@@ -11,6 +11,7 @@ import {
   Building2,
   Check,
   ChevronDown,
+  ClipboardPaste,
   Eye,
   ExternalLink,
   FileText,
@@ -110,10 +111,15 @@ import {
   useOrgWorkspace,
 } from '@/lib/org/useOrgWorkspace';
 import { parseJobSalaryMoneyNumber, resolveJobSalaryCurrencySymbolForSave } from '@/constants/jobSalary';
-import { normalizeExtractedJobTitle } from '@/lib/normalizeExtractedJobTitle';
+import { inferJobTitleFromPrompt } from '@/components/drawers/createJobShared';
+import {
+  normalizeExtractedJobTitle,
+  titleLooksLikeFullPrompt,
+} from '@/lib/normalizeExtractedJobTitle';
 import { DRAWER_QUERY, patchDrawerQuery, readAllowedDrawerQuery, readDrawerQuery, useBindDrawerQuery } from '@/lib/drawerUrlState';
 
 type WizardStep = 'client' | 'jd' | 'review';
+type JdSourceTab = 'upload' | 'generate' | 'paste';
 type PublishFlowStep = 'assessment' | 'distribution' | null;
 type DistributionChannel =
   | 'internal_company'
@@ -443,13 +449,32 @@ function mapJobType(value: string): CreateJobData['type'] {
   return 'FULL_TIME';
 }
 
+function jobDraftToCurrentForm(draft: WizardDraft): Record<string, unknown> {
+  return {
+    nationality: draft.nationality,
+    jobTitle: draft.jobTitle,
+    priority: draft.priority,
+    companyId: draft.clientId,
+    numberOfOpenings: draft.numberOfOpenings,
+    country: draft.country,
+    state: draft.state,
+    city: draft.city,
+    industryType: draft.industryType,
+    employmentType: draft.employmentType,
+    targetHireDate: draft.targetHireDate,
+    skills: draft.skills,
+  };
+}
+
 function pipelineToDraft(
   base: WizardDraft,
   data: JobCreationPipelineResult,
 ): WizardDraft {
   return {
     ...base,
-    jobTitle: normalizeExtractedJobTitle(data.jobTitle || base.jobTitle) || base.jobTitle,
+    jobTitle:
+      normalizeExtractedJobTitle(data.jobTitle || '') ||
+      normalizeExtractedJobTitle(base.jobTitle || ''),
     nationality: data.nationality || base.nationality,
     priority: data.priority || base.priority,
     numberOfOpenings: data.numberOfOpenings || base.numberOfOpenings,
@@ -591,6 +616,12 @@ type Props = {
 
 const STEPS: WizardStep[] = ['client', 'jd', 'review'];
 
+const JD_SOURCE_TABS: Array<{ id: JdSourceTab; label: string; icon: AppIcon }> = [
+  { id: 'upload', label: 'Upload', icon: Upload },
+  { id: 'generate', label: 'Generate with AI', icon: Sparkles },
+  { id: 'paste', label: 'Paste', icon: ClipboardPaste },
+];
+
 const STEP_LABELS: Record<WizardStep, string> = {
   client: 'Select Your Client',
   jd: 'Upload Job Description',
@@ -599,7 +630,7 @@ const STEP_LABELS: Record<WizardStep, string> = {
 
 const STEP_HINTS: Record<WizardStep, string> = {
   client: 'Who is this job for? Choose your own company or a client to continue.',
-  jd: 'Upload or paste a JD — we extract fields automatically where possible.',
+  jd: 'Choose Upload, Generate with AI, or Paste.',
   review: 'Review and edit every field, then continue to publish.',
 };
 
@@ -637,6 +668,8 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
   const [dropdownsOpen, setDropdownsOpen] = useState<Record<string, boolean>>({});
   const [jdGenerating, setJdGenerating] = useState(false);
   const [jdError, setJdError] = useState('');
+  const [jdPromptText, setJdPromptText] = useState('');
+  const [jdSourceTab, setJdSourceTab] = useState<JdSourceTab>('upload');
   const [pastedJobDescriptionText, setPastedJobDescriptionText] = useState('');
   const [jdAttachment, setJdAttachment] = useState<{
     file: File;
@@ -725,6 +758,8 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
     setLinkedinAccountsLoading(false);
     setJdGenerating(false);
     setJdError('');
+    setJdPromptText('');
+    setJdSourceTab('upload');
     setPastedJobDescriptionText('');
     setJdAttachment(null);
     setPublishFlowStep(null);
@@ -1039,6 +1074,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
       reset();
       return;
     }
+    setJdSourceTab(mode === 'ai' ? 'generate' : 'upload');
     let cancelled = false;
     void loadClients().then(() => {
       if (cancelled) return;
@@ -1046,7 +1082,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
     return () => {
       cancelled = true;
     };
-  }, [isOpen, reset, loadClients]);
+  }, [isOpen, mode, reset, loadClients]);
 
   const handleClientCreatedFromWizard = useCallback(
     (created?: BackendClient | null) => {
@@ -1175,24 +1211,32 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
   );
 
   const applyPipelineToDraft = useCallback(
-    (data: JobCreationPipelineResult, sourceJdText?: string) => {
+    (
+      data: JobCreationPipelineResult,
+      sourceJdText?: string,
+      options?: { replaceDescription?: boolean },
+    ) => {
       setDraft((prev) => {
+        const base = options?.replaceDescription ? { ...prev, jobDescriptionHtml: '' } : prev;
         const withSource =
-          sourceJdText && sourceJdText.trim().length >= 50
+          !options?.replaceDescription && sourceJdText && sourceJdText.trim().length >= 50
             ? {
-                ...prev,
+                ...base,
                 jobDescriptionHtml: preferFullJobDescriptionHtml(
                   sourceJdText,
-                  prev.jobDescriptionHtml,
+                  base.jobDescriptionHtml,
                 ),
               }
-            : prev;
+            : base;
         const next = pipelineToDraft(withSource, data);
-        if (sourceJdText && sourceJdText.trim().length >= 50) {
+        if (!options?.replaceDescription && sourceJdText && sourceJdText.trim().length >= 50) {
           next.jobDescriptionHtml = preferFullJobDescriptionHtml(
             sourceJdText,
             next.jobDescriptionHtml,
           );
+        }
+        if (options?.replaceDescription && data.jobDescriptionHtml) {
+          next.jobDescriptionHtml = data.jobDescriptionHtml;
         }
         if (data.companyId || data.companyName) {
           const matchedClient = clientsForForm.find(
@@ -1231,20 +1275,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
       }));
       const response = await apiGenerateJobFromPrompt({
         prompt: sourceText,
-        currentForm: {
-          nationality: draft.nationality,
-          jobTitle: draft.jobTitle,
-          priority: draft.priority,
-          companyId: draft.clientId,
-          numberOfOpenings: draft.numberOfOpenings,
-          country: draft.country,
-          state: draft.state,
-          city: draft.city,
-          industryType: draft.industryType,
-          employmentType: draft.employmentType,
-          targetHireDate: draft.targetHireDate,
-          skills: draft.skills,
-        },
+        currentForm: jobDraftToCurrentForm(draft),
       });
       const data = response.data;
       if (!data?.jobTitle) {
@@ -1258,6 +1289,50 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
       setJdGenerating(false);
     }
   }, [applyPipelineToDraft, draft, jdGenerating, markWizardDirty, pastedJobDescriptionText]);
+
+  const handleGenerateJdFromPrompt = useCallback(async () => {
+    if (jdGenerating) return;
+    const prompt = jdPromptText.trim();
+    if (prompt.length < 2) {
+      setJdError('Type a job title or a short prompt, then generate the JD.');
+      return;
+    }
+    setJdError('');
+    setError('');
+    setJdGenerating(true);
+    try {
+      const existingTitle = String(draft.jobTitle || '').trim();
+      const keepExistingTitle =
+        Boolean(existingTitle) && !titleLooksLikeFullPrompt(existingTitle, prompt);
+      const response = await apiGenerateJobFromPrompt({
+        prompt,
+        currentForm: {
+          ...jobDraftToCurrentForm(draft),
+          jobTitle: keepExistingTitle ? existingTitle : '',
+        },
+      });
+      const data = response.data;
+      if (!data?.jobTitle && !data?.jobDescriptionHtml) {
+        throw new Error('Could not generate a job description from that prompt.');
+      }
+      let resolvedTitle = normalizeExtractedJobTitle(data.jobTitle || '');
+      if (titleLooksLikeFullPrompt(resolvedTitle, prompt)) {
+        resolvedTitle =
+          inferJobTitleFromPrompt(prompt) || normalizeExtractedJobTitle(prompt);
+      }
+      applyPipelineToDraft(
+        { ...data, jobTitle: resolvedTitle },
+        undefined,
+        { replaceDescription: true },
+      );
+      setPastedJobDescriptionText('');
+      setStep('review');
+    } catch (err: unknown) {
+      setJdError(err instanceof Error ? err.message : 'Failed to generate the job description.');
+    } finally {
+      setJdGenerating(false);
+    }
+  }, [applyPipelineToDraft, draft, jdGenerating, jdPromptText]);
 
   const handleJdFilePick = useCallback(
     async (file: File | null | undefined) => {
@@ -1413,41 +1488,15 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
         setError('Please wait while the job description is processed.');
         return;
       }
-      // Prefer extracted/pasted content; allow skip so users can fill the form manually.
-      void (async () => {
-        const editorText = stripHtml(draft.jobDescriptionHtml || '');
-        const sourceText = (pastedJobDescriptionText || editorText || '').trim();
-        if (!draft.jobTitle.trim() && sourceText.length >= 50 && !jdGenerating) {
-          try {
-            setJdGenerating(true);
-            setJdError('');
-            const response = await apiGenerateJobFromPrompt({
-              prompt: sourceText,
-              currentForm: {
-                nationality: draft.nationality,
-                jobTitle: draft.jobTitle,
-                priority: draft.priority,
-                companyId: draft.clientId,
-                numberOfOpenings: draft.numberOfOpenings,
-                country: draft.country,
-                state: draft.state,
-                city: draft.city,
-                industryType: draft.industryType,
-                employmentType: draft.employmentType,
-                targetHireDate: draft.targetHireDate,
-                skills: draft.skills,
-              },
-            });
-            const data = response.data;
-            if (data?.jobTitle) applyPipelineToDraft(data, sourceText);
-          } catch (err: unknown) {
-            setJdError(err instanceof Error ? err.message : 'Failed to auto-fill from JD.');
-          } finally {
-            setJdGenerating(false);
-          }
-        }
-        setStep('review');
-      })();
+      if (jdSourceTab === 'generate') {
+        void handleGenerateJdFromPrompt();
+        return;
+      }
+      if (jdSourceTab === 'paste') {
+        void handleAutoFillFromPastedJd();
+        return;
+      }
+      setStep('review');
     }
   };
 
@@ -2298,112 +2347,193 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                     }}
                   />
 
-                  <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-[#2098C8]/35 bg-[#E8F6FC]/40 px-4 py-8 text-center">
-                    <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#2098C8] text-white shadow-md shadow-[#2098C8]/25">
-                      {jdGenerating ? (
-                        <Loader2 className="h-5 w-5 animate-spin" />
-                      ) : (
-                        <FileText className="h-5 w-5" />
-                      )}
-                    </span>
-                    <div>
-                      <p className="text-sm font-semibold text-slate-900">
-                        {jdGenerating ? 'Extracting job details…' : 'Drop or choose a JD file'}
-                      </p>
-                      <p className="mt-1 text-xs text-slate-500">PDF, DOC, DOCX, or TXT · max 5MB</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => jdFileInputRef.current?.click()}
-                      disabled={jdGenerating}
-                      className="inline-flex items-center gap-1.5 rounded-xl bg-[#2098C8] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#1A86B3] disabled:cursor-not-allowed disabled:opacity-60"
+                  <div className="space-y-3">
+                    <div
+                      role="tablist"
+                      aria-label="Job description source"
+                      className="flex w-full items-center rounded-full border border-slate-200 bg-[#F7FAFC] p-1"
                     >
-                      <Upload className="h-4 w-4" />
-                      Upload JD
-                    </button>
-                  </div>
-
-                  {jdAttachment ? (
-                    <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-900 px-3 py-2.5 text-white">
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#2098C8]">
-                        {jdAttachment.status === 'processing' ? (
-                          <Loader2 className="h-4 w-4 animate-spin text-white" />
-                        ) : (
-                          <FileText className="h-4 w-4 text-white" />
-                        )}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-xs font-medium">{jdAttachment.file.name}</p>
-                        <p className="text-[11px] text-slate-400">
-                          {jdAttachment.status === 'processing'
-                            ? 'Extracting job details…'
-                            : jdAttachment.status === 'error'
-                              ? jdAttachment.error || 'Processing failed'
-                              : 'Ready — fields will appear on the next step'}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setJdAttachment(null);
-                          setJdError('');
-                        }}
-                        className="rounded-full p-1 text-slate-400 hover:bg-slate-800 hover:text-white"
-                        aria-label="Remove attached file"
-                        disabled={jdAttachment.status === 'processing'}
-                      >
-                        <X size={14} />
-                      </button>
+                      {JD_SOURCE_TABS.map((tab) => {
+                        const Icon = tab.icon;
+                        const active = jdSourceTab === tab.id;
+                        return (
+                          <button
+                            key={tab.id}
+                            type="button"
+                            role="tab"
+                            aria-selected={active}
+                            disabled={jdGenerating}
+                            onClick={() => {
+                              setJdSourceTab(tab.id);
+                              setJdError('');
+                            }}
+                            className={`flex min-w-0 flex-1 items-center justify-center gap-2 rounded-full px-3 py-2.5 text-sm font-medium transition ${
+                              active
+                                ? 'border border-[#2098C8] bg-white text-[#176F96] shadow-[0_1px_2px_rgba(32,152,200,0.12)]'
+                                : 'border border-transparent text-slate-500 hover:text-[#176F96]'
+                            } disabled:cursor-not-allowed disabled:opacity-60`}
+                          >
+                            <Icon className="h-4 w-4 shrink-0" strokeWidth={2} />
+                            <span className="truncate">{tab.label}</span>
+                          </button>
+                        );
+                      })}
                     </div>
-                  ) : null}
+                    <div className="border-t border-dashed border-[#2098C8]/45" />
+                  </div>
 
                   {jdError ? (
                     <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{jdError}</p>
                   ) : null}
 
-                  <div className="relative flex items-center gap-3">
-                    <div className="h-px flex-1 bg-slate-200" />
-                    <span className="text-[0.65rem] font-semibold uppercase tracking-wider text-slate-400">or paste</span>
-                    <div className="h-px flex-1 bg-slate-200" />
-                  </div>
+                  {jdSourceTab === 'upload' ? (
+                    <>
+                      <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-[#2098C8]/35 bg-[#E8F6FC]/40 px-4 py-8 text-center">
+                        <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#2098C8] text-white shadow-md shadow-[#2098C8]/25">
+                          {jdAttachment?.status === 'processing' ? (
+                            <Loader2 className="h-5 w-5 animate-spin" />
+                          ) : (
+                            <FileText className="h-5 w-5" />
+                          )}
+                        </span>
+                        <div>
+                          <p className="text-sm font-semibold text-slate-900">
+                            {jdAttachment?.status === 'processing'
+                              ? 'Extracting job details…'
+                              : 'Drop or choose a JD file'}
+                          </p>
+                          <p className="mt-1 text-xs text-slate-500">PDF, DOC, DOCX, or TXT · max 5MB</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => jdFileInputRef.current?.click()}
+                          disabled={jdGenerating}
+                          className="inline-flex items-center gap-1.5 rounded-xl bg-[#2098C8] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#1A86B3] disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          <Upload className="h-4 w-4" />
+                          Upload JD
+                        </button>
+                      </div>
 
-                  <div
-                    onPasteCapture={(event) => {
-                      const pastedText = readJdPlainFromClipboard(event.clipboardData);
-                      if (pastedText.length >= 50) {
-                        setPastedJobDescriptionText(pastedText);
-                        setJdError('');
-                        event.preventDefault();
-                        event.stopPropagation();
-                        markWizardDirty();
-                        setDraft((prev) => ({
-                          ...prev,
-                          jobDescriptionHtml: plainTextToJobDescriptionHtml(pastedText),
-                        }));
-                      }
-                    }}
-                  >
-                    <RichTextEditor
-                      value={draft.jobDescriptionHtml}
-                      onChange={(html) => {
-                        patchDraft({ jobDescriptionHtml: html });
-                        const plain = stripJobDescriptionHtml(html);
-                        if (plain.length >= 50) setPastedJobDescriptionText(plain);
-                      }}
-                      placeholder="Paste the full job description here…"
-                      minHeight={220}
-                    />
-                  </div>
+                      {jdAttachment ? (
+                        <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-900 px-3 py-2.5 text-white">
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#2098C8]">
+                            {jdAttachment.status === 'processing' ? (
+                              <Loader2 className="h-4 w-4 animate-spin text-white" />
+                            ) : (
+                              <FileText className="h-4 w-4 text-white" />
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-xs font-medium">{jdAttachment.file.name}</p>
+                            <p className="text-[11px] text-slate-400">
+                              {jdAttachment.status === 'processing'
+                                ? 'Extracting job details…'
+                                : jdAttachment.status === 'error'
+                                  ? jdAttachment.error || 'Processing failed'
+                                  : 'Ready — fields will appear on the next step'}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setJdAttachment(null);
+                              setJdError('');
+                            }}
+                            className="rounded-full p-1 text-slate-400 hover:bg-slate-800 hover:text-white"
+                            aria-label="Remove attached file"
+                            disabled={jdAttachment.status === 'processing'}
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                      ) : null}
+                    </>
+                  ) : null}
 
-                  <button
-                    type="button"
-                    onClick={() => void handleAutoFillFromPastedJd()}
-                    disabled={jdGenerating}
-                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[#2098C8]/30 bg-[#E8F6FC] px-4 py-2.5 text-sm font-semibold text-[#176F96] transition hover:bg-[#E8F6FC]/80 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {jdGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                    Extract & continue from pasted JD
-                  </button>
+                  {jdSourceTab === 'generate' ? (
+                    <div className="space-y-3 rounded-2xl border border-[#2098C8]/25 bg-[#E8F6FC]/40 p-4">
+                      <div className="flex items-start gap-3">
+                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#2098C8] text-white shadow-sm shadow-[#2098C8]/25">
+                          <Sparkles className="h-4 w-4" />
+                        </span>
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-slate-900">Generate from a title or prompt</p>
+                          <p className="mt-0.5 text-xs text-slate-500">
+                            Type the job title or a short brief. AI writes the full job description.
+                          </p>
+                        </div>
+                      </div>
+                      <textarea
+                        value={jdPromptText}
+                        onChange={(event) => {
+                          setJdPromptText(event.target.value);
+                          markWizardDirty();
+                          setJdError('');
+                        }}
+                        onKeyDown={(event) => {
+                          if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                            event.preventDefault();
+                            void handleGenerateJdFromPrompt();
+                          }
+                        }}
+                        disabled={jdGenerating}
+                        rows={4}
+                        placeholder="e.g. Senior React Developer in Bengaluru, remote, 5+ years"
+                        className="w-full resize-y rounded-xl border border-[#2098C8]/25 bg-white px-3 py-2.5 text-sm text-slate-800 shadow-sm outline-none placeholder:text-slate-400 focus:border-[#2098C8] focus:ring-2 focus:ring-[#2098C8]/20 disabled:opacity-60"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void handleGenerateJdFromPrompt()}
+                        disabled={jdGenerating || jdPromptText.trim().length < 2}
+                        className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#2098C8] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#1A86B3] disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {jdGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                        Generate JD with AI
+                      </button>
+                    </div>
+                  ) : null}
+
+                  {jdSourceTab === 'paste' ? (
+                    <>
+                      <div
+                        onPasteCapture={(event) => {
+                          const pastedText = readJdPlainFromClipboard(event.clipboardData);
+                          if (pastedText.length >= 50) {
+                            setPastedJobDescriptionText(pastedText);
+                            setJdError('');
+                            event.preventDefault();
+                            event.stopPropagation();
+                            markWizardDirty();
+                            setDraft((prev) => ({
+                              ...prev,
+                              jobDescriptionHtml: plainTextToJobDescriptionHtml(pastedText),
+                            }));
+                          }
+                        }}
+                      >
+                        <RichTextEditor
+                          value={draft.jobDescriptionHtml}
+                          onChange={(html) => {
+                            patchDraft({ jobDescriptionHtml: html });
+                            const plain = stripJobDescriptionHtml(html);
+                            if (plain.length >= 50) setPastedJobDescriptionText(plain);
+                          }}
+                          placeholder="Paste the full job description here…"
+                          minHeight={220}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void handleAutoFillFromPastedJd()}
+                        disabled={jdGenerating}
+                        className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[#2098C8]/30 bg-[#E8F6FC] px-4 py-2.5 text-sm font-semibold text-[#176F96] transition hover:bg-[#E8F6FC]/80 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {jdGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                        Extract & continue from pasted JD
+                      </button>
+                    </>
+                  ) : null}
                 </div>
               </motion.div>
             ) : null}

@@ -701,6 +701,8 @@ export interface JobCandidateItem {
   recruiter: string;
   interviewStatus: string;
   lastActivity: string;
+  /** ISO time the candidate was added to this job (CV upload / apply / assign). */
+  addedAt?: string;
   /** True when linked via apply/assign and CRM stage is Applied */
   isJobAppliedCandidate?: boolean;
 }
@@ -978,6 +980,10 @@ export function mapJobCandidateToTableRow(
       resolveJobCandidateDisplayStage(candidate.currentStage) === 'Applied',
     owner: candidate.recruiter || 'Unassigned',
     lastActivity: candidate.lastActivity || '—',
+    addedAtMs: (() => {
+      const ms = Date.parse(String(candidate.addedAt || candidate.lastActivity || ''));
+      return Number.isFinite(ms) && ms > 0 ? ms : 0;
+    })(),
     hotlist: false,
     phone: candidate.phone || '',
     email: candidate.email || '',
