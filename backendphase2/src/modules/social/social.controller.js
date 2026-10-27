@@ -116,27 +116,51 @@ export const socialController = {
         return sendError(res, 401, 'Authentication required');
       }
 
-      const integrationStatuses = await integrationService.getStatuses(req.user.id);
-      const linkedinStatus = await linkedinService.getStatus(req.user.id);
-      const linkedinAccounts = linkedinStatus.accounts || (await linkedinService.listAccounts(req.user.id));
+      const integrationStatuses = await integrationService.getStatuses(req.user.id).catch((error) => {
+        console.warn('[social] integration statuses failed', error?.message || error);
+        return {};
+      });
+      const tenantSocial = await integrationService.getTenantSocialAccounts(req.user.id).catch((error) => {
+        console.warn('[social] tenant social accounts failed', error?.message || error);
+        return { twitter: [], facebook: [] };
+      });
+
+      let linkedinStatus = { connected: false, accounts: [] };
+      try {
+        linkedinStatus = await linkedinService.getStatus(req.user.id);
+      } catch (error) {
+        console.warn('[social] linkedin status failed', error?.message || error);
+      }
+      const linkedinAccounts = Array.isArray(linkedinStatus.accounts)
+        ? linkedinStatus.accounts
+        : [];
+
+      const twitterAccounts =
+        tenantSocial.twitter?.length
+          ? tenantSocial.twitter
+          : integrationStatuses.twitter?.accounts || [];
+      const facebookAccounts =
+        tenantSocial.facebook?.length
+          ? tenantSocial.facebook
+          : integrationStatuses.facebook?.accounts || [];
 
       const status = {
         linkedin: {
-          connected: !!linkedinStatus.connected,
+          connected: !!linkedinStatus.connected || linkedinAccounts.some((account) => account.connected !== false),
           accountName: linkedinStatus.name,
           accounts: linkedinAccounts,
         },
         twitter: {
-          connected: !!integrationStatuses.twitter?.connected,
+          connected: !!integrationStatuses.twitter?.connected || twitterAccounts.length > 0,
           accountName: integrationStatuses.twitter?.accountName,
           accountEmail: integrationStatuses.twitter?.accountEmail,
-          accounts: integrationStatuses.twitter?.accounts || [],
+          accounts: twitterAccounts,
         },
         facebook: {
-          connected: !!integrationStatuses.facebook?.connected,
+          connected: !!integrationStatuses.facebook?.connected || facebookAccounts.length > 0,
           accountName: integrationStatuses.facebook?.accountName,
           accountEmail: integrationStatuses.facebook?.accountEmail,
-          accounts: integrationStatuses.facebook?.accounts || [],
+          accounts: facebookAccounts,
         },
       };
 

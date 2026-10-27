@@ -18,8 +18,10 @@ import {
   apiConnectIntegration,
   apiDisconnectIntegration,
   apiGetIntegrationStatuses,
+  apiGetLinkedInAccounts,
   apiGetSocialStatus,
   apiGetUserCommunication,
+  apiInitiateLinkedInAuth,
   type IntegrationProvider,
   type CommunicationFullResponse,
   type IntegrationStatusResponse,
@@ -185,20 +187,49 @@ const INTEGRATION_SECTIONS: IntegrationSection[] = [
 
 const EMPTY_STATUS: IntegrationStatusResponse = {};
 
+function accountDisplayName(
+  account: SocialPublishingAccount,
+  fallbackName?: string,
+  providerLabel?: string,
+) {
+  return (
+    account.name ||
+    (account as SocialPublishingAccount & { accountName?: string }).accountName ||
+    fallbackName ||
+    account.accountEmail ||
+    providerLabel ||
+    'Account'
+  );
+}
+
 function mapSocialAccounts(
   provider: TenantSocialProvider,
   providerLabel: string,
   accounts: SocialPublishingAccount[] | undefined,
   fallback?: { connected?: boolean; accountName?: string; accountEmail?: string },
 ): TenantConnectedAccount[] {
+  const seen = new Set<string>();
   const rows = (accounts || [])
     .filter((account) => account && (account.connected !== false || account.id || account.key))
-    .map((account) => ({
-      ...account,
-      provider,
-      providerLabel,
-      name: account.name || fallback?.accountName || providerLabel,
-    }));
+    .map((account) => {
+      const id = String(account.id || account.key || '');
+      const key = String(account.key || account.id || '');
+      return {
+        ...account,
+        id: id || key || provider,
+        key: key || id || provider,
+        provider,
+        providerLabel,
+        type: account.type === 'page' ? ('page' as const) : account.type,
+        name: accountDisplayName(account, fallback?.accountName, providerLabel),
+      };
+    })
+    .filter((account) => {
+      const dedupeKey = `${account.provider}:${account.key || account.id}:${account.type || 'personal'}`;
+      if (seen.has(dedupeKey)) return false;
+      seen.add(dedupeKey);
+      return true;
+    });
   if (rows.length > 0) return rows;
   if (!fallback?.connected) return [];
   const email = fallback.accountEmail || '';
@@ -350,6 +381,46 @@ export function CommunicationSettings() {
     }
   }, []);
 
+  const loadTenantSocialAccounts = useCallback(async (options?: { silent?: boolean }) => {
+    if (!options?.silent) setTenantAccountsLoading(true);
+    try {
+      const [socialResult, linkedinResult] = await Promise.allSettled([
+        apiGetSocialStatus(),
+        apiGetLinkedInAccounts(),
+      ]);
+      const data = socialResult.status === 'fulfilled' ? socialResult.value.data : undefined;
+      const linkedinFromStatus = data?.linkedin?.accounts || [];
+      const linkedinFromAccounts =
+        linkedinResult.status === 'fulfilled' ? linkedinResult.value.data?.accounts || [] : [];
+      const linkedinMerged = [...linkedinFromAccounts, ...linkedinFromStatus];
+      setTenantAccounts([
+        ...mapSocialAccounts('linkedin', 'LinkedIn', linkedinMerged, {
+          connected: data?.linkedin?.connected || linkedinMerged.length > 0,
+          accountName: data?.linkedin?.accountName,
+          accountEmail: statuses.linkedin?.accountEmail,
+        }),
+        ...mapSocialAccounts('twitter', 'X (Twitter)', data?.twitter?.accounts, {
+          connected: data?.twitter?.connected,
+          accountName: data?.twitter?.accountName,
+          accountEmail: data?.twitter?.accountEmail || statuses.twitter?.accountEmail,
+        }),
+        ...mapSocialAccounts('facebook', 'Facebook', data?.facebook?.accounts, {
+          connected: data?.facebook?.connected,
+          accountName: data?.facebook?.accountName,
+          accountEmail: data?.facebook?.accountEmail || statuses.facebook?.accountEmail,
+        }),
+      ]);
+      if (socialResult.status === 'rejected' && linkedinResult.status === 'rejected') {
+        throw socialResult.reason;
+      }
+    } catch {
+      setTenantAccounts([]);
+      if (!options?.silent) toast.error('Could not load connected accounts');
+    } finally {
+      setTenantAccountsLoading(false);
+    }
+  }, [statuses.facebook?.accountEmail, statuses.linkedin?.accountEmail, statuses.twitter?.accountEmail]);
+
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -372,15 +443,31 @@ export function CommunicationSettings() {
   }, [reload]);
 
   useEffect(() => {
+    if (loading || !canSeeJobPostingIntegrations) return;
+    void loadTenantSocialAccounts({ silent: true });
+  }, [canSeeJobPostingIntegrations, loadTenantSocialAccounts, loading]);
+
+  useEffect(() => {
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
-    const connected = params.get('integration_connected') || params.get('connected');
-    const error = params.get('integration_error') || params.get('error');
+    const connected =
+      params.get('integration_connected') ||
+      params.get('connected') ||
+      (params.get('linkedin') === 'connected' ? 'linkedin' : '');
+    const error =
+      params.get('integration_error') ||
+      params.get('error') ||
+      (params.get('linkedin') === 'error' ? 'linkedin' : '');
     const email = params.get('email');
+    const linkedinMessage = params.get('message');
 
     if (connected) {
       const provider = String(connected).toLowerCase();
-      toast.success(`${connected} connected${email ? ` as ${email}` : ''}`);
+      toast.success(
+        provider === 'linkedin'
+          ? 'LinkedIn connected. Company pages are included when you are a Page admin.'
+          : `${connected} connected${email ? ` as ${email}` : ''}`,
+      );
       if (provider === 'gmail' || provider === 'google') {
         window.location.replace(
           `/inbox?gmail_connected=1${email ? `&email=${encodeURIComponent(email)}` : ''}`,
@@ -394,14 +481,18 @@ export function CommunicationSettings() {
         return;
       }
       window.history.replaceState({}, '', '/setting?section=communication');
-      void reload();
+      void reload().then(() => loadTenantSocialAccounts({ silent: true }));
     }
 
     if (error) {
-      toast.error(`Failed to connect ${error}`);
+      toast.error(
+        linkedinMessage
+          ? decodeURIComponent(linkedinMessage)
+          : `Failed to connect ${error}`,
+      );
       window.history.replaceState({}, '', '/setting?section=communication');
     }
-  }, [reload]);
+  }, [loadTenantSocialAccounts, reload]);
 
   const connectedCount = useMemo(
     () =>
@@ -422,46 +513,32 @@ export function CommunicationSettings() {
   const handleConnect = async (provider: IntegrationProvider) => {
     try {
       setBusyProvider(provider);
+      if (provider === 'linkedin') {
+        if (typeof window !== 'undefined') {
+          sessionStorage.setItem('oauth_navigation', '1');
+          sessionStorage.setItem('oauth_provider', 'linkedin');
+          sessionStorage.removeItem('reopen_create_job_drawer');
+        }
+        const response = await apiInitiateLinkedInAuth();
+        const authUrl = response.data?.authUrl;
+        if (!authUrl) {
+          throw new Error(response.message || 'LinkedIn login URL was not returned.');
+        }
+        window.location.assign(authUrl);
+        return;
+      }
       const returnUrl =
         (provider === 'gmail' || provider === 'outlook') && typeof window !== 'undefined'
           ? `${window.location.origin}/inbox`
-          : undefined;
+          : typeof window !== 'undefined'
+            ? window.location.href
+            : undefined;
       await apiConnectIntegration(provider, returnUrl);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Connect failed');
       setBusyProvider(null);
     }
   };
-
-  const loadTenantSocialAccounts = useCallback(async () => {
-    setTenantAccountsLoading(true);
-    try {
-      const response = await apiGetSocialStatus();
-      const data = response.data;
-      setTenantAccounts([
-        ...mapSocialAccounts('linkedin', 'LinkedIn', data?.linkedin?.accounts, {
-          connected: data?.linkedin?.connected,
-          accountName: data?.linkedin?.accountName,
-          accountEmail: statuses.linkedin?.accountEmail,
-        }),
-        ...mapSocialAccounts('twitter', 'X (Twitter)', data?.twitter?.accounts, {
-          connected: data?.twitter?.connected,
-          accountName: data?.twitter?.accountName,
-          accountEmail: data?.twitter?.accountEmail || statuses.twitter?.accountEmail,
-        }),
-        ...mapSocialAccounts('facebook', 'Facebook', data?.facebook?.accounts, {
-          connected: data?.facebook?.connected,
-          accountName: data?.facebook?.accountName,
-          accountEmail: data?.facebook?.accountEmail || statuses.facebook?.accountEmail,
-        }),
-      ]);
-    } catch {
-      setTenantAccounts([]);
-      toast.error('Could not load connected accounts');
-    } finally {
-      setTenantAccountsLoading(false);
-    }
-  }, [statuses.facebook?.accountEmail, statuses.linkedin?.accountEmail, statuses.twitter?.accountEmail]);
 
   const openAccountsModal = (filter: TenantSocialProvider | 'all') => {
     setAccountsFilter(filter);
@@ -474,6 +551,7 @@ export function CommunicationSettings() {
       setBusyProvider(provider);
       await apiDisconnectIntegration(provider);
       await reload();
+      await loadTenantSocialAccounts({ silent: true });
       toast.success('Integration disconnected');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Disconnect failed');
@@ -584,6 +662,20 @@ export function CommunicationSettings() {
                   const status = statuses[item.provider];
                   const rawScopes = status?.scope?.length ? status.scope : item.scopes;
                   const scopes = rawScopes.map(humanizeScope);
+                  const providerKey: TenantSocialProvider | null =
+                    item.provider === 'twitter'
+                      ? 'twitter'
+                      : item.provider === 'facebook'
+                        ? 'facebook'
+                        : item.provider === 'linkedin'
+                          ? 'linkedin'
+                          : null;
+                  const providerAccounts = providerKey
+                    ? tenantAccounts.filter((account) => account.provider === providerKey)
+                    : [];
+                  const connected =
+                    !!status?.connected ||
+                    providerAccounts.some((account) => account.connected !== false);
                   return (
                     <ServiceConnectionCard
                       key={item.provider}
@@ -592,24 +684,16 @@ export function CommunicationSettings() {
                       iconBgClass={item.iconBgClass}
                       accentClass={item.accentClass}
                       description={item.description}
-                      connected={!!status?.connected}
+                      connected={connected}
                       connectedEmail={status?.accountEmail || status?.accountName || undefined}
+                      connectedAccounts={providerAccounts}
                       onConnect={() => handleConnect(item.provider)}
                       onDisconnect={() => handleDisconnect(item.provider)}
                       connecting={busyProvider === item.provider}
                       scopes={scopes}
                       consentSummary={item.consentSummary}
                       onViewAccounts={
-                        section.id === 'social-media'
-                          ? () =>
-                              openAccountsModal(
-                                item.provider === 'twitter'
-                                  ? 'twitter'
-                                  : item.provider === 'facebook'
-                                    ? 'facebook'
-                                    : 'linkedin',
-                              )
-                          : undefined
+                        providerKey ? () => openAccountsModal(providerKey) : undefined
                       }
                     />
                   );

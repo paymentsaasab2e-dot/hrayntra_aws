@@ -216,6 +216,25 @@ function pageMatchesOrg(page, orgId) {
   return pageId && pageId === String(orgId || '').replace(/^org:/, '').trim();
 }
 
+function normalizeOrganizations(raw) {
+  if (Array.isArray(raw)) return raw.filter(Boolean);
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (!trimmed) return [];
+    try {
+      return normalizeOrganizations(JSON.parse(trimmed));
+    } catch {
+      return [];
+    }
+  }
+  if (raw && typeof raw === 'object') {
+    if (Array.isArray(raw.elements)) return raw.elements.filter(Boolean);
+    if (Array.isArray(raw.pages)) return raw.pages.filter(Boolean);
+    if (Array.isArray(raw.organizations)) return raw.organizations.filter(Boolean);
+  }
+  return [];
+}
+
 function flattenAccountsFromTokens(tokens, viewerUserId = null) {
   const accounts = [];
   for (const token of tokens) {
@@ -249,7 +268,7 @@ function flattenAccountsFromTokens(tokens, viewerUserId = null) {
       });
     }
 
-    const pages = Array.isArray(token.organizations) ? token.organizations : [];
+    const pages = normalizeOrganizations(token.organizations);
     for (const page of pages) {
       if (!page?.id) continue;
       const organizationId = String(page.id).replace(/^org:/, '');
@@ -502,7 +521,7 @@ export const linkedinService = {
       const tokens = await this.getTokensForTenant();
       const owned = tokens.filter((token) => String(token.userId) === String(userId));
       const matching = owned.filter((token) => {
-        const pages = Array.isArray(token.organizations) ? token.organizations : [];
+        const pages = normalizeOrganizations(token.organizations);
         return pages.some((page) => pageMatchesOrg(page, orgId));
       });
       if (!matching.length) {
@@ -510,7 +529,7 @@ export const linkedinService = {
       }
 
       for (const token of matching) {
-        const remaining = (Array.isArray(token.organizations) ? token.organizations : []).filter(
+        const remaining = normalizeOrganizations(token.organizations).filter(
           (page) => !pageMatchesOrg(page, orgId),
         );
         if (isCmaLinkedInSub(token.linkedinSub) && remaining.length === 0) {
@@ -557,10 +576,16 @@ export const linkedinService = {
     const tokens = await this.getTokensForTenant();
     const activeTokens = tokens.filter((token) => token.user?.isActive !== false);
 
+    const hasCmaApp = Boolean(
+      String(env.LINKEDIN_CMA_CLIENT_ID || '').trim() && String(env.LINKEDIN_CMA_CLIENT_SECRET || '').trim(),
+    );
     for (const token of activeTokens) {
-      const cached = Array.isArray(token.organizations) ? token.organizations : [];
-      // Personal-app tokens cannot list Company Pages. Refresh CMA tokens until pages arrive.
-      if (!isCmaLinkedInSub(token.linkedinSub) || cached.length > 0 || isExpired(token)) continue;
+      const cached = normalizeOrganizations(token.organizations);
+      token.organizations = cached;
+      // Refresh until company pages arrive. CMA tokens can list Pages; personal-app
+      // tokens are tried only when a CMA app is not configured.
+      const canListPages = isCmaLinkedInSub(token.linkedinSub) || !hasCmaApp;
+      if (!canListPages || cached.length > 0 || isExpired(token)) continue;
       try {
         const decrypted = decryptAccessToken(token);
         if (!decrypted?.accessToken || decrypted.expired) continue;
@@ -591,8 +616,8 @@ export const linkedinService = {
       const tokens = await this.getTokensForTenant();
       const ownerToken = tokens.find((token) => {
         if (token.user?.isActive === false) return false;
-        const pages = Array.isArray(token.organizations) ? token.organizations : [];
-        return pages.some((page) => String(page.id) === orgId);
+        const pages = normalizeOrganizations(token.organizations);
+        return pages.some((page) => pageMatchesOrg(page, orgId));
       });
       if (!ownerToken) throw new Error('LinkedIn company page not found');
       tokenRecord = isExpired(ownerToken) ? { ...ownerToken, expired: true } : decryptAccessToken(ownerToken);

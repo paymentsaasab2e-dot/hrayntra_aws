@@ -54,10 +54,16 @@ export function TenantConnectedAccountsModal({
 
   const grouped = (Object.keys(PROVIDER_META) as TenantSocialProvider[])
     .filter((provider) => filter === 'all' || filter === provider)
-    .map((provider) => ({
-      provider,
-      rows: visible.filter((account) => account.provider === provider),
-    }));
+    .map((provider) => {
+      const rows = visible.filter((account) => account.provider === provider);
+      const pages = rows.filter((account) => account.type === 'page');
+      const personal = rows.filter((account) => account.type !== 'page');
+      return {
+        provider,
+        rows: [...personal, ...pages],
+        pageCount: pages.length,
+      };
+    });
 
   return (
     <CenteredPopup open={open} onClose={onClose} size="md" dialogTitleId="tenant-accounts-title">
@@ -101,7 +107,7 @@ export function TenantConnectedAccountsModal({
             </p>
           ) : (
             <div className="space-y-5">
-              {grouped.map(({ provider, rows }) => {
+              {grouped.map(({ provider, rows, pageCount }) => {
                 const meta = PROVIDER_META[provider];
                 return (
                   <section key={provider} className="space-y-2">
@@ -115,8 +121,13 @@ export function TenantConnectedAccountsModal({
                         <h4 className="text-sm font-semibold text-slate-800">{meta.label}</h4>
                         <span className="text-[11px] font-medium text-slate-400">
                           {rows.length}
+                          {pageCount > 0 ? ` · ${pageCount} company page${pageCount === 1 ? '' : 's'}` : ''}
                         </span>
                       </div>
+                    ) : pageCount > 0 ? (
+                      <p className="text-[11px] font-medium text-slate-400">
+                        {pageCount} company page{pageCount === 1 ? '' : 's'}
+                      </p>
                     ) : null}
                     {rows.length === 0 ? (
                       <p className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-3 text-xs text-slate-500">
@@ -138,8 +149,8 @@ export function TenantConnectedAccountsModal({
                               <p className="truncate text-sm font-semibold text-slate-900">
                                 {account.name || account.accountEmail || 'Account'}
                                 {account.type === 'page' ? (
-                                  <span className="ml-1.5 text-[11px] font-medium text-slate-400">
-                                    Page
+                                  <span className="ml-1.5 rounded-full bg-sky-50 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700 ring-1 ring-sky-200">
+                                    Company page
                                   </span>
                                 ) : null}
                               </p>

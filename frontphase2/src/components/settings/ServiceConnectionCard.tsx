@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { CheckCircle2, Link2Off, Loader2, ShieldCheck, Users } from 'lucide-react';
+import type { TenantConnectedAccount } from './TenantConnectedAccountsModal';
 
 export type ServiceConnectionCardProps = {
   serviceName: string;
@@ -10,6 +11,7 @@ export type ServiceConnectionCardProps = {
   description: string;
   connected: boolean;
   connectedEmail?: string;
+  connectedAccounts?: TenantConnectedAccount[];
   onConnect: () => void | Promise<void>;
   onDisconnect: () => void | Promise<void>;
   connecting: boolean;
@@ -26,6 +28,7 @@ export function ServiceConnectionCard({
   description,
   connected,
   connectedEmail,
+  connectedAccounts = [],
   onConnect,
   onDisconnect,
   connecting,
@@ -41,6 +44,11 @@ export function ServiceConnectionCard({
       setConsentAccepted(false);
     }
   }, [connected, serviceName]);
+
+  const personalAccounts = connectedAccounts.filter((account) => account.type !== 'page');
+  const companyPages = connectedAccounts.filter((account) => account.type === 'page');
+  const personalLabel =
+    personalAccounts[0]?.accountEmail || personalAccounts[0]?.name || connectedEmail;
 
   return (
     <article
@@ -87,12 +95,46 @@ export function ServiceConnectionCard({
           )}
         </div>
 
-        {connected && connectedEmail ? (
-          <div className="mt-4 rounded-xl border border-emerald-100 bg-emerald-50/60 px-3 py-2">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-700/80">
-              Account
-            </p>
-            <p className="mt-0.5 truncate text-sm font-medium text-emerald-950">{connectedEmail}</p>
+        {connected && (connectedAccounts.length > 0 || connectedEmail) ? (
+          <div className="mt-4 space-y-2">
+            {personalLabel ? (
+              <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 px-3 py-2">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-700/80">
+                  Account
+                </p>
+                <p className="mt-0.5 truncate text-sm font-medium text-emerald-950">{personalLabel}</p>
+                {personalAccounts.length > 1 ? (
+                  <p className="mt-0.5 text-[11px] text-emerald-800/70">
+                    +{personalAccounts.length - 1} more personal account
+                    {personalAccounts.length - 1 === 1 ? '' : 's'}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+            {companyPages.length > 0 ? (
+              <div className="rounded-xl border border-sky-100 bg-sky-50/70 px-3 py-2">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-sky-700/80">
+                  Company pages
+                </p>
+                <ul className="mt-1 space-y-0.5">
+                  {companyPages.slice(0, 4).map((page) => (
+                    <li
+                      key={page.id || page.key}
+                      className="truncate text-sm font-medium text-sky-950"
+                    >
+                      {page.name || 'Company page'}
+                    </li>
+                  ))}
+                </ul>
+                {companyPages.length > 4 ? (
+                  <p className="mt-0.5 text-[11px] text-sky-800/70">+{companyPages.length - 4} more</p>
+                ) : null}
+              </div>
+            ) : connectedAccounts.length > 0 ? (
+              <p className="px-0.5 text-[11px] text-slate-500">
+                No company pages connected yet. Reconnect as a Page admin to add them.
+              </p>
+            ) : null}
           </div>
         ) : null}
 
