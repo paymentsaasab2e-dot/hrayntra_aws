@@ -1,0 +1,119 @@
+Candidate Edit Fields
+=====================
+One tenant-wide config for Edit Candidate and candidate Overview tabs.
+Pipeline assignment always available: Stage, Status, Assigned job, Recruiter.
+
+
+1. Default candidate fields
+---------------------------
+- Name
+- Phone number
+- E-mail
+- Current Location
+- Current Organization
+- Designation
+- Total Years of experience
+- Current Salary
+- Current Benefits
+- Expected Salary
+- Expected Benefits
+- Notice Period
+- Qualification
+- Language known
+- Age
+- Gender
+- Marital Status
+- Nationality
+- Passport number
+- Reason for Current Job Change
+
+
+2. Extra personal fields
+------------------------
+- Candidate photo
+- Candidate Score
+- City
+- State
+- Country
+- Current Address
+- Zip
+- Current Company Website
+- Birth Date
+- Preferred Location
+
+
+3. Extra education fields
+-------------------------
+- Education entries
+- Courses
+
+
+4. Extra career / package fields
+--------------------------------
+- Current Salary Currency
+- Expected Salary Currency
+- Current salary type
+- Current currency picker
+- Preferred roles
+- Preferred currency
+- Preferred salary type
+- Preferred locations
+- Preferred work modes
+- Preferred industries
+- Functional areas
+- Job types
+- Relocation preference
+- Earliest start date
+- Describe availability
+- Work history (narrative)
+- Extracurricular activities
+- Volunteers
+
+
+5. Work experience entries
+--------------------------
+- Work experience entries
+
+
+6. Social & links
+-----------------
+- LinkedIn
+- Twitter
+- Xing
+- Skype ID
+- Facebook
+- Stack Overflow
+- Website
+- Portfolio URL
+- Portfolio / project links
+
+
+7. Summary & additional
+-----------------------
+- Summary
+- Skills
+- Honours & awards
+- Certifications
+- Projects
+- Hackathons
+- Internal notes
+
+
+8. Extra hiring fields
+----------------------
+- Source
+- Availability
+- Salary currency (default)
+- Employment status
+
+
+9. Phase 1 profile sections
+---------------------------
+- Resume / CV section
+- Internships
+- Gap explanation
+- Academic achievements
+- Competitive exams
+- Accomplishments
+- Visa & work authorization
+- Vaccination

@@ -82,8 +82,7 @@ import {
 import { useSmartSearch } from '../../hooks/useSmartSearch';
 import { mapAiToJobsResult, parseSmartSearchWithAi } from '../../lib/smart-search/aiParser';
 import { buildJobsListApiParams } from '../../lib/smart-search/entitySmartSearch';
-import { parseJobsSmartSearchPrompt, JOBS_SMART_SEARCH_EXAMPLES, jobMatchesSmartKeywordChips, mergeJobsSmartSearchResult } from '../../lib/smart-search/parsers';
-import { sortByQuickSearchRelevance } from '../../lib/quickSearch';
+import { parseJobsSmartSearchPrompt, JOBS_SMART_SEARCH_EXAMPLES, mergeJobsSmartSearchResult } from '../../lib/smart-search/parsers';
 import { StatusChangeService } from '../../components/StatusChangeService';
 import {
   apiAddCandidateNote,
@@ -728,6 +727,21 @@ function mapFrontendStatusToBackend(status: JobStatus): string {
   return mapJobStatusLabelToBackend(status);
 }
 
+/** Smart Search leftover words go through the same Jobs API `search` as the toolbar. */
+function jobsSmartSearchText(
+  searchText: string,
+  keywords: Array<{ kind: string; value: string; label?: string }>,
+): string {
+  const fromChips = (keywords || [])
+    .filter((chip) => chip.kind === 'text' || chip.kind === 'employment' || chip.kind === 'priority')
+    .map((chip) => String(chip.label || chip.value || '').replace(/_/g, ' ').trim())
+    .filter(Boolean);
+  if (fromChips.length > 0) {
+    return Array.from(new Set(fromChips.map((item) => item.toLowerCase()))).join(' ');
+  }
+  return String(searchText || '').trim();
+}
+
 function formatEmploymentType(type?: string | null): string | undefined {
   switch (type) {
     case 'FULL_TIME':
@@ -1027,6 +1041,7 @@ function toJobCandidateItemFromApplied(match: any, fallbackRecruiter = 'Unassign
     ),
     interviewStatus: 'Not scheduled',
     lastActivity: match.createdAt ? formatDateTimeDMY(match.createdAt) : '—',
+    addedAt: match.createdAt ? String(match.createdAt) : undefined,
   };
 }
 
@@ -1051,6 +1066,11 @@ function toJobCandidateItemFromAssigned(candidate: BackendCandidate): JobCandida
       : candidate.createdAt
       ? formatDateTimeDMY(candidate.createdAt)
       : '-',
+    addedAt: candidate.createdAt
+      ? String(candidate.createdAt)
+      : candidate.updatedAt
+        ? String(candidate.updatedAt)
+        : undefined,
   };
 }
 
@@ -1346,18 +1366,17 @@ export function useJobList() {
       setStatusFilter(parsed.status || statusChip?.value || '');
       setClientFilterId(parsed.clientId || clientChip?.value || '');
       setRecruiterFilterId(parsed.recruiterId || recruiterChip?.value || '');
-      setSearchFilter(parsed.searchText);
-      setSmartSearchJobIds(
-        parsed.matchingJobIds && parsed.matchingJobIds.length > 0 ? parsed.matchingJobIds : [],
-      );
+      // Same API search as the toolbar — never lock the list to an AI ID sample.
+      setSearchFilter(jobsSmartSearchText(parsed.searchText, parsed.keywords));
+      setSmartSearchJobIds([]);
     },
     onRemoveKeyword: (removed, remaining) => {
       setCurrentPage(1);
       if (removed.kind === 'status') setStatusFilter('');
       if (removed.kind === 'client') setClientFilterId('');
       if (removed.kind === 'recruiter') setRecruiterFilterId('');
-      if (removed.kind === 'text') {
-        setSearchFilter(remaining.filter((k) => k.kind === 'text').map((k) => k.value).join(' '));
+      if (removed.kind === 'text' || removed.kind === 'employment' || removed.kind === 'priority') {
+        setSearchFilter(jobsSmartSearchText('', remaining));
       }
     },
     examples: JOBS_SMART_SEARCH_EXAMPLES,
@@ -1365,35 +1384,11 @@ export function useJobList() {
 
   const displayJobs = useMemo(() => {
     const list = Array.isArray(jobs) ? jobs.filter((job) => job && job.id) : [];
-    const enriched = list.map((job) => ({
+    return list.map((job) => ({
       ...job,
       recruiterAssignees: buildJobRecruiterAssignees(job, recruiterOptions),
     }));
-    const filtered =
-      jobSmartSearch.activeKeywords.length === 0
-        ? enriched
-        : enriched.filter((job) => jobMatchesSmartKeywordChips(job, jobSmartSearch.activeKeywords));
-
-    const relevanceQuery =
-      debouncedSearchFilter ||
-      jobSmartSearch.activeKeywords
-        .filter((chip) => chip.kind === 'text')
-        .map((chip) => chip.value)
-        .join(' ');
-
-    if (!String(relevanceQuery || '').trim()) return filtered;
-
-    return sortByQuickSearchRelevance(
-      filtered,
-      relevanceQuery,
-      (job) => ({
-        primary: job.title,
-        secondary: [job.client, ...(Array.isArray(job.skills) ? job.skills : [])],
-        tertiary: [job.location, job.city, job.country, job.owner],
-      }),
-      (job) => job.updatedAt || job.createdAt,
-    );
-  }, [jobs, jobSmartSearch.activeKeywords, recruiterOptions, debouncedSearchFilter]);
+  }, [jobs, recruiterOptions]);
 
   const hasActiveFilters = Boolean(
     smartSearchJobIds.length > 0 ||
@@ -1497,9 +1492,9 @@ export function useJobList() {
         statusFilter,
         clientFilterId,
         recruiterFilterId,
-        matchingJobIds: smartSearchJobIds,
+        matchingJobIds: undefined,
       }),
-    [currentPage, pageSize, debouncedSearchFilter, statusFilter, clientFilterId, recruiterFilterId, smartSearchJobIds],
+    [currentPage, pageSize, debouncedSearchFilter, statusFilter, clientFilterId, recruiterFilterId],
   );
 
   useEffect(() => {
@@ -1718,7 +1713,7 @@ export function useJobList() {
     async (opts?: { silent?: boolean }) => {
       const silent = opts?.silent === true;
       const gate = jobsRequestGateRef.current;
-      const isSearchRequest = Boolean(String(debouncedSearchFilter || '').trim()) || smartSearchJobIds.length > 0;
+      const isSearchRequest = Boolean(String(debouncedSearchFilter || '').trim());
       const { requestId, signal } = gate.beginRequest();
       if (!silent) {
         if (!hasVisibleJobsRef.current) setLoading(true);
@@ -1795,7 +1790,7 @@ export function useJobList() {
         if (gate.isCurrent(requestId)) setLoadingMetrics(false);
       }
     },
-    [buildJobsQueryParams, currentPage, debouncedSearchFilter, hasActiveFilters, pageSize, smartSearchJobIds.length]
+    [buildJobsQueryParams, currentPage, debouncedSearchFilter, hasActiveFilters, pageSize]
   );
 
   // Reset to page 1 when search text settles so results aren't on an empty deep page.
@@ -1805,7 +1800,7 @@ export function useJobList() {
 
   useEffect(() => {
     const cached = readJobsListCache(currentPage, pageSize);
-    const searching = Boolean(String(debouncedSearchFilter || '').trim()) || smartSearchJobIds.length > 0;
+    const searching = Boolean(String(debouncedSearchFilter || '').trim());
     void loadJobsPageData({
       silent: Boolean(cached?.data?.jobs?.length) || (searching && hasVisibleJobsRef.current),
     });

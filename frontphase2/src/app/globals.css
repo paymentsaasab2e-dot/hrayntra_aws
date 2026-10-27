@@ -408,7 +408,7 @@ html {
   .ph2-main-surface {
     min-width: 0;
     max-width: 100%;
-    background: linear-gradient(165deg, #f8fafc 0%, #f1f5f9 45%, #eef2ff 100%);
+    background: linear-gradient(165deg, #eef4ff 0%, #f4f7ff 42%, #ece9ff 100%);
   }
 
   .ph2-page-shell {

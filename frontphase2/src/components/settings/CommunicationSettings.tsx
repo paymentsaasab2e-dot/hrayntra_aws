@@ -10,6 +10,7 @@ import {
   MessageSquareShare,
   MessagesSquare,
   PlugZap,
+  Users,
   Video,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -17,12 +18,19 @@ import {
   apiConnectIntegration,
   apiDisconnectIntegration,
   apiGetIntegrationStatuses,
+  apiGetSocialStatus,
   apiGetUserCommunication,
   type IntegrationProvider,
   type CommunicationFullResponse,
   type IntegrationStatusResponse,
+  type SocialPublishingAccount,
 } from '@/lib/api';
 import { ServiceConnectionCard } from './ServiceConnectionCard';
+import {
+  TenantConnectedAccountsModal,
+  type TenantConnectedAccount,
+  type TenantSocialProvider,
+} from './TenantConnectedAccountsModal';
 import { EmailComposeSignatureSettings } from './EmailComposeSignatureSettings';
 import { usePermissions } from '@/hooks/usePermissions';
 import {
@@ -177,6 +185,37 @@ const INTEGRATION_SECTIONS: IntegrationSection[] = [
 
 const EMPTY_STATUS: IntegrationStatusResponse = {};
 
+function mapSocialAccounts(
+  provider: TenantSocialProvider,
+  providerLabel: string,
+  accounts: SocialPublishingAccount[] | undefined,
+  fallback?: { connected?: boolean; accountName?: string; accountEmail?: string },
+): TenantConnectedAccount[] {
+  const rows = (accounts || [])
+    .filter((account) => account && (account.connected !== false || account.id || account.key))
+    .map((account) => ({
+      ...account,
+      provider,
+      providerLabel,
+      name: account.name || fallback?.accountName || providerLabel,
+    }));
+  if (rows.length > 0) return rows;
+  if (!fallback?.connected) return [];
+  const email = fallback.accountEmail || '';
+  const name = fallback.accountName || email || providerLabel;
+  return [
+    {
+      id: provider,
+      key: provider,
+      name,
+      accountEmail: email || null,
+      connected: true,
+      provider,
+      providerLabel,
+    },
+  ];
+}
+
 function mergeStatuses(
   integrationStatuses: IntegrationStatusResponse,
   communication: CommunicationFullResponse | null
@@ -261,6 +300,10 @@ export function CommunicationSettings() {
   const [loading, setLoading] = useState(true);
   const [statuses, setStatuses] = useState<IntegrationStatusResponse>(EMPTY_STATUS);
   const [busyProvider, setBusyProvider] = useState<IntegrationProvider | null>(null);
+  const [accountsModalOpen, setAccountsModalOpen] = useState(false);
+  const [accountsFilter, setAccountsFilter] = useState<TenantSocialProvider | 'all'>('all');
+  const [tenantAccounts, setTenantAccounts] = useState<TenantConnectedAccount[]>([]);
+  const [tenantAccountsLoading, setTenantAccountsLoading] = useState(false);
 
   const canManageAllIntegrations = isSuperAdmin() || hasAnyPermission(['manage_settings']);
   const canSeeInboxIntegrations =
@@ -390,6 +433,42 @@ export function CommunicationSettings() {
     }
   };
 
+  const loadTenantSocialAccounts = useCallback(async () => {
+    setTenantAccountsLoading(true);
+    try {
+      const response = await apiGetSocialStatus();
+      const data = response.data;
+      setTenantAccounts([
+        ...mapSocialAccounts('linkedin', 'LinkedIn', data?.linkedin?.accounts, {
+          connected: data?.linkedin?.connected,
+          accountName: data?.linkedin?.accountName,
+          accountEmail: statuses.linkedin?.accountEmail,
+        }),
+        ...mapSocialAccounts('twitter', 'X (Twitter)', data?.twitter?.accounts, {
+          connected: data?.twitter?.connected,
+          accountName: data?.twitter?.accountName,
+          accountEmail: data?.twitter?.accountEmail || statuses.twitter?.accountEmail,
+        }),
+        ...mapSocialAccounts('facebook', 'Facebook', data?.facebook?.accounts, {
+          connected: data?.facebook?.connected,
+          accountName: data?.facebook?.accountName,
+          accountEmail: data?.facebook?.accountEmail || statuses.facebook?.accountEmail,
+        }),
+      ]);
+    } catch {
+      setTenantAccounts([]);
+      toast.error('Could not load connected accounts');
+    } finally {
+      setTenantAccountsLoading(false);
+    }
+  }, [statuses.facebook?.accountEmail, statuses.linkedin?.accountEmail, statuses.twitter?.accountEmail]);
+
+  const openAccountsModal = (filter: TenantSocialProvider | 'all') => {
+    setAccountsFilter(filter);
+    setAccountsModalOpen(true);
+    void loadTenantSocialAccounts();
+  };
+
   const handleDisconnect = async (provider: IntegrationProvider) => {
     try {
       setBusyProvider(provider);
@@ -483,9 +562,21 @@ export function CommunicationSettings() {
                   </h3>
                   <p className="mt-1 text-sm text-slate-500">{section.description}</p>
                 </div>
-                <p className="text-xs font-medium text-slate-400">
-                  {sectionConnected} of {section.items.length} connected
-                </p>
+                <div className="flex items-center gap-2">
+                  {section.id === 'social-media' ? (
+                    <button
+                      type="button"
+                      onClick={() => openAccountsModal('all')}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-indigo-200 bg-white px-3 py-1.5 text-xs font-semibold text-indigo-700 shadow-sm transition hover:bg-indigo-50"
+                    >
+                      <Users className="h-3.5 w-3.5" />
+                      Accounts
+                    </button>
+                  ) : null}
+                  <p className="text-xs font-medium text-slate-400">
+                    {sectionConnected} of {section.items.length} connected
+                  </p>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
@@ -508,6 +599,18 @@ export function CommunicationSettings() {
                       connecting={busyProvider === item.provider}
                       scopes={scopes}
                       consentSummary={item.consentSummary}
+                      onViewAccounts={
+                        section.id === 'social-media'
+                          ? () =>
+                              openAccountsModal(
+                                item.provider === 'twitter'
+                                  ? 'twitter'
+                                  : item.provider === 'facebook'
+                                    ? 'facebook'
+                                    : 'linkedin',
+                              )
+                          : undefined
+                      }
                     />
                   );
                 })}
@@ -517,6 +620,14 @@ export function CommunicationSettings() {
           </React.Fragment>
         );
       })}
+
+      <TenantConnectedAccountsModal
+        open={accountsModalOpen}
+        onClose={() => setAccountsModalOpen(false)}
+        accounts={tenantAccounts}
+        loading={tenantAccountsLoading}
+        filter={accountsFilter}
+      />
     </div>
   );
 }

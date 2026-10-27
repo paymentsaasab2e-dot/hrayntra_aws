@@ -795,8 +795,8 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
         style={{
           top: 'calc(3.5rem + var(--ph2-impersonation-banner-h, 0px))',
           height: 'calc(100vh - 3.5rem - var(--ph2-impersonation-banner-h, 0px))',
-          backgroundColor: '#0b1220',
-          borderRight: '1px solid rgba(255,255,255,0.05)',
+          backgroundColor: 'var(--hry-navy, #0b1220)',
+          borderRight: '1px solid rgba(255,255,255,0.08)',
         }}
       >
         {/* Scrollable nav */}
@@ -981,7 +981,7 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
                 </a>
               </div>
             ) : orgPlanName ? (
-              <div className="mb-3 rounded-lg p-2.5 bg-sky-400/8 border border-sky-400/15">
+              <div className="hry-plan-card mb-3 rounded-xl border border-white/12 bg-white/[0.06] p-2.5 backdrop-blur-md">
                 <div className="flex items-center justify-between mb-1.5">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-sky-400">Active Plan</span>
                   <span className="text-[10px] text-sky-400/70">Live</span>
@@ -1078,7 +1078,8 @@ function SidenavShellFallback({ children }: { children?: React.ReactNode }) {
   return (
     <>
       <div
-        className="fixed inset-x-0 z-50 h-14 bg-[#0b1220] top-[var(--ph2-impersonation-banner-h,0px)]"
+        className="fixed inset-x-0 z-50 h-14 top-[var(--ph2-impersonation-banner-h,0px)]"
+        style={{ backgroundColor: 'var(--hry-navy, #0b1220)' }}
         aria-hidden
       />
       <div className="ph2-main-surface min-h-screen min-w-0 max-w-full pt-[calc(3.5rem+var(--ph2-impersonation-banner-h,0px))]">

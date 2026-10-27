@@ -119,7 +119,7 @@ export function crmNavItems(flags: CrmNavFlags): NavItemConfig[] {
       ? [{ icon: Target, label: 'Leads', href: '/leads', accent: 'rose' as NavAccent }]
       : []),
     ...(flags.canViewClients
-      ? [{ icon: Users, label: 'CRM Clients', href: '/client', accent: 'blue' as NavAccent }]
+      ? [{ icon: Users, label: 'Clients', href: '/client', accent: 'blue' as NavAccent }]
       : []),
   ];
 }
@@ -142,7 +142,7 @@ export function recruitmentNavItems(flags: RecruitmentNavFlags): NavItemConfig[]
       ? [{ icon: LayoutDashboard, label: 'Dashboard', href: '/recruitment', accent: 'indigo' as NavAccent }]
       : []),
     ...(flags.canViewRecruitmentClients
-      ? [{ icon: Users, label: 'Recruitment Clients', href: '/client?scope=recruitment', accent: 'blue' as NavAccent }]
+      ? [{ icon: Users, label: 'Clients', href: '/client?scope=recruitment', accent: 'blue' as NavAccent }]
       : []),
     ...(flags.canViewJobs
       ? [{ icon: Briefcase, label: 'Jobs', href: '/job', accent: 'amber' as NavAccent }]

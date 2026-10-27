@@ -26,6 +26,13 @@ export function normalizeExtractedJobTitle(
   }
 
   title = title
+    .replace(
+      /^(?:please\s+)?(?:create|creat|generate|write|make)\s+(?:me\s+)?(?:a\s+|an\s+)?(?:job(?:\s+description|\s+jd)?\s+)?(?:for|of)\s+(?:an?\s+|the\s+)?/i,
+      '',
+    )
+    .trim();
+
+  title = title
     .replace(/\s*[|•·]\s*.*$/u, '')
     .replace(
       /\s+[-–—]\s*(?:we\s+are|looking|seeking|hiring|join|based|remote|hybrid|onsite|on-site|immediate).*$/i,
@@ -33,6 +40,12 @@ export function normalizeExtractedJobTitle(
     )
     .replace(/\s+(?:with|having)\s+\d+\+?\s*(?:-\s*\d+\+?\s*)?(?:years?|yrs?).*$/i, '')
     .replace(/\s+(?:with)\s+(?:\d+\+?\s*)?(?:years?|yrs?)\s+of\b.*$/i, '')
+    .replace(/,?\s*\d+\+?\s*(?:to\s+\d+\+?\s*)?(?:years?|yrs?)(?:\s+of\s+experience)?.*$/i, '')
+    .replace(/,?\s*(?:remote|hybrid|on[-\s]?site|wfh)(?:,.*)?$/i, '')
+    .replace(
+      /\s+\bin\s+(?:Mumbai|Delhi|Bengaluru|Bangalore|Hyderabad|Chennai|Pune|Kolkata|Gurgaon|Gurugram|Noida|Ahmedabad|Jaipur|India|USA|UK|UAE)(?:\s*,.*)?$/i,
+      '',
+    )
     .replace(/\s+(?:based\s+in|located\s+in|work\s+from|working\s+from)\b.*$/i, '')
     .replace(/\s+(?:for\s+our|to\s+join|who\s+(?:can|will|have)|responsible\s+for)\b.*$/i, '')
     .replace(/\s+(?:salary|ctc|lpa|compensation|package|₹|\$|usd|inr)\b.*$/i, '')
@@ -101,4 +114,18 @@ export function normalizeExtractedJobTitle(
   }
 
   return title.replace(/\s*[–—|,;:.\-]+\s*$/g, '').trim();
+}
+
+export function titleLooksLikeFullPrompt(title: string, prompt: string): boolean {
+  const t = String(title || '').trim().toLowerCase();
+  const p = String(prompt || '').trim().toLowerCase();
+  if (!t) return true;
+  if (!p) return false;
+  if (t === p) return true;
+  if (p.startsWith(t) && (t.length > 56 || t.split(/\s+/).length > 8)) return true;
+  if (/^(?:please\s+)?(?:create|creat|generate|write|make)\s+(?:a\s+)?job\b/.test(t)) return true;
+  if (/\b(?:salary|prompt|job description|only for)\b/i.test(title) && t.split(/\s+/).length > 6) {
+    return true;
+  }
+  return false;
 }

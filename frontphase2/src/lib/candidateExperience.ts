@@ -249,7 +249,18 @@ function dedupeWorkEntries(entries: CvWorkEntryLike[]): CvWorkEntryLike[] {
     const existing = map.get(key);
     map.set(key, existing ? mergeWorkEntry(existing, normalized) : normalized);
   }
-  return Array.from(map.values());
+  return sortWorkEntriesNewestFirst(Array.from(map.values()));
+}
+
+function workEntrySortMs(entry: CvWorkEntryLike): number {
+  if (entry.isCurrentJob || entry.currentlyWorkHere || isOpenEndedEndDate(entry.endDate)) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+  return parseDateMs(entry.endDate) ?? parseDateMs(entry.startDate) ?? 0;
+}
+
+function sortWorkEntriesNewestFirst(entries: CvWorkEntryLike[]): CvWorkEntryLike[] {
+  return [...entries].sort((a, b) => workEntrySortMs(b) - workEntrySortMs(a));
 }
 
 /** Merge sparse CV rows with richer Phase 1 snapshot rows by title + company. */

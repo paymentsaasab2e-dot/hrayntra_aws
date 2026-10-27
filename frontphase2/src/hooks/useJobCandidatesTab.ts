@@ -396,7 +396,7 @@ export function useJobCandidatesTab(options: UseJobCandidatesTabOptions) {
 
   const filteredJobTableCandidates = useMemo(() => {
     const query = jobCandidatesSearch.trim().toLowerCase();
-    return jobTableCandidates.filter((row) => {
+    const filtered = jobTableCandidates.filter((row) => {
       if (candidatesStageFilterId !== 'all') {
         const stageId = resolveCandidateStageId(String(row.stage || ''), candidatesStageMatchMeta);
         if (stageId !== candidatesStageFilterId) return false;
@@ -415,6 +415,7 @@ export function useJobCandidatesTab(options: UseJobCandidatesTabOptions) {
         query,
       );
     });
+    return [...filtered].sort((a, b) => (b.addedAtMs || 0) - (a.addedAtMs || 0));
   }, [jobTableCandidates, jobCandidatesSearch, candidatesStageFilterId, candidatesStageMatchMeta]);
 
   const candidatesTotalPages = Math.max(

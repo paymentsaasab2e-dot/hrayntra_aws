@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { AiCoinLockBadge, useAiCoinGate } from '../../components/coins/AiCoinGate';
+import { TokenCoinIcon } from '../../components/coins/TokenCoinIcon';
 import { downloadCsv } from '../../utils/csv';
 import { ExportColumnsModal } from '../../components/export/ExportColumnsModal';
 import { buildJobsCsvColumns, JOBS_EXPORT_COLUMNS } from '../../lib/export/jobsExportColumns';
@@ -68,11 +69,6 @@ import {
   SmartSearchPromptPanel,
   SmartSearchToggleButton,
 } from '../../components/smart-search/SmartSearchToolbar';
-import { useSmartSearch } from '../../hooks/useSmartSearch';
-import { mapAiToJobsResult, parseSmartSearchWithAi } from '../../lib/smart-search/aiParser';
-import { buildJobsListApiParams } from '../../lib/smart-search/entitySmartSearch';
-import { parseJobsSmartSearchPrompt, JOBS_SMART_SEARCH_EXAMPLES, jobMatchesSmartKeywordChips, mergeJobsSmartSearchResult } from '../../lib/smart-search/parsers';
-import { sortByQuickSearchRelevance } from '../../lib/quickSearch';
 import { StatusChangeService } from '../../components/StatusChangeService';
 import {
   apiAddCandidateNote,
@@ -1044,6 +1040,17 @@ export function JobListPage() {
     handleCloseJob,
   } = useJobList();
 
+  const openCreateJob = (mode: 'ai' | 'manual') => {
+    if (mode === 'ai' && jobAiGate.locked) {
+      void jobAiGate.confirmAndUnlock();
+      return;
+    }
+    setCreateJobMode(mode);
+    setDuplicateFromJobId(null);
+    setCreateJobDrawerOpen(false);
+    setJobAiWizardOpen(true);
+  };
+
   return (
     <>
       <Toaster position="top-right" richColors />
@@ -1087,27 +1094,16 @@ export function JobListPage() {
               <div
                 role="group"
                 aria-label="Create job"
-                className="inline-flex items-center rounded-lg border border-slate-200/90 bg-slate-100/90 p-0.5 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.18)]"
+                className="inline-flex h-9 overflow-hidden rounded-full shadow-[0_8px_18px_-8px_rgba(91,82,224,0.45)]"
               >
                 <button
                   type="button"
                   aria-pressed={createJobMode === 'ai'}
-                  onClick={() => {
-                    if (jobAiGate.locked) {
-                      void jobAiGate.confirmAndUnlock();
-                      return;
-                    }
-                    setCreateJobMode('ai');
-                    setDuplicateFromJobId(null);
-                    setCreateJobDrawerOpen(false);
-                    setJobAiWizardOpen(true);
-                  }}
-                  className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-all ${
+                  onClick={() => openCreateJob('ai')}
+                  className={`inline-flex items-center gap-1.5 px-3.5 text-xs font-semibold transition-colors ${
                     jobAiGate.locked
-                      ? 'text-amber-800 hover:bg-amber-50'
-                      : createJobMode === 'ai'
-                        ? 'bg-white text-violet-800 shadow-sm ring-1 ring-violet-200/70'
-                        : 'text-slate-500 hover:bg-white/60 hover:text-violet-700'
+                      ? 'bg-amber-50 text-amber-800 hover:bg-amber-100'
+                      : 'bg-[#EDE9FE] text-[#5B52E0] hover:bg-[#E4DFFC]'
                   }`}
                   title={
                     jobAiGate.locked
@@ -1118,32 +1114,26 @@ export function JobListPage() {
                   {jobAiGate.locked ? (
                     <Lock size={14} className="text-amber-600" strokeWidth={2.25} />
                   ) : (
-                    <Sparkles size={14} className="text-violet-600" strokeWidth={2.25} />
+                    <Sparkles size={14} className="text-[#7C73ED]" strokeWidth={2.25} />
                   )}
                   <span>Create with AI</span>
-                  <AiCoinLockBadge featureId="ai.job_from_prompt" />
+                  {jobAiGate.locked ? (
+                    <AiCoinLockBadge featureId="ai.job_from_prompt" />
+                  ) : jobAiGate.cost > 0 ? (
+                    <span className="inline-flex items-center gap-0.5 text-[11px] font-bold text-[#5B52E0]">
+                      <TokenCoinIcon className="h-3.5 w-3.5" />
+                      {jobAiGate.cost}
+                    </span>
+                  ) : null}
                 </button>
                 <button
                   type="button"
                   aria-pressed={createJobMode === 'manual'}
-                  onClick={() => {
-                    setCreateJobMode('manual');
-                    setDuplicateFromJobId(null);
-                    setCreateJobDrawerOpen(false);
-                    setJobAiWizardOpen(true);
-                  }}
-                  className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-all ${
-                    createJobMode === 'manual'
-                      ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-sm'
-                      : 'text-slate-500 hover:bg-white/60 hover:text-indigo-700'
-                  }`}
+                  onClick={() => openCreateJob('manual')}
+                  className="inline-flex items-center gap-1.5 bg-[#5B52E0] px-3.5 text-xs font-semibold text-white transition-colors hover:bg-[#4F46D8]"
                   title="Create a job manually"
                 >
-                  <Plus
-                    size={14}
-                    className={createJobMode === 'manual' ? 'text-white' : 'text-indigo-500'}
-                    strokeWidth={2.5}
-                  />
+                  <Plus size={14} className="text-white" strokeWidth={2.5} />
                   <span>Create Manually</span>
                 </button>
               </div>
@@ -1198,6 +1188,10 @@ export function JobListPage() {
                     onChange={(e) => {
                       setSearchFilter(e.target.value);
                       setCurrentPage(1);
+                      if (jobSmartSearch.activeKeywords.length > 0) {
+                        setSmartSearchJobIds([]);
+                        jobSmartSearch.clearSmartSearch();
+                      }
                     }}
                     className="h-9 w-full rounded-xl border border-indigo-100/90 bg-white/95 pl-10 pr-3 text-xs text-slate-800 shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)] placeholder:text-slate-400 transition-all focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
                   />

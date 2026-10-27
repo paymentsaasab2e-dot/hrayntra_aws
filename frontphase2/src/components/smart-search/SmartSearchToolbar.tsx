@@ -38,7 +38,7 @@ export function SmartSearchToggleButton({
         }
         onToggle();
       }}
-      className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-all active:scale-[0.98] ${
+      className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-all active:scale-[0.98] ${
         gate.locked
           ? 'border-amber-300 bg-amber-50 text-amber-900'
           : open

@@ -7,6 +7,7 @@ import {
 } from './candidateListMapping';
 import { extractApiData, isValidObjectId } from './mapCandidateProfile';
 import { isSubmittedToClientStage } from '../utils/candidateStage';
+import { formatDateTimeDMY } from '../utils/dateDisplay';
 
 /** Map portal/CRM application enum to pipeline stage label. */
 export function mapApplicationStatusToCrmStage(status?: string | null): string {
@@ -34,6 +35,31 @@ export function mapApplicationStatusToCrmStage(status?: string | null): string {
     default:
       return '';
   }
+}
+
+function matchTimestamp(match: BackendMatch): string {
+  const raw =
+    (match as { createdAt?: string; updatedAt?: string }).createdAt ||
+    (match as { updatedAt?: string }).updatedAt ||
+    '';
+  return String(raw || '').trim();
+}
+
+function jobCandidateAddedAtMs(row: JobCandidateItem): number {
+  const added = Date.parse(String(row.addedAt || ''));
+  if (Number.isFinite(added) && added > 0) return added;
+  const last = Date.parse(String(row.lastActivity || ''));
+  return Number.isFinite(last) && last > 0 ? last : 0;
+}
+
+function sortJobCandidatesChronologically(rows: JobCandidateItem[]): JobCandidateItem[] {
+  return [...rows].sort((a, b) => jobCandidateAddedAtMs(b) - jobCandidateAddedAtMs(a));
+}
+
+function formatJobCandidateActivity(value?: string | null): string {
+  const raw = String(value || '').trim();
+  if (!raw || raw === '—') return '—';
+  return formatDateTimeDMY(raw) || raw;
 }
 
 function jobDrawerStageRank(stage: string): number {
@@ -203,7 +229,8 @@ export function backendMatchToJobCandidateItem(
       fallbackRecruiter,
     ),
     interviewStatus: 'Not scheduled',
-    lastActivity: match.createdAt ? String(match.createdAt) : '—',
+    lastActivity: formatJobCandidateActivity(matchTimestamp(match)),
+    addedAt: matchTimestamp(match) || undefined,
   };
 }
 
@@ -256,6 +283,11 @@ export function mergeJobCandidatesWithAppliedMatches(
       isJobAppliedCandidate:
         candidate.isJobAppliedCandidate ??
         isJobAppliedDisplayStage(resolveJobCandidateStageFromMatchRow(match, candidate.currentStage)),
+      addedAt: candidate.addedAt || matchTimestamp(match) || undefined,
+      lastActivity:
+        candidate.lastActivity && candidate.lastActivity !== '—'
+          ? candidate.lastActivity
+          : formatJobCandidateActivity(matchTimestamp(match)),
     };
   });
 
@@ -266,14 +298,14 @@ export function mergeJobCandidatesWithAppliedMatches(
     seen.add(id);
   }
 
-  return merged.sort(
-    (a, b) => parseJobCandidateScore(b.score) - parseJobCandidateScore(a.score),
-  );
+  return sortJobCandidatesChronologically(merged);
 }
 
 type PipelineStagePayload = {
   name?: string | null;
   entries?: Array<{
+    createdAt?: string | null;
+    movedAt?: string | null;
     candidate?: {
       id?: string;
       firstName?: string | null;
@@ -293,6 +325,8 @@ type PipelineStagePayload = {
 type JobApplicationLike = {
   candidateId?: string | null;
   status?: string | null;
+  appliedAt?: string | null;
+  createdAt?: string | null;
   candidate?: {
     id?: string | null;
     firstName?: string | null;
@@ -338,11 +372,12 @@ export function extractApplicationsJobCandidateItems(
       score: '-',
       recruiter: fallbackRecruiter,
       interviewStatus: 'Not scheduled',
-      lastActivity: '—',
+      lastActivity: formatJobCandidateActivity(app.appliedAt || app.createdAt),
+      addedAt: String(app.appliedAt || app.createdAt || '').trim() || undefined,
     });
   }
 
-  return Array.from(byId.values());
+  return sortJobCandidatesChronologically(Array.from(byId.values()));
 }
 
 function pickMergedJobCandidateStage(...stages: Array<string | null | undefined>): string {
@@ -389,6 +424,9 @@ export function mergeJobCandidateSeeds(
           return a !== '—' ? a : b;
         })(),
         recruiter: pickCandidateOwnerLabel(prev.recruiter, row.recruiter),
+        addedAt: prev.addedAt || row.addedAt,
+        lastActivity:
+          prev.lastActivity && prev.lastActivity !== '—' ? prev.lastActivity : row.lastActivity,
         currentStage: mergedStage,
         isJobAppliedCandidate: Boolean(
           prev.isJobAppliedCandidate ||
@@ -399,7 +437,7 @@ export function mergeJobCandidateSeeds(
       });
     }
   }
-  return Array.from(byId.values());
+  return sortJobCandidatesChronologically(Array.from(byId.values()));
 }
 
 /** Build seed rows from job pipeline entries (candidates in this job's pipeline). */
@@ -433,12 +471,13 @@ export function extractPipelineJobCandidateItems(
         score: '-',
         recruiter: fallbackRecruiter,
         interviewStatus: 'Not scheduled',
-        lastActivity: '—',
+        lastActivity: formatJobCandidateActivity(entry?.movedAt || entry?.createdAt),
+        addedAt: String(entry?.movedAt || entry?.createdAt || '').trim() || undefined,
       });
     }
   }
 
-  return Array.from(byId.values());
+  return sortJobCandidatesChronologically(Array.from(byId.values()));
 }
 
 /** Load applied / assigned / pipeline-linked candidates and merge AI applied match scores. */

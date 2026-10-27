@@ -16,70 +16,79 @@ export type SummaryCardColor = 'blue' | 'yellow' | 'purple' | 'green' | 'gray' |
 
 const STYLES: Record<
   SummaryCardColor,
-  { panel: string; text: string; iconWrap: string; ring: string; activeRing: string }
+  { panel: string; text: string; count: string; iconWrap: string; ring: string; activeRing: string }
 > = {
   blue: {
-    panel: 'bg-gradient-to-br from-blue-50 via-white to-indigo-50/90',
-    text: 'text-blue-800',
-    iconWrap: 'bg-blue-500/15 text-blue-600 ring-1 ring-blue-200/80 shadow-inner',
-    ring: 'border-blue-200/90',
-    activeRing: 'ring-2 ring-blue-400/35 shadow-ph2-card-hover',
+    panel: 'bg-[#eef4ff]',
+    text: 'text-blue-500',
+    count: 'text-blue-700',
+    iconWrap: 'bg-white/80 text-blue-500 shadow-sm',
+    ring: 'border-blue-100/80',
+    activeRing: 'ring-2 ring-blue-400/40 shadow-[0_12px_28px_-16px_rgba(56,103,255,0.55)]',
   },
   yellow: {
-    panel: 'bg-gradient-to-br from-amber-50 via-white to-yellow-50/80',
-    text: 'text-amber-800',
-    iconWrap: 'bg-amber-400/20 text-amber-700 ring-1 ring-amber-200/90 shadow-inner',
-    ring: 'border-amber-200/90',
-    activeRing: 'ring-2 ring-amber-400/40 shadow-ph2-card-hover',
+    panel: 'bg-[#fff6e8]',
+    text: 'text-amber-500',
+    count: 'text-amber-700',
+    iconWrap: 'bg-white/80 text-amber-500 shadow-sm',
+    ring: 'border-amber-100/90',
+    activeRing: 'ring-2 ring-amber-400/40 shadow-[0_12px_28px_-16px_rgba(245,158,11,0.45)]',
   },
   purple: {
-    panel: 'bg-gradient-to-br from-violet-50 via-white to-purple-50/80',
-    text: 'text-violet-800',
-    iconWrap: 'bg-violet-500/15 text-violet-700 ring-1 ring-violet-200/80 shadow-inner',
-    ring: 'border-violet-200/90',
-    activeRing: 'ring-2 ring-violet-400/35 shadow-ph2-card-hover',
+    panel: 'bg-[#f3eeff]',
+    text: 'text-violet-500',
+    count: 'text-violet-700',
+    iconWrap: 'bg-white/80 text-violet-500 shadow-sm',
+    ring: 'border-violet-100/90',
+    activeRing: 'ring-2 ring-violet-400/40 shadow-[0_12px_28px_-16px_rgba(120,100,255,0.5)]',
   },
   green: {
-    panel: 'bg-gradient-to-br from-emerald-50 via-white to-teal-50/70',
-    text: 'text-emerald-800',
-    iconWrap: 'bg-emerald-500/15 text-emerald-700 ring-1 ring-emerald-200/80 shadow-inner',
-    ring: 'border-emerald-200/90',
-    activeRing: 'ring-2 ring-emerald-400/35 shadow-ph2-card-hover',
+    panel: 'bg-[#e9fbf4]',
+    text: 'text-emerald-500',
+    count: 'text-emerald-700',
+    iconWrap: 'bg-white/80 text-emerald-500 shadow-sm',
+    ring: 'border-emerald-100/90',
+    activeRing: 'ring-2 ring-emerald-400/40 shadow-[0_12px_28px_-16px_rgba(16,185,129,0.45)]',
   },
   gray: {
-    panel: 'bg-gradient-to-br from-slate-50 via-white to-slate-100/70',
-    text: 'text-slate-700',
-    iconWrap: 'bg-slate-500/12 text-slate-600 ring-1 ring-slate-200 shadow-inner',
-    ring: 'border-slate-200/95',
-    activeRing: 'ring-2 ring-slate-400/30 shadow-ph2-card-hover',
+    panel: 'bg-[#f4f6f8]',
+    text: 'text-slate-400',
+    count: 'text-slate-600',
+    iconWrap: 'bg-white text-slate-400 shadow-sm',
+    ring: 'border-slate-200/80',
+    activeRing: 'ring-2 ring-slate-300/50',
   },
   rose: {
-    panel: 'bg-gradient-to-br from-rose-50 via-white to-pink-50/80',
-    text: 'text-rose-800',
-    iconWrap: 'bg-rose-500/15 text-rose-600 ring-1 ring-rose-200/80 shadow-inner',
-    ring: 'border-rose-200/90',
-    activeRing: 'ring-2 ring-rose-400/35 shadow-ph2-card-hover',
+    panel: 'bg-[#fff1f4]',
+    text: 'text-rose-500',
+    count: 'text-rose-700',
+    iconWrap: 'bg-white/80 text-rose-500 shadow-sm',
+    ring: 'border-rose-100/90',
+    activeRing: 'ring-2 ring-rose-400/40',
   },
   cyan: {
-    panel: 'bg-gradient-to-br from-cyan-50 via-white to-sky-50/80',
-    text: 'text-cyan-800',
-    iconWrap: 'bg-cyan-500/15 text-cyan-700 ring-1 ring-cyan-200/80 shadow-inner',
-    ring: 'border-cyan-200/90',
-    activeRing: 'ring-2 ring-cyan-400/35 shadow-ph2-card-hover',
+    panel: 'bg-[#e9f9fc]',
+    text: 'text-cyan-500',
+    count: 'text-cyan-700',
+    iconWrap: 'bg-white/80 text-cyan-500 shadow-sm',
+    ring: 'border-cyan-100/90',
+    activeRing: 'ring-2 ring-cyan-400/40',
   },
   orange: {
-    panel: 'bg-gradient-to-br from-orange-50 via-white to-amber-50/80',
-    text: 'text-orange-800',
-    iconWrap: 'bg-orange-500/15 text-orange-600 ring-1 ring-orange-200/80 shadow-inner',
-    ring: 'border-orange-200/90',
-    activeRing: 'ring-2 ring-orange-400/35 shadow-ph2-card-hover',
+    panel: 'bg-[#fff4ea]',
+    text: 'text-orange-500',
+    count: 'text-orange-700',
+    iconWrap: 'bg-white/80 text-orange-500 shadow-sm',
+    ring: 'border-orange-100/90',
+    activeRing: 'ring-2 ring-orange-400/40',
   },
   indigo: {
-    panel: 'bg-gradient-to-br from-indigo-50 via-white to-violet-50/80',
-    text: 'text-indigo-800',
-    iconWrap: 'bg-indigo-500/15 text-indigo-700 ring-1 ring-indigo-200/80 shadow-inner',
-    ring: 'border-indigo-200/90',
-    activeRing: 'ring-2 ring-indigo-400/35 shadow-ph2-card-hover',
+    panel: 'bg-[#eef0ff]',
+    text: 'text-indigo-500',
+    count: 'text-indigo-700',
+    iconWrap: 'bg-white/80 text-indigo-500 shadow-sm',
+    ring: 'border-indigo-100/90',
+    activeRing: 'ring-2 ring-indigo-400/40',
   },
 };
 
@@ -102,22 +111,22 @@ export function SummaryCard({ label, count, color, icon, active = false, onClick
     <Element
       type={isInteractive ? 'button' : undefined}
       onClick={onClick}
-      className={`group relative w-full min-w-0 overflow-hidden rounded-lg sm:rounded-xl border p-1.5 sm:p-3 lg:p-4 text-left shadow-[0_8px_30px_-12px_rgba(15,23,42,0.12)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_16px_40px_-12px_rgba(59,130,246,0.22)] ${
+      className={`group relative w-full min-w-0 overflow-hidden rounded-2xl border px-3 py-3 text-left shadow-[0_10px_28px_-18px_rgba(16,27,53,0.22)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_16px_36px_-18px_rgba(56,103,255,0.28)] sm:px-4 sm:py-3.5 ${
         isInteractive ? 'cursor-pointer' : ''
       } ${s.panel} ${s.ring} ${active ? s.activeRing : ''}`}
       aria-pressed={isInteractive ? active : undefined}
     >
-      <div className="pointer-events-none absolute -right-5 -top-5 h-20 w-20 rounded-full bg-white/40 blur-2xl" aria-hidden />
-      <div className="relative flex items-start justify-between gap-1 sm:gap-2">
+      <div className="pointer-events-none absolute -right-6 -top-8 h-24 w-24 rounded-full bg-white/50 blur-2xl" aria-hidden />
+      <div className="relative flex items-start justify-between gap-2">
         <div
-          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg sm:h-8 sm:w-8 sm:rounded-xl lg:h-9 lg:w-9 transition-transform duration-300 group-hover:scale-105 [&_svg]:h-3.5 [&_svg]:w-3.5 sm:[&_svg]:h-4 sm:[&_svg]:w-4 ${s.iconWrap}`}
+          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition-transform duration-200 group-hover:scale-105 [&_svg]:h-4 [&_svg]:w-4 ${s.iconWrap}`}
         >
           {icon}
         </div>
-        <span className={`min-w-0 break-all text-sm font-semibold tabular-nums tracking-tight sm:text-xl lg:text-2xl ${s.text}`}>{count}</span>
+        <span className={`min-w-0 break-all text-2xl font-semibold tabular-nums tracking-tight leading-none ${s.count}`}>{count}</span>
       </div>
-      <div className="relative mt-1 flex items-end justify-between gap-1 sm:mt-2 lg:mt-3 sm:gap-2">
-        <p className={`min-w-0 break-words text-[8px] font-bold uppercase tracking-[0.08em] leading-tight opacity-85 sm:text-[10px] sm:tracking-[0.12em] sm:leading-snug ${s.text}`}>{label}</p>
+      <div className="relative mt-3 flex items-end justify-between gap-2">
+        <p className={`min-w-0 break-words text-[11px] font-semibold uppercase tracking-[0.08em] leading-snug ${s.text}`}>{label}</p>
         {active ? (
           <span
             className={`hidden sm:inline-flex shrink-0 rounded-full bg-white/80 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider shadow-sm ring-1 ring-black/5 ${s.text}`}
@@ -142,19 +151,19 @@ export function SummaryCardSkeleton({ color = 'gray' }: SummaryCardSkeletonProps
   const s = STYLES[color] ?? STYLES.gray;
   return (
     <div
-      className={`relative w-full overflow-hidden rounded-lg sm:rounded-xl border p-1.5 sm:p-3 lg:p-4 shadow-[0_8px_30px_-12px_rgba(15,23,42,0.12)] ${s.panel} ${s.ring}`}
+      className={`relative w-full overflow-hidden rounded-2xl border px-3 py-3 shadow-[0_10px_28px_-18px_rgba(16,27,53,0.22)] sm:px-4 sm:py-3.5 ${s.panel} ${s.ring}`}
       aria-hidden
     >
-      <div className="pointer-events-none absolute -right-5 -top-5 h-20 w-20 rounded-full bg-white/40 blur-2xl" />
-      <div className="relative flex items-start justify-between gap-1 sm:gap-2">
-        <div className={`relative h-6 w-6 overflow-hidden rounded-lg sm:h-9 sm:w-9 sm:rounded-xl ${s.iconWrap}`}>
+      <div className="pointer-events-none absolute -right-6 -top-8 h-24 w-24 rounded-full bg-white/50 blur-2xl" />
+      <div className="relative flex items-start justify-between gap-2">
+        <div className={`relative h-9 w-9 overflow-hidden rounded-xl ${s.iconWrap}`}>
           <span className="ph2-skel-shimmer" />
         </div>
-        <div className="relative h-4 w-8 overflow-hidden rounded-md bg-white/70 sm:h-6 sm:w-10">
+        <div className="relative h-6 w-10 overflow-hidden rounded-md bg-white/70">
           <span className="ph2-skel-shimmer" />
         </div>
       </div>
-      <div className="relative mt-1.5 h-2 w-2/3 overflow-hidden rounded-full bg-white/70 sm:mt-3 sm:h-2.5">
+      <div className="relative mt-3 h-2.5 w-2/3 overflow-hidden rounded-full bg-white/70">
         <span className="ph2-skel-shimmer" />
       </div>
       <style jsx>{`

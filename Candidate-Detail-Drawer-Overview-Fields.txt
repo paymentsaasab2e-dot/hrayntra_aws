@@ -1,0 +1,403 @@
+Candidate Details Drawer — Overview Tab
+=======================================
+All sections and every parameter shown to the user.
+(Fields still respect Settings → Candidate edit fields visibility.)
+
+
+HIRING & ASSIGNMENT
+-------------------
+- Assigned job
+- Pipeline stage
+- Status
+- Assigned recruiter
+- Source
+- Availability
+- Total No. of Experience
+
+
+================================================================
+A) NORMAL / ATS CANDIDATE OVERVIEW
+================================================================
+
+1. PERSONAL INFORMATION
+-----------------------
+- Name
+- E-mail
+- Mobile No
+- Age
+- Candidate Score
+- City & State
+- Current Location
+- Current Address
+- Zip
+- Candidate Image
+- Nationality
+- Current Company Website
+- Marital Status
+- Birth Date
+- Gender
+- Passport Number
+
+
+2. EDUCATION
+------------
+Top-level:
+- Qualification
+- Courses
+
+Each Education entry:
+- Education Level
+- Qualification / Program
+- School / College / University
+- Location (City / Area)
+- Field of Study / Major
+- Start Date
+- End Date
+- I am currently studying here
+- Grade / Percentage / GPA
+- Mode of Study
+- Course Duration
+
+
+3. CAREER PREFERENCES
+---------------------
+Current Package:
+- Designation
+- Currency
+- Salary Type
+- Current Salary
+- Current Location
+- Current Benefits
+
+Preferred Package:
+- Preferred Role
+- Currency
+- Salary Type
+- Expected Salary
+- Preferred Locations
+- Preferred Work Mode
+- Expected Benefits
+
+Role & Domain:
+- Preferred Industries
+- Functional Areas
+- Job Types
+
+Relocation:
+- Relocation Preference
+
+Availability:
+- Experience
+- Earliest Start Date
+- Describe Availability
+- Notice Period
+
+Other:
+- Reason for Current Job Change
+- Resume
+- Current Organization
+
+
+4. WORK EXPERIENCE
+------------------
+Each Work Experience entry:
+
+Role Details:
+- Job Title
+- Company Name
+- Employment Type
+- Industry
+- Number of Reportees
+
+Duration:
+- Start Date
+- End Date
+- I currently work here
+
+Location & Work Mode:
+- Work Location
+- Work Mode
+
+Company Details:
+- Company Profile
+- Company Turnover
+
+Role Contribution:
+- Key Responsibilities
+- Achievements
+
+Skills & Documents:
+- Skills Used
+- Documents
+
+
+5. SOCIAL NETWORK INFORMATION
+-----------------------------
+- LinkedIn
+- Twitter
+- Xing
+- Skype ID
+- Facebook
+- Stack Overflow
+- Website
+- Portfolio / project links
+  - Label / Title
+  - Type
+  - URL
+
+
+6. SUMMARY & ADDITIONAL
+-----------------------
+- Summary
+- Work History
+- Certificate
+- Honours & Awards
+- Skills
+- Projects (extra)
+- Hackathons (extra)
+
+
+================================================================
+B) PHASE 1 CANDIDATE OVERVIEW
+================================================================
+
+1. BASIC INFORMATION
+--------------------
+- Full name
+- Employment status
+- Email
+- Phone
+- Age
+- Gender
+- Marital Status
+- Date of birth
+- City
+- Country
+- Nationality
+- Current address
+- City & country
+- Passport number
+- LinkedIn
+
+
+2. PROFESSIONAL SUMMARY
+-----------------------
+- Summary text
+
+
+3. WORK EXPERIENCE
+------------------
+Each Work Experience entry:
+
+Role Details:
+- Job Title
+- Company Name
+- Employment Type
+- Industry
+- Number of Reportees
+
+Duration:
+- Start Date
+- End Date
+- I currently work here
+
+Location & Work Mode:
+- Work Location
+- Work Mode
+
+Company Details:
+- Company Profile
+- Company Turnover
+
+Role Contribution:
+- Key Responsibilities
+- Achievements
+
+Skills & Documents:
+- Skills Used
+- Documents
+
+
+4. INTERNSHIPS
+--------------
+Each Internship entry:
+- Internship Title
+- Internship Type
+- Company / Organization Name
+- Domain / Department
+- Start Date
+- End Date
+- I am currently working here
+- Location
+- Work Mode
+- Responsibilities / Tasks Performed
+- Learnings
+- Skills Applied
+- Certificates / Documents
+
+
+5. GAP EXPLANATION
+------------------
+Each Gap entry:
+- Category
+- Reason for Gap
+- Gap Duration
+- Courses, Trainings, or Certifications (Details)
+
+
+6. EDUCATION
+------------
+Each Education entry:
+- Education Level
+- Qualification / Program
+- School / College / University
+- Location (City / Area)
+- Field of Study / Major
+- Start Date
+- End Date
+- I am currently studying here
+- Grade / Percentage / GPA
+- Mode of Study
+- Course Duration
+
+
+7. ACADEMIC ACHIEVEMENTS
+------------------------
+Each Achievement entry:
+- Achievement Title
+- Awarded By
+- Year Received
+- Category / Type
+- Description
+
+
+8. COMPETITIVE EXAMS
+--------------------
+Each Exam entry:
+- Exam Name
+- Year Taken
+- Result Status
+- Score / Marks
+- Valid Until
+- Additional Notes
+
+
+9. SKILLS
+---------
+- Skill name
+- Skill group / category
+
+
+10. LANGUAGES
+-------------
+Each Language entry:
+- Language name
+- Proficiency
+
+
+11. PROJECTS
+------------
+Each Project entry:
+- Project Title
+- Project Type
+- Organization / Client
+- I am currently working on this project
+- Start Date
+- End Date
+- Project Description
+- Responsibilities / Contributions
+- Technologies / Tools Used
+- Project Outcome / Results
+- Project Link
+
+
+12. PORTFOLIO LINKS
+-------------------
+Each Portfolio link:
+- Label / Type
+- URL
+
+
+13. CERTIFICATIONS
+------------------
+Each Certification entry:
+- Certification Name
+- Issuing Organization
+- Issue Date
+- Credential ID
+- Expiry Date (or does not expire)
+- Credential URL
+- Description
+- Documents
+
+
+14. ACCOMPLISHMENTS
+-------------------
+Each Accomplishment entry:
+- Title
+- Category
+- Organization
+- Date
+- Description
+
+
+15. CAREER PREFERENCES
+----------------------
+Current Package:
+- Designation
+- Currency
+- Salary Type
+- Current Salary
+- Current Location
+- Current Benefits
+
+Preferred Package:
+- Preferred Role
+- Currency
+- Salary Type
+- Expected Salary
+- Preferred Locations
+- Preferred Work Mode
+- Expected Benefits
+
+Role & Domain:
+- Preferred Industries
+- Functional Areas
+- Job Types
+
+Relocation:
+- Relocation Preference
+
+Availability:
+- Experience
+- Earliest Start Date
+- Describe Availability
+- Notice Period
+
+Other:
+- Reason for Current Job Change
+- Resume
+- Current Organization
+
+
+16. VISA & WORK AUTHORIZATION
+-----------------------------
+Each Visa / Work auth entry:
+- Country
+- Do you require a visa for this country?
+- Visa Type
+- Visa Status
+- Visa Expiry Date
+- Work Permit Number
+- Visa / work permit required
+- Additional Notes
+
+
+17. VACCINATION
+---------------
+Each Vaccination entry:
+- Vaccine Type
+- Last Vaccination Date
+- Validity of Vaccination
+- Month
+- Year

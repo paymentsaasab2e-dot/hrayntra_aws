@@ -172,10 +172,11 @@ interface TableSkeletonProps {
   rows?: number;
   columns?: number;
   className?: string;
+  withAvatar?: boolean;
 }
 
 /** Lightweight table-style skeleton for list pages (Jobs, Leads, Clients…). */
-export function TableSkeleton({ rows = 8, columns = 6, className = '' }: TableSkeletonProps) {
+export function TableSkeleton({ rows = 8, columns = 6, className = '', withAvatar = false }: TableSkeletonProps) {
   const colTemplate = `repeat(${columns}, minmax(0, 1fr))`;
   return (
     <div className={`rounded-2xl border border-slate-200 bg-white p-6 shadow-sm ${className}`} role="status" aria-label="Loading…">
@@ -187,12 +188,22 @@ export function TableSkeleton({ rows = 8, columns = 6, className = '' }: TableSk
       <div className="space-y-3">
         {Array.from({ length: rows }).map((_, r) => (
           <div key={r} className="grid gap-4 items-center" style={{ gridTemplateColumns: colTemplate }}>
-            {Array.from({ length: columns }).map((__, c) => (
-              <Skeleton
-                key={c}
-                className={`rounded-md ${c === 0 ? 'h-6' : 'h-3'} ${c === columns - 1 ? 'w-1/2' : 'w-full'}`}
-              />
-            ))}
+            {Array.from({ length: columns }).map((__, c) =>
+              withAvatar && c === 0 ? (
+                <div key={c} className="flex items-center gap-3">
+                  <Skeleton className="h-8 w-8 rounded-full" />
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <Skeleton className="h-3 w-3/4 rounded-md" />
+                    <Skeleton className="h-2.5 w-1/2 rounded-md" />
+                  </div>
+                </div>
+              ) : (
+                <Skeleton
+                  key={c}
+                  className={`rounded-md ${c === 0 ? 'h-6' : 'h-3'} ${c === columns - 1 ? 'w-1/2' : 'w-full'}`}
+                />
+              ),
+            )}
           </div>
         ))}
       </div>

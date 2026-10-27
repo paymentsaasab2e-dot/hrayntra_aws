@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { CheckCircle2, Link2Off, Loader2, ShieldCheck } from 'lucide-react';
+import { CheckCircle2, Link2Off, Loader2, ShieldCheck, Users } from 'lucide-react';
 
 export type ServiceConnectionCardProps = {
   serviceName: string;
@@ -16,6 +16,7 @@ export type ServiceConnectionCardProps = {
   scopes: string[];
   consentSummary?: string;
   accentClass?: string;
+  onViewAccounts?: () => void;
 };
 
 export function ServiceConnectionCard({
@@ -31,6 +32,7 @@ export function ServiceConnectionCard({
   scopes,
   consentSummary,
   accentClass = 'from-indigo-500/15 via-transparent to-transparent',
+  onViewAccounts,
 }: ServiceConnectionCardProps) {
   const [consentAccepted, setConsentAccepted] = useState(false);
 
@@ -138,6 +140,16 @@ export function ServiceConnectionCard({
         ) : null}
 
         <div className="mt-auto flex flex-wrap gap-2 pt-5">
+          {onViewAccounts ? (
+            <button
+              type="button"
+              onClick={onViewAccounts}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-white px-3.5 py-2 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-50"
+            >
+              <Users className="h-4 w-4" />
+              Accounts
+            </button>
+          ) : null}
           {connected ? (
             <button
               type="button"
