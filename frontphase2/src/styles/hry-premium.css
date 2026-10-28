@@ -160,11 +160,15 @@
 .hry-premium #leads-main-table thead th,
 .hry-premium #leads-main-table tbody td,
 .hry-premium #leads-main-table tbody td button,
-.hry-premium #leads-main-table tbody td select {
+.hry-premium #leads-main-table tbody td select,
+.hry-premium .ph2-table-body-scroll table,
+.hry-premium .ph2-table-body-scroll thead th,
+.hry-premium .ph2-table-body-scroll tbody td {
   font-family: var(--hry-font-table) !important;
 }
 
-.hry-premium #leads-main-table thead th {
+.hry-premium #leads-main-table thead th,
+.hry-premium .ph2-table-body-scroll thead th {
   font-size: 0.6875rem !important;
   font-weight: 600 !important;
   letter-spacing: 0.08em !important;
@@ -172,8 +176,164 @@
   background: linear-gradient(180deg, rgba(238, 242, 255, 0.92), rgba(255, 255, 255, 0.96)) !important;
 }
 
-.hry-premium #leads-main-table tbody td {
+.hry-premium #leads-main-table tbody td,
+.hry-premium .ph2-table-body-scroll tbody td {
   font-size: 0.8125rem !important;
+}
+
+.hry-premium #leads-main-table tbody tr,
+.hry-premium .ph2-table-body-scroll tbody tr {
+  height: var(--ph2-row-h, 2.15rem);
+}
+
+.hry-premium #leads-main-table tbody td,
+.hry-premium .ph2-table-body-scroll tbody td {
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  overflow: hidden;
+}
+
+/* Keep Lead + Actions visible while the rest of the table scrolls sideways. */
+.hry-premium #leads-main-table thead th.hry-sticky-select,
+.hry-premium #leads-main-table tbody td.hry-sticky-select {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+}
+
+.hry-premium #leads-main-table thead th.hry-sticky-lead,
+.hry-premium #leads-main-table tbody td.hry-sticky-lead {
+  position: sticky;
+  left: 2.5rem;
+  z-index: 2;
+}
+
+.hry-premium #leads-main-table thead th.hry-sticky-actions,
+.hry-premium #leads-main-table tbody td.hry-sticky-actions {
+  position: sticky;
+  right: 0;
+  z-index: 2;
+  box-shadow: -10px 0 16px -14px rgba(16, 27, 53, 0.28);
+}
+
+.hry-premium #leads-main-table thead th.hry-sticky-select,
+.hry-premium #leads-main-table thead th.hry-sticky-lead,
+.hry-premium #leads-main-table thead th.hry-sticky-actions {
+  z-index: 12;
+}
+
+.hry-premium #leads-main-table tbody td.hry-sticky-select,
+.hry-premium #leads-main-table tbody td.hry-sticky-lead,
+.hry-premium #leads-main-table tbody td.hry-sticky-actions {
+  background: inherit;
+}
+
+/* List pages inherit the Leads aurora + transparent header */
+.hry-premium .ph2-page-shell {
+  position: relative;
+  isolation: isolate;
+}
+
+.hry-premium .ph2-page-shell::before,
+.hry-premium .ph2-page-shell::after {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  border-radius: 999px;
+  filter: blur(48px);
+  opacity: 0.5;
+  z-index: 0;
+}
+
+.hry-premium .ph2-page-shell::before {
+  width: 22rem;
+  height: 22rem;
+  left: -6rem;
+  top: -4rem;
+  background: rgba(56, 103, 255, 0.26);
+}
+
+.hry-premium .ph2-page-shell::after {
+  width: 18rem;
+  height: 18rem;
+  right: -4rem;
+  top: 1rem;
+  background: rgba(120, 100, 255, 0.2);
+}
+
+.hry-premium .ph2-page-shell > * {
+  position: relative;
+  z-index: 1;
+}
+
+.hry-premium .ph2-page-shell main > header {
+  background: transparent !important;
+  border-bottom: 0 !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.hry-premium .ph2-page-shell main > header h1 {
+  font-weight: 600 !important;
+  color: #101b35 !important;
+  letter-spacing: -0.02em;
+}
+
+.hry-premium .ph2-page-shell main > header .rounded-xl {
+  border-radius: 1rem;
+}
+
+.hry-premium .ph2-page-shell main > header button,
+.hry-premium .ph2-page-shell main > header a {
+  border-radius: 9999px;
+}
+
+@media (max-width: 639px) {
+  .hry-premium .ph2-page-shell main > header button > span,
+  .hry-premium .ph2-page-shell main > header a > span {
+    display: none;
+  }
+}
+
+.hry-premium .ph2-page-shell main > header button.bg-white,
+.hry-premium .ph2-page-shell main > header a.bg-white {
+  background: rgba(255, 255, 255, 0.72) !important;
+  border-color: rgba(255, 255, 255, 0.7) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    0 8px 20px -14px rgba(16, 27, 53, 0.28);
+}
+
+.hry-premium .ph2-page-shell main > header button.from-blue-600,
+.hry-premium .ph2-page-shell main > header a.from-blue-600,
+.hry-premium .ph2-page-shell main > header button.from-violet-500,
+.hry-premium .ph2-page-shell main > header a.from-violet-500 {
+  background: linear-gradient(135deg, #3867ff 0%, #7864ff 100%) !important;
+  border-color: rgba(255, 255, 255, 0.18) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 12px 26px -12px rgba(56, 103, 255, 0.7);
+}
+
+.hry-premium .ph2-page-shell main > header [class*="bg-gradient-to-br"]:not(.from-amber-500) {
+  background-image: linear-gradient(135deg, #3867ff, #7864ff) !important;
+  box-shadow: 0 10px 24px -10px rgba(56, 103, 255, 0.7);
+}
+
+.hry-premium .hry-filter-bar input[type="text"],
+.hry-premium .hry-filter-bar input[type="search"] {
+  border-radius: 9999px;
+  border-color: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.hry-premium .hry-filter-bar input[type="text"]:focus,
+.hry-premium .hry-filter-bar input[type="search"]:focus {
+  border-color: rgba(56, 103, 255, 0.4);
+  box-shadow: 0 0 0 2px rgba(56, 103, 255, 0.2);
 }
 
 .hry-premium nav[aria-label="Pagination"] button[aria-current="page"] {
@@ -237,6 +397,8 @@
 @media (prefers-reduced-motion: reduce) {
   .hry-premium .hry-aurora::before,
   .hry-premium .hry-aurora::after,
+  .hry-premium .ph2-page-shell::before,
+  .hry-premium .ph2-page-shell::after,
   .hry-premium .ph2-skel-shimmer {
     animation: none !important;
     filter: none;

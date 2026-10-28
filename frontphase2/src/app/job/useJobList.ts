@@ -193,7 +193,6 @@ import {
   PH2_TABLE_CARD_CLASS,
   PH2_TABLE_CARD_FOOTER_CLASS,
   PH2_TOOLBAR_FILTERS_CLASS,
-  PH2_TOOLBAR_ROW_CLASS,
 } from '../../components/layout/Ph2ModulePageLayout';
 import { ShowSummaryCardsButton } from '../../components/layout/ShowSummaryCardsButton';
 import { SearchableToolbarFilterSelect } from '../../components/forms/SearchableToolbarFilterSelect';
@@ -1989,13 +1988,6 @@ export function useJobList() {
       pendingDeepLinkJobIdRef.current = null;
       return;
     }
-    // Only react when the URL parameter itself changes — without this guard,
-    // closing the drawer used to re-fire the effect (because drawer-open and
-    // selected-job both reset) and immediately reopen the same job.
-    if (pendingDeepLinkJobIdRef.current === jobId) {
-      return;
-    }
-    pendingDeepLinkJobIdRef.current = jobId;
 
     let cancelled = false;
     void (async () => {
@@ -2006,8 +1998,9 @@ export function useJobList() {
         if (!backendJob) return;
         const mappedJob = mapBackendJob(backendJob);
         await openJobDrawer(mappedJob);
+        if (!cancelled) pendingDeepLinkJobIdRef.current = jobId;
       } catch (error) {
-        console.error('Failed to open job from search:', error);
+        if (!cancelled) console.error('Failed to open job from search:', error);
       }
     })();
 

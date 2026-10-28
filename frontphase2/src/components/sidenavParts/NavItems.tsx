@@ -32,7 +32,7 @@ export const NavItem = ({ icon: Icon, label, href, active, collapsed, badge, onN
     <div
       data-sidenav-nav-item="true"
       data-active={isActive ? 'true' : 'false'}
-      className={`relative flex items-center ${nested ? 'h-10' : 'h-11'} rounded-xl ${nested ? (collapsed ? 'mx-2.5' : 'ml-6 mr-2.5') : 'mx-2.5'} my-0.5 ${collapsed ? 'px-2 justify-center' : 'pl-2.5 pr-2.5'} cursor-pointer transition-all duration-150 group
+      className={`relative flex items-center ${nested ? 'h-9' : 'h-10'} rounded-xl ${nested ? (collapsed ? 'mx-2' : 'ml-5 mr-2') : 'mx-2'} my-px ${collapsed ? 'px-2 justify-center' : 'pl-2 pr-2'} cursor-pointer transition-all duration-150 group
         ${isActive
           ? 'bg-white/[0.08] text-white border border-white/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]'
           : 'text-[#8899AA] border border-transparent hover:bg-white/[0.04] hover:text-white'
@@ -43,19 +43,19 @@ export const NavItem = ({ icon: Icon, label, href, active, collapsed, badge, onN
       )}
 
       <div
-        className={`flex items-center justify-center shrink-0 rounded-lg transition-all duration-150 ${collapsed ? 'h-8 w-8' : 'mr-2.5 h-8 w-8'} ${
+        className={`flex items-center justify-center shrink-0 rounded-lg transition-all duration-150 ${collapsed ? 'h-7 w-7' : 'mr-2 h-7 w-7'} ${
           isActive ? tone.activeWrap : `${tone.activeWrap} opacity-70`
         }`}
       >
         <Icon
-          size={17}
-          strokeWidth={isActive ? 2 : 1.6}
+          size={15}
+          strokeWidth={isActive ? 1.9 : 1.5}
           className={isActive ? tone.activeIcon : tone.idle}
         />
       </div>
 
       {!collapsed && (
-        <span className={`text-[13px] whitespace-nowrap overflow-hidden ${isActive ? 'font-semibold text-white' : 'font-medium'}`}>
+        <span className={`text-[12.5px] whitespace-nowrap overflow-hidden tracking-normal ${isActive ? 'font-medium text-white' : 'font-normal'}`}>
           {label}
         </span>
       )}
@@ -108,8 +108,8 @@ interface NavGroupFlyoutProps {
   expandInline?: boolean;
 }
 
-const FLYOUT_PANEL_WIDTH = 188;
-const FLYOUT_GAP = 12;
+const FLYOUT_PANEL_WIDTH = 168;
+const FLYOUT_GAP = 8;
 
 export const NavGroupFlyout = ({
   icon: Icon,
@@ -136,10 +136,14 @@ export const NavGroupFlyout = ({
     if (!trigger) return;
     const rect = trigger.getBoundingClientRect();
     const viewportH = window.innerHeight;
-    const estimatedHeight = Math.max(items.length * 48 + 16, 100);
+    const estimatedHeight = Math.max(items.length * 36 + 12, 80);
     const viewportW = window.innerWidth;
     const top = Math.max(8, Math.min(rect.top, viewportH - estimatedHeight - 8));
-    const left = Math.max(8, Math.min(rect.right + FLYOUT_GAP, viewportW - FLYOUT_PANEL_WIDTH - 8));
+    const sidenavRight = Number.parseFloat(
+      getComputedStyle(document.documentElement).getPropertyValue('--ph2-sidenav-w') || '',
+    );
+    const besideLeft = Number.isFinite(sidenavRight) && sidenavRight > 0 ? sidenavRight + FLYOUT_GAP : rect.right + FLYOUT_GAP;
+    const left = Math.max(8, Math.min(besideLeft, viewportW - FLYOUT_PANEL_WIDTH - 8));
     setPanelStyle({ top, left });
   }, [items.length]);
 
@@ -192,7 +196,7 @@ export const NavGroupFlyout = ({
               width: FLYOUT_PANEL_WIDTH,
               zIndex: 1000,
             }}
-            className="relative rounded-2xl border border-white/[0.08] bg-[#0d1a2d]/95 p-1.5 shadow-[0_8px_32px_rgba(0,0,0,0.45)] backdrop-blur-xl ring-1 ring-white/[0.04]"
+            className="relative rounded-xl border border-white/[0.08] bg-[#0d1a2d]/95 p-1 shadow-[0_8px_24px_rgba(0,0,0,0.4)] backdrop-blur-xl ring-1 ring-white/[0.04]"
             onMouseEnter={openFlyout}
             onMouseLeave={scheduleClose}
           >
@@ -201,6 +205,9 @@ export const NavGroupFlyout = ({
               className="pointer-events-none absolute -left-1.5 top-4 h-3 w-3 rotate-45 border-b border-l border-white/[0.08] bg-[#0d1a2d]/95"
               aria-hidden
             />
+            <p className="px-2 pb-1 pt-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-slate-500">
+              {label}
+            </p>
             <div className="flex flex-col gap-0.5">
                   {items.map((item) => {
                 const ItemIcon = item.icon;
@@ -228,25 +235,25 @@ export const NavGroupFlyout = ({
                       onNavigate?.();
                       setOpen(false);
                     }}
-                    className={`group/item relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] transition-all duration-150 ${
+                    className={`group/item relative flex items-center gap-2 rounded-lg px-2 py-1.5 text-[12.5px] transition-all duration-150 ${
                       isActive
                         ? 'bg-white/[0.1] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]'
                         : 'text-[#94a3b8] hover:bg-white/[0.06] hover:text-white'
                     }`}
                   >
                     {isActive && (
-                      <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]" />
+                      <span className="absolute left-0 top-1/2 h-4 w-0.5 -translate-y-1/2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]" />
                     )}
                     <span
-                      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-all duration-150 ${
+                      className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-all duration-150 ${
                         isActive
                           ? itemTone.activeWrap
                           : `${itemTone.activeWrap} opacity-70`
                       }`}
                     >
                       <ItemIcon
-                        size={16}
-                        strokeWidth={isActive ? 2 : 1.75}
+                        size={14}
+                        strokeWidth={isActive ? 1.85 : 1.5}
                         className={
                           isActive
                             ? itemTone.activeIcon
@@ -254,7 +261,7 @@ export const NavGroupFlyout = ({
                         }
                       />
                     </span>
-                    <span className={isActive ? 'font-semibold tracking-tight' : 'font-medium'}>
+                    <span className={isActive ? 'font-medium tracking-normal' : 'font-normal'}>
                       {item.label}
                     </span>
                   </Link>
@@ -287,8 +294,8 @@ export const NavGroupFlyout = ({
       >
         <div
           className={[
-            'relative mx-2.5 my-0.5 flex h-11 cursor-pointer items-center rounded-xl transition-all duration-150 group',
-            collapsed ? 'justify-center px-2' : 'pl-2.5 pr-2.5',
+            'relative mx-2 my-px flex h-10 cursor-pointer items-center rounded-xl transition-all duration-150 group',
+            collapsed ? 'justify-center px-2' : 'pl-2 pr-2',
             active
               ? 'border border-transparent bg-gradient-to-r from-[#3867FF] to-[#7864FF] text-white shadow-[0_10px_22px_-8px_rgba(56,103,255,0.85)]'
               : open
@@ -302,7 +309,7 @@ export const NavGroupFlyout = ({
           <div
             className={[
               'flex shrink-0 items-center justify-center rounded-lg transition-all duration-150',
-              collapsed ? 'h-8 w-8' : 'mr-2.5 h-8 w-8',
+              collapsed ? 'h-7 w-7' : 'mr-2 h-7 w-7',
               active ? 'bg-white/20' : open ? tone.activeWrap : `${tone.activeWrap} opacity-70`,
             ].join(' ')}
           >
@@ -323,7 +330,7 @@ export const NavGroupFlyout = ({
           </div>
 
           {!collapsed && (
-            <span className={`overflow-hidden whitespace-nowrap text-[13px] ${active || open ? 'font-semibold text-white' : 'font-medium'}`}>
+            <span className={`overflow-hidden whitespace-nowrap text-[12.5px] tracking-normal ${active || open ? 'font-medium text-white' : 'font-normal'}`}>
               {label}
             </span>
           )}
@@ -380,27 +387,27 @@ export const NavGroup = ({ icon: Icon, label, collapsed, accent = 'sky', forceOp
         className="block w-full text-left focus:outline-none"
       >
         <div
-          className={`relative flex items-center h-11 rounded-xl mx-2.5 my-0.5 ${collapsed ? 'px-2 justify-center' : 'pl-2.5 pr-2.5'} cursor-pointer transition-all duration-150 group
+          className={`relative flex items-center h-10 rounded-xl mx-2 my-px ${collapsed ? 'px-2 justify-center' : 'pl-2 pr-2'} cursor-pointer transition-all duration-150 group
             ${isOpen
               ? 'bg-white/[0.05] text-white border border-white/10'
               : 'text-[#8899AA] border border-transparent hover:bg-white/[0.04] hover:text-white'
             }`}
         >
           <div
-            className={`flex items-center justify-center shrink-0 rounded-lg transition-all duration-150 ${collapsed ? 'h-8 w-8' : 'mr-2.5 h-8 w-8'} ${
+            className={`flex items-center justify-center shrink-0 rounded-lg transition-all duration-150 ${collapsed ? 'h-7 w-7' : 'mr-2 h-7 w-7'} ${
               isOpen ? tone.activeWrap : `${tone.activeWrap} opacity-70`
             }`}
           >
             <Icon
-              size={17}
-              strokeWidth={isOpen ? 2 : 1.6}
+              size={15}
+              strokeWidth={isOpen ? 1.9 : 1.5}
               className={isOpen ? tone.activeIcon : tone.idle}
             />
           </div>
 
           {!collapsed && (
             <>
-              <span className={`text-[13px] whitespace-nowrap overflow-hidden ${isOpen ? 'font-semibold text-white' : 'font-medium'}`}>
+              <span className={`text-[12.5px] whitespace-nowrap overflow-hidden tracking-normal ${isOpen ? 'font-medium text-white' : 'font-normal'}`}>
                 {label}
               </span>
               <ChevronDown

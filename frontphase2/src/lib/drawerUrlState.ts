@@ -143,30 +143,31 @@ export function stripOauthCallbackQuery() {
   });
 }
 
-/** Write query params while a drawer is open; clear those keys on close/unmount. */
+/** Write query params while a drawer is open; clear those keys when it closes. */
 export function useBindDrawerQuery(active: boolean, updates: Record<string, string | null | undefined>) {
   const payload = JSON.stringify(updates);
   const updatesRef = useRef(updates);
   updatesRef.current = updates;
+  const wasActiveRef = useRef(false);
 
   useEffect(() => {
-    if (!active) return;
-    patchDrawerQuery(JSON.parse(payload) as Record<string, string | null | undefined>);
-  }, [active, payload]);
-
-  useEffect(() => {
-    if (!active) return undefined;
-    return () => {
-      // Refresh / tab close would otherwise strip the URL before reload.
-      if (pageIsUnloading) return;
-      const parsed = updatesRef.current;
-      const clear: Record<string, null> = {};
-      for (const [key, value] of Object.entries(parsed)) {
-        if (value != null && value !== '') {
-          clear[key] = null;
-        }
+    if (active) {
+      patchDrawerQuery(JSON.parse(payload) as Record<string, string | null | undefined>);
+      wasActiveRef.current = true;
+      return;
+    }
+    // Only strip on an in-place close. Unmount/refresh/Strict Mode must keep
+    // jobId + tab in the URL so the drawer can restore.
+    if (!wasActiveRef.current) return;
+    wasActiveRef.current = false;
+    if (pageIsUnloading) return;
+    const parsed = updatesRef.current;
+    const clear: Record<string, null> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (value != null && value !== '') {
+        clear[key] = null;
       }
-      patchDrawerQuery(clear);
-    };
-  }, [active]);
+    }
+    patchDrawerQuery(clear);
+  }, [active, payload]);
 }

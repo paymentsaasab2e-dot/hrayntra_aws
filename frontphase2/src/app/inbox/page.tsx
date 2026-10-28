@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Archive,
   Bell,
+  Briefcase,
   CalendarDays,
   ChevronDown,
   ChevronLeft,
@@ -51,10 +52,12 @@ import {
   apiUpdateGmailMessageFlags,
   apiUpdateOutlookMessageFlags,
   type GmailInboxMessage,
+  type InboxCandidateImportResult,
   type InboxMailAttachment,
 } from '../../lib/api';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
 import { InboxComposePanel, type InboxComposeValues } from '../../components/inbox/InboxComposePanel';
+import { InboxAssignJobsModal } from '../../components/inbox/InboxAssignJobsModal';
 import {
   clearInboxComposeDraftStorage,
   readInboxComposeDraft,
@@ -125,6 +128,7 @@ const INBOX_IMPORT_STEPS = [
   'Parsing with the CV engine…',
   'Creating the candidate profile…',
 ];
+const INBOX_ASSIGN_STEPS = [...INBOX_IMPORT_STEPS, 'Applying the candidate to selected jobs…'];
 
 function getInboxImportBusyId(actionBusy?: string | null) {
   const raw = String(actionBusy || '');
@@ -755,8 +759,10 @@ function MailDetail({
   onReplyAll,
   onDownload,
   onImportCandidate,
+  onAssignJobs,
   actionHref,
   mailProvider,
+  assigningJobs = false,
 }: {
   email: GmailInboxMessage | null;
   connectedEmail?: string;
@@ -764,6 +770,7 @@ function MailDetail({
   actionMessage?: string;
   actionHref?: string;
   mailProvider?: MailProvider;
+  assigningJobs?: boolean;
   onBack: () => void;
   onCreateCalendar: (email: GmailInboxMessage) => void;
   onTrash: (email: GmailInboxMessage) => void;
@@ -774,6 +781,7 @@ function MailDetail({
   onReplyAll: (email: GmailInboxMessage) => void;
   onDownload: (email: GmailInboxMessage) => void;
   onImportCandidate: (email: GmailInboxMessage, attachment: InboxMailAttachment) => void;
+  onAssignJobs: (email: GmailInboxMessage, attachment: InboxMailAttachment) => void;
 }) {
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [importStep, setImportStep] = useState(0);
@@ -787,6 +795,8 @@ function MailDetail({
     setShowMoreMenu(false);
   }, [email?.id]);
 
+  const importSteps = assigningJobs ? INBOX_ASSIGN_STEPS : INBOX_IMPORT_STEPS;
+
   useEffect(() => {
     if (!isImporting) {
       setImportStep(0);
@@ -794,10 +804,10 @@ function MailDetail({
     }
     setImportStep(0);
     const timer = window.setInterval(() => {
-      setImportStep((prev) => Math.min(prev + 1, INBOX_IMPORT_STEPS.length - 1));
+      setImportStep((prev) => Math.min(prev + 1, importSteps.length - 1));
     }, 5500);
     return () => window.clearInterval(timer);
-  }, [isImporting, importBusyId]);
+  }, [isImporting, importBusyId, importSteps.length]);
 
   if (!email) {
     return (
@@ -820,7 +830,7 @@ function MailDetail({
 
   const mailboxLabel = mailProvider === 'outlook' ? 'Outlook' : 'Gmail';
   const importFileName = importingAttachment?.filename || 'resume';
-  const importStatusText = INBOX_IMPORT_STEPS[importStep] || INBOX_IMPORT_STEPS[0];
+  const importStatusText = importSteps[importStep] || importSteps[0];
 
   return (
     <div className="relative flex h-full flex-col">
@@ -836,7 +846,7 @@ function MailDetail({
               Parsing can take 20–30 seconds. Keep this tab open.
             </p>
             <div className="mt-5 flex justify-center gap-1.5">
-              {INBOX_IMPORT_STEPS.map((step, index) => (
+              {importSteps.map((step, index) => (
                 <span
                   key={step}
                   className={`h-1.5 w-8 rounded-full ${
@@ -1031,23 +1041,44 @@ function MailDetail({
                         </p>
                       </div>
                       {attachment.isResume ? (
-                        <button
-                          type="button"
-                          disabled={Boolean(actionBusy)}
-                          onClick={() => onImportCandidate(email, attachment)}
-                          className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium disabled:cursor-not-allowed ${
-                            importing
-                              ? 'bg-[#1a73e8] text-white'
-                              : 'border border-[#dadce0] text-[#202124] hover:bg-[#f1f3f4] disabled:opacity-50'
-                          }`}
-                        >
-                          {importing ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <UserPlus className="h-3.5 w-3.5" />
-                          )}
-                          {importing ? 'Creating candidate…' : 'Download & create candidate'}
-                        </button>
+                        <div className="flex flex-wrap items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            disabled={Boolean(actionBusy)}
+                            onClick={() => onImportCandidate(email, attachment)}
+                            className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium disabled:cursor-not-allowed ${
+                              importing && !assigningJobs
+                                ? 'bg-[#1a73e8] text-white'
+                                : 'border border-[#dadce0] text-[#202124] hover:bg-[#f1f3f4] disabled:opacity-50'
+                            }`}
+                          >
+                            {importing && !assigningJobs ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <UserPlus className="h-3.5 w-3.5" />
+                            )}
+                            {importing && !assigningJobs
+                              ? 'Creating candidate…'
+                              : 'Download & create candidate'}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={Boolean(actionBusy)}
+                            onClick={() => onAssignJobs(email, attachment)}
+                            className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium disabled:cursor-not-allowed ${
+                              importing && assigningJobs
+                                ? 'bg-[#1a73e8] text-white'
+                                : 'border border-[#dadce0] text-[#202124] hover:bg-[#f1f3f4] disabled:opacity-50'
+                            }`}
+                          >
+                            {importing && assigningJobs ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Briefcase className="h-3.5 w-3.5" />
+                            )}
+                            {importing && assigningJobs ? 'Assigning jobs…' : 'Assign the job'}
+                          </button>
+                        </div>
                       ) : (
                         <span className="text-xs text-[#5f6368]">Not a resume file</span>
                       )}
@@ -1115,6 +1146,11 @@ export default function InboxPage() {
   const [detailActionBusy, setDetailActionBusy] = useState<string | null>(null);
   const [detailActionMessage, setDetailActionMessage] = useState('');
   const [detailActionHref, setDetailActionHref] = useState('');
+  const [assignTarget, setAssignTarget] = useState<{
+    email: GmailInboxMessage;
+    attachment: InboxMailAttachment;
+  } | null>(null);
+  const [assigningJobs, setAssigningJobs] = useState(false);
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined);
   const [activeFolder, setActiveFolder] = useState<GmailFolder>('INBOX');
   const [activeTab, setActiveTab] = useState<MailTab>('Primary');
@@ -1620,29 +1656,89 @@ export default function InboxPage() {
     }
   };
 
+  const applyInboxImportResult = (
+    result: InboxCandidateImportResult | undefined,
+    attachment: InboxMailAttachment,
+  ) => {
+    const name =
+      [result?.candidate?.firstName, result?.candidate?.lastName].filter(Boolean).join(' ').trim() ||
+      'Candidate';
+    const profileHref = result?.candidate?.id
+      ? `/candidate?candidateId=${encodeURIComponent(result.candidate.id)}`
+      : '';
+    const assignedCount = result?.jobs?.assigned?.length || 0;
+    const skippedCount = result?.jobs?.skipped?.length || 0;
+    const jobTitles = (result?.jobs?.assigned || [])
+      .map((job) => job.title)
+      .filter(Boolean)
+      .slice(0, 3)
+      .join(', ');
+    const appliedSuffix =
+      assignedCount > 0
+        ? ` Applied to ${assignedCount} job${assignedCount === 1 ? '' : 's'}${
+            jobTitles ? ` (${jobTitles}${assignedCount > 3 ? '…' : ''})` : ''
+          }.`
+        : '';
+    const skippedSuffix =
+      skippedCount > 0 ? ` ${skippedCount} job${skippedCount === 1 ? '' : 's'} could not be assigned.` : '';
+    setDetailActionHref(profileHref);
+    if (result?.isDuplicate) {
+      setDetailActionMessage(
+        `${name} already exists.${profileHref ? ' Resume saved to their profile.' : ''}${appliedSuffix}${skippedSuffix}`,
+      );
+    } else {
+      setDetailActionMessage(
+        `${name} created from ${attachment.filename}.${appliedSuffix}${skippedSuffix}`,
+      );
+    }
+  };
+
+  const importInboxAttachment = async (
+    email: GmailInboxMessage,
+    attachment: InboxMailAttachment,
+    jobIds?: string[],
+  ) => {
+    const result =
+      mailProvider === 'outlook'
+        ? await apiImportOutlookAttachmentCandidate(
+            email.id,
+            attachment.id,
+            attachment.filename,
+            jobIds,
+          )
+        : await apiImportGmailAttachmentCandidate(
+            email.id,
+            attachment.id,
+            attachment.filename,
+            jobIds,
+          );
+    applyInboxImportResult(result, attachment);
+  };
+
   const handleImportCandidate = (email: GmailInboxMessage, attachment: InboxMailAttachment) =>
     void runDetailAction(`import:${attachment.id}`, async () => {
-      const result =
-        mailProvider === 'outlook'
-          ? await apiImportOutlookAttachmentCandidate(email.id, attachment.id, attachment.filename)
-          : await apiImportGmailAttachmentCandidate(email.id, attachment.id, attachment.filename);
-      const name =
-        [result?.candidate?.firstName, result?.candidate?.lastName].filter(Boolean).join(' ').trim() ||
-        'Candidate';
-      const profileHref = result?.candidate?.id
-        ? `/candidate?candidateId=${encodeURIComponent(result.candidate.id)}`
-        : '';
-      setDetailActionHref(profileHref);
-      if (result?.isDuplicate) {
-        setDetailActionMessage(
-          profileHref
-            ? `${name} already exists. Resume saved to their profile.`
-            : `${name} already exists.`
-        );
-      } else {
-        setDetailActionMessage(`${name} created from ${attachment.filename}.`);
+      setAssigningJobs(false);
+      await importInboxAttachment(email, attachment);
+    });
+
+  const handleOpenAssignJobs = (email: GmailInboxMessage, attachment: InboxMailAttachment) => {
+    if (detailActionBusy) return;
+    setAssignTarget({ email, attachment });
+  };
+
+  const handleConfirmAssignJobs = (jobIds: string[]) => {
+    if (!assignTarget || jobIds.length === 0) return;
+    const { email, attachment } = assignTarget;
+    setAssignTarget(null);
+    setAssigningJobs(true);
+    void runDetailAction(`import:${attachment.id}`, async () => {
+      try {
+        await importInboxAttachment(email, attachment, jobIds);
+      } finally {
+        setAssigningJobs(false);
       }
     });
+  };
 
   const handleArchive = (email: GmailInboxMessage) =>
     void runDetailAction('archive', async () => {
@@ -1761,6 +1857,8 @@ export default function InboxPage() {
                   onReplyAll={handleReplyAll}
                   onDownload={handleDownload}
                   onImportCandidate={handleImportCandidate}
+                  onAssignJobs={handleOpenAssignJobs}
+                  assigningJobs={assigningJobs}
                 />
               </div>
             ) : (
@@ -1828,6 +1926,13 @@ export default function InboxPage() {
           onClose={() => setComposeOpen(false)}
         />
       ) : null}
+
+      <InboxAssignJobsModal
+        open={Boolean(assignTarget)}
+        filename={assignTarget?.attachment.filename}
+        onClose={() => setAssignTarget(null)}
+        onConfirm={handleConfirmAssignJobs}
+      />
     </div>
   );
 }

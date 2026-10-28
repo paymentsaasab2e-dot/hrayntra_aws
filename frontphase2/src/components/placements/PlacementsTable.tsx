@@ -31,6 +31,11 @@ import { TableSkeleton } from '../ui/Skeleton';
 import { TableAuditColumnHeader, TableAuditCell } from '../table/TableAuditCell';
 import type { AiWorkspaceBriefAlert } from '@/lib/apiAiWorkspaceBrief';
 import { WorkspaceAlertTableCell, WorkspaceAlertTableHeader } from '../ai/WorkspaceAlertTableCell';
+import {
+  PH2_DENSE_ROW_FIT,
+  PH2_FIT_ROW_TABLE_CLASS,
+  useFitVisibleTableRows,
+} from '../layout/ph2FitVisibleTableRows';
 
 interface PlacementsTableProps {
   data: Placement[];
@@ -313,6 +318,8 @@ export function PlacementsTable({
   isColumnVisible = () => true,
 }: PlacementsTableProps) {
   const show = isColumnVisible;
+  const tableRef = useRef<HTMLTableElement>(null);
+  useFitVisibleTableRows(tableRef, true, data.length, PH2_DENSE_ROW_FIT);
   const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
   const showAiAlertColumn = Boolean(
     workspaceAlertsByEntityId &&
@@ -390,7 +397,7 @@ export function PlacementsTable({
   return (
     <div className={outerWrap}>
       <div className={embedded ? 'contents' : 'overflow-x-auto overflow-y-auto'}>
-        <table className="w-max min-w-full border-collapse text-left">
+        <table ref={tableRef} className={`w-max min-w-full border-collapse text-left ${PH2_FIT_ROW_TABLE_CLASS}`}>
           <thead className={embedded ? 'sticky top-0 z-10' : undefined}>
             <tr className={theadRow}>
               <th className={thPad}>Candidate</th>

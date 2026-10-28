@@ -372,7 +372,7 @@ function getStageColor(stageName) {
     'HR Interview': '#10b981',
     'Offer': '#10b981',
     'Hired': '#059669',
-    'Joined': '#059669',
+    'Joined': '#0ea5e9',
   };
   return colorMap[stageName] || '#6b7280';
 }

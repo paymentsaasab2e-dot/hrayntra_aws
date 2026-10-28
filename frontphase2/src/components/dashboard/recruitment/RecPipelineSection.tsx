@@ -193,7 +193,7 @@ export function RecPipelineSection({ overview }: { overview: RecruitmentOverview
   const placementFallback = [
     { name: 'Offer sent', value: recKpi(overview, 'offersSent'), color: REC_ORANGE },
     { name: 'Accepted', value: recKpi(overview, 'offersAccepted'), color: '#1E3A8A' },
-    { name: 'Joined', value: recKpi(overview, 'joinedPlacements'), color: '#0F766E' },
+    { name: 'Joined', value: recKpi(overview, 'joinedPlacements'), color: '#0ea5e9' },
     { name: 'Pending', value: recKpi(overview, 'pendingPlacements'), color: '#64748B' },
   ];
   const placementSlices = (placementStatus.length ? placementStatus : placementFallback).map((d, i) => ({
@@ -319,14 +319,14 @@ export function RecPipelineSection({ overview }: { overview: RecruitmentOverview
     { name: 'Applied', value: candAppliedCount, color: '#0F172A' },
     { name: 'Interview', value: candInterviewCount, color: '#334155' },
     { name: 'Offer', value: candOfferCount, color: '#EA580C' },
-    { name: 'Joined', value: candJoinedCount, color: '#0F766E' },
+    { name: 'Joined', value: candJoinedCount, color: '#0ea5e9' },
   ];
   const candidateFunnelStages = [
     { name: 'Active', value: candActiveCount, color: '#1E3A8A' },
     { name: 'Applied', value: candAppliedCount, color: '#0F172A' },
     { name: 'Interview', value: candInterviewCount, color: '#334155' },
     { name: 'Offer', value: candOfferCount, color: '#EA580C' },
-    { name: 'Joined', value: candJoinedCount, color: '#0F766E' },
+    { name: 'Joined', value: candJoinedCount, color: '#0ea5e9' },
   ];
   const channelVsIv = ['Job portal', 'Hryantra', 'Referral', 'Manual upload', 'Other']
     .map((name) => {

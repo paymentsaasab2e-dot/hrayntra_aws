@@ -916,13 +916,18 @@ export const apiGetGmailMessage = async (messageId: string) => {
 export const apiImportGmailAttachmentCandidate = async (
   messageId: string,
   attachmentId: string,
-  filename?: string
+  filename?: string,
+  jobIds?: string[]
 ) => {
   const res = await apiFetch<InboxCandidateImportResult>(
     `/inbox/gmail/messages/${encodeURIComponent(messageId)}/import-candidate`,
     {
       method: 'POST',
-      body: { attachmentId, filename: filename || undefined },
+      body: {
+        attachmentId,
+        filename: filename || undefined,
+        jobIds: jobIds?.length ? jobIds : undefined,
+      },
       auth: true,
     }
   );
@@ -1006,13 +1011,18 @@ export const apiGetOutlookMessage = async (messageId: string) => {
 export const apiImportOutlookAttachmentCandidate = async (
   messageId: string,
   attachmentId: string,
-  filename?: string
+  filename?: string,
+  jobIds?: string[]
 ) => {
   const res = await apiFetch<InboxCandidateImportResult>(
     `/inbox/outlook/messages/${encodeURIComponent(messageId)}/import-candidate`,
     {
       method: 'POST',
-      body: { attachmentId, filename: filename || undefined },
+      body: {
+        attachmentId,
+        filename: filename || undefined,
+        jobIds: jobIds?.length ? jobIds : undefined,
+      },
       auth: true,
     }
   );

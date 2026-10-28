@@ -84,7 +84,14 @@ import { useCanHandoffClient } from '../../hooks/useCanHandoffClient';
 import { useClientHandoffStatuses } from '../../hooks/useClientHandoffStatuses';
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
 import { SummaryCard, SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
-import { PH2_KPI_ROW_CLASS } from '../../components/layout/Ph2ModulePageLayout';
+import {
+  PH2_CLEAR_FILTER_CLASS,
+  PH2_KPI_ROW_CLASS,
+  PH2_TABLE_CARD_CLASS,
+  PH2_TABLE_CARD_FOOTER_CLASS,
+  PH2_TOOLBAR_SELECT_CLASS,
+  Ph2FloatingFilterStack,
+} from '../../components/layout/Ph2ModulePageLayout';
 import { Ph2TableRefreshingOverlay } from '../../components/layout/ph2FitVisibleTableRows';
 import { ShowSummaryCardsButton } from '../../components/layout/ShowSummaryCardsButton';
 import { TableSkeleton } from '../../components/ui/Skeleton';
@@ -109,8 +116,7 @@ const CreateJobDrawer = nextDynamic(
   { ssr: false, loading: () => null }
 );
 
-const CLIENT_TOOLBAR_SELECT =
-  'rounded-lg border border-indigo-100/90 bg-white/95 px-2.5 py-1.5 text-xs font-medium text-slate-800 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-300 cursor-pointer hover:border-indigo-200/90 hover:bg-indigo-50/40';
+const CLIENT_TOOLBAR_SELECT = PH2_TOOLBAR_SELECT_CLASS;
 const CLIENTS_DYNAMIC_COLUMNS_STORAGE_KEY = 'clients.dynamicColumns';
 
 function getClientDynamicFieldValue(client: Client, label: string): string {
@@ -1234,10 +1240,10 @@ export default function App() {
       <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <header className="flex min-h-0 shrink-0 flex-nowrap items-center justify-between gap-2 overflow-x-auto border-b border-indigo-100/50 bg-white/80 px-3 py-2 shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)] backdrop-blur-md sm:px-5">
           <div className="flex items-center gap-2.5 sm:gap-3">
-            <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-white shadow-lg ring-1 ring-white/20 ${
+            <div className={`hry-title-icon flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-white ring-1 ring-white/30 ${
               isRecruitmentScope
-                ? 'bg-gradient-to-br from-amber-500 via-orange-500 to-amber-600 shadow-amber-500/30'
-                : 'bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-600 shadow-indigo-500/30'
+                ? 'bg-gradient-to-br from-amber-500 via-orange-500 to-amber-600'
+                : ''
             }`}>
               {isRecruitmentScope ? (
                 <Briefcase className="h-5 w-5" strokeWidth={2.2} />
@@ -1291,7 +1297,7 @@ export default function App() {
               title="Choose columns and export visible clients to CSV"
             >
               <Download size={16} className="text-indigo-600" strokeWidth={2.25} />
-              <span>Export</span>
+              <span className="hidden sm:inline">Export</span>
             </button>
             {canCreateClient ? (
             <button
@@ -1300,7 +1306,7 @@ export default function App() {
               className="bg-white hover:bg-indigo-50/90 text-indigo-900 px-3 py-2 rounded-lg font-semibold text-xs flex items-center gap-1.5 transition-all shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] border border-indigo-200/70 hover:border-indigo-300 hover:shadow-[0_6px_20px_-4px_rgba(99,102,241,0.35)] active:scale-[0.98]"
             >
               <Upload size={16} className="text-indigo-600" strokeWidth={2.25} />
-              <span>Import</span>
+              <span className="hidden sm:inline">Import</span>
             </button>
             ) : null}
             {canCreateClient ? (
@@ -1340,7 +1346,7 @@ export default function App() {
                 ) : (
                   <Sparkles size={14} className="text-violet-600" strokeWidth={2.25} />
                 )}
-                <span>Create with AI</span>
+                <span className="hidden sm:inline">Create with AI</span>
                 <AiCoinLockBadge featureId="ai.client_chat" />
               </button>
               <button
@@ -1364,7 +1370,7 @@ export default function App() {
                   className={createClientMode === 'manual' ? 'text-white' : 'text-indigo-500'}
                   strokeWidth={2.5}
                 />
-                <span>Create Manually</span>
+                <span className="hidden sm:inline">Create Manually</span>
               </button>
             </div>
             ) : null}
@@ -1391,14 +1397,21 @@ export default function App() {
           ) : null}
 
           {loading && clients.length === 0 ? (
-            <div className="mb-0 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-indigo-100/60 bg-white/70 shadow-[0_12px_40px_-18px_rgba(59,130,246,0.18)] backdrop-blur-sm">
-              <div className="shrink-0 border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20 p-3 sm:p-4">
-                <div className="h-9 max-w-md rounded-xl bg-white/80 ring-1 ring-indigo-100/80 animate-pulse" />
+            <Ph2FloatingFilterStack
+              filter={
+                <>
+                  <div className="h-9 w-52 animate-pulse rounded-full bg-white/80" />
+                  <div className="h-9 w-28 animate-pulse rounded-full bg-white/70" />
+                  <div className="h-9 w-32 animate-pulse rounded-full bg-white/70" />
+                </>
+              }
+            >
+              <div className={PH2_TABLE_CARD_CLASS}>
+                <div className="ph2-table-body-scroll min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-auto">
+                  <TableSkeleton rows={8} columns={8} />
+                </div>
               </div>
-              <div className="ph2-table-body-scroll min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-auto">
-                <TableSkeleton rows={8} columns={8} />
-              </div>
-            </div>
+            </Ph2FloatingFilterStack>
           ) : error && !loading && clients.length === 0 ? (
             <div className="mb-0 flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-xl border border-rose-200/70 bg-white p-8 text-center text-xs font-medium text-rose-600 shadow-sm">
               Error: {error}
@@ -1421,8 +1434,9 @@ export default function App() {
               />
             </div>
           ) : (
-            <div className="mb-0 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-indigo-100/60 bg-white/70 shadow-[0_12px_40px_-18px_rgba(59,130,246,0.18)] backdrop-blur-sm transition-shadow hover:shadow-[0_16px_48px_-14px_rgba(79,70,229,0.16)]">
-              <div className="no-scrollbar shrink-0 min-w-0 p-3 sm:p-4 flex flex-row flex-nowrap items-center gap-2 overflow-x-auto overflow-y-hidden border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20">
+            <Ph2FloatingFilterStack
+              filter={
+                <>
                 <div className="relative w-44 shrink-0 sm:w-52">
                   <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-indigo-400" size={16} strokeWidth={2.25} />
                   <input
@@ -1437,10 +1451,9 @@ export default function App() {
                       setCurrentPage(1);
                       setSearchQuery(e.target.value);
                     }}
-                    className="w-full h-9 pl-10 pr-3 bg-white/95 border border-indigo-100/90 rounded-xl text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-300 transition-all [box-shadow:inset_0_1px_2px_rgba(15,23,42,0.04)]"
+                    className="h-9 w-full rounded-full border border-white/70 bg-white/85 pl-10 pr-3 text-xs text-slate-800 placeholder:text-slate-400 transition-all duration-200 focus:border-[#3867FF]/40 focus:outline-none focus:ring-2 focus:ring-[#3867FF]/20"
                   />
                 </div>
-                <div className="flex flex-nowrap items-center gap-1.5 sm:gap-2">
                   <SmartSearchToggleButton
                     open={clientSmartSearch.open}
                     onToggle={() => clientSmartSearch.setOpen((value) => !value)}
@@ -1511,17 +1524,18 @@ export default function App() {
                   />
                   <button
                     type="button"
-                    className="text-xs text-rose-600 hover:text-rose-700 font-semibold px-2 py-1.5 rounded-lg hover:bg-rose-50 flex items-center gap-1 transition-colors"
+                    className={PH2_CLEAR_FILTER_CLASS}
                     onClick={handleClearToolbar}
                   >
                     <XCircle size={15} className="text-rose-500 shrink-0" strokeWidth={2.35} />
                     Clear
                   </button>
-                </div>
-              </div>
-
+                </>
+              }
+              extras={
+                <>
               {clientSmartSearch.open ? (
-                <div className="shrink-0">
+                <div className="hry-glass mb-3 shrink-0 overflow-hidden rounded-2xl">
                   <SmartSearchPromptPanel
                     prompt={clientSmartSearch.prompt}
                     onPromptChange={clientSmartSearch.setPrompt}
@@ -1535,15 +1549,16 @@ export default function App() {
                 </div>
               ) : null}
 
-              <div className="shrink-0">
                 <SmartSearchActiveKeywordsBar
                   chips={clientSmartSearch.activeChips}
                   onClearAll={handleClearToolbar}
                   resultCount={pagedClients.length}
                   showResultCount={!loading && !error}
                 />
-              </div>
-
+                </>
+              }
+            >
+            <div className={PH2_TABLE_CARD_CLASS}>
               <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
                 <Ph2TableRefreshingOverlay
                   show={Boolean(loading || clientSmartSearch.applying)}
@@ -1589,7 +1604,6 @@ export default function App() {
                     canUpdateClientStatus={canUpdateClient && clientFieldVisibility.status}
                     showStatusColumn={clientFieldVisibility.status}
                     showRecruiterColumn={clientFieldVisibility.assignedTo}
-                    showInRecruitmentBadge={!isRecruitmentScope}
                     onClientStatusChange={(clientId, newStatus) => {
                       void handleInlineClientStatusChange(clientId, newStatus);
                     }}
@@ -1618,7 +1632,7 @@ export default function App() {
               </div>
               </div>
 
-              <div className="mt-0 w-full shrink-0 border-t border-indigo-100/50 bg-gradient-to-r from-slate-50/40 via-white to-indigo-50/25 px-3 py-2 sm:px-4">
+              <div className={PH2_TABLE_CARD_FOOTER_CLASS}>
                 <PaginationAll
                   initialPage={currentPage}
                   totalPages={Math.max(1, Math.ceil(totalEntries / pageSize))}
@@ -1635,6 +1649,7 @@ export default function App() {
                 />
               </div>
             </div>
+            </Ph2FloatingFilterStack>
           )}
         </div>
 

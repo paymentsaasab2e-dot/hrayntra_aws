@@ -36,6 +36,7 @@ import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
 import {
   Ph2ModulePageLayout,
   PH2_TABLE_CARD_CLASS,
+  Ph2FloatingFilterStack,
 } from '../../components/layout/Ph2ModulePageLayout';
 import { ShowSummaryCardsButton } from '../../components/layout/ShowSummaryCardsButton';
 import { coerceTablePageSize } from '../../constants/tablePagination';
@@ -511,27 +512,30 @@ function ContactsPageContent() {
           </div>
         ) : null}
 
-        <div className={`${PH2_TABLE_CARD_CLASS} flex min-h-0 flex-1 flex-col`}>
-          <div className="shrink-0 border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20 p-3 sm:p-4">
-            <div className="mb-3 flex justify-end">
-              <TableColumnsMenu
-                columns={CONTACT_TABLE_COLUMNS}
-                isVisible={contactColumnVisibility.isVisible}
-                onToggle={contactColumnVisibility.toggle}
-                onReset={contactColumnVisibility.resetToDefault}
-                unlockedVisibleCount={contactColumnVisibility.unlockedVisibleCount}
+        <Ph2FloatingFilterStack
+          filter={
+            <div className="flex min-w-0 flex-1 flex-col gap-2">
+              <div className="flex justify-end">
+                <TableColumnsMenu
+                  columns={CONTACT_TABLE_COLUMNS}
+                  isVisible={contactColumnVisibility.isVisible}
+                  onToggle={contactColumnVisibility.toggle}
+                  onReset={contactColumnVisibility.resetToDefault}
+                  unlockedVisibleCount={contactColumnVisibility.unlockedVisibleCount}
+                />
+              </div>
+              <ContactsFilterBar
+                embedded
+                filters={filters}
+                totalCount={pagination.total}
+                onFilterChange={updateFilters}
+                onClearFilters={() => router.push('/contacts')}
               />
             </div>
-            <ContactsFilterBar
-              embedded
-              filters={filters}
-              totalCount={pagination.total}
-              onFilterChange={updateFilters}
-              onClearFilters={() => router.push('/contacts')}
-            />
-          </div>
-
-          <ContactsTable
+          }
+        >
+        <div className={`${PH2_TABLE_CARD_CLASS} flex min-h-0 flex-1 flex-col`}>
+          <ContactsTable>
             contacts={contacts}
             loading={loading}
             selectedIds={selectedContactIds}
@@ -545,6 +549,7 @@ function ContactsPageContent() {
             isColumnVisible={contactColumnVisibility.isVisible}
           />
         </div>
+        </Ph2FloatingFilterStack>
       </Ph2ModulePageLayout>
 
       {selectedContactIds.size > 0 ? (

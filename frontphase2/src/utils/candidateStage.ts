@@ -70,7 +70,7 @@ const STAGE_BADGE_CLASSES: Record<string, string> = {
   replacement_required: 'bg-violet-500 text-white border-violet-500',
   no_show: 'bg-red-500 text-white border-red-500',
   hired: 'bg-emerald-600 text-white border-emerald-600',
-  joined: 'bg-teal-700 text-white border-teal-700',
+  joined: 'bg-sky-500 text-white border-sky-500',
   rejected: 'bg-red-500 text-white border-red-500',
   withdrawn: 'bg-rose-500 text-white border-rose-500',
   on_hold: 'bg-slate-500 text-white border-slate-500',

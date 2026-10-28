@@ -125,9 +125,19 @@ export function HqTableShell({
   toolbar?: React.ReactNode;
   className?: string;
 }) {
+  if (toolbar) {
+    return (
+      <div className="mb-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <div className={HQ_TOOLBAR_ROW_CLASS}>{toolbar}</div>
+        <section className={`${HQ_TABLE_CARD_CLASS} ${className}`.trim()}>
+          <div className={HQ_TABLE_BODY_SCROLL_CLASS}>{children}</div>
+        </section>
+      </div>
+    );
+  }
+
   return (
     <section className={`${HQ_TABLE_CARD_CLASS} ${className}`.trim()}>
-      {toolbar ? <div className={HQ_TOOLBAR_ROW_CLASS}>{toolbar}</div> : null}
       <div className={HQ_TABLE_BODY_SCROLL_CLASS}>{children}</div>
     </section>
   );

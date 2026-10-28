@@ -23,6 +23,7 @@ import {
   Sparkles,
   Lock,
   ChevronDown,
+  Loader2,
 } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { AiCoinLockBadge, useAiCoinGate } from '../../components/coins/AiCoinGate';
@@ -181,9 +182,13 @@ import {
   PH2_TABLE_CARD_CLASS,
   PH2_TABLE_CARD_FOOTER_CLASS,
   PH2_TOOLBAR_FILTERS_CLASS,
-  PH2_TOOLBAR_ROW_CLASS,
+  PH2_HEADER_PILL,
+  PH2_HEADER_PILL_ICON,
+  PH2_CLEAR_FILTER_CLASS,
+  Ph2FloatingFilterStack,
 } from '../../components/layout/Ph2ModulePageLayout';
 import {
+  PH2_DENSE_ROW_FIT,
   PH2_FIT_ROW_TABLE_CLASS,
   Ph2TableRefreshingOverlay,
   useFitVisibleTableRows,
@@ -193,9 +198,30 @@ import { SearchableToolbarFilterSelect } from '../../components/forms/Searchable
 import { dedupeByCompanyName } from '../../lib/companyNameKey';
 import { useJobList, Job, toJobForDrawer, JobStatusPillProps, PipelineSnapshotProps, normalizePipelineStageKey, filterPipelineStagesForColumns, LEGACY_PIPELINE_BUCKETS, SYSTEM_ROLE_TO_LEGACY_KEY, SYSTEM_ROLE_NAME_FALLBACK, abbreviateStage, JobsListViewProps, STATS_CONFIG } from '././useJobList';
 
+function JobDrawerLoadingShell() {
+  if (typeof document === 'undefined') return null;
+  return createPortal(
+    <div
+      className="fixed z-[80] flex items-center justify-center border-l border-indigo-100/70 bg-white"
+      style={{
+        top: 'calc(var(--ph2-header-h, 3.5rem) + var(--ph2-impersonation-banner-h, 0px))',
+        left: 'var(--ph2-sidenav-w, 220px)',
+        right: 0,
+        bottom: 0,
+      }}
+    >
+      <div className="flex items-center gap-2 text-sm font-medium text-slate-600">
+        <Loader2 className="h-5 w-5 animate-spin text-indigo-600" />
+        Opening job…
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 const JobDetailsDrawer = nextDynamic(
   () => import('../../components/drawers/JobDetailsDrawer').then((mod) => ({ default: mod.JobDetailsDrawer })),
-  { ssr: false, loading: () => null }
+  { ssr: false, loading: () => <JobDrawerLoadingShell /> }
 );
 
 const CreateJobDrawer = nextDynamic(
@@ -551,7 +577,7 @@ const JobsListView = ({
   const show = isColumnVisible;
   const { format: formatLocationCell } = useFormatTableLocationCell();
   const tableRef = useRef<HTMLTableElement>(null);
-  useFitVisibleTableRows(tableRef, true, rows.length);
+  useFitVisibleTableRows(tableRef, true, rows.length, PH2_DENSE_ROW_FIT);
   const visibleColCount =
     2 + // title + actions always
     (show('select') ? 1 : 0) +
@@ -623,7 +649,8 @@ const JobsListView = ({
             rows.map((job) => (
           <tr
             key={job.id}
-                className="group transition-colors duration-200 even:bg-slate-50/35 hover:bg-indigo-50/45"
+            onClick={() => onJobClick?.(job)}
+            className="group cursor-pointer transition-colors duration-200 even:bg-slate-50/35 hover:bg-indigo-50/45"
           >
                 {show('select') ? (
                   <td className="px-3 py-2 sm:px-4" onClick={(e) => e.stopPropagation()}>
@@ -650,7 +677,7 @@ const JobsListView = ({
             </td>
                 {show('client') ? (
                   <td className="px-3 py-2 sm:px-4">
-                    <span className="text-xs font-medium text-slate-800 line-clamp-2">{job.client}</span>
+                    <span className="truncate text-xs font-medium text-slate-800" title={job.client}>{job.client}</span>
                   </td>
                 ) : null}
                 {show('status') ? (
@@ -1066,7 +1093,7 @@ export function JobListPage() {
                   <button
                     type="button"
               onClick={() => void reloadMyJobsAndMetrics()}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-indigo-200/80 bg-white text-indigo-700 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.2)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98]"
+              className={PH2_HEADER_PILL_ICON}
               title="Refresh jobs"
                   >
               <RefreshCcw size={16} strokeWidth={2.25} className="shrink-0" />
@@ -1075,7 +1102,7 @@ export function JobListPage() {
                   <button
                     type="button"
                 onClick={() => setRecycleBinDrawerOpen(true)}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-indigo-200/80 bg-white text-indigo-700 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.2)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98]"
+                className={PH2_HEADER_PILL_ICON}
                 title="Deleted jobs"
                   >
                 <Inbox size={17} strokeWidth={2.25} />
@@ -1084,11 +1111,11 @@ export function JobListPage() {
                 <button
                   type="button"
                   onClick={() => void openExportModal()}
-              className="bg-white hover:bg-indigo-50/90 text-indigo-900 px-3 py-2 rounded-lg font-semibold text-xs flex items-center gap-1.5 transition-all shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] border border-indigo-200/70 hover:border-indigo-300 hover:shadow-[0_6px_20px_-4px_rgba(99,102,241,0.35)] active:scale-[0.98]"
+              className={PH2_HEADER_PILL}
                   title="Export visible jobs to CSV"
                 >
-              <Download size={16} className="text-indigo-600" strokeWidth={2.25} />
-              <span>Export</span>
+              <Download size={16} className="text-indigo-500" strokeWidth={2.25} />
+              <span className="hidden sm:inline">Export</span>
                 </button>
             {canCreateJob ? (
               <div
@@ -1116,7 +1143,7 @@ export function JobListPage() {
                   ) : (
                     <Sparkles size={14} className="text-[#7C73ED]" strokeWidth={2.25} />
                   )}
-                  <span>Create with AI</span>
+                  <span className="hidden sm:inline">Create with AI</span>
                   {jobAiGate.locked ? (
                     <AiCoinLockBadge featureId="ai.job_from_prompt" />
                   ) : jobAiGate.cost > 0 ? (
@@ -1134,7 +1161,7 @@ export function JobListPage() {
                   title="Create a job manually"
                 >
                   <Plus size={14} className="text-white" strokeWidth={2.5} />
-                  <span>Create Manually</span>
+                  <span className="hidden sm:inline">Create Manually</span>
                 </button>
               </div>
             ) : null}
@@ -1163,18 +1190,25 @@ export function JobListPage() {
           ) : null}
 
           {loading ? (
-              <div className={PH2_TABLE_CARD_CLASS}>
-                <div className={PH2_TOOLBAR_ROW_CLASS}>
-                  <div className="h-9 w-full max-w-md animate-pulse rounded-xl bg-white/80 ring-1 ring-indigo-100/80 lg:flex-1" />
-                  <div className="h-9 w-32 animate-pulse rounded-lg bg-indigo-50/60" />
-                </div>
+              <Ph2FloatingFilterStack
+                filter={
+                  <>
+                    <div className="h-9 w-52 animate-pulse rounded-full bg-white/80" />
+                    <div className="h-9 w-28 animate-pulse rounded-full bg-white/70" />
+                    <div className="h-9 w-32 animate-pulse rounded-full bg-white/70" />
+                  </>
+                }
+              >
+                <div className={PH2_TABLE_CARD_CLASS}>
                 <div className={PH2_TABLE_BODY_SCROLL_CLASS}>
                   <TableSkeleton rows={8} columns={7} />
                 </div>
-              </div>
+                </div>
+              </Ph2FloatingFilterStack>
           ) : (
-            <div className={PH2_TABLE_CARD_CLASS}>
-              <div className={PH2_TOOLBAR_ROW_CLASS}>
+            <Ph2FloatingFilterStack
+              filter={
+                <>
                 <div className="relative w-44 shrink-0 sm:w-52">
                   <Search
                     className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-indigo-400"
@@ -1193,7 +1227,7 @@ export function JobListPage() {
                         jobSmartSearch.clearSmartSearch();
                       }
                     }}
-                    className="h-9 w-full rounded-xl border border-indigo-100/90 bg-white/95 pl-10 pr-3 text-xs text-slate-800 shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)] placeholder:text-slate-400 transition-all focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                    className="h-9 w-full rounded-full border border-white/70 bg-white/85 pl-10 pr-3 text-xs text-slate-800 placeholder:text-slate-400 transition-all duration-200 focus:border-[#3867FF]/40 focus:outline-none focus:ring-2 focus:ring-[#3867FF]/20"
                   />
                 </div>
                 <div className={PH2_TOOLBAR_FILTERS_CLASS}>
@@ -1266,16 +1300,19 @@ export function JobListPage() {
                   />
                   <button
                     type="button"
-                    className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700"
+                    className={PH2_CLEAR_FILTER_CLASS}
                     onClick={handleClearToolbar}
                   >
                     <XCircle size={15} className="shrink-0 text-rose-500" strokeWidth={2.35} />
                     Clear
                   </button>
                 </div>
-              </div>
-
+                </>
+              }
+              extras={
+                <>
               {jobSmartSearch.open ? (
+                <div className="hry-glass mb-3 shrink-0 overflow-hidden rounded-2xl">
                 <SmartSearchPromptPanel
                   prompt={jobSmartSearch.prompt}
                   onPromptChange={jobSmartSearch.setPrompt}
@@ -1287,6 +1324,7 @@ export function JobListPage() {
                   applying={jobSmartSearch.applying}
                   placeholder="e.g. open React jobs in Bengaluru for QuantumByte with high priority"
                 />
+                </div>
               ) : null}
 
               <SmartSearchActiveKeywordsBar
@@ -1295,7 +1333,10 @@ export function JobListPage() {
                 resultCount={displayJobs.length}
                 showResultCount={!loading && !error}
               />
-
+                </>
+              }
+            >
+            <div className={PH2_TABLE_CARD_CLASS}>
               {error ? (
                 <div className="p-10 text-center text-sm font-medium text-rose-600">Error: {error}</div>
               ) : (
@@ -1361,6 +1402,7 @@ export function JobListPage() {
                 </motion.div>
               )}
             </div>
+            </Ph2FloatingFilterStack>
           )}
         </div>
       </Ph2ModulePageLayout>
