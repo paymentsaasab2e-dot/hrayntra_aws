@@ -16,6 +16,8 @@ import {
   normalizeEducationEntriesForProfile,
   repairParsedEmail,
 } from './inbox-parsed-profile.util.js';
+import { canViewAllJobs } from '../../utils/permissionScope.js';
+import { buildJobVisibilityOr } from '../../services/memberVisibility.service.js';
 
 const RESUME_EXTENSIONS = new Set(['.pdf', '.doc', '.docx']);
 
@@ -118,6 +120,103 @@ function candidateSummary(candidate) {
   };
 }
 
+function normalizeJobIds(raw) {
+  const list = Array.isArray(raw)
+    ? raw
+    : typeof raw === 'string'
+      ? raw.split(/[,\s]+/)
+      : [];
+  return [...new Set(list.map((id) => String(id || '').trim()).filter(Boolean))];
+}
+
+async function resolveAccessibleInboxJobs(accessReq, jobIds) {
+  const ids = normalizeJobIds(jobIds);
+  if (!ids.length) return [];
+  const where = {
+    id: { in: ids },
+    status: { in: ['OPEN', 'ON_HOLD', 'DRAFT'] },
+  };
+  const userId = String(accessReq?.user?.id || '').trim();
+  if (!canViewAllJobs(accessReq) && userId) {
+    where.AND = [{ OR: buildJobVisibilityOr(userId) }];
+  }
+  return prisma.job.findMany({
+    where,
+    select: {
+      id: true,
+      title: true,
+      pipelineStages: {
+        orderBy: { order: 'asc' },
+        select: { name: true },
+      },
+    },
+  });
+}
+
+async function assignInboxCandidateToJobs({
+  candidateId,
+  jobIds,
+  user,
+  accessReq,
+  source = 'Inbox',
+}) {
+  const requested = normalizeJobIds(jobIds);
+  if (!candidateId || !requested.length) {
+    return { assigned: [], skipped: [] };
+  }
+
+  const { candidateService } = await import('../candidate/candidate.service.js');
+  const jobs = await resolveAccessibleInboxJobs(accessReq || { user }, requested);
+  const foundIds = new Set(jobs.map((job) => String(job.id)));
+  const assigned = [];
+  const skipped = [];
+  const note = `Applied from ${String(source || 'Inbox').trim() || 'Inbox'} resume`;
+
+  for (const job of jobs) {
+    const stageName = String(job.pipelineStages?.[0]?.name || '').trim() || 'Applied';
+    try {
+      await candidateService.addToPipeline(
+        candidateId,
+        {
+          jobId: job.id,
+          stage: stageName,
+          recruiterId: user?.id || undefined,
+          priority: 'Medium',
+          notes: note,
+        },
+        user?.id
+      );
+      assigned.push({ id: job.id, title: job.title, stage: stageName });
+    } catch (error) {
+      skipped.push({
+        id: job.id,
+        title: job.title,
+        error: error?.message || 'Failed to apply candidate to job',
+      });
+    }
+  }
+
+  for (const id of requested) {
+    if (!foundIds.has(id)) {
+      skipped.push({ id, error: 'Job not found or no access' });
+    }
+  }
+
+  return { assigned, skipped };
+}
+
+async function withJobAssignments(result, options) {
+  const candidateId = result?.candidate?.id;
+  const jobs = await assignInboxCandidateToJobs({
+    candidateId,
+    jobIds: options?.jobIds,
+    user: options?.user,
+    accessReq: options?.accessReq,
+    source: options?.source,
+  });
+  return { ...result, jobs };
+}
+
 async function attachResumeFile({ candidateId, fileName, fileUrl, uploadedById, setPrimary = false }) {
   if (!candidateId || !fileUrl || !/^https?:\/\//i.test(String(fileUrl))) return;
   const existing = await prisma.candidateFile.findFirst({
@@ -166,6 +265,9 @@ export async function importResumeBufferAsCandidate({
   mimeType,
   source = 'Inbox',
   attachmentId = '',
+  jobIds = [],
+  user = null,
+  accessReq = null,
 } = {}) {
   const originalName = String(filename || 'resume.pdf').trim() || 'resume.pdf';
   const ext = path.extname(originalName).toLowerCase();
@@ -365,12 +467,15 @@ export async function importResumeBufferAsCandidate({
         cvParseMeta?.apiUsedLabel ? `API key used: ${cvParseMeta.apiUsedLabel}` : '',
       ].filter(Boolean));
 
-      return {
-        created: false,
-        isDuplicate: true,
-        candidate: candidateSummary(current || existing),
-        attachment: { id: String(attachmentId || ''), filename: originalName },
-      };
+      return withJobAssignments(
+        {
+          created: false,
+          isDuplicate: true,
+          candidate: candidateSummary(current || existing),
+          attachment: { id: String(attachmentId || ''), filename: originalName },
+        },
+        { jobIds, user, accessReq, source }
+      );
     }
 
     const nameNormalized = `${firstName} ${lastName}`.toLowerCase().replace(/\s+/g, ' ').trim();
@@ -472,12 +577,15 @@ export async function importResumeBufferAsCandidate({
       cvParseMeta?.apiUsedLabel ? `API key used: ${cvParseMeta.apiUsedLabel}` : '',
     ].filter(Boolean));
 
-    return {
-      created: true,
-      isDuplicate: false,
-      candidate: candidateSummary(candidate),
-      attachment: { id: String(attachmentId || ''), filename: originalName },
-    };
+    return withJobAssignments(
+      {
+        created: true,
+        isDuplicate: false,
+        candidate: candidateSummary(candidate),
+        attachment: { id: String(attachmentId || ''), filename: originalName },
+      },
+      { jobIds, user, accessReq, source }
+    );
   } finally {
     try {
       if (tempPath && fs.existsSync(tempPath)) fs.unlinkSync(tempPath);

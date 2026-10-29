@@ -4262,6 +4262,10 @@ export interface InboxCandidateImportResult {
     id: string;
     filename: string;
   };
+  jobs?: {
+    assigned: Array<{ id: string; title?: string; stage?: string }>;
+    skipped?: Array<{ id: string; title?: string; error?: string }>;
+  };
 }
 
 export interface GmailInboxMessage {

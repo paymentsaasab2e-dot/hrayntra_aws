@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react';
 import {
+  PH2_DENSE_ROW_FIT,
   PH2_FIT_ROW_TABLE_CLASS,
   useFitVisibleTableRows,
 } from './layout/ph2FitVisibleTableRows';
@@ -53,8 +54,6 @@ interface ClientTableProps {
   onToggleClientNameSortOrder: () => void;
   showStatusColumn?: boolean;
   showRecruiterColumn?: boolean;
-  /** Hide on Recruitment Clients — every row there is already in recruitment. */
-  showInRecruitmentBadge?: boolean;
   /** Latest AI workspace brief alerts keyed by entity id (from Analyze). */
   workspaceAlertsByEntityId?: Record<string, AiWorkspaceBriefAlert[]>;
   /** @deprecated Use workspaceAlertsByEntityId */
@@ -104,7 +103,6 @@ export function ClientTable({
   onToggleClientNameSortOrder,
   showStatusColumn = false,
   showRecruiterColumn = false,
-  showInRecruitmentBadge = true,
   workspaceAlertsByEntityId,
   workspaceAlertsByClientId,
   fillScrollParent = false,
@@ -112,7 +110,7 @@ export function ClientTable({
 }: ClientTableProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const tableRef = useRef<HTMLTableElement>(null);
-  useFitVisibleTableRows(tableRef, true, clients.length);
+  useFitVisibleTableRows(tableRef, true, clients.length, PH2_DENSE_ROW_FIT);
   const [uploadingClientId, setUploadingClientId] = useState<string | null>(null);
   const [pendingUploadClientId, setPendingUploadClientId] = useState<string | null>(null);
   const show = isColumnVisible;
@@ -268,7 +266,7 @@ export function ClientTable({
                       <TableBrandAvatar
                         src={client.logo}
                         name={client.name}
-                        size="sm"
+                        size="xs"
                         showStatusDot={client.stage === 'Active' || client.stage === 'Hot Clients 🔥'}
                         statusDotTitle={
                           client.stage === 'Hot Clients 🔥'
@@ -303,11 +301,6 @@ export function ClientTable({
                       >
                         {client.name}
                       </button>
-                      {showInRecruitmentBadge && client.recruitmentEnabled ? (
-                        <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0 text-[10px] font-medium text-amber-800 ring-1 ring-amber-200/80">
-                          In Recruitment
-                        </span>
-                      ) : null}
                       {(() => {
                         const handoff = getClientHandoffStatus?.(client.id);
                         if (!handoff || handoff.status === 'none') return null;

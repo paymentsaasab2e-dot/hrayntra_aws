@@ -150,7 +150,6 @@ import {
   PH2_TABLE_CARD_CLASS,
   PH2_TABLE_CARD_FOOTER_CLASS,
   PH2_TOOLBAR_FILTERS_CLASS,
-  PH2_TOOLBAR_ROW_CLASS,
 } from '../../components/layout/Ph2ModulePageLayout';
 import {
   candidateShowsAppliedTag,

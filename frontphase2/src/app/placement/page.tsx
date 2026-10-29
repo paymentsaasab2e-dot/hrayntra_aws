@@ -31,7 +31,7 @@ import {
   PH2_TABLE_BODY_SCROLL_CLASS,
   PH2_TABLE_CARD_CLASS,
   PH2_TABLE_CARD_FOOTER_CLASS,
-  PH2_TOOLBAR_ROW_CLASS,
+  Ph2FloatingFilterStack,
 } from '../../components/layout/Ph2ModulePageLayout';
 import { ShowSummaryCardsButton } from '../../components/layout/ShowSummaryCardsButton';
 import { SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
@@ -352,7 +352,7 @@ function PlacementsPageContent() {
         <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
           <header className="flex min-h-[4.5rem] shrink-0 flex-wrap items-center justify-between gap-3 border-b border-indigo-100/50 bg-white/80 px-4 py-3 shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)] backdrop-blur-md sm:px-6">
             <div className="flex items-center gap-2.5 sm:gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-500/30 ring-1 ring-white/20">
+              <div className="hry-title-icon flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-white ring-1 ring-white/30">
                 <Trophy className="h-5 w-5" strokeWidth={2.2} />
               </div>
               <div>
@@ -395,7 +395,7 @@ function PlacementsPageContent() {
                   className="flex items-center gap-1.5 rounded-lg border border-indigo-200/70 bg-white px-3 py-2 text-xs font-semibold text-indigo-900 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 hover:shadow-[0_6px_20px_-4px_rgba(99,102,241,0.35)] active:scale-[0.98]"
                 >
                   <Download size={16} className="text-indigo-600" strokeWidth={2.25} />
-                  <span>Export</span>
+                  <span className="hidden sm:inline">Export</span>
                 </button>
               ) : null}
               {canCreateInvoice ? (
@@ -405,7 +405,7 @@ function PlacementsPageContent() {
                   className="flex items-center gap-1.5 rounded-lg border border-amber-200/80 bg-white px-3.5 py-2 text-xs font-semibold text-amber-800 shadow-[0_4px_14px_-4px_rgba(245,158,11,0.25)] transition-all hover:border-amber-300 hover:bg-amber-50/90 active:scale-[0.98]"
                 >
                   <FileText size={16} className="text-amber-600" strokeWidth={2.25} />
-                  <span>Create invoice</span>
+                  <span className="hidden sm:inline">Create invoice</span>
                 </button>
               ) : null}
               {canCreatePlacement ? (
@@ -437,18 +437,9 @@ function PlacementsPageContent() {
               </div>
               ) : null}
 
-              <div className={PH2_TABLE_CARD_CLASS}>
-                <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-indigo-100/50 px-4 py-2 sm:px-5">
-                  <p className="text-xs text-slate-500">
-                    {loading
-                      ? 'Loading placements…'
-                      : `Showing ${pagination.total.toLocaleString()} placement${pagination.total === 1 ? '' : 's'}`}
-                  </p>
-                </div>
-
-                <div className={PH2_TOOLBAR_ROW_CLASS}>
-                  <div className="flex w-full flex-nowrap items-center gap-2">
-                    <div className="min-w-0 flex-1">
+              <Ph2FloatingFilterStack
+                filter={
+                  <>
                       <FiltersBar
                         embedded
                         totalCount={pagination.total}
@@ -465,8 +456,6 @@ function PlacementsPageContent() {
                           router.replace(pathname);
                         }}
                       />
-                    </div>
-                    <div className="flex shrink-0 flex-nowrap items-center gap-2">
                       <SmartSearchToggleButton
                         open={placementSmartSearch.open}
                         onToggle={() => placementSmartSearch.setOpen((value) => !value)}
@@ -478,11 +467,12 @@ function PlacementsPageContent() {
                         onReset={placementColumnVisibility.resetToDefault}
                         unlockedVisibleCount={placementColumnVisibility.unlockedVisibleCount}
                       />
-                    </div>
-                  </div>
-                </div>
-
+                  </>
+                }
+                extras={
+                  <>
                 {placementSmartSearch.open ? (
+                  <div className="hry-glass mb-3 shrink-0 overflow-hidden rounded-2xl">
                   <SmartSearchPromptPanel
                     prompt={placementSmartSearch.prompt}
                     onPromptChange={placementSmartSearch.setPrompt}
@@ -494,6 +484,7 @@ function PlacementsPageContent() {
                     applying={placementSmartSearch.applying}
                     placeholder="e.g. joined permanent placements for Acme"
                   />
+                  </div>
                 ) : null}
 
                 <SmartSearchActiveKeywordsBar
@@ -507,7 +498,10 @@ function PlacementsPageContent() {
                   resultCount={pagination.total}
                   showResultCount={!loading && !error}
                 />
-
+                  </>
+                }
+              >
+              <div className={PH2_TABLE_CARD_CLASS}>
                 {error ? (
                   <div className="px-4 py-10 text-center text-sm font-medium text-rose-600">Error: {error}</div>
                 ) : (
@@ -629,6 +623,7 @@ function PlacementsPageContent() {
                   </>
                 )}
               </div>
+              </Ph2FloatingFilterStack>
             </div>
           </div>
         </main>

@@ -876,7 +876,7 @@ export const inboxService = {
     return toMessageListItem(message, oauth.googleEmail || '', { includeAttachments: true });
   },
 
-  async importGmailAttachmentAsCandidate(user, messageId, attachmentId, filename) {
+  async importGmailAttachmentAsCandidate(user, messageId, attachmentId, filename, jobIds, accessReq) {
     const userId = user?.id;
     const { accessToken } = await getGmailAccessContext(userId);
     const message = await fetchGmailJson(accessToken, `messages/${messageId}?format=full`);
@@ -896,6 +896,9 @@ export const inboxService = {
       mimeType: meta.mimeType,
       source: 'Gmail',
       attachmentId: meta.id,
+      jobIds,
+      user,
+      accessReq,
     });
   },
 
@@ -1006,16 +1009,19 @@ export const inboxService = {
     return getOutlookMessage(userId, messageId);
   },
 
-  async importOutlookAttachmentAsCandidate(user, messageId, attachmentId) {
+  async importOutlookAttachmentAsCandidate(user, messageId, attachmentId, filename, jobIds, accessReq) {
     const downloaded = await downloadOutlookMessageAttachment(user?.id, messageId, attachmentId);
     return importResumeBufferAsCandidate({
       userId: user?.id,
       orgUnitId: user?.orgUnitId || null,
       buffer: downloaded.buffer,
-      filename: downloaded.filename,
+      filename: downloaded.filename || filename,
       mimeType: downloaded.mimeType,
       source: 'Outlook',
       attachmentId: downloaded.id,
+      jobIds,
+      user,
+      accessReq,
     });
   },
 

@@ -41,12 +41,13 @@ import { SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/
 import PaginationAll from '../../components/PaginationAll';
 import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../constants/tablePagination';
 import {
+  PH2_CLEAR_FILTER_CLASS,
   PH2_KPI_ROW_CLASS,
   PH2_TABLE_BODY_SCROLL_CLASS,
   PH2_TABLE_CARD_CLASS,
   PH2_TABLE_CARD_FOOTER_CLASS,
   PH2_TOOLBAR_FILTERS_CLASS,
-  PH2_TOOLBAR_ROW_CLASS,
+  Ph2FloatingFilterStack,
 } from '../../components/layout/Ph2ModulePageLayout';
 import { ShowSummaryCardsButton } from '../../components/layout/ShowSummaryCardsButton';
 import { ALL_STATUS_LABEL } from '../../constants/filterLabels';
@@ -952,7 +953,7 @@ export default function InterviewsPage() {
         <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
           <header className="flex min-h-[4.5rem] shrink-0 flex-nowrap items-center justify-between gap-3 overflow-x-auto no-scrollbar border-b border-indigo-100/50 bg-white/80 px-4 py-3 shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)] backdrop-blur-md sm:px-6">
             <div className="flex items-center gap-2.5 sm:gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 via-indigo-600 to-blue-600 text-white shadow-lg shadow-indigo-500/30 ring-1 ring-white/20">
+              <div className="hry-title-icon flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-white ring-1 ring-white/30">
                 <Calendar className="h-5 w-5" strokeWidth={2.2} />
               </div>
               <div>
@@ -983,7 +984,7 @@ export default function InterviewsPage() {
                 title="Export filtered interviews to CSV"
               >
                 <Download size={16} className="text-indigo-600" strokeWidth={2.25} />
-                <span>Export</span>
+                <span className="hidden sm:inline">Export</span>
                   </button>
               ) : null}
               <Link
@@ -995,7 +996,7 @@ export default function InterviewsPage() {
                 }`}
               >
                 <Plus size={16} strokeWidth={2.5} className={moduleTab === 'scheduled' ? 'text-indigo-600' : 'text-white'} />
-                <span>Create interview form</span>
+                <span className="hidden sm:inline">Create interview form</span>
               </Link>
               {moduleTab === 'scheduled' && canCreateInterview ? (
                 <button
@@ -1052,8 +1053,9 @@ export default function InterviewsPage() {
 
               {view === 'list' ? (
                 <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                  <div className={PH2_TABLE_CARD_CLASS}>
-                    <div className={PH2_TOOLBAR_ROW_CLASS}>
+                  <Ph2FloatingFilterStack
+                    filter={
+                      <>
                         <div className="relative w-36 shrink-0">
                           <Search
                             className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-indigo-400"
@@ -1069,7 +1071,7 @@ export default function InterviewsPage() {
                               setOverviewPage(1);
                               setSearchQuery(e.target.value);
                             }}
-                            className="h-9 w-full rounded-xl border border-indigo-100/90 bg-white/95 pl-10 pr-3 text-xs text-slate-800 shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)] placeholder:text-slate-400 transition-all focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                            className="h-9 w-full rounded-full border border-white/70 bg-white/85 pl-10 pr-3 text-xs text-slate-800 placeholder:text-slate-400 transition-all duration-200 focus:border-[#3867FF]/40 focus:outline-none focus:ring-2 focus:ring-[#3867FF]/20"
                           />
                         </div>
                         <div className={PH2_TOOLBAR_FILTERS_CLASS}>
@@ -1161,7 +1163,7 @@ export default function InterviewsPage() {
                             <button
                               type="button"
                               onClick={handleClearToolbar}
-                              className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-lg px-2 py-1.5 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700"
+                              className={PH2_CLEAR_FILTER_CLASS}
                             >
                               <XCircle size={15} className="shrink-0 text-rose-500" strokeWidth={2.35} />
                               Clear
@@ -1172,9 +1174,12 @@ export default function InterviewsPage() {
                             <span className="font-semibold text-slate-800">{listTotalCount}</span>
                           </span>
                         </div>
-                    </div>
-
+                      </>
+                    }
+                    extras={
+                      <>
                     {interviewSmartSearch.open ? (
+                      <div className="hry-glass mb-3 shrink-0 overflow-hidden rounded-2xl">
                       <SmartSearchPromptPanel
                         prompt={interviewSmartSearch.prompt}
                         onPromptChange={interviewSmartSearch.setPrompt}
@@ -1186,6 +1191,7 @@ export default function InterviewsPage() {
                         applying={interviewSmartSearch.applying}
                         placeholder="e.g. scheduled technical round online this week"
                       />
+                      </div>
                     ) : null}
 
                     <SmartSearchActiveKeywordsBar
@@ -1194,7 +1200,10 @@ export default function InterviewsPage() {
                       resultCount={listTotalCount}
                       showResultCount={!loading && !error}
                     />
-
+                      </>
+                    }
+                  >
+                    <div className={PH2_TABLE_CARD_CLASS}>
                     <div className={PH2_TABLE_BODY_SCROLL_CLASS}>{renderListTableBody()}</div>
 
                     {showListPagination ? (
@@ -1219,17 +1228,22 @@ export default function InterviewsPage() {
                         />
                       </div>
                     ) : null}
-                  </div>
+                    </div>
+                  </Ph2FloatingFilterStack>
               </motion.div>
             ) : (
                 <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="flex min-h-0 flex-1 flex-col overflow-hidden">
-                  <div className={PH2_TABLE_CARD_CLASS}>
-                    <div className={PH2_TOOLBAR_ROW_CLASS}>
+                  <Ph2FloatingFilterStack
+                    filter={
+                      <>
                       <p className="max-w-xl text-xs text-slate-600">
                         Calendar view — switch to list for search, filters, and row actions.
                       </p>
                       <div className="flex shrink-0 items-center gap-2">{viewSegmented}</div>
-                    </div>
+                      </>
+                    }
+                  >
+                  <div className={PH2_TABLE_CARD_CLASS}>
                     <div className={`${PH2_TABLE_BODY_SCROLL_CLASS} p-3 sm:p-4`}>
                 <InterviewCalendarView
                   interviews={filteredOverviewInterviews}
@@ -1237,6 +1251,7 @@ export default function InterviewsPage() {
                 />
                     </div>
                   </div>
+                  </Ph2FloatingFilterStack>
               </motion.div>
             )}
               </div>

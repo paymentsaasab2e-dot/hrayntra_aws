@@ -18,6 +18,11 @@ import { getCandidateStageBadgeClasses, getCandidateStageLabel } from '../../uti
 import { TableAuditColumnHeader, TableAuditCell } from '../table/TableAuditCell';
 import type { AiWorkspaceBriefAlert } from '@/lib/apiAiWorkspaceBrief';
 import { WorkspaceAlertTableCell, WorkspaceAlertTableHeader } from '../ai/WorkspaceAlertTableCell';
+import {
+  PH2_DENSE_ROW_FIT,
+  PH2_FIT_ROW_TABLE_CLASS,
+  useFitVisibleTableRows,
+} from '../layout/ph2FitVisibleTableRows';
 
 interface InterviewGroup {
   key: string;
@@ -220,6 +225,8 @@ export function InterviewTable({
   proposalBusyId = null,
 }: InterviewTableProps) {
   const show = isColumnVisible;
+  const tableRef = useRef<HTMLTableElement>(null);
+  useFitVisibleTableRows(tableRef, true, interviews.length, PH2_DENSE_ROW_FIT);
   const groups = useMemo(() => groupInterviewsForTable(interviews), [interviews]);
   const showAiAlertColumn = Boolean(
     workspaceAlertsByEntityId &&
@@ -388,7 +395,7 @@ export function InterviewTable({
   return (
     <div className={hidePagination ? 'contents' : 'overflow-hidden rounded-2xl border border-[#E5E7EB] bg-white shadow-sm'}>
       <div className={hidePagination ? 'contents' : 'overflow-x-auto overflow-y-auto'}>
-        <table className="w-max min-w-full border-collapse text-left text-sm">
+        <table ref={tableRef} className={`w-max min-w-full border-collapse text-left text-sm ${PH2_FIT_ROW_TABLE_CLASS}`}>
           <thead className="sticky top-0 z-10">
             <tr className="border-b border-indigo-100/50 bg-gradient-to-r from-slate-50/95 via-indigo-50/50 to-violet-50/40 text-xs font-bold uppercase tracking-[0.06em] text-indigo-950/70 backdrop-blur-sm">
               <th className="w-10 px-3 py-2 first:pl-4 sm:px-4">

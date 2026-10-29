@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Eye, Plus, RefreshCcw } from 'lucide-react';
 import { apiListInterviewApplications, type InterviewApplicationRow, type InterviewApplicationStatus } from '../../lib/api';
 import { startAsyncLoad } from '../../lib/asyncLoadGuard';
-import { PH2_TABLE_CARD_CLASS, PH2_TOOLBAR_FILTERS_CLASS, PH2_TOOLBAR_ROW_CLASS } from '../layout/Ph2ModulePageLayout';
+import { PH2_TABLE_CARD_CLASS, PH2_TOOLBAR_FILTERS_CLASS, Ph2FloatingFilterStack } from '../layout/Ph2ModulePageLayout';
 import { TableSkeleton } from '../ui/Skeleton';
 
 const STATUS_LABELS: Record<InterviewApplicationStatus, string> = {
@@ -59,8 +59,9 @@ export function InterviewApplicationsTab({ onReview }: Props) {
   const statusOptions = useMemo(() => Object.entries(STATUS_LABELS), []);
 
   return (
-    <div className={PH2_TABLE_CARD_CLASS}>
-      <div className={PH2_TOOLBAR_ROW_CLASS}>
+    <Ph2FloatingFilterStack
+      filter={
+        <>
         <p className="shrink-0 whitespace-nowrap text-xs font-semibold text-slate-600">
           Phase 1 interview form submissions for this tenant
         </p>
@@ -93,8 +94,10 @@ export function InterviewApplicationsTab({ onReview }: Props) {
             <RefreshCcw size={14} className={loading ? 'animate-spin' : ''} />
           </button>
         </div>
-      </div>
-
+        </>
+      }
+    >
+    <div className={PH2_TABLE_CARD_CLASS}>
       {loading ? (
         <TableSkeleton rows={6} columns={5} />
       ) : error ? (
@@ -155,5 +158,6 @@ export function InterviewApplicationsTab({ onReview }: Props) {
         </div>
       )}
     </div>
+    </Ph2FloatingFilterStack>
   );
 }

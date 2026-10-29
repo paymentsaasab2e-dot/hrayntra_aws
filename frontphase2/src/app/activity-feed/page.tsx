@@ -39,7 +39,7 @@ import {
   resolveActivityKind,
   type PresentedActivity,
 } from '../../lib/activityFeedPresentation';
-import { PH2_TABLE_BODY_SCROLL_CLASS, PH2_TABLE_CARD_CLASS, PH2_TABLE_CARD_FOOTER_CLASS, PH2_TOOLBAR_ROW_CLASS } from '../../components/layout/Ph2ModulePageLayout';
+import { PH2_TABLE_BODY_SCROLL_CLASS, PH2_TABLE_CARD_CLASS, PH2_TABLE_CARD_FOOTER_CLASS, Ph2FloatingFilterStack } from '../../components/layout/Ph2ModulePageLayout';
 import PaginationAll from '../../components/PaginationAll';
 import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../constants/tablePagination';
 
@@ -220,7 +220,7 @@ function ActivityFilters({
           : 'all';
 
   return (
-    <div className={`${PH2_TOOLBAR_ROW_CLASS} p-3 sm:p-4`}>
+    <>
       <div className="relative w-44 shrink-0 sm:w-52">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
         <input
@@ -228,7 +228,7 @@ function ActivityFilters({
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search people, jobs, candidates, actions…"
-          className="h-9 w-full rounded-xl border border-indigo-100/90 bg-white pl-10 pr-3 text-xs text-slate-800"
+          className="h-9 w-full rounded-full border border-white/70 bg-white/85 pl-10 pr-3 text-xs text-slate-800 placeholder:text-slate-400 transition-all duration-200 focus:border-[#3867FF]/40 focus:outline-none focus:ring-2 focus:ring-[#3867FF]/20"
         />
       </div>
       <select
@@ -308,7 +308,7 @@ function ActivityFilters({
           </button>
         )}
       </div>
-    </div>
+    </>
   );
 }
 
@@ -754,22 +754,23 @@ export default function ActivityFeedPage() {
           </div>
         </div>
 
+        <Ph2FloatingFilterStack
+          filter={
+            <ActivityFilters
+              search={search}
+              setSearch={setSearch}
+              entityType={entityType}
+              setEntityType={setEntityType}
+              dateFrom={dateFrom}
+              setDateFrom={setDateFrom}
+              dateTo={dateTo}
+              setDateTo={setDateTo}
+              todayYmd={todayYmd}
+              yesterdayYmd={yesterdayYmd}
+            />
+          }
+        >
         <div className={PH2_TABLE_CARD_CLASS}>
-          <div className="shrink-0">
-          <ActivityFilters
-            search={search}
-            setSearch={setSearch}
-            entityType={entityType}
-            setEntityType={setEntityType}
-            dateFrom={dateFrom}
-            setDateFrom={setDateFrom}
-            dateTo={dateTo}
-            setDateTo={setDateTo}
-            todayYmd={todayYmd}
-            yesterdayYmd={yesterdayYmd}
-          />
-          </div>
-
           <div className={PH2_TABLE_BODY_SCROLL_CLASS}>
           {activityError ? (
             <div className="p-6 text-sm text-rose-600">{activityError}</div>
@@ -804,6 +805,7 @@ export default function ActivityFeedPage() {
             </div>
           ) : null}
         </div>
+        </Ph2FloatingFilterStack>
         </div>
       </div>
     );
@@ -842,23 +844,26 @@ export default function ActivityFeedPage() {
       <div className="mb-4 shrink-0">{tabBar}</div>
 
       {activeTab === 'members' && capabilities?.canViewMembers ? (
-        <div className={PH2_TABLE_CARD_CLASS}>
-          <div className={`${PH2_TOOLBAR_ROW_CLASS} p-3 sm:p-4`}>
-            <div className="relative flex-1 min-w-[220px]">
+        <Ph2FloatingFilterStack
+          filter={
+            <>
+            <div className="relative min-w-[220px] flex-1">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
                 type="search"
                 value={memberSearch}
                 onChange={(e) => setMemberSearch(e.target.value)}
                 placeholder="Search team member…"
-                className="h-9 w-full rounded-xl border border-indigo-100/90 bg-white pl-10 pr-3 text-xs text-slate-800"
+                className="h-9 w-full rounded-full border border-white/70 bg-white/85 pl-10 pr-3 text-xs text-slate-800 placeholder:text-slate-400 transition-all duration-200 focus:border-[#3867FF]/40 focus:outline-none focus:ring-2 focus:ring-[#3867FF]/20"
               />
             </div>
             <span className="text-xs font-medium text-slate-500 whitespace-nowrap">
               {membersLoading ? 'Loading…' : `${filteredMembers.length} member${filteredMembers.length === 1 ? '' : 's'}`}
             </span>
-          </div>
-
+            </>
+          }
+        >
+        <div className={PH2_TABLE_CARD_CLASS}>
           <div className={PH2_TABLE_BODY_SCROLL_CLASS}>
           {listError ? (
             <div className="p-6 text-sm text-rose-600">{listError}</div>
@@ -899,6 +904,7 @@ export default function ActivityFeedPage() {
           )}
           </div>
         </div>
+        </Ph2FloatingFilterStack>
       ) : null}
 
       {activeTab === 'departments' && capabilities?.canViewDepartments ? (

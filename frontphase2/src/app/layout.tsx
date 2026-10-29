@@ -14,6 +14,7 @@ import { RouteErrorBoundary } from "../components/PageErrorBoundary";
 import { IdleMount } from "../components/IdleMount";
 import "./globals.css";
 import "../styles/nexus-dashboard.css";
+import "../styles/hry-premium.css";
 
 export const metadata: Metadata = {
   title: "HRYANTRA",

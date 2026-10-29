@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { SHOW_TABLE_ROW_EDIT_ICON } from '../../../constants/tableUi';
 import {
   Search,
@@ -55,13 +55,19 @@ import PaginationAll from '../../../components/PaginationAll';
 import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../../constants/tablePagination';
 import {
   PH2_TABLE_CARD_CLASS,
-  PH2_TOOLBAR_ROW_CLASS,
   PH2_TOOLBAR_SELECT_CLASS,
   PH2_TABLE_CARD_FOOTER_CLASS,
   PH2_KPI_ROW_CLASS,
   PH2_TABLE_BODY_SCROLL_CLASS,
   PH2_TABLE_CLASS,
+  PH2_CLEAR_FILTER_CLASS,
+  Ph2FloatingFilterStack,
 } from '../../../components/layout/Ph2ModulePageLayout';
+import {
+  PH2_DENSE_ROW_FIT,
+  PH2_FIT_ROW_TABLE_CLASS,
+  useFitVisibleTableRows,
+} from '../../../components/layout/ph2FitVisibleTableRows';
 import { SummaryCard, SummaryCardSkeleton, type SummaryCardColor } from '../../../components/ui/SummaryCard';
 import { TableSkeleton } from '../../../components/ui/Skeleton';
 import { formatDateDMY } from '../../../utils/dateDisplay';
@@ -99,7 +105,7 @@ function getDepartmentRankBadgeClass(rank: number | null | undefined) {
 }
 
 const TEAM_SEARCH_INPUT_CLASS =
-  'h-9 w-full rounded-xl border border-indigo-100/90 bg-white/95 pl-10 pr-3 text-xs text-slate-800 shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)] placeholder:text-slate-400 transition-all focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/30';
+  'h-9 w-full rounded-full border border-white/70 bg-white/85 pl-10 pr-3 text-xs text-slate-800 placeholder:text-slate-400 transition-all duration-200 focus:border-[#3867FF]/40 focus:outline-none focus:ring-2 focus:ring-[#3867FF]/20';
 
 // Debounce hook
 function useDebounce<T>(value: T, delay: number): T {
@@ -171,6 +177,8 @@ export const MembersTab: React.FC<MembersTabProps> = ({
     TEAM_TABLE_COLUMNS,
   );
   const { format: formatLocationCell } = useFormatTableLocationCell();
+  const tableRef = useRef<HTMLTableElement>(null);
+  useFitVisibleTableRows(tableRef, true, members.length, PH2_DENSE_ROW_FIT);
 
   const debouncedSearch = useDebounce(searchQuery, 300);
 
@@ -606,9 +614,9 @@ export const MembersTab: React.FC<MembersTabProps> = ({
       </div>
       ) : null}
 
-      <div className={PH2_TABLE_CARD_CLASS}>
-        <div className={PH2_TOOLBAR_ROW_CLASS}>
-          <div className="flex w-full flex-nowrap items-center gap-2">
+      <Ph2FloatingFilterStack
+        filter={
+          <>
             <div className="relative w-44 shrink-0 sm:w-52">
               <Search
                 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-indigo-400"
@@ -623,61 +631,60 @@ export const MembersTab: React.FC<MembersTabProps> = ({
                 aria-label="Search team members"
               />
             </div>
-            <div className="flex flex-nowrap items-center gap-2">
-              <TableColumnsMenu
-                columns={TEAM_TABLE_COLUMNS}
-                isVisible={teamColumnVisibility.isVisible}
-                onToggle={teamColumnVisibility.toggle}
-                onReset={teamColumnVisibility.resetToDefault}
-                unlockedVisibleCount={teamColumnVisibility.unlockedVisibleCount}
-              />
-              <select
-                value={selectedDepartment}
-                onChange={(e) => setSelectedDepartment(e.target.value)}
-                className={PH2_TOOLBAR_SELECT_CLASS}
+            <TableColumnsMenu
+              columns={TEAM_TABLE_COLUMNS}
+              isVisible={teamColumnVisibility.isVisible}
+              onToggle={teamColumnVisibility.toggle}
+              onReset={teamColumnVisibility.resetToDefault}
+              unlockedVisibleCount={teamColumnVisibility.unlockedVisibleCount}
+            />
+            <select
+              value={selectedDepartment}
+              onChange={(e) => setSelectedDepartment(e.target.value)}
+              className={PH2_TOOLBAR_SELECT_CLASS}
+            >
+              <option value="all">All Departments</option>
+              {departments.map((dept) => (
+                <option key={dept.id} value={dept.id}>
+                  {dept.name}
+                </option>
+              ))}
+            </select>
+            <select
+              value={selectedRole}
+              onChange={(e) => setSelectedRole(e.target.value)}
+              className={PH2_TOOLBAR_SELECT_CLASS}
+            >
+              <option value="all">All Roles</option>
+              {roles.map((role) => (
+                <option key={role.id} value={role.roleName}>
+                  {role.roleName}
+                </option>
+              ))}
+            </select>
+            <select
+              value={selectedStatus}
+              onChange={(e) => setSelectedStatus(e.target.value)}
+              className={PH2_TOOLBAR_SELECT_CLASS}
+            >
+              <option value="all">All Status</option>
+              <option value="ACTIVE">Active</option>
+              <option value="INACTIVE">Inactive</option>
+            </select>
+            {hasToolbarFilters ? (
+              <button
+                type="button"
+                onClick={clearToolbarFilters}
+                className={PH2_CLEAR_FILTER_CLASS}
               >
-                <option value="all">All Departments</option>
-                {departments.map((dept) => (
-                  <option key={dept.id} value={dept.id}>
-                    {dept.name}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={selectedRole}
-                onChange={(e) => setSelectedRole(e.target.value)}
-                className={PH2_TOOLBAR_SELECT_CLASS}
-              >
-                <option value="all">All Roles</option>
-                {roles.map((role) => (
-                  <option key={role.id} value={role.roleName}>
-                    {role.roleName}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={selectedStatus}
-                onChange={(e) => setSelectedStatus(e.target.value)}
-                className={PH2_TOOLBAR_SELECT_CLASS}
-              >
-                <option value="all">All Status</option>
-                <option value="ACTIVE">Active</option>
-                <option value="INACTIVE">Inactive</option>
-              </select>
-              {hasToolbarFilters ? (
-                <button
-                  type="button"
-                  onClick={clearToolbarFilters}
-                  className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700"
-                >
-                  <XCircle size={15} className="shrink-0 text-rose-500" strokeWidth={2.35} />
-                  Clear
-                </button>
-              ) : null}
-            </div>
-          </div>
-        </div>
-
+                <XCircle size={15} className="shrink-0 text-rose-500" strokeWidth={2.35} />
+                Clear
+              </button>
+            ) : null}
+          </>
+        }
+      >
+      <div className={PH2_TABLE_CARD_CLASS}>
         <div className={PH2_TABLE_BODY_SCROLL_CLASS}>
             {isLoading && members.length === 0 ? (
               <TableSkeleton rows={8} columns={9} className="border-0 shadow-none rounded-none" />
@@ -690,7 +697,7 @@ export const MembersTab: React.FC<MembersTabProps> = ({
               (() => {
                 const show = teamColumnVisibility.isVisible;
                 return (
-              <table className={PH2_TABLE_CLASS}>
+              <table ref={tableRef} className={`${PH2_TABLE_CLASS} ${PH2_FIT_ROW_TABLE_CLASS}`}>
                 <thead>
                   <tr className={TEAM_TABLE_HEAD_ROW}>
                     <th className={TEAM_TH}>Member</th>
@@ -720,18 +727,18 @@ export const MembersTab: React.FC<MembersTabProps> = ({
                     return (
                       <tr key={member.id} className={TEAM_TR}>
                         <td className="px-3 py-3 sm:px-4 sm:py-3.5">
-                          <div className="flex items-center gap-3">
+                          <div className="flex min-w-0 items-center gap-2">
                             <div
-                              className={`flex size-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold ${getRoleColorClass(roleColor)}`}
+                              className={`flex size-7 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold ${getRoleColorClass(roleColor)}`}
                             >
                               {getInitials(member.firstName, member.lastName)}
                             </div>
-                            <div>
-                              <div className="text-sm font-medium text-slate-900">
+                            <div className="min-w-0 truncate">
+                              <span className="text-[13px] font-medium leading-none text-slate-900">
                                 {member.firstName} {member.lastName}
-                              </div>
+                              </span>
                               {member.designation ? (
-                                <div className="text-xs text-slate-500">{member.designation}</div>
+                                <span className="ml-1.5 text-[11px] text-slate-500">{member.designation}</span>
                               ) : null}
                               {member.orgUnit ? (
                                 <div className="mt-0.5 inline-flex items-center rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
@@ -922,6 +929,7 @@ export const MembersTab: React.FC<MembersTabProps> = ({
           </div>
         ) : null}
       </div>
+      </Ph2FloatingFilterStack>
 
       {/* Drawers */}
       <AddMemberDrawer

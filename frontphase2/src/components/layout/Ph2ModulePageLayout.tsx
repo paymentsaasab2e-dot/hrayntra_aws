@@ -2,24 +2,30 @@
 
 import React from 'react';
 
-/** Shared `<select>` styling — Leads / Client toolbar (indigo). */
+/** Shared `<select>` styling — Leads-style glass pills. */
 export const PH2_TOOLBAR_SELECT_CLASS =
-  'h-9 min-h-9 shrink-0 appearance-none bg-none rounded-lg border border-indigo-100/90 bg-white/95 px-2.5 py-1.5 text-xs font-medium text-slate-800 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-300 cursor-pointer hover:border-indigo-200/90 hover:bg-indigo-50/40';
+  'h-9 min-h-9 shrink-0 appearance-none bg-none rounded-full border border-white/70 bg-white/80 px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-[#3867FF]/25 focus:border-[#3867FF]/40 cursor-pointer hover:border-[#7864FF]/30 hover:bg-white';
 
-/** Frosted table / panel wrapper — viewport-locked list card (fills remaining height). */
+/** Opaque table panel — Leads table shell. */
 export const PH2_TABLE_CARD_CLASS =
-  'mb-0 flex min-h-0 min-w-0 w-full max-w-full flex-1 flex-col overflow-hidden rounded-xl border border-indigo-100/60 bg-white shadow-[0_12px_40px_-18px_rgba(59,130,246,0.18)] transition-shadow hover:shadow-[0_16px_48px_-14px_rgba(79,70,229,0.16)]';
+  'hry-table-shell mb-0 flex min-h-0 min-w-0 w-full max-w-full flex-1 flex-col overflow-hidden rounded-2xl';
 
-/** Top row inside table card (search + filters) — always one row; scroll sideways on small screens. */
+/** Search + filters row — floating glass capsule above the table (Leads). */
 export const PH2_TOOLBAR_ROW_CLASS =
-  'no-scrollbar shrink-0 min-w-0 p-2.5 sm:p-4 flex flex-row flex-nowrap items-center gap-2 sm:gap-3 overflow-x-auto overflow-y-hidden border-b border-indigo-100/40 bg-gradient-to-br from-white via-indigo-50/25 to-violet-50/20';
+  'hry-filter-bar no-scrollbar mb-3 shrink-0 min-w-0 p-2.5 sm:p-3 flex flex-row flex-nowrap items-center gap-2 overflow-x-auto overflow-y-hidden rounded-2xl';
+
+export const PH2_CLEAR_FILTER_CLASS =
+  'flex h-9 shrink-0 items-center gap-1 rounded-full px-3 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700';
+
+export const PH2_LIST_STACK_CLASS =
+  'mb-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden';
 
 /** Filter chips/selects sitting on the same toolbar row. */
 export const PH2_TOOLBAR_FILTERS_CLASS =
   'flex w-max min-w-max shrink-0 flex-nowrap items-center gap-1.5 sm:gap-2';
 
 export const PH2_TABLE_CARD_FOOTER_CLASS =
-  'mt-0 w-full min-w-0 shrink-0 border-t border-indigo-100/50 bg-gradient-to-r from-slate-50/40 via-white to-indigo-50/25 px-2.5 py-2 sm:px-4';
+  'mt-0 w-full min-w-0 shrink-0 border-t border-slate-100/80 bg-white/80 px-2.5 py-2 sm:px-4';
 
 /** KPI / status tiles — stay in one row and shrink on small screens. */
 export const PH2_KPI_ROW_CLASS =
@@ -33,18 +39,53 @@ export const PH2_TABLE_BODY_SCROLL_CLASS =
 export const PH2_TABLE_CLASS = 'w-max min-w-full border-collapse text-left';
 
 /** Icon + page title row in module headers (vertically centered). */
-export const PH2_PAGE_HEADER_BRAND_CLASS = 'flex min-w-0 items-center gap-2 sm:gap-3';
+export const PH2_PAGE_HEADER_BRAND_CLASS = 'flex min-w-0 items-center gap-2.5 sm:gap-3';
 
 export const PH2_PAGE_HEADER_ICON_TILE_CLASS =
-  'flex h-9 w-9 sm:h-10 sm:w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-500/30 ring-1 ring-white/20';
+  'hry-title-icon flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl text-white ring-1 ring-white/30 sm:h-11 sm:w-11';
 
 export const PH2_PAGE_HEADER_TITLE_CLASS =
-  'text-lg sm:text-xl lg:text-[1.35rem] font-bold tracking-tight text-slate-900 leading-none';
+  'text-xl sm:text-[1.4rem] font-semibold tracking-tight text-[#101B35] leading-none';
+
+export const PH2_PAGE_HEADER_CLASS =
+  'no-scrollbar flex min-h-0 shrink-0 flex-nowrap items-center justify-between gap-2 overflow-x-auto bg-transparent px-2 py-2 sm:gap-3 sm:px-4 sm:py-2.5 lg:px-5';
+
+export const PH2_HEADER_PILL =
+  'hry-btn-glass inline-flex h-8 w-8 sm:h-9 sm:w-auto shrink-0 items-center justify-center gap-1.5 rounded-full px-0 sm:px-3.5 text-xs font-semibold active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50';
+
+export const PH2_HEADER_PILL_ICON =
+  'hry-btn-glass inline-flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-full text-slate-600 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50';
+
+export const PH2_HEADER_PILL_PRIMARY =
+  'hry-btn-primary inline-flex h-8 w-8 sm:h-9 sm:w-auto shrink-0 items-center justify-center gap-1.5 rounded-full px-0 sm:px-4 text-xs font-semibold text-white active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50';
+
+export const PH2_HEADER_PILL_AI =
+  'hry-btn-ai inline-flex h-8 w-8 sm:h-9 sm:w-auto shrink-0 items-center justify-center gap-1.5 rounded-full px-0 sm:px-3.5 text-xs font-semibold active:scale-[0.98]';
+
+/** Filter capsule above an opaque table — same stack as Leads. */
+export function Ph2FloatingFilterStack({
+  filter,
+  extras,
+  children,
+}: {
+  filter: React.ReactNode;
+  extras?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className={PH2_LIST_STACK_CLASS}>
+      <div className={PH2_TOOLBAR_ROW_CLASS}>{filter}</div>
+      {extras}
+      {children}
+    </div>
+  );
+}
 
 type Ph2ModulePageLayoutProps = {
   title: string;
   /** Icon inside the gradient tile (already sized, e.g. `<Briefcase className="h-5 w-5" />`). */
   icon: React.ReactNode;
+  subtitle?: string;
   actions?: React.ReactNode;
   children: React.ReactNode;
   /** Portals/drawers that should live inside `<main>` after the scroll region. */
@@ -52,12 +93,13 @@ type Ph2ModulePageLayoutProps = {
 };
 
 /**
- * Shared shell for CRM modules: viewport-locked column, indigo header,
- * content area that does not page-scroll (tables scroll inside their card).
+ * Shared shell for CRM modules: Leads-style aurora header, glass toolbar,
+ * and a table that scrolls inside its card.
  */
 export function Ph2ModulePageLayout({
   title,
   icon,
+  subtitle,
   actions,
   children,
   belowScroll,
@@ -65,14 +107,20 @@ export function Ph2ModulePageLayout({
   return (
     <div className="ph2-page-shell flex h-[calc(100dvh-3.5rem)] w-full min-w-0 max-w-full flex-col overflow-hidden text-slate-900">
       <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="flex min-h-0 shrink-0 flex-nowrap items-center justify-between gap-2 overflow-x-auto border-b border-indigo-100/50 bg-white/80 px-3 py-2 shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)] backdrop-blur-md sm:px-5">
+        <div className="hry-aurora" aria-hidden />
+        <header className={PH2_PAGE_HEADER_CLASS}>
           <div className={PH2_PAGE_HEADER_BRAND_CLASS}>
             <div className={PH2_PAGE_HEADER_ICON_TILE_CLASS}>{icon}</div>
-            <h1 className={PH2_PAGE_HEADER_TITLE_CLASS}>{title}</h1>
+            <div>
+              <h1 className={PH2_PAGE_HEADER_TITLE_CLASS}>{title}</h1>
+              {subtitle ? (
+                <p className="mt-1 hidden text-xs font-medium text-slate-500 sm:block">{subtitle}</p>
+              ) : null}
+            </div>
           </div>
-          {actions ? <div className="flex min-w-0 flex-wrap items-center gap-2">{actions}</div> : null}
+          {actions ? <div className="flex min-w-0 shrink-0 flex-nowrap items-center gap-1.5 overflow-x-auto sm:gap-2">{actions}</div> : null}
         </header>
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden px-2 py-2 sm:px-5 sm:py-4 lg:px-6">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden px-2 py-1.5 sm:px-3 sm:py-2 lg:px-4">
           {children}
         </div>
         {belowScroll}

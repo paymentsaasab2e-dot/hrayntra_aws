@@ -2,6 +2,7 @@
 
 import React, { useRef } from 'react';
 import {
+  PH2_DENSE_ROW_FIT,
   PH2_FIT_ROW_TABLE_CLASS,
   Ph2TableRefreshingOverlay,
   useFitVisibleTableRows,
@@ -54,7 +55,7 @@ export function ContactsTable({
   const show = isColumnVisible;
   const { format: formatLocationCell } = useFormatTableLocationCell();
   const tableRef = useRef<HTMLTableElement>(null);
-  useFitVisibleTableRows(tableRef, true, contacts.length);
+  useFitVisibleTableRows(tableRef, true, contacts.length, PH2_DENSE_ROW_FIT);
   const allSelected = contacts.length > 0 && contacts.every((contact) => selectedIds.has(contact.id));
   const someSelected = contacts.some((contact) => selectedIds.has(contact.id));
 
@@ -269,22 +270,27 @@ export function ContactsTable({
                     )}
                   </td>
                   <td className="px-3 py-2.5 sm:px-4">
-                    <div className="flex items-center gap-3">
+                    <div className="flex min-w-0 items-center gap-2">
                       <ImageWithFallback
                         src={contact.avatarUrl ?? undefined}
                         alt={`${contact.firstName} ${contact.lastName}`}
-                        className="w-9 h-9 rounded-full object-cover ring-2 ring-white shadow-sm"
+                        className="h-7 w-7 rounded-full object-cover ring-2 ring-white shadow-sm"
                         fallback={
-                          <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-semibold text-sm">
+                          <div className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-100 text-[10px] font-semibold text-blue-600">
                             {getInitials(contact)}
                           </div>
                         }
                       />
-                      <div>
-                        <p className="text-sm font-semibold text-slate-900">
+                      <div
+                        className="min-w-0 truncate"
+                        title={`${formatDirectorDisplay(contact.salutation, `${contact.firstName} ${contact.lastName}`.trim())} · ${visibleContactEmail(contact.email, '—')}`}
+                      >
+                        <span className="text-[13px] font-semibold leading-none text-slate-900">
                           {formatDirectorDisplay(contact.salutation, `${contact.firstName} ${contact.lastName}`.trim())}
-                        </p>
-                        <p className="text-xs text-slate-500 mt-0.5">{visibleContactEmail(contact.email, '—')}</p>
+                        </span>
+                        <span className="ml-1.5 text-[11px] font-medium text-slate-400">
+                          {visibleContactEmail(contact.email, '—')}
+                        </span>
                       </div>
                     </div>
                   </td>

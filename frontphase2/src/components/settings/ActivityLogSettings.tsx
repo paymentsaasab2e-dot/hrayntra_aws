@@ -19,7 +19,7 @@ import { usePermissions } from '../../hooks/usePermissions';
 import {
   PH2_TABLE_BODY_SCROLL_CLASS,
   PH2_TABLE_CARD_CLASS,
-  PH2_TOOLBAR_ROW_CLASS,
+  Ph2FloatingFilterStack,
 } from '../layout/Ph2ModulePageLayout';
 import { DRAWER_PANEL_WIDTH_CLASS } from '../drawers/drawerLayout';
 import {
@@ -269,8 +269,9 @@ export function ActivityLogSettings() {
         }
       />
 
-      <div className={`${PH2_TABLE_CARD_CLASS} flex min-h-0 flex-col`}>
-        <div className={PH2_TOOLBAR_ROW_CLASS}>
+      <Ph2FloatingFilterStack
+        filter={
+          <>
           <div className="relative w-full lg:max-w-md">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input
@@ -278,14 +279,16 @@ export function ActivityLogSettings() {
               placeholder="Search name or email…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="h-9 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-xs text-slate-800 shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)] placeholder:text-slate-400 focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/25"
+              className="h-9 w-full rounded-full border border-white/70 bg-white/85 pl-10 pr-3 text-xs text-slate-800 placeholder:text-slate-400 transition-all duration-200 focus:border-[#3867FF]/40 focus:outline-none focus:ring-2 focus:ring-[#3867FF]/20"
             />
           </div>
-          <span className="text-[11px] font-medium text-slate-500 whitespace-nowrap">
+          <span className="whitespace-nowrap text-[11px] font-medium text-slate-500">
             {loading ? 'Loading…' : `${members.length} member${members.length === 1 ? '' : 's'}`}
           </span>
-        </div>
-
+          </>
+        }
+      >
+      <div className={`${PH2_TABLE_CARD_CLASS} flex min-h-0 flex-col`}>
         <div className={`${PH2_TABLE_BODY_SCROLL_CLASS} max-h-[min(60vh,520px)]`}>
             {loading ? (
               <div className="flex items-center justify-center py-16 text-slate-400">
@@ -376,6 +379,7 @@ export function ActivityLogSettings() {
             )}
           </div>
       </div>
+      </Ph2FloatingFilterStack>
 
       {portalMounted && typeof document !== 'undefined'
         ? createPortal(

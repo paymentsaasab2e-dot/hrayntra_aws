@@ -300,7 +300,7 @@ export const CredentialsTab: React.FC = () => {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
-      <div className={`${PH2_TOOLBAR_ROW_CLASS} rounded-xl border border-indigo-100/60`}>
+      <div className={PH2_TOOLBAR_ROW_CLASS}>
         <div className="grid w-full grid-cols-1 gap-3 md:grid-cols-2">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-slate-400" />

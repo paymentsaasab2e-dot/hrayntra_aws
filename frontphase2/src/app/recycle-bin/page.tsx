@@ -63,6 +63,7 @@ import {
   PH2_TABLE_CLASS,
   PH2_TOOLBAR_FILTERS_CLASS,
   PH2_TOOLBAR_ROW_CLASS,
+  PH2_CLEAR_FILTER_CLASS,
 } from '../../components/layout/Ph2ModulePageLayout';
 import { TableAuditColumnHeader, TableAuditCell } from '../../components/table/TableAuditCell';
 import { extractAuditMeta } from '../../utils/auditMeta';
@@ -77,7 +78,7 @@ const RB_TABLE_BODY_ROW =
   'transition-colors duration-200 even:bg-slate-50/35 hover:bg-indigo-50/45';
 
 const RB_SEARCH_INPUT_CLASS =
-  'h-9 w-full rounded-xl border border-indigo-100/90 bg-white/95 pl-10 pr-3 text-xs text-slate-800 shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)] placeholder:text-slate-400 transition-all focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/30';
+  'h-9 w-full rounded-full border border-white/70 bg-white/85 pl-10 pr-3 text-xs text-slate-800 placeholder:text-slate-400 transition-all duration-200 focus:border-[#3867FF]/40 focus:outline-none focus:ring-2 focus:ring-[#3867FF]/20';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -667,8 +668,7 @@ export default function RecycleBinPage() {
 
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 py-4 sm:px-5 sm:py-6 lg:px-6">
           <div className="mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col overflow-hidden">
-            <div className={`${PH2_TABLE_CARD_CLASS} mb-4 !flex-none shrink-0`}>
-              <div className={PH2_TOOLBAR_ROW_CLASS}>
+            <div className={PH2_TOOLBAR_ROW_CLASS}>
                 <div className="relative w-52 shrink-0 sm:w-64">
                   <Search
                     className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-indigo-400"
@@ -688,7 +688,7 @@ export default function RecycleBinPage() {
                     <button
                       type="button"
                       onClick={() => setSearchQuery('')}
-                      className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700"
+                      className={PH2_CLEAR_FILTER_CLASS}
                     >
                       <XCircle size={15} className="shrink-0 text-rose-500" strokeWidth={2.35} />
                       Clear
@@ -698,7 +698,6 @@ export default function RecycleBinPage() {
                     Total in bin: <span className="font-semibold text-slate-800">{totalDeleted}</span>
                   </span>
                 </div>
-              </div>
             </div>
 
             <div className={`${PH2_TABLE_BODY_SCROLL_CLASS} space-y-4`}>

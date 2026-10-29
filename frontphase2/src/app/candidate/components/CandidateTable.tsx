@@ -37,6 +37,7 @@ import {
   SUBMIT_TO_CLIENT_STAGE_OPTION_VALUE,
 } from '../../../lib/candidateSubmitToClient';
 import {
+  PH2_DENSE_ROW_FIT,
   PH2_FIT_ROW_TABLE_CLASS,
   useFitVisibleTableRows,
 } from '../../../components/layout/ph2FitVisibleTableRows';
@@ -355,7 +356,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = React.memo(({
   const show = isColumnVisible;
   const { format: formatLocationCell } = useFormatTableLocationCell();
   const tableRef = useRef<HTMLTableElement>(null);
-  useFitVisibleTableRows(tableRef, compact, candidates.length);
+  useFitVisibleTableRows(tableRef, true, candidates.length, PH2_DENSE_ROW_FIT);
 
   return (
     <div
@@ -374,9 +375,7 @@ export const CandidateTable: React.FC<CandidateTableProps> = React.memo(({
       >
         <table
           ref={tableRef}
-          className={`w-max min-w-full border-collapse text-left ${
-            compact ? PH2_FIT_ROW_TABLE_CLASS : ''
-          }`}
+          className={`w-max min-w-full border-collapse text-left ${PH2_FIT_ROW_TABLE_CLASS}`}
         >
           <thead className="sticky top-0 z-10">
             <tr className="border-b border-indigo-100/60 bg-gradient-to-r from-slate-50 via-indigo-50/55 to-violet-50/40 text-xs font-bold uppercase tracking-[0.06em] text-indigo-950/70 backdrop-blur-md">
@@ -444,12 +443,12 @@ export const CandidateTable: React.FC<CandidateTableProps> = React.memo(({
                   </td>
                 ) : null}
                 <td className="px-3 py-3 sm:px-4 sm:py-3.5">
-                    <div className={`flex items-center ${compact ? 'gap-2' : 'gap-3'}`}>
+                    <div className="flex items-center gap-2">
                     <div className="relative">
                       <ImageWithFallback
                         src={candidate.avatar || ''}
                         fallbackInitials={initialsFromDisplayName(candidate.name)}
-                        className={`${compact ? 'h-7 w-7' : 'h-10 w-10'} rounded-full object-cover ring-2 ring-white shadow-sm shadow-indigo-500/10`}
+                        className="h-7 w-7 rounded-full object-cover ring-2 ring-white shadow-sm shadow-indigo-500/10"
                         alt={candidate.name}
                       />
                       <div
@@ -480,15 +479,12 @@ export const CandidateTable: React.FC<CandidateTableProps> = React.memo(({
                 {showMatchScore ? (
                   <td className="px-3 py-3 text-center sm:px-4 sm:py-3.5">
                     {(candidate.matchScore ?? 0) > 0 ? (
-                      <div className="flex flex-col items-center gap-1">
+                      <div className="flex items-center justify-center">
                         <span
-                          className={`inline-flex min-w-[2.85rem] items-center justify-center rounded-full px-2.5 py-1 text-xs font-medium tabular-nums shadow-sm ${scoreBadgeClass(candidate.matchScore ?? 0)}`}
+                          className={`inline-flex min-w-[2.85rem] items-center justify-center rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums shadow-sm ${scoreBadgeClass(candidate.matchScore ?? 0)}`}
+                          title={candidate.matchScoreBand || displayMatchBand(candidate.matchScore ?? 0)}
                         >
                           {candidate.matchScore}%
-                        </span>
-                        <span className="max-w-[5.5rem] truncate text-xs font-normal uppercase tracking-wide text-slate-400">
-                          {candidate.matchScoreBand ||
-                            displayMatchBand(candidate.matchScore ?? 0)}
                         </span>
                       </div>
                     ) : (

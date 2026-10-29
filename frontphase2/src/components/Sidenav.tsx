@@ -10,6 +10,7 @@ import { useUser } from '../hooks/useUser';
 import { NavItem, NavGroupFlyout } from './sidenavParts/NavItems';
 
 import { PageErrorBoundary } from './PageErrorBoundary';
+import { dashTextFont } from '../lib/dashTypeFonts';
 import {
   apiGetUnifiedCalendar,
   apiGetLeads,
@@ -74,7 +75,7 @@ const SectionLabel = ({ label, collapsed }: { label: string; collapsed: boolean 
   if (collapsed) return <div className="h-px bg-white/8 my-3 mx-3" />;
   return (
     <div className="px-4 mt-5 mb-1.5">
-      <span className="text-[9px] font-bold uppercase tracking-[0.12em] text-[#4A6070]">{label}</span>
+      <span className="text-[9px] font-medium uppercase tracking-[0.1em] text-[#6B7C8C]">{label}</span>
     </div>
   );
 };
@@ -102,6 +103,8 @@ interface SidenavProps {
 
 function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [narrowViewport, setNarrowViewport] = useState(false);
+  const userPinnedSidenavRef = useRef(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [notificationDrawerOpen, setNotificationDrawerOpen] = useState(false);
@@ -392,6 +395,23 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
       ignore = true;
     };
   }, [mounted]);
+
+  useEffect(() => {
+    const applyNarrowLayout = () => {
+      const narrow = window.innerWidth < 1280;
+      setNarrowViewport(narrow);
+      if (userPinnedSidenavRef.current) return;
+      setIsCollapsed(narrow);
+    };
+    applyNarrowLayout();
+    window.addEventListener('resize', applyNarrowLayout);
+    return () => window.removeEventListener('resize', applyNarrowLayout);
+  }, []);
+
+  const setCollapsedFromUser = (value: boolean | ((prev: boolean) => boolean)) => {
+    userPinnedSidenavRef.current = true;
+    setIsCollapsed(value);
+  };
 
   useEffect(() => {
     const syncSidenavWidth = () => {
@@ -756,12 +776,12 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
   };
 
   return (
-    <>
+    <div className={`hry-premium min-h-screen bg-[#EEF2FF] ${dashTextFont}`}>
       <AppShellHeader
         mobileNavOpen={mobileNavOpen}
         setMobileNavOpen={setMobileNavOpen}
         isCollapsed={isCollapsed}
-        setIsCollapsed={setIsCollapsed}
+        setIsCollapsed={setCollapsedFromUser}
         mounted={mounted}
         notificationCount={notificationCount}
         setNotificationDrawerOpen={setNotificationDrawerOpen}
@@ -951,7 +971,7 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
             ) : orgSubscriptionPlan?.isTrial ? (
               <div className="mb-3 rounded-lg p-2.5 bg-emerald-400/8 border border-emerald-400/15">
                 <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">
+                  <span className="text-[10px] font-medium uppercase tracking-wider text-emerald-400">
                     {isTrialExpired(orgSubscriptionPlan) ? 'Trial ended' : 'Trial'}
                   </span>
                   <span className="text-[10px] text-emerald-400/70">
@@ -960,7 +980,7 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
                       : `${getTrialDaysRemaining(orgSubscriptionPlan) ?? '—'} days left`}
                   </span>
                 </div>
-                <div className="text-sm font-bold text-emerald-300 truncate">
+                <div className="truncate text-xs font-medium text-emerald-300">
                   {orgSubscriptionPlan.name || orgPlanName || 'Starter Trial'}
                 </div>
                 <div className="mt-1 text-[10px] text-emerald-300/80">
@@ -983,10 +1003,10 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
             ) : orgPlanName ? (
               <div className="hry-plan-card mb-3 rounded-xl border border-white/12 bg-white/[0.06] p-2.5 backdrop-blur-md">
                 <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-sky-400">Active Plan</span>
+                  <span className="text-[10px] font-medium uppercase tracking-wider text-sky-400">Active Plan</span>
                   <span className="text-[10px] text-sky-400/70">Live</span>
                 </div>
-                <div className="text-sm font-bold text-sky-300 truncate">{orgPlanName}</div>
+                <div className="truncate text-xs font-medium text-sky-300">{orgPlanName}</div>
                 {orgPlanUsage ? (
                   <div className="mt-1 text-[10px] text-sky-300/80">
                     {orgPlanUsage.maxUsers == null
@@ -1005,7 +1025,7 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
             ) : (
               <div className="mb-3 rounded-lg p-2.5 bg-emerald-400/8 border border-emerald-400/15">
                 <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">Free Trial</span>
+                  <span className="text-[10px] font-medium uppercase tracking-wider text-emerald-400">Free Trial</span>
                   <span className="text-[10px] text-emerald-400/70">Upgrade available</span>
                 </div>
                 <div className="h-1 bg-white/10 rounded-full overflow-hidden">
@@ -1037,7 +1057,7 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
             />
             {!navCollapsed && (
               <div className="min-w-0 flex-1">
-                <p className="text-[11px] font-semibold text-white truncate">{profile.name}</p>
+                <p className="truncate text-[11px] font-medium text-white">{profile.name}</p>
                 {profile.companyName ? (
                   <p className="text-[9px] text-slate-300 truncate">{profile.companyName}</p>
                 ) : null}
@@ -1070,13 +1090,13 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
         isOpen={notificationDrawerOpen}
         onClose={() => setNotificationDrawerOpen(false)}
       />
-    </>
+    </div>
   );
 }
 
 function SidenavShellFallback({ children }: { children?: React.ReactNode }) {
   return (
-    <>
+    <div className={`hry-premium min-h-screen bg-[#EEF2FF] ${dashTextFont}`}>
       <div
         className="fixed inset-x-0 z-50 h-14 top-[var(--ph2-impersonation-banner-h,0px)]"
         style={{ backgroundColor: 'var(--hry-navy, #0b1220)' }}
@@ -1085,7 +1105,7 @@ function SidenavShellFallback({ children }: { children?: React.ReactNode }) {
       <div className="ph2-main-surface min-h-screen min-w-0 max-w-full pt-[calc(3.5rem+var(--ph2-impersonation-banner-h,0px))]">
         {children}
       </div>
-    </>
+    </div>
   );
 }
 

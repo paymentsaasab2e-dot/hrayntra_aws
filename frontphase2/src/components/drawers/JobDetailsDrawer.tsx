@@ -557,7 +557,12 @@ const pipelineStageCountCards = useMemo(() => {
     if (!stillExists) setCandidatesStageFilterId('all');
   }, [candidatesStageFilterId, pipelineStageCountCards]);
 
-  return (
+  const [portalReady, setPortalReady] = useState(false);
+  useEffect(() => {
+    setPortalReady(true);
+  }, []);
+
+  const drawerTree = (
     <>
     <AnimatePresence>
       {isOpen ? (
@@ -1000,5 +1005,8 @@ const pipelineStageCountCards = useMemo(() => {
     />
     </>
   );
+
+  if (!portalReady || typeof document === 'undefined') return drawerTree;
+  return createPortal(drawerTree, document.body);
 }
 

@@ -80,7 +80,9 @@ export const inboxController = {
         req.user,
         req.params.messageId,
         req.body?.attachmentId || req.body?.id || req.params.attachmentId,
-        req.body?.filename
+        req.body?.filename,
+        req.body?.jobIds,
+        req
       );
       sendResponse(
         res,
@@ -165,7 +167,10 @@ export const inboxController = {
       const result = await inboxService.importOutlookAttachmentAsCandidate(
         req.user,
         req.params.messageId,
-        req.body?.attachmentId || req.params.attachmentId
+        req.body?.attachmentId || req.params.attachmentId,
+        req.body?.filename,
+        req.body?.jobIds,
+        req
       );
       sendResponse(
         res,

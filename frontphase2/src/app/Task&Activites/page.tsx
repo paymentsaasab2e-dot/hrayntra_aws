@@ -70,8 +70,8 @@ import {
   PH2_TABLE_BODY_SCROLL_CLASS,
   PH2_TABLE_CARD_CLASS,
   PH2_TABLE_CARD_FOOTER_CLASS,
-  PH2_TOOLBAR_ROW_CLASS,
   PH2_TOOLBAR_SELECT_CLASS,
+  Ph2FloatingFilterStack,
 } from '../../components/layout/Ph2ModulePageLayout';
 import { ShowSummaryCardsButton } from '../../components/layout/ShowSummaryCardsButton';
 import { SummaryCardSkeleton, type SummaryCardColor } from '../../components/ui/SummaryCard';
@@ -1332,9 +1332,9 @@ export default function App() {
               ) : null}
 
           {/* Main Content */}
+          <Ph2FloatingFilterStack filter={tasksToolbar}>
           {view === 'list' ? (
             <div className={PH2_TABLE_CARD_CLASS}>
-              <div className={PH2_TOOLBAR_ROW_CLASS}>{tasksToolbar}</div>
               <div className={PH2_TABLE_BODY_SCROLL_CLASS}>
               {(() => {
                 const show = taskColumnVisibility.isVisible;
@@ -1545,7 +1545,6 @@ export default function App() {
             </div>
           ) : (
             <div className={PH2_TABLE_CARD_CLASS}>
-              <div className={PH2_TOOLBAR_ROW_CLASS}>{tasksToolbar}</div>
               <div className={PH2_TABLE_BODY_SCROLL_CLASS}>
               <CalendarView
                 tasks={filteredTasks}
@@ -1555,6 +1554,7 @@ export default function App() {
               </div>
             </div>
           )}
+          </Ph2FloatingFilterStack>
             </div>
           </div>
       </main>

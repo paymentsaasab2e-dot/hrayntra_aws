@@ -140,11 +140,12 @@ import { useWorkspaceEntityAlerts } from '../../hooks/useWorkspaceEntityAlerts';
 import { TableSkeleton } from '../../components/ui/Skeleton';
 import { AiCoinLockBadge, useAiCoinGate } from '../../components/coins/AiCoinGate';
 import {
+  PH2_CLEAR_FILTER_CLASS,
   PH2_TABLE_BODY_SCROLL_CLASS,
   PH2_TABLE_CARD_CLASS,
   PH2_TABLE_CARD_FOOTER_CLASS,
   PH2_TOOLBAR_FILTERS_CLASS,
-  PH2_TOOLBAR_ROW_CLASS,
+  Ph2FloatingFilterStack,
 } from '../../components/layout/Ph2ModulePageLayout';
 import { Ph2TableRefreshingOverlay } from '../../components/layout/ph2FitVisibleTableRows';
 import {
@@ -452,7 +453,7 @@ export function CandidateListPage() {
         <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
           <header className="flex min-h-0 shrink-0 flex-nowrap items-center justify-between gap-2 overflow-x-auto border-b border-indigo-100/50 bg-white/80 px-3 py-2 shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)] backdrop-blur-md sm:px-5">
             <div className="flex items-center gap-2.5 sm:gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-500 via-blue-600 to-indigo-600 text-white shadow-lg shadow-indigo-500/30 ring-1 ring-white/20">
+              <div className="hry-title-icon flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-white ring-1 ring-white/30">
                 <Users className="h-5 w-5" strokeWidth={2.2} />
               </div>
               <div>
@@ -544,7 +545,7 @@ export function CandidateListPage() {
                 title="Export candidates to CSV"
               >
                 <Download size={16} className="text-indigo-600" strokeWidth={2.25} />
-                <span>Export</span>
+                <span className="hidden sm:inline">Export</span>
               </button>
               {canCreateCandidate ? (
                 <button
@@ -607,7 +608,7 @@ export function CandidateListPage() {
                     ) : (
                       <Sparkles size={14} className="text-violet-600" strokeWidth={2.25} />
                     )}
-                    <span>Create with AI</span>
+                    <span className="hidden sm:inline">Create with AI</span>
                     <AiCoinLockBadge featureId="ai.candidate_chat" />
                   </button>
                   <button
@@ -629,7 +630,7 @@ export function CandidateListPage() {
                       className={createCandidateMode === 'manual' ? 'text-white' : 'text-indigo-500'}
                       strokeWidth={2.5}
                     />
-                    <span>Create Manually</span>
+                    <span className="hidden sm:inline">Create Manually</span>
                   </button>
                 </div>
               ) : null}
@@ -639,8 +640,9 @@ export function CandidateListPage() {
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-2 py-2 sm:px-4 sm:py-3 lg:px-5">
             <div className="mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col overflow-hidden">
 
-              <div className={PH2_TABLE_CARD_CLASS}>
-                <div className="flex shrink-0 items-center gap-2 border-b border-indigo-100/80 bg-gradient-to-r from-indigo-50/90 via-white to-slate-50/80 px-3 sm:px-4">
+              <Ph2FloatingFilterStack
+                filter={
+                  <>
                   {phase1CommonPoolEnabled ? (
                     <button
                       type="button"
@@ -667,13 +669,6 @@ export function CandidateListPage() {
                   >
                     My candidates
                   </button>
-                  <p className="ml-auto truncate py-2 pr-1 text-[11px] text-slate-500">
-                    {loading || tableLoading
-                      ? 'Loading…'
-                      : `${totalEntries.toLocaleString()} candidates`}
-                  </p>
-                </div>
-                <div className={`${PH2_TOOLBAR_ROW_CLASS} !flex-nowrap !p-1.5 sm:!p-2`}>
                   <div className={PH2_TOOLBAR_FILTERS_CLASS}>
                     <div className="relative w-44 shrink-0 sm:w-52">
                       <Search
@@ -691,7 +686,7 @@ export function CandidateListPage() {
                         autoCapitalize="off"
                         data-writing-assist="off"
                         data-enable-grammarly="false"
-                        className="h-9 w-full rounded-xl border border-indigo-100/90 bg-white/95 pl-10 pr-3 text-xs text-slate-800 shadow-[inset_0_1px_2px_rgba(15,23,42,0.04)] placeholder:text-slate-400 transition-all focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                        className="h-9 w-full rounded-full border border-white/70 bg-white/85 pl-10 pr-3 text-xs text-slate-800 placeholder:text-slate-400 transition-all duration-200 focus:border-[#3867FF]/40 focus:outline-none focus:ring-2 focus:ring-[#3867FF]/20"
                       />
             </div>
                     <SmartSearchToggleButton
@@ -712,22 +707,23 @@ export function CandidateListPage() {
                       onReset={candidateColumnVisibility.resetToDefault}
                       unlockedVisibleCount={candidateColumnVisibility.unlockedVisibleCount}
                     />
-                    <div className="flex shrink-0 items-center self-center xl:ml-auto">
                       {hasToolbarFilters ? (
                 <button
                           type="button"
-                          className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700"
+                          className={PH2_CLEAR_FILTER_CLASS}
                           onClick={handleClearToolbar}
                         >
                           <XCircle size={15} className="shrink-0 text-rose-500" strokeWidth={2.35} />
-                          Clear filters
+                          Clear
                 </button>
                       ) : null}
-            </div>
           </div>
-            </div>
-
+                  </>
+                }
+                extras={
+                  <>
                 {candidateSmartSearch.open ? (
+                  <div className="hry-glass mb-3 shrink-0 overflow-hidden rounded-2xl">
                   <SmartSearchPromptPanel
                     prompt={candidateSmartSearch.prompt}
                     onPromptChange={candidateSmartSearch.setPrompt}
@@ -739,6 +735,7 @@ export function CandidateListPage() {
                     applying={candidateSmartSearch.applying}
                     placeholder="e.g. React developers in Panvel interviewing on Accounts Assistant assigned to Himanshu"
                   />
+                  </div>
                 ) : null}
 
                 <SmartSearchActiveKeywordsBar
@@ -747,7 +744,10 @@ export function CandidateListPage() {
                   resultCount={filteredCandidates.length}
                   showResultCount={!loading && !error}
                 />
-
+                  </>
+                }
+              >
+              <div className={PH2_TABLE_CARD_CLASS}>
                 {error ? (
                   <div className="p-10 text-center text-sm font-medium text-rose-600">Error: {error}</div>
                 ) : loading ? (
@@ -955,6 +955,7 @@ export function CandidateListPage() {
               </div>
             )}
             </div>
+            </Ph2FloatingFilterStack>
           </div>
         </div>
         </main>

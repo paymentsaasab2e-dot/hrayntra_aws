@@ -81,7 +81,7 @@ const PROVIDERS = {
   facebook: {
     label: 'Facebook',
     family: 'facebook',
-    scopes: ['email', 'pages_manage_posts', 'pages_read_engagement', 'public_profile'],
+    scopes: ['email', 'pages_show_list', 'pages_manage_posts', 'pages_read_engagement', 'public_profile'],
   },
 };
 
@@ -335,6 +335,72 @@ async function fetchFacebookProfile(accessToken) {
   const response = await fetch(url);
   if (!response.ok) return {};
   return response.json();
+}
+
+async function fetchFacebookPages(accessToken) {
+  const url = new URL('https://graph.facebook.com/v19.0/me/accounts');
+  url.searchParams.set('fields', 'id,name,access_token,category');
+  url.searchParams.set('access_token', accessToken);
+  const response = await fetch(url);
+  if (!response.ok) {
+    const errorBody = await response.text().catch(() => '');
+    console.warn('[integration] Facebook pages fetch failed:', response.status, errorBody);
+    return [];
+  }
+  const payload = await response.json();
+  return Array.isArray(payload?.data) ? payload.data.filter((page) => page?.id) : [];
+}
+
+function ownerDisplayName(user) {
+  if (!user) return null;
+  return (
+    String(user.name || '').trim() ||
+    [user.firstName, user.lastName].filter(Boolean).join(' ').trim() ||
+    String(user.email || '').trim() ||
+    null
+  );
+}
+
+function mapIntegrationRowToAccount(row, viewerUserId) {
+  const metadata = row?.metadata && typeof row.metadata === 'object' ? row.metadata : {};
+  const isPage = metadata.type === 'page' || metadata.accountType === 'page';
+  const ownerUser = row.user || null;
+  const ownerUserId = String(row.userId || ownerUser?.id || '').trim();
+  const name =
+    row.accountName ||
+    metadata.name ||
+    row.accountEmail ||
+    (isPage ? 'Company Page' : 'Account');
+  return {
+    id: row.id,
+    key: isPage ? `page:${row.accountId || row.id}` : String(row.accountId || row.id),
+    name,
+    accountName: name,
+    accountEmail: row.accountEmail || null,
+    type: isPage ? 'page' : 'personal',
+    connected: true,
+    expired: row.expiryDate ? new Date(row.expiryDate).getTime() < Date.now() : false,
+    ownerUserId: ownerUserId || null,
+    ownerName: ownerDisplayName(ownerUser),
+    isOwn: viewerUserId ? ownerUserId === String(viewerUserId) : true,
+  };
+}
+
+async function persistFacebookPages(userId, userAccessToken, parentAccountId = null) {
+  const pages = await fetchFacebookPages(userAccessToken);
+  for (const page of pages) {
+    await upsertIntegrationConnection(userId, 'facebook', {
+      accessToken: page.access_token || userAccessToken,
+      accountId: String(page.id),
+      accountName: page.name || `Facebook Page ${page.id}`,
+      metadata: {
+        type: 'page',
+        category: page.category || null,
+        parentAccountId: parentAccountId || null,
+      },
+    });
+  }
+  return pages;
 }
 
 async function persistLegacyConnections(userId, provider, tokens, profile, grantedScopes) {
@@ -684,6 +750,18 @@ export const integrationService = {
       }
 
       await persistLegacyConnections(userId, provider, tokens, profile, scope);
+
+      if (provider === 'facebook' && tokens?.access_token) {
+        try {
+          await persistFacebookPages(
+            userId,
+            tokens.access_token,
+            profile?.id || profile?.sub || null,
+          );
+        } catch (error) {
+          console.warn('[integration] Facebook company pages persist failed:', error?.message || error);
+        }
+      }
     };
 
     if (tenantDbName) {
@@ -773,6 +851,78 @@ export const integrationService = {
     }));
   },
 
+  /**
+   * Tenant-wide Twitter/Facebook accounts (personal + company pages) so teammates
+   * see the same job-posting connections on Communication settings.
+   */
+  async getTenantSocialAccounts(viewerUserId) {
+    const rows = await prisma.integrationConnection.findMany({
+      where: { provider: { in: ['twitter', 'facebook'] } },
+      include: {
+        user: {
+          select: { id: true, name: true, firstName: true, lastName: true, email: true, isActive: true },
+        },
+      },
+      orderBy: { connectedAt: 'desc' },
+    });
+
+    const activeRows = rows.filter((row) => row.user?.isActive !== false);
+
+    const facebookPersonals = activeRows.filter((row) => {
+      if (row.provider !== 'facebook') return false;
+      const metadata = row.metadata && typeof row.metadata === 'object' ? row.metadata : {};
+      return metadata.type !== 'page' && metadata.accountType !== 'page';
+    });
+    const hasPageForUser = new Set(
+      activeRows
+        .filter((row) => {
+          if (row.provider !== 'facebook') return false;
+          const metadata = row.metadata && typeof row.metadata === 'object' ? row.metadata : {};
+          return metadata.type === 'page' || metadata.accountType === 'page';
+        })
+        .map((row) => String(row.userId)),
+    );
+
+    let didPersistPages = false;
+    for (const row of facebookPersonals) {
+      if (hasPageForUser.has(String(row.userId))) continue;
+      const token = dec(row.accessToken);
+      if (!token) continue;
+      try {
+        const pages = await persistFacebookPages(row.userId, token, row.accountId);
+        if (pages.length) {
+          hasPageForUser.add(String(row.userId));
+          didPersistPages = true;
+        }
+      } catch (error) {
+        console.warn('[integration] Facebook company pages refresh failed:', error?.message || error);
+      }
+    }
+
+    const refreshed = didPersistPages
+      ? (
+          await prisma.integrationConnection.findMany({
+            where: { provider: { in: ['twitter', 'facebook'] } },
+            include: {
+              user: {
+                select: { id: true, name: true, firstName: true, lastName: true, email: true, isActive: true },
+              },
+            },
+            orderBy: { connectedAt: 'desc' },
+          })
+        ).filter((row) => row.user?.isActive !== false)
+      : activeRows;
+
+    const twitter = [];
+    const facebook = [];
+    for (const row of refreshed) {
+      const account = mapIntegrationRowToAccount(row, viewerUserId);
+      if (row.provider === 'twitter') twitter.push(account);
+      if (row.provider === 'facebook') facebook.push(account);
+    }
+    return { twitter, facebook };
+  },
+
   async getStatuses(userId) {
     const rows = await prisma.integrationConnection.findMany({
       where: { userId, provider: { in: STATUS_PROVIDERS } },
@@ -849,12 +999,8 @@ export const integrationService = {
         scope: Array.isArray(primary?.scope) ? primary.scope : [],
         expiresAt: primary?.expiryDate?.toISOString() || null,
         accounts: providerRows.map((row) => ({
-          id: row.id,
-          key: row.id,
+          ...mapIntegrationRowToAccount(row, userId),
           accountId: row.accountId || row.id,
-          accountEmail: row.accountEmail || undefined,
-          accountName: row.accountName || undefined,
-          connected: true,
           expiresAt: row.expiryDate?.toISOString() || null,
         })),
       };
