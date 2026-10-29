@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
+import { PortalToBody } from '../drawers/PortalToBody';
 import { Cloud, Link2, Upload, X } from 'lucide-react';
 import type { Interview } from '../../types/interview.types';
 
@@ -26,6 +27,7 @@ export function UploadRecordingModal({ isOpen, interview, onClose, onAttach }: U
   }, [isOpen]);
 
   return (
+    <PortalToBody>
     <AnimatePresence>
       {isOpen && interview ? (
         <div className="fixed inset-0 z-[120]">
@@ -112,5 +114,6 @@ export function UploadRecordingModal({ isOpen, interview, onClose, onAttach }: U
         </div>
       ) : null}
     </AnimatePresence>
+    </PortalToBody>
   );
 }

@@ -745,7 +745,10 @@ async function collectTagSuggestions() {
  * HTTP request. Returns the data envelope the bulk UI expects.
  */
 async function runBulkCvFilePipeline({ file, fileIndex, sessionId, userId, candidateIdForUpload, tenantDbName, jobId }) {
-      const stage4 = await runCvPipelineThroughStage4(file, { verboseLogs: false });
+      const stage4 = await runCvPipelineThroughStage4(file, {
+        verboseLogs: false,
+        skipProfilePhoto: true,
+      });
       const fb = stage4.fallbackData || {};
       const dup = await findExistingCandidateDuplicate({
         email: fb.email,

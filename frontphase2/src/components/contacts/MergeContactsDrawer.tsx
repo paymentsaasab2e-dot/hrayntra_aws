@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import { X } from 'lucide-react';
 import { toast } from 'sonner';
@@ -21,6 +22,10 @@ export function MergeContactsDrawer({
   primaryContact,
   duplicateContact,
 }: MergeContactsDrawerProps) {
+  const [portalReady, setPortalReady] = useState(false);
+  useEffect(() => {
+    setPortalReady(true);
+  }, []);
   const [selectedFields, setSelectedFields] = useState<Record<string, 'primary' | 'duplicate'>>({});
   const [isMerging, setIsMerging] = useState(false);
 
@@ -69,23 +74,29 @@ export function MergeContactsDrawer({
     { key: 'linkedinUrl', label: 'LinkedIn' },
   ];
 
-  return (
+  const drawerTree = (
     <AnimatePresence>
       {isOpen && (
-        <>
+        <motion.div
+          key="merge-contacts-shell"
+          className="pointer-events-none fixed inset-0 z-[90]"
+          initial={{ opacity: 1 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 1 }}
+        >
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-0 z-[90] bg-slate-900/40"
+            className="pointer-events-auto absolute inset-0 bg-slate-900/40"
           />
           <motion.aside
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
             transition={{ type: 'tween', duration: 0.25 }}
-            className="fixed right-0 top-0 z-[100] flex h-full w-3/4 max-w-6xl flex-col bg-white shadow-2xl border-l border-slate-200"
+            className="pointer-events-auto absolute right-0 top-0 flex h-full w-3/4 max-w-6xl flex-col bg-white shadow-2xl border-l border-slate-200"
           >
             <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
               <h2 className="text-lg font-semibold text-gray-900">Merge Contacts</h2>
@@ -165,8 +176,11 @@ export function MergeContactsDrawer({
               </button>
             </div>
           </motion.aside>
-        </>
+        </motion.div>
       )}
     </AnimatePresence>
   );
+
+  if (!portalReady || typeof document === 'undefined') return null;
+  return createPortal(drawerTree, document.body);
 }

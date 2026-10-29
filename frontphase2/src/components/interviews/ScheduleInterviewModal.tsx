@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import { Clock, Plus, X } from 'lucide-react';
 import { PanelAssignmentModal } from './PanelAssignmentModal';
@@ -82,6 +83,10 @@ export function ScheduleInterviewModal({
     isOpen,
     onClose,
   });
+  const [portalReady, setPortalReady] = useState(false);
+  useEffect(() => {
+    setPortalReady(true);
+  }, []);
   const [showPanelModal, setShowPanelModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   /** New schedules start fully empty so the recruiter doesn't think a previous interview leaked through. */
@@ -207,12 +212,18 @@ export function ScheduleInterviewModal({
     }
   }, [selectedJob?.clientId]);
 
-  return (
+  const drawerTree = (
     <AnimatePresence>
       {isOpen ? (
-        <>
+        <motion.div
+          key="schedule-interview-shell"
+          className="pointer-events-none fixed inset-0 z-[155]"
+          initial={{ opacity: 1 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 1 }}
+        >
           <div
-            className="fixed inset-0 z-[155] bg-slate-900/50"
+            className="pointer-events-auto absolute inset-0 bg-slate-900/50"
             onClick={() => void requestClose()}
             data-drawer-skip-dirty="true"
           />
@@ -222,7 +233,7 @@ export function ScheduleInterviewModal({
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
             transition={{ type: 'tween', duration: 0.25 }}
-            className="fixed right-0 top-0 z-[160] flex h-full w-3/4 max-w-6xl flex-col bg-white shadow-2xl border-l border-slate-200"
+            className="pointer-events-auto absolute right-0 top-0 flex h-full w-3/4 max-w-6xl flex-col bg-white shadow-2xl border-l border-slate-200"
           >
             <div className="flex items-center justify-between border-b border-[#E5E7EB] px-6 py-4">
               <div>
@@ -633,8 +644,11 @@ export function ScheduleInterviewModal({
               setShowPanelModal(false);
             }}
           />
-        </>
+        </motion.div>
       ) : null}
     </AnimatePresence>
   );
+
+  if (!portalReady || typeof document === 'undefined') return null;
+  return createPortal(drawerTree, document.body);
 }

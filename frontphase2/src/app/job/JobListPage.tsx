@@ -1425,6 +1425,7 @@ export function JobListPage() {
 
       {canCreateJob && jobAiWizardOpen ? (
       <JobAiCreateWizard
+        key={createJobMode}
         isOpen
         mode={createJobMode}
         onClose={() => setJobAiWizardOpen(false)}

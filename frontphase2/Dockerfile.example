@@ -24,6 +24,8 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3001
+ENV HOSTNAME=0.0.0.0
+ENV NODE_OPTIONS=--max-old-space-size=2048
 # Headless LibreOffice converts DOCX→PDF when Microsoft Word is unavailable.
 # Metric-compatible fonts (Carlito≈Calibri, Caladea≈Cambria, Liberation≈Arial/Times)
 # are required or multi-column resumes reflow badly.

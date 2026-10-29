@@ -58,6 +58,7 @@ import {
 import { usePageAutoRefresh } from '../../hooks/usePageAutoRefresh';
 import { InboxComposePanel, type InboxComposeValues } from '../../components/inbox/InboxComposePanel';
 import { InboxAssignJobsModal } from '../../components/inbox/InboxAssignJobsModal';
+import { PortalToBody } from '../../components/drawers/PortalToBody';
 import {
   clearInboxComposeDraftStorage,
   readInboxComposeDraft,
@@ -113,6 +114,20 @@ function getMailTab(subject = '', sender = ''): MailTab {
 function getAvatarLabel(name?: string) {
   const parts = String(name || 'Gmail').trim().split(/\s+/);
   return parts.slice(0, 2).map((part) => part[0]?.toUpperCase() || '').join('') || 'GM';
+}
+
+function isInboxResumeAttachment(attachment: InboxMailAttachment) {
+  if (attachment?.isResume) return true;
+  const name = String(attachment?.filename || '').trim().toLowerCase();
+  const mime = String(attachment?.mimeType || '').trim().toLowerCase();
+  return (
+    name.endsWith('.pdf') ||
+    name.endsWith('.doc') ||
+    name.endsWith('.docx') ||
+    mime === 'application/pdf' ||
+    mime === 'application/msword' ||
+    mime.includes('wordprocessingml.document')
+  );
 }
 
 function formatInboxFileSize(bytes = 0) {
@@ -987,35 +1002,8 @@ function MailDetail({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
-        {hasRenderableHtml ? (
-          <iframe
-            title={`mail-message-${email.id}`}
-            srcDoc={email.htmlBody}
-            sandbox="allow-popups allow-popups-to-escape-sandbox"
-            className="h-full min-h-[520px] w-full rounded-xl border border-[#dadce0] bg-white"
-          />
-        ) : (
-          <div className="whitespace-pre-wrap text-[14px] leading-7 text-[#202124]">
-            {linkifyPlainTextToReactNodes(email.body || email.preview || '').map((node, index) =>
-              typeof node === 'string' ? (
-                <React.Fragment key={`t-${index}`}>{node}</React.Fragment>
-              ) : (
-                <a
-                  key={`l-${index}`}
-                  href={node.href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="break-all text-[#1a73e8] underline"
-                >
-                  {node.label}
-                </a>
-              ),
-            )}
-          </div>
-        )}
-
         {email.hasAttachment || (email.attachments && email.attachments.length > 0) ? (
-          <div className="mt-8 rounded-2xl border border-[#dadce0] bg-[#f8f9fa] p-4">
+          <div className="mb-6 rounded-2xl border border-[#dadce0] bg-[#f8f9fa] p-4">
             <div className="mb-3 flex items-center gap-2 text-sm font-medium text-[#202124]">
               <Paperclip className="h-4 w-4 text-[#5f6368]" />
               Attachments
@@ -1028,6 +1016,7 @@ function MailDetail({
               <div className="space-y-3">
                 {email.attachments.map((attachment) => {
                   const importing = actionBusy === `import:${attachment.id}`;
+                  const resumeFile = isInboxResumeAttachment(attachment);
                   return (
                     <div
                       key={attachment.id}
@@ -1037,10 +1026,10 @@ function MailDetail({
                         <p className="truncate text-sm font-medium text-[#202124]">{attachment.filename}</p>
                         <p className="text-xs text-[#5f6368]">
                           {formatInboxFileSize(attachment.size)}
-                          {attachment.isResume ? ' · Resume' : ''}
+                          {resumeFile ? ' · Resume' : ''}
                         </p>
                       </div>
-                      {attachment.isResume ? (
+                      {resumeFile ? (
                         <div className="flex flex-wrap items-center justify-end gap-2">
                           <button
                             type="button"
@@ -1064,7 +1053,11 @@ function MailDetail({
                           <button
                             type="button"
                             disabled={Boolean(actionBusy)}
-                            onClick={() => onAssignJobs(email, attachment)}
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              onAssignJobs(email, attachment);
+                            }}
                             className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium disabled:cursor-not-allowed ${
                               importing && assigningJobs
                                 ? 'bg-[#1a73e8] text-white'
@@ -1089,6 +1082,34 @@ function MailDetail({
             )}
           </div>
         ) : null}
+
+        {hasRenderableHtml ? (
+          <iframe
+            title={`mail-message-${email.id}`}
+            srcDoc={email.htmlBody}
+            sandbox="allow-popups allow-popups-to-escape-sandbox"
+            className="min-h-[280px] w-full rounded-xl border border-[#dadce0] bg-white"
+            style={{ height: 'min(420px, 46vh)' }}
+          />
+        ) : (
+          <div className="whitespace-pre-wrap text-[14px] leading-7 text-[#202124]">
+            {linkifyPlainTextToReactNodes(email.body || email.preview || '').map((node, index) =>
+              typeof node === 'string' ? (
+                <React.Fragment key={`t-${index}`}>{node}</React.Fragment>
+              ) : (
+                <a
+                  key={`l-${index}`}
+                  href={node.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="break-all text-[#1a73e8] underline"
+                >
+                  {node.label}
+                </a>
+              ),
+            )}
+          </div>
+        )}
       </div>
 
       <div className="border-t border-[#dadce0] px-6 py-4">
@@ -1454,7 +1475,11 @@ export default function InboxPage() {
             : await apiGetGmailMessage(messageId);
         if (cancelled || !full) return;
         setEmails((current) =>
-          current.map((item) => (item.id === full.id ? { ...item, ...full } : item))
+          current.map((item) =>
+            item.id === full.id || item.id === messageId
+              ? { ...item, ...full, id: item.id }
+              : item
+          )
         );
       } catch {
         // Keep the list preview if the full message cannot be loaded.
@@ -1722,7 +1747,7 @@ export default function InboxPage() {
     });
 
   const handleOpenAssignJobs = (email: GmailInboxMessage, attachment: InboxMailAttachment) => {
-    if (detailActionBusy) return;
+    setDetailActionMessage('');
     setAssignTarget({ email, attachment });
   };
 
@@ -1805,6 +1830,7 @@ export default function InboxPage() {
   }
 
   return (
+    <>
     <div className="ph2-page-shell h-[calc(100dvh-3.5rem)] overflow-hidden bg-[#f6f8fc] text-[#202124]">
       <TopBar
         search={search}
@@ -1835,7 +1861,7 @@ export default function InboxPage() {
         <main className="flex min-w-0 flex-1 px-2 pb-4 pr-4">
           <div className="flex min-h-0 flex-1 overflow-hidden rounded-[24px] bg-white shadow-sm">
             {selectedEmail ? (
-              <div className="min-w-0 flex-1">
+              <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
                 <MailDetail
                   email={selectedEmail}
                   connectedEmail={connectedEmail}
@@ -1917,14 +1943,17 @@ export default function InboxPage() {
         </main>
       </div>
 
+    </div>
       {composeOpen ? (
-        <InboxComposePanel
-          key={composeKey}
-          provider={mailProvider}
-          fromEmail={connectedEmail || (mailProvider === 'outlook' ? outlookEmail : gmailEmail)}
-          initial={composeValues}
-          onClose={() => setComposeOpen(false)}
-        />
+        <PortalToBody>
+          <InboxComposePanel
+            key={composeKey}
+            provider={mailProvider}
+            fromEmail={connectedEmail || (mailProvider === 'outlook' ? outlookEmail : gmailEmail)}
+            initial={composeValues}
+            onClose={() => setComposeOpen(false)}
+          />
+        </PortalToBody>
       ) : null}
 
       <InboxAssignJobsModal
@@ -1933,6 +1962,6 @@ export default function InboxPage() {
         onClose={() => setAssignTarget(null)}
         onConfirm={handleConfirmAssignJobs}
       />
-    </div>
+    </>
   );
 }

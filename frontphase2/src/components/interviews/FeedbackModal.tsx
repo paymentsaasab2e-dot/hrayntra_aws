@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
+import { PortalToBody } from '../drawers/PortalToBody';
 import { Sparkles, Star, X } from 'lucide-react';
 import type { FeedbackPayload, Interview, Recommendation } from '../../types/interview.types';
 
@@ -74,6 +75,7 @@ export function FeedbackModal({ isOpen, interview, onClose, onSubmit }: Feedback
   };
 
   return (
+    <PortalToBody>
     <AnimatePresence>
       {isOpen && interview ? (
         <div className="fixed inset-0 z-[120]">
@@ -210,5 +212,6 @@ export function FeedbackModal({ isOpen, interview, onClose, onSubmit }: Feedback
         </div>
       ) : null}
     </AnimatePresence>
+    </PortalToBody>
   );
 }

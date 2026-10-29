@@ -7,7 +7,10 @@ import {
   BULK_CV_TOKENS_CHANGED,
   clearBulkCvTokenSession,
   computeBulkCvRouteCounts,
+  computeBulkCvTimingAverages,
   computeBulkCvTokenTotals,
+  formatCvParseTimingLine,
+  formatCvSeconds,
   getBulkCvTokenSession,
   isBillableCvTokenRecord,
   removeBulkCvTokenRecords,
@@ -124,6 +127,7 @@ export default function BulkCvTokensDrawer({ isOpen, onClose }: Props) {
 
   const totals = useMemo(() => computeBulkCvTokenTotals(records), [recordIdKey, records]);
   const routeCounts = useMemo(() => computeBulkCvRouteCounts(records), [recordIdKey, records]);
+  const timingAverages = useMemo(() => computeBulkCvTimingAverages(records), [recordIdKey, records]);
 
   const allSelected = records.length > 0 && selectedIds.length === records.length;
   const someSelected = selectedIds.length > 0 && !allSelected;
@@ -266,6 +270,25 @@ export default function BulkCvTokensDrawer({ isOpen, onClose }: Props) {
               {' · started '}
               {formatDateTimeDMY(session.startedAt)}
             </p>
+          ) : null}
+          {timingAverages.count > 0 ? (
+            <div className="mt-3 grid grid-cols-3 gap-2">
+              <div className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm">
+                <p className="text-[10px] font-semibold uppercase text-slate-600">Parse engine</p>
+                <p className="mt-0.5 text-lg font-bold text-slate-900">{formatCvSeconds(timingAverages.avgExtractMs)}</p>
+                <p className="text-[10px] text-slate-500">avg extract</p>
+              </div>
+              <div className="rounded-xl border border-violet-200 bg-white px-3 py-2.5 shadow-sm">
+                <p className="text-[10px] font-semibold uppercase text-violet-700">AI</p>
+                <p className="mt-0.5 text-lg font-bold text-violet-800">{formatCvSeconds(timingAverages.avgAiMs)}</p>
+                <p className="text-[10px] text-slate-500">avg LLM</p>
+              </div>
+              <div className="rounded-xl border border-indigo-200 bg-white px-3 py-2.5 shadow-sm">
+                <p className="text-[10px] font-semibold uppercase text-indigo-700">Total</p>
+                <p className="mt-0.5 text-lg font-bold text-indigo-800">{formatCvSeconds(timingAverages.avgTotalMs)}</p>
+                <p className="text-[10px] text-slate-500">avg per CV</p>
+              </div>
+            </div>
           ) : null}
         </div>
 
@@ -422,9 +445,14 @@ export default function BulkCvTokensDrawer({ isOpen, onClose }: Props) {
                           </p>
                         )}
 
-                        {row.durationMs > 0 && billable ? (
+                        {row.extractMs > 0 || row.aiMs > 0 || row.durationMs > 0 ? (
                           <p className="mt-2 text-[10px] text-slate-500">
-                            LLM ~{(row.durationMs / 1000).toFixed(1)}s
+                            {formatCvParseTimingLine({
+                              extractMs: row.extractMs,
+                              aiMs: row.aiMs || row.durationMs,
+                              totalMs: row.totalMs,
+                            })}
+                            {row.ocrUsed ? ' · OCR' : ''}
                           </p>
                         ) : null}
                         <button

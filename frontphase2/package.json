@@ -12,7 +12,7 @@
     "dev:clean": "npm run clean && next dev -p 3001",
     "build": "node --max-old-space-size=6144 ./node_modules/next/dist/bin/next build",
     "build:lowmem": "node --max-old-space-size=4096 ./node_modules/next/dist/bin/next build",
-    "start": "next start -p 3001",
+    "start": "next start -H 0.0.0.0 -p 3001",
     "lint": "next lint",
     "typecheck": "tsc --noEmit --incremental false"
   },

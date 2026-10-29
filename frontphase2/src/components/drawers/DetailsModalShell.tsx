@@ -1,6 +1,7 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, type Variants } from 'motion/react';
 
 export type DetailsModalSize = 'sm' | 'md' | 'lg';
@@ -85,26 +86,31 @@ export function DetailsModalShell({
   flushTop = false,
   fit = 'viewport',
 }: DetailsModalShellProps) {
+  const [portalReady, setPortalReady] = useState(false);
+  useEffect(() => {
+    setPortalReady(true);
+  }, []);
+
   const maxWidth = SIZE_MAX_WIDTH[size];
   const heightClass =
     fit === 'content'
       ? 'h-auto max-h-[min(90dvh,40rem)]'
       : 'h-[min(100dvh-16px,920px)] sm:h-[min(92vh,920px)]';
 
-  if (variant === 'main') {
-    const mainInset = {
-      top: flushTop
-        ? 'var(--ph2-impersonation-banner-h, 0px)'
-        : 'calc(var(--ph2-header-h, 3.5rem) + var(--ph2-impersonation-banner-h, 0px))',
-      left: 'var(--ph2-sidenav-w, 220px)',
-      right: 0,
-      bottom: 0,
-    } as const;
+  const mainInset = {
+    top: flushTop
+      ? 'var(--ph2-impersonation-banner-h, 0px)'
+      : 'calc(var(--ph2-header-h, 3.5rem) + var(--ph2-impersonation-banner-h, 0px))',
+    left: 'var(--ph2-sidenav-w, 220px)',
+    right: 0,
+    bottom: 0,
+  } as const;
 
-    return (
+  const shell =
+    variant === 'main' ? (
       <motion.div
         key={dialogTitleId || 'details-main-shell'}
-        className="pointer-events-none fixed inset-0 z-[36]"
+        className="pointer-events-none fixed inset-0 z-[80]"
         variants={shellVariants}
         initial="hidden"
         animate="visible"
@@ -132,37 +138,37 @@ export function DetailsModalShell({
           {children}
         </motion.div>
       </motion.div>
-    );
-  }
-
-  return (
-    <motion.div
-      key={dialogTitleId || 'details-centered-shell'}
-      className={`pointer-events-none fixed inset-0 ${zIndexClass} flex items-center justify-center p-2 sm:p-6`}
-      variants={shellVariants}
-      initial="hidden"
-      animate="visible"
-      exit="hidden"
-      data-app-page-drawer="shell"
-    >
+    ) : (
       <motion.div
-        variants={backdropVariants}
-        onClick={onBackdropClick}
-        className={`absolute inset-0 bg-slate-900/50 pointer-events-auto ${backdropClassName}`.trim()}
-        data-drawer-skip-dirty="true"
-      />
-      <motion.div
-        ref={panelRef as React.Ref<HTMLDivElement>}
-        variants={centeredPanelVariants}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={dialogTitleId}
-        onClick={(e) => e.stopPropagation()}
-        data-app-page-drawer="panel"
-        className={`pointer-events-auto relative flex w-full ${maxWidth} ${heightClass} flex-col overflow-hidden rounded-2xl border border-indigo-100/70 bg-white shadow-[0_24px_64px_-20px_rgba(79,70,229,0.35)] ring-1 ring-indigo-500/10 sm:rounded-[1.35rem] ${panelClassName}`.trim()}
+        key={dialogTitleId || 'details-centered-shell'}
+        className={`pointer-events-none fixed inset-0 ${zIndexClass} flex items-center justify-center p-2 sm:p-6`}
+        variants={shellVariants}
+        initial="hidden"
+        animate="visible"
+        exit="hidden"
+        data-app-page-drawer="shell"
       >
-        {children}
+        <motion.div
+          variants={backdropVariants}
+          onClick={onBackdropClick}
+          className={`absolute inset-0 bg-slate-900/50 pointer-events-auto ${backdropClassName}`.trim()}
+          data-drawer-skip-dirty="true"
+        />
+        <motion.div
+          ref={panelRef as React.Ref<HTMLDivElement>}
+          variants={centeredPanelVariants}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={dialogTitleId}
+          onClick={(e) => e.stopPropagation()}
+          data-app-page-drawer="panel"
+          className={`pointer-events-auto relative flex w-full ${maxWidth} ${heightClass} flex-col overflow-hidden rounded-2xl border border-indigo-100/70 bg-white shadow-[0_24px_64px_-20px_rgba(79,70,229,0.35)] ring-1 ring-indigo-500/10 sm:rounded-[1.35rem] ${panelClassName}`.trim()}
+        >
+          {children}
+        </motion.div>
       </motion.div>
-    </motion.div>
-  );
+    );
+
+  if (!portalReady || typeof document === 'undefined') return null;
+  return createPortal(shell, document.body);
 }

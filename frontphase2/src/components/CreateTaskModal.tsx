@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { X } from 'lucide-react';
 import { TaskForm } from './TaskForm';
@@ -37,8 +38,13 @@ export function CreateTaskModal({
   initialRelatedTo,
   initialRelatedEntityId,
 }: CreateTaskModalProps) {
+  const [portalReady, setPortalReady] = useState(false);
   const [values, setValues] = useState<TaskFormValues>(INITIAL_VALUES);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    setPortalReady(true);
+  }, []);
 
   useEffect(() => {
     if (isOpen) {
@@ -59,17 +65,23 @@ export function CreateTaskModal({
     }, 600);
   };
 
-  if (!isOpen) return null;
-
-  return (
+  const drawerTree = (
     <AnimatePresence>
+      {isOpen ? (
+      <motion.div
+        key="create-task-shell"
+        className="pointer-events-none fixed inset-0 z-[80]"
+        initial={{ opacity: 1 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 1 }}
+      >
       <motion.div
         key="backdrop"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         onClick={onClose}
-        className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-[2px]"
+        className="pointer-events-auto absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]"
       />
       <motion.div
         key="drawer"
@@ -77,7 +89,7 @@ export function CreateTaskModal({
         animate={{ x: 0 }}
         exit={{ x: '100%' }}
         transition={{ type: 'tween', duration: 0.25 }}
-        className="fixed right-0 top-0 z-50 h-full w-full sm:max-w-[760px]"
+        className="pointer-events-auto absolute right-0 top-0 h-full w-full sm:max-w-[760px]"
       >
         <div
           className="flex h-full w-full flex-col overflow-hidden border-l border-slate-200 bg-white shadow-2xl"
@@ -109,6 +121,11 @@ export function CreateTaskModal({
           </div>
         </div>
       </motion.div>
+      </motion.div>
+      ) : null}
     </AnimatePresence>
   );
+
+  if (!portalReady || typeof document === 'undefined') return null;
+  return createPortal(drawerTree, document.body);
 }

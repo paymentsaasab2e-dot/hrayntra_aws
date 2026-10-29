@@ -197,6 +197,7 @@ import {
   PH2_TABLE_CARD_FOOTER_CLASS,
 } from '../components/layout/Ph2ModulePageLayout';
 import { extractApiData } from '../lib/mapCandidateProfile';
+import { formatCvParseTimingLine, readCvParseTiming } from '../lib/bulkCvTokensStore';
 import { BULK_CV_ACCEPT_INPUT, BULK_CV_FORMAT_LABEL } from '../lib/bulkCvFileTypes';
 import { filterBulkCvFiles } from '../lib/bulkCvCollect';
 import { normalizeCandidateEmailInput } from '../lib/candidateEmailValidation';
@@ -927,10 +928,18 @@ const handleJobCvFileSelected = useCallback(
     let linkedCount = 0;
     let failedCount = 0;
     const failedNames: string[] = [];
+    const parseTimings: Array<ReturnType<typeof readCvParseTiming>> = [];
 
     const processOne = async (file: File) => {
       const parsedRes = await apiParseCandidateResumeQueued(file);
       const parsed = parsedRes.data || {};
+      parseTimings.push(
+        readCvParseTiming(
+          (parsed as { cvParseMeta?: unknown }).cvParseMeta ||
+            (parsedRes as { tokenUsage?: unknown }).tokenUsage ||
+            parsed,
+        ),
+      );
 
       const attachResume = async (candidateId: string) => {
         const resumeAlreadyRemote = /^https?:\/\//i.test(String(parsed.resumeUrl || '').trim());
@@ -988,18 +997,27 @@ const handleJobCvFileSelected = useCallback(
     };
 
     try {
-      for (let index = 0; index < validFiles.length; index += 1) {
-        const file = validFiles[index];
-        try {
-          await processOne(file);
-        } catch (error) {
-          failedCount += 1;
-          failedNames.push(file.name);
-          console.error(`Job CV upload failed for ${file.name}:`, error);
-        } finally {
-          setJobCvUploadProgress({ done: index + 1, total: validFiles.length });
+      let cursor = 0;
+      let done = 0;
+      const workerCount = Math.min(2, validFiles.length);
+      const workers = Array.from({ length: workerCount }, async () => {
+        while (cursor < validFiles.length) {
+          const index = cursor;
+          cursor += 1;
+          const file = validFiles[index];
+          try {
+            await processOne(file);
+          } catch (error) {
+            failedCount += 1;
+            failedNames.push(file.name);
+            console.error(`Job CV upload failed for ${file.name}:`, error);
+          } finally {
+            done += 1;
+            setJobCvUploadProgress({ done, total: validFiles.length });
+          }
         }
-      }
+      });
+      await Promise.all(workers);
 
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('jobportal:candidates-changed'));
@@ -1007,19 +1025,31 @@ const handleJobCvFileSelected = useCallback(
       await refreshAppliedJobCandidates({ runPipeline: false, refresh: false, silent: true });
 
       const successTotal = createdCount + linkedCount;
+      const timingNote =
+        parseTimings.length > 0
+          ? ` · ${formatCvParseTimingLine({
+              extractMs: Math.round(
+                parseTimings.reduce((sum, row) => sum + row.extractMs, 0) / parseTimings.length,
+              ),
+              aiMs: Math.round(parseTimings.reduce((sum, row) => sum + row.aiMs, 0) / parseTimings.length),
+              totalMs: Math.round(
+                parseTimings.reduce((sum, row) => sum + row.totalMs, 0) / parseTimings.length,
+              ),
+            })}`
+          : '';
       if (successTotal > 0 && failedCount === 0) {
         const message =
           validFiles.length === 1
             ? createdCount
-              ? 'Candidate created successfully'
-              : 'Existing candidate linked to this job'
+              ? `Candidate created successfully${timingNote}`
+              : `Existing candidate linked to this job${timingNote}`
             : `${createdCount} candidate${createdCount === 1 ? '' : 's'} created${
                 linkedCount ? `, ${linkedCount} existing linked` : ''
-              }`;
+              }${timingNote}`;
         toast.success(message);
         void requestCornerAlert(message, { tone: 'success', priority: 'high' });
       } else if (successTotal > 0 && failedCount > 0) {
-        const message = `${successTotal} succeeded, ${failedCount} failed.`;
+        const message = `${successTotal} succeeded, ${failedCount} failed${timingNote}.`;
         toast.success(message);
         void requestCornerAlert(message, { tone: 'success', priority: 'high' });
         toast.error(

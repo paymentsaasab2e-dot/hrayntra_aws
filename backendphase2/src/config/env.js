@@ -464,6 +464,18 @@ export const env = {
     .trim()
     .toLowerCase(),
   /**
+   * Max resume characters sent to the LLM. Lower = faster AI. Default 12000.
+   */
+  CV_PARSE_TEXT_MAX_CHARS: (() => {
+    const n = parseInt(String(process.env.CV_PARSE_TEXT_MAX_CHARS || '').trim(), 10);
+    return Number.isFinite(n) && n >= 2000 ? n : 12000;
+  })(),
+  /** OCR only for scanned PDFs; keep this small. Default 2 pages. */
+  CV_PARSE_OCR_MAX_PAGES: (() => {
+    const n = parseInt(String(process.env.CV_PARSE_OCR_MAX_PAGES || '').trim(), 10);
+    return Number.isFinite(n) && n >= 1 ? Math.min(8, n) : 2;
+  })(),
+  /**
    * Verbose per-file CV pipeline logs (stage banners, full AI JSON dump, section logs).
    * Disable for high-throughput bulk runs to reduce console I/O overhead.
    */

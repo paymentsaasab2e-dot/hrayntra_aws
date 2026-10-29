@@ -6,7 +6,7 @@
 
 const MAX_CONCURRENT = (() => {
   const raw = Number(process.env.BULK_CV_PARSE_CONCURRENCY);
-  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 2;
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 3;
 })();
 
 const QUEUE_WARN_AFTER = 4;

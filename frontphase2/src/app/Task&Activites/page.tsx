@@ -35,6 +35,7 @@ import PaginationAll from '../../components/PaginationAll';
 import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../constants/tablePagination';
 import { TaskDetailsDrawer, type TaskForDrawer, type TaskActivityItem } from '../../components/drawers/TaskDetailsDrawer';
 import { DetailsModalShell } from '../../components/drawers/DetailsModalShell';
+import { PortalToBody } from '../../components/drawers/PortalToBody';
 import { TaskSLAAlertBadge, TaskSLAAlertsPanel } from '../../components/TaskSLAAlerts';
 import { MOCK_TASK_COMMUNICATIONS, MOCK_CANDIDATE_INTERACTIONS, MOCK_AI_TASK_SUGGESTIONS } from './types';
 import { mapBackendActivityToTaskEvent } from '../../lib/taskActivityMapper';
@@ -1559,6 +1560,7 @@ export default function App() {
           </div>
       </main>
 
+      <PortalToBody>
       <AnimatePresence>
         {deleteConfirmTask && (
           <motion.div
@@ -1610,6 +1612,7 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
+      </PortalToBody>
 
       {/* All SLA Alerts drawer (from Tasks page button) */}
       <AnimatePresence>

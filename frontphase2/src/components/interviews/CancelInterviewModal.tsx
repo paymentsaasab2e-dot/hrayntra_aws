@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
+import { PortalToBody } from '../drawers/PortalToBody';
 import { X } from 'lucide-react';
 import type { CancelInterviewPayload, Interview } from '../../types/interview.types';
 
@@ -27,6 +28,7 @@ export function CancelInterviewModal({ isOpen, interview, onClose, onSubmit }: C
   }, [isOpen]);
 
   return (
+    <PortalToBody>
     <AnimatePresence>
       {isOpen && interview ? (
         <div className="fixed inset-0 z-[120]">
@@ -83,5 +85,6 @@ export function CancelInterviewModal({ isOpen, interview, onClose, onSubmit }: C
         </div>
       ) : null}
     </AnimatePresence>
+    </PortalToBody>
   );
 }

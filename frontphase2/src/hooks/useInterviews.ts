@@ -1051,26 +1051,35 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
   }, [fetchMeta, fetchInterviews]);
 
   const fetchAllInterviewsForExport = useCallback(async (): Promise<Interview[]> => {
-    const buildParams = (page: number, limit: number) => ({
-      page,
-      limit,
-      status: filters.status !== ALL_STATUS_LABEL ? mapInterviewStatusToBackend(filters.status) : undefined,
-      round: filters.round !== 'All Rounds' ? filters.round.toUpperCase().replace(/\s+/g, '_') : undefined,
-      mode: filters.mode === 'Online' ? 'ONLINE' : filters.mode === 'Offline' ? 'OFFLINE' : undefined,
-      interviewerId:
-        filters.interviewer !== 'All Interviewers'
-          ? interviewerOptions.find((user) => user.name === filters.interviewer)?.id
-          : undefined,
-      jobId:
-        filters.clientJob !== 'All Clients'
-          ? jobOptions.find((job) => `${job.client} • ${job.title}` === filters.clientJob)?.id
-          : undefined,
-      search: debouncedSearchQuery || undefined,
-    });
-
     const all = await fetchAllPaginated({
+      // Backend listInterviewsQuerySchema caps `limit` at 100.
+      batchSize: 100,
       fetchPage: async (page, limit) => {
-        const response = await apiGetInterviews(buildParams(page, limit));
+        const response = await apiGetInterviews(
+          buildInterviewsListApiParams({
+            page,
+            limit,
+            status:
+              filters.status !== ALL_STATUS_LABEL
+                ? mapInterviewStatusToBackend(filters.status)
+                : undefined,
+            round:
+              filters.round !== 'All Rounds'
+                ? filters.round.toUpperCase().replace(/\s+/g, '_')
+                : undefined,
+            mode: filters.mode === 'Online' ? 'ONLINE' : filters.mode === 'Offline' ? 'OFFLINE' : undefined,
+            interviewerId:
+              filters.interviewer !== 'All Interviewers'
+                ? interviewerOptions.find((user) => user.name === filters.interviewer)?.id
+                : undefined,
+            jobId:
+              filters.clientJob !== 'All Clients'
+                ? jobOptions.find((job) => `${job.client} • ${job.title}` === filters.clientJob)?.id
+                : undefined,
+            search: debouncedSearchQuery || undefined,
+            matchingInterviewIds: smartSearchInterviewIds,
+          }),
+        );
         const snapshot = normalizeInterviewListResponse(response.data);
         return {
           items: snapshot.interviews,
@@ -1086,6 +1095,7 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
     });
   }, [
     candidateOptions,
+    debouncedSearchQuery,
     deletedInterviewIdSet,
     filters.clientJob,
     filters.interviewer,
@@ -1094,7 +1104,7 @@ export function useInterviews(options?: { smartSearchInterviewIds?: string[] }) 
     filters.status,
     interviewerOptions,
     jobOptions,
-    searchQuery,
+    smartSearchInterviewIds,
   ]);
 
   return {

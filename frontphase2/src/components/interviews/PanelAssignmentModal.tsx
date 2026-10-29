@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
+import { PortalToBody } from '../drawers/PortalToBody';
 import { Search, X } from 'lucide-react';
 import type { InterviewPanelMember } from '../../types/interview.types';
 import { useAssignableMembers } from '../../hooks/useAssignableMembers';
@@ -58,6 +59,7 @@ export function PanelAssignmentModal({
   }, [initialSelectedIds, isOpen]);
 
   return (
+    <PortalToBody>
     <AnimatePresence>
       {isOpen ? (
         <div className="fixed inset-0 z-[130]">
@@ -165,5 +167,6 @@ export function PanelAssignmentModal({
         </div>
       ) : null}
     </AnimatePresence>
+    </PortalToBody>
   );
 }

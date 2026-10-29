@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { usePageDrawerLifecycle } from '../../lib/pageDrawerEvents';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -150,6 +151,7 @@ export function LeadImportDrawer({
   onImportComplete,
 }: LeadImportDrawerProps) {
   usePageDrawerLifecycle(isOpen);
+  const [portalReady, setPortalReady] = useState(false);
   const [step, setStep] = useState(1);
   const [fileName, setFileName] = useState('');
   const [columnMapping, setColumnMapping] = useState<Record<string, string>>(
@@ -172,6 +174,10 @@ export function LeadImportDrawer({
 
   const uploadProgress = useSimulatedProgress(isParsing);
   const importProgress = useSimulatedProgress(isImporting);
+
+  useEffect(() => {
+    setPortalReady(true);
+  }, []);
 
   /** File was read successfully — blue-tinted cards and dropzone for clear contrast on white. */
   const hasParsedFile =
@@ -382,12 +388,12 @@ export function LeadImportDrawer({
     }
   };
 
-  return (
+  const drawerTree = (
     <AnimatePresence>
       {isOpen ? (
       <motion.div
         key="lead-import-shell"
-        className="pointer-events-none fixed inset-0 z-50"
+        className="pointer-events-none fixed inset-0 z-[80]"
         initial="hidden"
         animate="visible"
         exit="hidden"
@@ -865,4 +871,7 @@ export function LeadImportDrawer({
       ) : null}
     </AnimatePresence>
   );
+
+  if (!portalReady || typeof document === 'undefined') return null;
+  return createPortal(drawerTree, document.body);
 }

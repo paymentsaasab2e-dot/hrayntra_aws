@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
+import { PortalToBody } from '../drawers/PortalToBody';
 import { AlertTriangle, Check, CheckCircle2, X } from 'lucide-react';
 import type { Interview } from '../../types/interview.types';
 
@@ -121,6 +122,7 @@ export function RejectCandidateModal({ isOpen, interview, onClose, onReject }: R
   };
 
   return (
+    <PortalToBody>
     <AnimatePresence>
       {isOpen && interview ? (
         <>
@@ -339,5 +341,6 @@ export function RejectCandidateModal({ isOpen, interview, onClose, onReject }: R
         </>
       ) : null}
     </AnimatePresence>
+    </PortalToBody>
   );
 }

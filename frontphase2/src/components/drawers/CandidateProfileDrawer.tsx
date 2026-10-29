@@ -51,7 +51,7 @@ import { extractAuditMeta } from '../../utils/auditMeta';
 
 import { orEmpty } from '../../lib/asyncLoadGuard';
 
-import { Briefcase, Calendar, ExternalLink, FileText, Loader2, MapPin, MessageSquare, MessageSquareText, Phone, SquarePen, Tag, Video, X, Activity, Paperclip, Building2 } from 'lucide-react';
+import { Briefcase, Calendar, ExternalLink, FileText, GitBranch, Loader2, MapPin, MessageSquare, MessageSquareText, Phone, SquarePen, Tag, Video, X, Activity, Paperclip, Building2 } from 'lucide-react';
 
 import { ImageWithFallback, initialsFromDisplayName } from '../ImageWithFallback';
 
@@ -1033,14 +1033,15 @@ export function CandidateProfileDrawer({
                       <button
                         type="button"
                         onClick={startOverviewEdit}
-                        className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium ${
+                        title={showEditModal ? 'Editing Overview' : 'Edit Candidate'}
+                        aria-label={showEditModal ? 'Editing Overview' : 'Edit Candidate'}
+                        className={`inline-flex h-9 w-9 items-center justify-center rounded-xl border shadow-sm transition ${
                           showEditModal
-                            ? 'border-blue-200 bg-blue-50 text-blue-800'
-                            : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                            ? 'border-indigo-200 bg-indigo-50 text-indigo-800'
+                            : 'border-indigo-100 bg-white/90 text-slate-700 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-800'
                         }`}
                       >
-                        <SquarePen size={13} />
-                        {showEditModal ? 'Editing Overview' : 'Edit Candidate'}
+                        <SquarePen size={16} />
                       </button>
                     ) : null}
                     {candidate?.resumeUrl?.trim() ? (
@@ -1048,12 +1049,13 @@ export function CandidateProfileDrawer({
                         type="button"
                         onClick={() => saasaCv.openModal()}
                         disabled={saasaCv.busy}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+                        title="HRYantra CV"
+                        aria-label="HRYantra CV"
+                        className="relative inline-flex h-9 w-9 items-center justify-center rounded-xl border border-amber-200 bg-amber-50 text-amber-800 shadow-sm transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
                       >
-                        <MessageSquare size={13} />
-                        HRYantra CV
+                        <MessageSquare size={16} />
                         {saasaCv.annotationCount > 0 ? (
-                          <span className="rounded-full bg-amber-200 px-1.5 py-0.5 text-[10px] font-bold tabular-nums">
+                          <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[9px] font-bold tabular-nums text-white">
                             {saasaCv.annotationCount}
                           </span>
                         ) : null}
@@ -1062,32 +1064,38 @@ export function CandidateProfileDrawer({
                     <button
                       type="button"
                       onClick={() => handleAction('move-stage')}
-                      className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                      title="Move Stage"
+                      aria-label="Move Stage"
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-indigo-100 bg-white/90 text-slate-700 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-800"
                     >
-                      Move Stage
+                      <GitBranch size={16} />
                     </button>
                     <button
                       type="button"
                       onClick={() => handleAction('schedule-interview')}
-                      className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                      title="Schedule Interview"
+                      aria-label="Schedule Interview"
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-indigo-100 bg-white/90 text-slate-700 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-800"
                     >
-                      Schedule Interview
+                      <Calendar size={16} />
                     </button>
                     {latestClientReview?.reviewUrl ? (
                       <button
                         type="button"
                         onClick={() => openClientReviewLink(latestClientReview.reviewUrl)}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1.5 text-xs font-medium text-violet-800 hover:bg-violet-100"
+                        title="Client view"
+                        aria-label="Client view"
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-800 shadow-sm transition hover:bg-indigo-100"
                       >
-                        <ExternalLink size={13} />
-                        Client view
+                        <ExternalLink size={16} />
                       </button>
                     ) : null}
                     <button
                       type="button"
                       onClick={() => void requestCandidateDrawerClose()}
-                      className="rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 transition-colors hover:bg-indigo-50 hover:text-indigo-700"
                       aria-label="Close candidate profile"
+                      title="Close"
                     >
                       <X size={18} />
                     </button>
