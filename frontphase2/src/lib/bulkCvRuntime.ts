@@ -31,7 +31,7 @@ function readPositiveInt(raw: string | undefined, fallback: number): number {
 export function resolveBulkCvConcurrency(): number {
   const local = isLocalDevBrowser();
   const poolSize = bulkCvPoolSize();
-  const singleApiProdDefault = 2;
+  const singleApiProdDefault = 3;
   const poolAwareDefault = local ? 3 : poolSize > 1 ? poolSize : singleApiProdDefault;
   const maxConc = Math.min(
     12,
@@ -70,5 +70,5 @@ export function resolveBulkCvWorkerStaggerMs(): number {
   const configured = readPositiveInt(process.env.NEXT_PUBLIC_BULK_CV_WORKER_STAGGER_MS, NaN);
   if (Number.isFinite(configured)) return configured;
   if (isLocalDevBrowser() || bulkCvPoolSize() > 1) return 0;
-  return 400;
+  return 150;
 }

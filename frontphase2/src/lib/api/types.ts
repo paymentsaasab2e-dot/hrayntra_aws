@@ -2681,6 +2681,15 @@ export interface ImportedProfileData {
   }>;
   githubUrl?: string;
   extraData?: Record<string, unknown>;
+  cvParseMeta?: {
+    extractMs?: number;
+    aiMs?: number;
+    uploadMs?: number;
+    totalMs?: number;
+    durationMs?: number;
+    ocrUsed?: boolean;
+    extractMode?: string;
+  };
   rawEmailsFound?: string[];
   rawPhonesFound?: string[];
   tempFilePath?: string;

@@ -647,7 +647,7 @@ function validateAiShapeForLogs(ai) {
   };
 }
 
-function logStage8FinalResponse(normalizedData, { totalMs, apiSummary }) {
+function logStage8FinalResponse(normalizedData, { totalMs, extractMs, aiMs, uploadMs, apiSummary }) {
   const name = [normalizedData.firstName, normalizedData.lastName].filter(Boolean).join(' ');
   const emailOk = Boolean(normalizedData.email);
   const phoneOk = Boolean(normalizedData.phone);
@@ -678,7 +678,13 @@ function logStage8FinalResponse(normalizedData, { totalMs, apiSummary }) {
   } else {
     console.log('Billable tokens: N/A (system regex fallback — OpenAI/Mistral not billed for this resume)');
   }
-  console.log(`Total time:     ~${totalMs}ms`);
+  if (Number(extractMs) > 0 || Number(aiMs) > 0) {
+    console.log(
+      `Timing:         parse engine ${Number(extractMs) || 0}ms · AI ${Number(aiMs) || 0}ms · upload ${Number(uploadMs) || 0}ms · total ${totalMs}ms`
+    );
+  } else {
+    console.log(`Total time:     ~${totalMs}ms`);
+  }
   console.log(divider('='));
 }
 
@@ -1701,10 +1707,10 @@ async function pdfPass4OcrTesseract(filePath) {
     let worker;
     try {
       worker = await createWorker('eng');
-      const maxPages = 8;
+      const maxPages = Math.min(8, Math.max(1, Number(env.CV_PARSE_OCR_MAX_PAGES) || 2));
       const screenshot = await parser.getScreenshot({
         first: maxPages,
-        scale: 2,
+        scale: 1.5,
         imageBuffer: true,
         imageDataUrl: false,
       });
@@ -1902,6 +1908,28 @@ async function extractCvProfilePhotoFromPdfBuffer(pdfBuffer) {
       if (typeof pdf?.destroy === 'function') await pdf.destroy();
     }
   });
+}
+
+function isDigitalTextSufficient(text) {
+  const t = String(text || '').trim();
+  if (t.length < 280) return false;
+  const score = scorePassText(t);
+  const hasContact = /@[a-zA-Z0-9._%+-]+/.test(t) || RX_PHONE_LOOSE.test(t);
+  if (t.length >= 1800 && score >= 25) return true;
+  return score >= 40 && (hasContact || t.length >= 800);
+}
+
+/** Use the winning pass only — concatenating 4 near-duplicate passes bloats the LLM prompt. */
+function pickWinningPdfText(text1, text2, text3, text4) {
+  const { sorted, passes } = buildPdfCombineResult(text1, text2, text3, text4);
+  let combined = String(sorted[0]?.text || '').trim();
+  if (combined && !RX_EMAIL_IN_TEXT.test(combined)) {
+    const withEmail = sorted.find((p) => RX_EMAIL_IN_TEXT.test(String(p.text || '')));
+    if (withEmail && withEmail.order !== sorted[0]?.order) {
+      combined = `${combined}\n\n${String(withEmail.text || '').trim()}`.trim();
+    }
+  }
+  return { combined, sorted, passes, winner: sorted[0] };
 }
 
 function scorePassText(text) {
@@ -2330,7 +2358,7 @@ function mergeAiWithFallback(ai, fallback) {
 
 async function extractStructuredResumeDataWithOpenAI(cleanedText, file, options = {}) {
   const circuitBefore = getCvLlmCircuitSnapshot();
-  const compactPrompt = Boolean(options?.compactPrompt);
+  const compactPrompt = options?.compactPrompt !== false;
   const preferredProvider =
     env.CV_PARSE_PROVIDER_PREFERENCE === 'mistral'
       ? 'mistral'
@@ -2368,7 +2396,8 @@ async function extractStructuredResumeDataWithOpenAI(cleanedText, file, options 
     };
   }
 
-  const capped = cleanedText.slice(0, 22000);
+  const maxChars = Number(env.CV_PARSE_TEXT_MAX_CHARS) || 12000;
+  const capped = cleanedText.slice(0, maxChars);
   const prompt = compactPrompt
     ? `Extract structured candidate data from this resume for ATS import.
 
@@ -2488,7 +2517,7 @@ ${capped}
         usedMistral,
         validJson: Boolean(parsed),
         circuitWasOpen: circuitBefore.circuitOpen,
-        charsSent: cleanedText.length,
+        charsSent: capped.length,
         openAiErrorStatus: completion?._openAiErrorStatus ?? null,
         openAiErrorMessage: completion?._openAiErrorMessage || '',
         ...tokenUsage,
@@ -2516,7 +2545,7 @@ ${capped}
         usedMistral: mistralAttempted,
         validJson: false,
         circuitWasOpen: circuitBefore.circuitOpen,
-        charsSent: cleanedText.length,
+        charsSent: capped.length,
         reason: 'ai_error',
         errorMessage: String(llmErr?.message || llmErr),
         provider: 'system',
@@ -2657,6 +2686,12 @@ function buildCvParseMeta(aiMeta = {}) {
     outputTokens: summary.outputTokens,
     totalTokens: summary.totalTokens,
     durationMs: Number(aiMeta.ms) || 0,
+    extractMs: Number(aiMeta.extractMs) || 0,
+    aiMs: Number(aiMeta.aiMs ?? aiMeta.ms) || 0,
+    uploadMs: Number(aiMeta.uploadMs) || 0,
+    totalMs: Number(aiMeta.totalMs) || 0,
+    ocrUsed: Boolean(aiMeta.ocrUsed),
+    extractMode: aiMeta.extractMode ? String(aiMeta.extractMode) : undefined,
     skipped,
     charsSent: Number(aiMeta.charsSent) || 0,
     aiFailed: aiMeta.reason === 'ai_error' || summary.provider === 'system',
@@ -2832,7 +2867,7 @@ function normalizeResumeExtraction(merged = {}, fallback = {}, extras = {}) {
  *   skipCandidateRegex — stages 1–3 only (for jobcreation pipeline; no candidate email/name regex).
  */
 export async function runCvPipelineThroughStage4(file, options = {}) {
-  const { skipCandidateRegex = false, skipProfilePhoto = false, logTag = '', verboseLogs } = options;
+  const { skipCandidateRegex = false, skipProfilePhoto = true, logTag = '', verboseLogs } = options;
   const shouldLog = isCvVerboseLoggingEnabled(verboseLogs);
   const stageLog = (...args) => {
     if (shouldLog) logStageBanner(...args);
@@ -2868,9 +2903,12 @@ export async function runCvPipelineThroughStage4(file, options = {}) {
   /** Set only for PDFs when `extractCvProfilePhotoFromPdfBuffer` finds a usable raster. */
   let extractedProfilePhoto = null;
 
+  const tExtract = Date.now();
+  let ocrUsed = false;
+  let extractMode = 'digital';
   let combinedRaw = '';
   if (mime === 'application/pdf' || ext === '.pdf') {
-    stageLog(2, `${tag}Text Extraction Engine (All 4 Passes)`);
+    stageLog(2, `${tag}Text Extraction Engine (fast digital-first)`);
     async function settlePass(fn) {
       try {
         return { status: 'fulfilled', value: await fn() };
@@ -2878,43 +2916,50 @@ export async function runCvPipelineThroughStage4(file, options = {}) {
         return { status: 'rejected', reason };
       }
     }
-    /**
-     * Pass 1 first (pdf-parse only). Then run in parallel:
-     * - Branch A: Pass 2 → Pass 3 (pdf.js, serialized via runWithIsolatedPdfJsWorker) → profile photo (pdf.js).
-     * - Branch B: Pass 4 OCR (pdf-parse + Tesseract, separate code path).
-     * Same four text passes + same photo extraction as before; wall time ≈ t1 + max(t2+t3+tPhoto, t4).
-     */
-    const settled1 = await settlePass(() => pdfPass1Default(buffer));
-    const [pass23Photo, settled4] = await Promise.all([
-      (async () => {
-        const s2 = await settlePass(() => pdfPass2RawItemDump(buffer));
-        const s3 = await settlePass(() => pdfPass3PositionSorted(buffer));
-        if (!skipProfilePhoto) {
-          try {
-            extractedProfilePhoto = await extractCvProfilePhotoFromPdfBuffer(buffer);
-            narrativeLog([
-              '',
-              extractedProfilePhoto?.buffer?.length
-                ? `Embedded profile image: ✅ extracted (${extractedProfilePhoto.filename}, ${(
-                    extractedProfilePhoto.buffer.length / 1024
-                  ).toFixed(1)} KB)`
-                : 'Embedded profile image: ⚪ none (no suitable embedded raster on page 1)',
-            ]);
-          } catch (photoErr) {
-            extractedProfilePhoto = null;
-            narrativeLog(['', `Embedded profile image: ❌ failed — ${photoErr?.message || photoErr}`]);
-          }
-        }
-        return { s2, s3 };
-      })(),
-      settlePass(() => pdfPass4OcrTesseract(file.path)),
-    ]);
-    const settled = [settled1, pass23Photo.s2, pass23Photo.s3, settled4];
-    const text1 = settled[0].status === 'fulfilled' ? settled[0].value : '';
-    const text2 = settled[1].status === 'fulfilled' ? settled[1].value : '';
-    const text3 = settled[2].status === 'fulfilled' ? settled[2].value : '';
-    const text4 = settled[3].status === 'fulfilled' ? settled[3].value : '';
 
+    const settled1 = await settlePass(() => pdfPass1Default(buffer));
+    let text1 = settled1.status === 'fulfilled' ? settled1.value : '';
+    let text2 = '';
+    let text3 = '';
+    let text4 = '';
+    let settled2 = { status: 'fulfilled', value: '' };
+    let settled3 = { status: 'fulfilled', value: '' };
+    let settled4 = { status: 'fulfilled', value: '' };
+
+    if (isDigitalTextSufficient(text1)) {
+      extractMode = 'digital';
+      narrativeLog(['Pass 1 digital text is sufficient — skipped pdf.js extra passes and OCR']);
+    } else {
+      const [s2, s3] = await Promise.all([
+        settlePass(() => pdfPass2RawItemDump(buffer)),
+        settlePass(() => pdfPass3PositionSorted(buffer)),
+      ]);
+      settled2 = s2;
+      settled3 = s3;
+      text2 = settled2.status === 'fulfilled' ? settled2.value : '';
+      text3 = settled3.status === 'fulfilled' ? settled3.value : '';
+      if (isDigitalTextSufficient(text1) || isDigitalTextSufficient(text2) || isDigitalTextSufficient(text3)) {
+        extractMode = 'digital';
+        narrativeLog(['Pass 2/3 recovered digital text — skipped OCR']);
+      } else {
+        extractMode = 'ocr';
+        ocrUsed = true;
+        settled4 = await settlePass(() => pdfPass4OcrTesseract(file.path));
+        text4 = settled4.status === 'fulfilled' ? settled4.value : '';
+        narrativeLog(['Digital text was weak — ran OCR on first pages only']);
+      }
+    }
+
+    if (!skipProfilePhoto) {
+      try {
+        extractedProfilePhoto = await extractCvProfilePhotoFromPdfBuffer(buffer);
+      } catch (photoErr) {
+        extractedProfilePhoto = null;
+        narrativeLog([`Embedded profile image: ❌ failed — ${photoErr?.message || photoErr}`]);
+      }
+    }
+
+    const settled = [settled1, settled2, settled3, settled4];
     const passTitles = [
       'Pass 1 — Default pdf-parse',
       'Pass 2 — Raw item string dump',
@@ -2923,36 +2968,24 @@ export async function runCvPipelineThroughStage4(file, options = {}) {
     ];
     const texts = [text1, text2, text3, text4];
     for (let i = 0; i < 4; i += 1) {
+      if (!texts[i] && i > 0) continue;
       narrativeLog(linesForPdfPassNarrative(i + 1, passTitles[i], texts[i], settled[i], skipCandidateRegex));
       narrativeLog(['']);
     }
 
-    const { combined, sorted } = buildPdfCombineResult(text1, text2, text3, text4);
-    combinedRaw = combined;
+    const picked = pickWinningPdfText(text1, text2, text3, text4);
+    combinedRaw = picked.combined;
+    const sorted = picked.sorted;
 
-    const sortHints = ['← listed FIRST (winner)', '← listed second', '← listed third', '← listed last'];
-    narrativeLog(['Scoring summary:']);
-    sorted.forEach((p, idx) => {
-      const hint = sortHints[idx] || '';
-      narrativeLog([`Pass ${p.order}: len=${String(p.text || '').length}  score=${p.score}  ${hint}`]);
+    narrativeLog(['Scoring summary (winner only sent to AI):']);
+    sorted.forEach((p) => {
+      if (!String(p.text || '').trim()) return;
+      narrativeLog([`Pass ${p.order}: len=${String(p.text || '').length}  score=${p.score}`]);
     });
-    narrativeLog(['']);
-    if (skipCandidateRegex) {
-      narrativeLog([
-        `Combined text block length: ~${combinedRaw.length} chars`,
-        `Role/Job title line: ${/\b(role|job title|position)\s*:/i.test(combinedRaw) ? '✅ YES' : '❌ NO'}`,
-        `Company line: ${/\b(company|client|employer)\s*:/i.test(combinedRaw) ? '✅ YES' : '❌ NO'}`,
-        `Location line: ${/\blocation\s*:/i.test(combinedRaw) ? '✅ YES' : '❌ NO'}`,
-      ]);
-    } else {
-      const emailInCombined = RX_EMAIL_IN_TEXT.test(combinedRaw);
-      const phoneInCombined = RX_PHONE_LOOSE.test(combinedRaw);
-      narrativeLog([
-        `Combined text block length: ~${combinedRaw.length} chars`,
-        `Email found in combined text: ${emailInCombined ? '✅ YES' : '❌ NO'}`,
-        `Phone found in combined text: ${phoneInCombined ? '✅ YES' : '❌ NO'}`,
-      ]);
-    }
+    narrativeLog([
+      `Extract mode: ${extractMode}${ocrUsed ? ' (OCR used)' : ''}`,
+      `Text sent onward: ~${combinedRaw.length} chars`,
+    ]);
   } else {
     stageLog(2, `${tag}Text Extraction Engine`);
     if (
@@ -2984,6 +3017,8 @@ export async function runCvPipelineThroughStage4(file, options = {}) {
       ext === '.jpeg'
     ) {
       narrativeLog(['Engine: Image (PNG/JPG/JPEG) — Tesseract OCR']);
+      ocrUsed = true;
+      extractMode = 'ocr';
       combinedRaw = await imageOcrTesseract(file.path);
       if (!String(combinedRaw || '').trim()) {
         throw new Error(
@@ -3070,6 +3105,9 @@ export async function runCvPipelineThroughStage4(file, options = {}) {
     cleaned,
     fallbackData,
     fullName,
+    extractMs: Date.now() - tExtract,
+    ocrUsed,
+    extractMode,
   };
 }
 
@@ -3139,7 +3177,8 @@ export async function finalizeCvPipelineFromStage5(
       ? [`  Log: "OpenAI quota cooldown — Mistral fallback when MISTRAL_API_KEY is set"`]
       : ['  Log: (quiet mode — see Provider line after AI run)']),
     '',
-    `Text sent to AI: ${cleaned.length} chars (well under 22,000 cap)`,
+    `Text sent to AI: ${cleaned.length} chars (cap ${Number(env.CV_PARSE_TEXT_MAX_CHARS) || 12000})`,
+    `Parse engine: ${Number(stage4?.extractMs) || 0}ms (${stage4?.extractMode || 'digital'}${stage4?.ocrUsed ? ', OCR' : ''})`,
   ]);
 
   const uploadPromise = uploadBufferToCloudinary(buffer, {
@@ -3160,13 +3199,21 @@ export async function finalizeCvPipelineFromStage5(
       : Promise.resolve(null);
 
   const aiPromise = extractStructuredResumeDataWithOpenAI(cleaned, file, {
-    compactPrompt: Boolean(options?.compactPrompt),
+    compactPrompt: options?.compactPrompt !== false,
   });
-  const [uploadSettled, profilePhotoSettled, aiSettled] = await Promise.allSettled([
-    uploadPromise,
-    profilePhotoPromise,
-    aiPromise,
+  const uploadTimed = (async () => {
+    const t0 = Date.now();
+    const settled = await Promise.allSettled([uploadPromise, profilePhotoPromise]);
+    return { settled, ms: Date.now() - t0 };
+  })();
+  const [uploadPack, aiSettled] = await Promise.all([
+    uploadTimed,
+    aiPromise
+      .then((value) => ({ status: 'fulfilled', value }))
+      .catch((reason) => ({ status: 'rejected', reason })),
   ]);
+  const uploadMs = uploadPack.ms;
+  const [uploadSettled, profilePhotoSettled] = uploadPack.settled;
 
   let aiParsed = null;
   let aiMeta = {
@@ -3380,12 +3427,27 @@ export async function finalizeCvPipelineFromStage5(
     profilePhotoUrl ? `                        profilePhotoUrl attached to payload` : '                        profilePhotoUrl: null (use initials in UI)',
   ]);
 
-  const totalMs = Date.now() - tPipeline;
+  const extractMs = Number(stage4?.extractMs) || 0;
+  const aiMs = Number(aiMeta.ms) || 0;
+  const stage5Ms = Date.now() - tPipeline;
+  const totalMs = extractMs + stage5Ms;
+  aiMeta.extractMs = extractMs;
+  aiMeta.aiMs = aiMs;
+  aiMeta.uploadMs = uploadMs;
+  aiMeta.totalMs = totalMs;
+  aiMeta.ocrUsed = Boolean(stage4?.ocrUsed);
+  aiMeta.extractMode = stage4?.extractMode || 'digital';
   const finalApiSummary = buildCvParseApiSummary(aiMeta);
+  console.log(
+    `[cv-parse] timing file=${String(displayName || 'resume')} extract=${extractMs}ms ai=${aiMs}ms upload=${uploadMs}ms total=${totalMs}ms mode=${aiMeta.extractMode}${aiMeta.ocrUsed ? ' ocr=1' : ''}`
+  );
   if (shouldLog) {
     logCvParseRouteRecord(displayName, finalApiSummary);
     logStage8FinalResponse(normalizedData, {
       totalMs,
+      extractMs,
+      aiMs,
+      uploadMs,
       apiSummary: finalApiSummary,
     });
   }
@@ -3395,10 +3457,15 @@ export async function finalizeCvPipelineFromStage5(
 }
 
 export async function processCandidateCv(file, { candidateId, verboseLogs, logTag } = {}) {
-  const stage4 = await runCvPipelineThroughStage4(file, { verboseLogs, logTag });
+  const stage4 = await runCvPipelineThroughStage4(file, {
+    verboseLogs,
+    logTag,
+    skipProfilePhoto: true,
+  });
   const tenantDbName = String(getActiveTenantDbName() || 'default').trim() || 'default';
   return finalizeCvPipelineFromStage5(file, candidateId, stage4, null, tenantDbName, {
     verboseLogs,
     logTag,
+    compactPrompt: true,
   });
 }

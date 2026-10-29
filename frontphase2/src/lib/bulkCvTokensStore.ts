@@ -20,6 +20,12 @@ export type CvTokenUsageMeta = {
   outputTokens: number;
   totalTokens: number;
   durationMs?: number;
+  extractMs?: number;
+  aiMs?: number;
+  uploadMs?: number;
+  totalMs?: number;
+  ocrUsed?: boolean;
+  extractMode?: string;
   skipped?: boolean;
   billable?: boolean;
   apiUsedLabel?: string;
@@ -38,6 +44,12 @@ export type BulkCvTokenRecord = {
   outputTokens: number;
   totalTokens: number;
   durationMs: number;
+  extractMs: number;
+  aiMs: number;
+  uploadMs: number;
+  totalMs: number;
+  ocrUsed?: boolean;
+  extractMode?: string;
   status: 'created' | 'skipped' | 'failed';
   recordedAt: string;
   billable: boolean;
@@ -153,6 +165,12 @@ function normalizeUsageForRecord(
   | 'outputTokens'
   | 'totalTokens'
   | 'durationMs'
+  | 'extractMs'
+  | 'aiMs'
+  | 'uploadMs'
+  | 'totalMs'
+  | 'ocrUsed'
+  | 'extractMode'
   | 'billable'
   | 'apiUsedLabel'
   | 'parseChain'
@@ -219,7 +237,13 @@ function normalizeUsageForRecord(
     inputTokens,
     outputTokens,
     totalTokens,
-    durationMs: Number(usage.durationMs) || 0,
+    durationMs: Number(usage.durationMs) || Number(usage.aiMs) || 0,
+    extractMs: Number(usage.extractMs) || 0,
+    aiMs: Number(usage.aiMs) || Number(usage.durationMs) || 0,
+    uploadMs: Number(usage.uploadMs) || 0,
+    totalMs: Number(usage.totalMs) || 0,
+    ocrUsed: Boolean(usage.ocrUsed),
+    extractMode: usage.extractMode ? String(usage.extractMode) : undefined,
     billable,
     apiUsedLabel: String(usage.apiUsedLabel || '').trim() || defaultApiLabel(finalProvider),
     parseChain: String(usage.parseChain || '').trim() || defaultApiLabel(finalProvider),
@@ -357,8 +381,71 @@ export function logBulkCvSessionReport(session: BulkCvTokenSession | null) {
   console.log(
     `  Combined billable: in=${totals.inputTokens.toLocaleString()} out=${totals.outputTokens.toLocaleString()} total=${totals.totalTokens.toLocaleString()} (${totals.billableResumeCount} CVs)`
   );
+  const timing = computeBulkCvTimingAverages(session.records);
+  if (timing.count > 0) {
+    console.log('');
+    console.log('Average time per CV:');
+    console.log(`  Parse engine: ${formatCvSeconds(timing.avgExtractMs)}`);
+    console.log(`  AI:           ${formatCvSeconds(timing.avgAiMs)}`);
+    console.log(`  Upload:       ${formatCvSeconds(timing.avgUploadMs)}`);
+    console.log(`  Total:        ${formatCvSeconds(timing.avgTotalMs)}`);
+  }
   console.log(line);
   console.log('');
+}
+
+export function formatCvSeconds(ms: number) {
+  const n = Number(ms) || 0;
+  if (n <= 0) return '0.0s';
+  return `${(n / 1000).toFixed(1)}s`;
+}
+
+export function readCvParseTiming(parsed: unknown): {
+  extractMs: number;
+  aiMs: number;
+  uploadMs: number;
+  totalMs: number;
+} {
+  const raw = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
+  const meta =
+    raw.cvParseMeta && typeof raw.cvParseMeta === 'object'
+      ? (raw.cvParseMeta as Record<string, unknown>)
+      : raw;
+  const extractMs = Number(meta.extractMs) || 0;
+  const aiMs = Number(meta.aiMs) || Number(meta.durationMs) || 0;
+  const uploadMs = Number(meta.uploadMs) || 0;
+  const totalMs = Number(meta.totalMs) || extractMs + aiMs;
+  return { extractMs, aiMs, uploadMs, totalMs };
+}
+
+export function formatCvParseTimingLine(timing: {
+  extractMs: number;
+  aiMs: number;
+  totalMs?: number;
+}) {
+  const total = Number(timing.totalMs) || timing.extractMs + timing.aiMs;
+  return `parse engine ${formatCvSeconds(timing.extractMs)} · AI ${formatCvSeconds(timing.aiMs)} · total ${formatCvSeconds(total)}`;
+}
+
+export function computeBulkCvTimingAverages(records: BulkCvTokenRecord[]) {
+  const rows = records.filter((row) => row.extractMs > 0 || row.aiMs > 0 || row.totalMs > 0 || row.durationMs > 0);
+  const count = rows.length || 0;
+  const sum = rows.reduce(
+    (acc, row) => ({
+      extractMs: acc.extractMs + (row.extractMs || 0),
+      aiMs: acc.aiMs + (row.aiMs || row.durationMs || 0),
+      uploadMs: acc.uploadMs + (row.uploadMs || 0),
+      totalMs: acc.totalMs + (row.totalMs || row.extractMs + (row.aiMs || row.durationMs) || 0),
+    }),
+    { extractMs: 0, aiMs: 0, uploadMs: 0, totalMs: 0 }
+  );
+  return {
+    count,
+    avgExtractMs: count ? Math.round(sum.extractMs / count) : 0,
+    avgAiMs: count ? Math.round(sum.aiMs / count) : 0,
+    avgUploadMs: count ? Math.round(sum.uploadMs / count) : 0,
+    avgTotalMs: count ? Math.round(sum.totalMs / count) : 0,
+  };
 }
 
 export function computeBulkCvTokenTotals(records: BulkCvTokenRecord[]): BulkCvTokenTotals {
@@ -425,7 +512,13 @@ export function normalizeTokenUsageFromApi(raw: unknown): CvTokenUsageMeta | nul
     inputTokens: Number(u.inputTokens) || 0,
     outputTokens: Number(u.outputTokens) || 0,
     totalTokens: Number(u.totalTokens) || 0,
-    durationMs: Number(u.durationMs) || 0,
+    durationMs: Number(u.durationMs) || Number(u.aiMs) || 0,
+    extractMs: Number(u.extractMs) || 0,
+    aiMs: Number(u.aiMs) || Number(u.durationMs) || 0,
+    uploadMs: Number(u.uploadMs) || 0,
+    totalMs: Number(u.totalMs) || 0,
+    ocrUsed: Boolean(u.ocrUsed),
+    extractMode: u.extractMode != null ? String(u.extractMode) : undefined,
     skipped: Boolean(u.skipped),
     billable: billableFromApi || inferredBillable,
     apiUsedLabel: u.apiUsedLabel != null ? String(u.apiUsedLabel) : undefined,
