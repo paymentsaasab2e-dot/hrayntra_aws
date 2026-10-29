@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Briefcase, Loader2, Search, X } from 'lucide-react';
 import { apiGetJobs, type BackendJob } from '../../lib/api';
 import { parseJobsListFromResponse } from '../../lib/parseApiList';
+import { PortalToBody } from '../drawers/PortalToBody';
 
 type InboxAssignJobsModalProps = {
   open: boolean;
@@ -81,14 +82,22 @@ export function InboxAssignJobsModal({
     filteredJobs.length > 0 && filteredJobs.every((job) => selectedIds.includes(job.id));
 
   return (
-    <div className="fixed inset-0 z-[140] flex items-center justify-center px-4">
+    <PortalToBody>
+    <div
+      className="pointer-events-auto fixed inset-0 z-[400] flex items-center justify-center px-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="inbox-assign-jobs-title"
+    >
       <div className="absolute inset-0 bg-slate-900/40" onClick={submitting ? undefined : onClose} />
       <div className="relative flex max-h-[min(36rem,86vh)] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-[#dadce0] bg-white shadow-2xl">
         <div className="flex items-start justify-between gap-4 border-b border-[#eceff1] px-5 py-4">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-[#202124]">
               <Briefcase className="h-4 w-4 text-[#1a73e8]" />
-              <h2 className="text-lg font-semibold">Assign the job</h2>
+              <h2 id="inbox-assign-jobs-title" className="text-lg font-semibold">
+                Assign the job
+              </h2>
             </div>
             <p className="mt-1 text-xs text-[#5f6368]">
               Select one or more jobs this candidate should be applied to
@@ -207,5 +216,6 @@ export function InboxAssignJobsModal({
         </div>
       </div>
     </div>
+    </PortalToBody>
   );
 }

@@ -6,9 +6,10 @@ export function parseJobsListFromResponse(res: { data?: unknown }): BackendJob[]
   const payload = res?.data;
   if (Array.isArray(payload)) return payload as BackendJob[];
   if (payload && typeof payload === 'object') {
-    const inner = payload as { data?: BackendJob[]; items?: BackendJob[] };
+    const inner = payload as { data?: BackendJob[]; items?: BackendJob[]; jobs?: BackendJob[] };
     if (Array.isArray(inner.data)) return inner.data;
     if (Array.isArray(inner.items)) return inner.items;
+    if (Array.isArray(inner.jobs)) return inner.jobs;
   }
   return [];
 }
