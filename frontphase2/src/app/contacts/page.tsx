@@ -535,7 +535,7 @@ function ContactsPageContent() {
           }
         >
         <div className={`${PH2_TABLE_CARD_CLASS} flex min-h-0 flex-1 flex-col`}>
-          <ContactsTable>
+          <ContactsTable
             contacts={contacts}
             loading={loading}
             selectedIds={selectedContactIds}
