@@ -20,6 +20,7 @@ import {
   normalizeApplicationFormSchema,
   type ApplicationFormSchema,
 } from '../../../lib/applicationFormTypes';
+import { toast, Toaster } from 'sonner';
 import { requestConfirm } from '../../../lib/appDialog';
 
 export default function InterviewFormsPage() {
@@ -69,25 +70,34 @@ export default function InterviewFormsPage() {
 
   const persistForm = async () => {
     const schema = normalizeApplicationFormSchema(draftSchema);
-    if (!schema) return;
-    if (editing) {
-      await apiUpdateInterviewForm(editing.id, {
-        title: title.trim() || editing.title,
-        description: description.trim(),
-        schema,
-      });
-    } else {
-      await apiCreateInterviewForm({
-        title: title.trim() || 'Interview application form',
-        description: description.trim(),
-        schema,
-      });
-      setEditing(null);
-      setTitle('');
-      setDescription('');
-      setDraftSchema(defaultApplicationFormSchema());
+    if (!schema) {
+      toast.error('Add at least one question before creating the form.');
+      return;
     }
-    void load();
+    try {
+      if (editing) {
+        await apiUpdateInterviewForm(editing.id, {
+          title: title.trim() || editing.title,
+          description: description.trim(),
+          schema,
+        });
+        toast.success('Interview form saved');
+      } else {
+        await apiCreateInterviewForm({
+          title: title.trim() || 'Interview application form',
+          description: description.trim(),
+          schema,
+        });
+        setEditing(null);
+        setTitle('');
+        setDescription('');
+        setDraftSchema(defaultApplicationFormSchema());
+        toast.success('Interview form created');
+      }
+      void load();
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : 'Failed to save interview form');
+    }
   };
 
   const copyApplyLink = (form: InterviewApplicationForm) => {
@@ -101,6 +111,7 @@ export default function InterviewFormsPage() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      <Toaster position="top-right" richColors />
       <header className="flex flex-nowrap items-center justify-between gap-3 overflow-x-auto no-scrollbar border-b border-indigo-100/80 bg-white/90 px-4 py-4 sm:px-6">
         <div className="flex items-center gap-3">
           <Link

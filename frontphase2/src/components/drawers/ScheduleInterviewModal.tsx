@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { matchesQuickSearch, buildQuickSearchHaystack } from '../../lib/quickSearch';
 import { AnimatePresence, motion } from 'motion/react';
 import { DrawerLinkActions } from './DrawerLinkActions';
@@ -61,6 +62,10 @@ export function ScheduleInterviewModal({
   const assignableInterviewers = useAssignableMembers(isOpen, 'Interviews', {
     initialCompanyId: interviewCompanySeed,
   });
+  const [portalReady, setPortalReady] = useState(false);
+  useEffect(() => {
+    setPortalReady(true);
+  }, []);
   const [selectedCandidateIds, setSelectedCandidateIds] = useState<string[]>([]);
   const [candidateSearch, setCandidateSearch] = useState('');
   const [candidatePickerOpen, setCandidatePickerOpen] = useState(false);
@@ -1182,7 +1187,7 @@ export function ScheduleInterviewModal({
     }
   };
 
-  return (
+  const modalTree = (
     <AnimatePresence>
       {isOpen ? (
         <motion.div
@@ -2204,4 +2209,7 @@ export function ScheduleInterviewModal({
       ) : null}
     </AnimatePresence>
   );
+
+  if (!portalReady || typeof document === 'undefined') return null;
+  return createPortal(modalTree, document.body);
 }

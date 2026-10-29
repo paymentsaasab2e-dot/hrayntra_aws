@@ -1,6 +1,7 @@
 ﻿'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import { X, Download, ChevronRight, CheckCircle, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
@@ -48,6 +49,10 @@ const DUPLICATE_OPTIONS = [
 ];
 
 export function ImportContactsDrawer({ isOpen, onClose, onSuccess }: ImportContactsDrawerProps) {
+  const [portalReady, setPortalReady] = useState(false);
+  useEffect(() => {
+    setPortalReady(true);
+  }, []);
   const [step, setStep] = useState(1);
   const [fileName, setFileName] = useState('');
   const [columnMapping, setColumnMapping] = useState<Record<string, string>>(
@@ -200,17 +205,23 @@ export function ImportContactsDrawer({ isOpen, onClose, onSuccess }: ImportConta
     }
   };
 
-  if (!isOpen) return null;
-
-  return (
+  const drawerTree = (
     <AnimatePresence>
+      {isOpen ? (
+      <motion.div
+        key="contacts-import-shell"
+        className="pointer-events-none fixed inset-0 z-[80]"
+        initial={{ opacity: 1 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 1 }}
+      >
       <motion.div
         key="import-backdrop"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         onClick={handleClose}
-        className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-[2px] pointer-events-auto"
+        className="pointer-events-auto absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]"
       />
       <motion.div
         key="import-panel"
@@ -218,7 +229,7 @@ export function ImportContactsDrawer({ isOpen, onClose, onSuccess }: ImportConta
         animate={{ x: 0 }}
         exit={{ x: '100%' }}
         transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-        className="fixed right-0 top-0 h-full w-3/4 max-w-6xl bg-white shadow-2xl z-50 pointer-events-auto border-l border-slate-200 flex flex-col"
+        className="pointer-events-auto absolute right-0 top-0 flex h-full w-3/4 max-w-6xl flex-col border-l border-slate-200 bg-white shadow-2xl"
       >
         <div className="shrink-0 border-b border-slate-200 p-5 flex items-center justify-between">
           <h2 className="text-lg font-bold text-slate-900">Import Contacts</h2>
@@ -429,6 +440,11 @@ export function ImportContactsDrawer({ isOpen, onClose, onSuccess }: ImportConta
           onImport={handleImport}
         />
       </motion.div>
+      </motion.div>
+      ) : null}
     </AnimatePresence>
   );
+
+  if (!portalReady || typeof document === 'undefined') return null;
+  return createPortal(drawerTree, document.body);
 }

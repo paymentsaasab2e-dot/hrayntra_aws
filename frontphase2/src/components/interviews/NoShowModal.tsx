@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
+import { PortalToBody } from '../drawers/PortalToBody';
 import { X } from 'lucide-react';
 import type { Interview, NoShowPayload } from '../../types/interview.types';
 
@@ -25,6 +26,7 @@ export function NoShowModal({ isOpen, interview, onClose, onSubmit }: NoShowModa
   }, [isOpen]);
 
   return (
+    <PortalToBody>
     <AnimatePresence>
       {isOpen && interview ? (
         <div className="fixed inset-0 z-[120]">
@@ -80,5 +82,6 @@ export function NoShowModal({ isOpen, interview, onClose, onSubmit }: NoShowModa
         </div>
       ) : null}
     </AnimatePresence>
+    </PortalToBody>
   );
 }

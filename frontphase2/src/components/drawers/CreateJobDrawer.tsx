@@ -5,6 +5,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 
 import { AnimatePresence } from 'motion/react';
+import { createPortal } from 'react-dom';
 
 import { DetailsModalShell } from './DetailsModalShell';
 
@@ -102,9 +103,13 @@ export function CreateJobDrawer(props: CreateJobDrawerProps) {
   defaultClientId = null,
   prefillFromRequest = null,
 } = props;
+  const [portalReady, setPortalReady] = useState(false);
+  useEffect(() => {
+    setPortalReady(true);
+  }, []);
   const { addSkill, aiGenerating, applicationApplyUrlLoading, applyLinkedInTemplate, beginSmartFillResize, clearSmartJobAttachment, clients, connectingLinkedIn, connectingSocialProvider, contacts, createJobPanelRef, crmClients, disconnectingLinkedInId, disconnectingTwitterId, dropdownsOpen, effectiveApplyUrl, formData, generatedLinkedInPost, generatedTwitterPost, goWizardBack, goWizardNext, handleApplicationLogoFileChange, handleConnectLinkedIn, handleConnectSocialAccount, handleDisconnectLinkedInAccount, handleDisconnectTwitterAccount, handleJobDescriptionPaste, handleLinkedInImageFileChange, handleSaveJob, handleSmartJobFilePick, handleSmartJobProcess, isEditMode, isStandaloneMode, jobDetailsFormData, lineManagers, linkedIn, linkedInImageUploadFeedback, linkedInImageUrl, linkedInPostSections, linkedInPostText, linkedInPostUrl, linkedinAccounts, loading, loadingClients, loadingContacts, loadingLineManagers, loadingUsers, logoUploadFeedback, ownCompanyClient, ownCompanyDisplayName, patchJobDetailsForm, postingChooser, removeSkill, requestCreateJobClose, selectedLinkedInPreviewAccount, selectedLinkedInTargets, selectedLinkedInTemplateId, selectedLinkedInTemplateName, selectedTwitterPreviewAccount, selectedTwitterTargets, setDropdownsOpen, setExistingOtherDocName, setFacebookCaptionTouched, setFormData, setLinkedInImageUrl, setLinkedInPostSections, setLinkedInPostText, setLinkedInPostTextTouched, setSelectedLinkedInTargets, setSelectedLinkedInTemplateId, setSelectedLinkedInTemplateName, setSelectedTwitterTargets, setShowFormBuilder, setShowLinkedInTemplateModal, setSkillInput, setSmartJobPrompt, setSmartJobPromptVisible, setTwitterPostTextTouched, setUploadedFile, setWizardStep, showFormBuilder, showLinkedInSuccess, showLinkedInTemplateModal, skillInput, smartFillPanelHeight, smartJobAttachment, smartJobError, smartJobFileInputRef, smartJobPrompt, smartJobPromptBoundsRef, smartJobPromptBoxRef, smartJobPromptVisible, socialStatusLoading, twitterAccounts, uploadingApplicationLogo, uploadingLinkedInImage, useLineManagerPicker, users, wizardStep, wizardStepIndex, wizardSteps, workspaceOwnerHeading } = useCreateJobDrawer(props);
 
-return (
+  const drawerTree = (
     <>
     <AnimatePresence>
       {isOpen ? (
@@ -380,5 +385,8 @@ return (
       />
     </>
   );
+
+  if (!portalReady || typeof document === 'undefined') return drawerTree;
+  return createPortal(drawerTree, document.body);
 }
 

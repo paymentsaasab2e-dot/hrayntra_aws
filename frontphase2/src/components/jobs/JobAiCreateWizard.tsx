@@ -2,6 +2,7 @@
 import type { AppIcon } from '@/types/appIcon';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { matchesQuickSearch, buildQuickSearchHaystack } from '../../lib/quickSearch';
 import { AnimatePresence, motion } from 'motion/react';
 import {
@@ -636,6 +637,10 @@ const STEP_HINTS: Record<WizardStep, string> = {
 
 export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }: Props) {
   const isManual = mode === 'manual';
+  const [portalReady, setPortalReady] = useState(false);
+  useEffect(() => {
+    setPortalReady(true);
+  }, []);
   const wizardSteps = STEPS;
   const linkedIn = useLinkedIn();
   const {
@@ -2031,6 +2036,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
   };
 
   if (!isOpen) return null;
+  if (!portalReady || typeof document === 'undefined') return null;
 
   const fieldClass =
     'w-full rounded-2xl border border-slate-200/90 bg-white/90 px-3.5 py-3 text-sm text-slate-900 shadow-[0_1px_2px_rgba(15,23,42,0.04)] outline-none transition placeholder:text-slate-400 hover:border-[#2098C8]/60 hover:shadow-md hover:shadow-[#2098C8]/10 focus:border-[#2098C8] focus:bg-white focus:ring-4 focus:ring-[#2098C8]/15';
@@ -2040,7 +2046,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
   const sectionClass =
     'rounded-[1.35rem] border border-white/80 bg-white/80 p-4 shadow-[0_8px_30px_-12px_rgba(15,23,42,0.12)] ring-1 ring-slate-900/[0.04] backdrop-blur-sm sm:p-5';
 
-  return (
+  return createPortal(
     <>
     <AnimatePresence>
     <DetailsModalShell
@@ -3270,6 +3276,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
           applyLinkedInTemplate(template);
         }}
       />
-    </>
+    </>,
+    document.body,
   );
 }
