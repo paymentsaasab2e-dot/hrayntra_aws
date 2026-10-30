@@ -289,6 +289,22 @@ export default function CandidatesTab(props: CandidatesTabProps) {
               </button>
             ) : null}
           </div>
+          {props.candidateMatchMode === 'applied' && job?.id ? (
+            <button
+              type="button"
+              onClick={() => void props.onRunAppliedMatches()}
+              disabled={props.appliedCandidatesLoading || props.appliedPipelineRunning}
+              className="inline-flex h-8 shrink-0 items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 px-3 text-sm font-semibold text-white shadow-sm transition hover:from-emerald-700 hover:via-teal-700 hover:to-cyan-700 disabled:cursor-not-allowed disabled:opacity-60"
+              title="Run the 4-pass AI pipeline on applied/assigned candidates for this job"
+            >
+              <Sparkles
+                size={16}
+                className={props.appliedPipelineRunning ? 'animate-spin' : ''}
+                strokeWidth={2.25}
+              />
+              {props.appliedPipelineRunning ? 'Running applied matches…' : 'Run AI Applied Matches'}
+            </button>
+          ) : null}
           {props.candidateMatchMode === 'applied' && props.canAddCandidate && job?.id ? (
             <>
               <input
@@ -530,7 +546,7 @@ export default function CandidatesTab(props: CandidatesTabProps) {
                 <div className={PH2_TABLE_BODY_SCROLL_CLASS}>
                   <CandidateTable
                     candidates={props.pagedJobTableCandidates}
-                    showMatchScore={props.showMatchScores}
+                    showMatchScore
                     compact
                     fillScrollParent
                     selectedIds={props.selectedCandidateIds}

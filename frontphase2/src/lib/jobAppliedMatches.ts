@@ -1,5 +1,6 @@
 import { apiCreateMatch, apiGetMatches, apiResolveMatchForSubmit, type BackendMatch } from './api';
 import type { JobCandidateItem } from '../components/drawers/JobDetailsDrawer';
+import { normalizeMatchDisplayScore } from '../components/matches/types';
 import {
   pickCandidateOwnerLabel,
   resolveCandidateExperienceYears,
@@ -171,12 +172,64 @@ export function isJobLinkedBackendMatch(match: {
 }
 
 export function parseJobCandidateScore(score: string | number | undefined): number {
-  if (typeof score === 'number' && Number.isFinite(score)) return Math.round(score);
+  if (typeof score === 'number' && Number.isFinite(score)) {
+    return normalizeMatchDisplayScore(score);
+  }
   const normalized = String(score ?? '')
     .replace(/%/g, '')
     .trim();
   const parsed = Number(normalized);
-  return Number.isFinite(parsed) ? Math.round(parsed) : 0;
+  return Number.isFinite(parsed) ? normalizeMatchDisplayScore(parsed) : 0;
+}
+
+type MatchEvaluationLike = {
+  finalScore?: unknown;
+  merged?: { finalScore?: unknown };
+  pending?: unknown;
+};
+
+function readMatchEvaluation(match: BackendMatch): MatchEvaluationLike | null {
+  const evaluation = (match as BackendMatch & { evaluation?: unknown }).evaluation;
+  if (!evaluation || typeof evaluation !== 'object') return null;
+  return evaluation as MatchEvaluationLike;
+}
+
+/** Prefer 4-pass engine final score over legacy/raw match.score (same as Matches page). */
+export function resolveBackendMatchDisplayScore(match: BackendMatch): number {
+  const fromEngine = Number(match.explanation?.aiEngine?.confidenceScore);
+  if (Number.isFinite(fromEngine) && fromEngine > 0) {
+    return normalizeMatchDisplayScore(fromEngine);
+  }
+  const ev = readMatchEvaluation(match);
+  if (ev && !ev.pending) {
+    const final = Number(ev.finalScore ?? ev.merged?.finalScore);
+    if (Number.isFinite(final) && final > 0) {
+      return normalizeMatchDisplayScore(final);
+    }
+  }
+  return normalizeMatchDisplayScore(match.score);
+}
+
+function backendMatchHasEngineScore(match: BackendMatch): boolean {
+  if (match.explanation?.aiEngine && Number(match.explanation.aiEngine.confidenceScore) > 0) {
+    return true;
+  }
+  const ev = readMatchEvaluation(match);
+  if (!ev || ev.pending) return false;
+  const final = Number(ev.finalScore ?? ev.merged?.finalScore);
+  return Number.isFinite(final) && final > 0;
+}
+
+/** Prefer engine-evaluated rows over inflated legacy scores (do not pick max %). */
+function preferAccurateMatchRow(prev: BackendMatch, next: BackendMatch): BackendMatch {
+  const prevEngine = backendMatchHasEngineScore(prev);
+  const nextEngine = backendMatchHasEngineScore(next);
+  if (nextEngine && !prevEngine) return next;
+  if (prevEngine && !nextEngine) return prev;
+  const prevTs = Date.parse(String((prev as { updatedAt?: string }).updatedAt || '')) || 0;
+  const nextTs = Date.parse(String((next as { updatedAt?: string }).updatedAt || '')) || 0;
+  if (nextTs !== prevTs) return nextTs > prevTs ? next : prev;
+  return resolveBackendMatchDisplayScore(next) >= resolveBackendMatchDisplayScore(prev) ? next : prev;
 }
 
 export function unwrapMatchRows(response: unknown): BackendMatch[] {
@@ -201,10 +254,8 @@ export function backendMatchToJobCandidateItem(
   match: BackendMatch,
   fallbackRecruiter = 'Unassigned',
 ): JobCandidateItem {
-  const score =
-    typeof match.score === 'number' && match.score > 0
-      ? `${Math.round(match.score)}%`
-      : '-';
+  const numericScore = resolveBackendMatchDisplayScore(match);
+  const score = numericScore > 0 ? `${numericScore}%` : '-';
   const resolvedStage = resolveJobCandidateStageFromMatchRow({
     status: match.status,
     candidateStage: match.candidateStage,
@@ -245,9 +296,11 @@ export function mergeJobCandidatesWithAppliedMatches(
     const id = row.candidateId || row.id;
     if (!id) continue;
     const prev = scoreByCandidateId.get(id);
-    if (!prev || (row.score ?? 0) > (prev.score ?? 0)) {
+    if (!prev) {
       scoreByCandidateId.set(id, row);
+      continue;
     }
+    scoreByCandidateId.set(id, preferAccurateMatchRow(prev, row));
   }
 
   const seen = new Set<string>();
@@ -255,7 +308,7 @@ export function mergeJobCandidatesWithAppliedMatches(
     seen.add(candidate.id);
     const match = scoreByCandidateId.get(candidate.id);
     if (!match) return candidate;
-    const numericScore = typeof match.score === 'number' ? Math.round(match.score) : 0;
+    const numericScore = resolveBackendMatchDisplayScore(match);
     return {
       ...candidate,
       score: numericScore > 0 ? `${numericScore}%` : candidate.score,
@@ -480,6 +533,32 @@ export function extractPipelineJobCandidateItems(
   return sortJobCandidatesChronologically(Array.from(byId.values()));
 }
 
+/** Overlay AI-tab engine scores onto applied rows so the job drawer matches Matches accuracy. */
+function mergeAppliedRowsWithAiEngineScores(
+  appliedRows: BackendMatch[],
+  aiRows: BackendMatch[],
+): BackendMatch[] {
+  if (!aiRows.length) return appliedRows;
+  const byId = new Map<string, BackendMatch>();
+  for (const row of appliedRows) {
+    const id = row.candidateId || row.id;
+    if (!id) continue;
+    const prev = byId.get(id);
+    byId.set(id, prev ? preferAccurateMatchRow(prev, row) : row);
+  }
+  for (const row of aiRows) {
+    const id = row.candidateId || row.id;
+    if (!id || !backendMatchHasEngineScore(row)) continue;
+    const prev = byId.get(id);
+    if (!prev) {
+      byId.set(id, row);
+      continue;
+    }
+    byId.set(id, preferAccurateMatchRow(prev, row));
+  }
+  return Array.from(byId.values());
+}
+
 /** Load applied / assigned / pipeline-linked candidates and merge AI applied match scores. */
 export async function loadJobAppliedCandidates(
   jobId: string,
@@ -498,7 +577,17 @@ export async function loadJobAppliedCandidates(
     ...(options?.runPipeline ? { runPipeline: '1' } : {}),
     ...(options?.runPipeline && options?.refresh ? { refresh: '1' } : {}),
   });
-  const matchRows = unwrapMatchRows(response);
+  let matchRows = unwrapMatchRows(response);
+  try {
+    const aiResponse = await apiGetMatches({
+      jobId,
+      source: 'ai',
+      limit: 500,
+    });
+    matchRows = mergeAppliedRowsWithAiEngineScores(matchRows, unwrapMatchRows(aiResponse));
+  } catch {
+    // Applied scores alone are still usable if AI list fails.
+  }
   const seed = options?.pipelineSeed ?? [];
   return mergeJobCandidatesWithAppliedMatches(seed, matchRows, options?.fallbackRecruiter ?? 'Unassigned');
 }
