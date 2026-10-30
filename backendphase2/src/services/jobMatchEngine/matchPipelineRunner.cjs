@@ -18,9 +18,7 @@ const {
   buildMatchPipelineCandidateText,
   buildWorkHistoryFromRaw,
 } = require('./matchCandidateProfile.cjs');
-
-/** Prisma Mongo: unset ObjectId fields must use isSet:false, not null. */
-const AI_MATCH_AUTHOR_WHERE = { isSet: false };
+const { upsertAiAuthoredMatch, AI_MATCH_AUTHOR_WHERE } = require('./aiMatchPersist.cjs');
 
 /** Bump when scoring logic changes so 24h cache does not keep stale inaccurate scores. */
 const MATCH_ENGINE_VERSION = '1.1';
@@ -342,10 +340,28 @@ async function runMatchPipeline({
   stageLogger.stageEnd('STAGE 3', `${mergedPairs.length} scores merged`);
 
   const min = Number(minScore) || 60;
-  const preThreshold = mergedPairs.filter((m) => m.merged.finalScore >= min);
-  stageLogger.stageStart('STAGE 4 STARTED — LLM Suggestion Engine', { pairsAboveThreshold: preThreshold.length });
 
-  const suggestionInputs = preThreshold.map((p) => ({
+  // Penalties first so suggestion eligibility uses the final persisted score.
+  stageLogger.stageStart('STAGE 4 STARTED — Threshold Filter and Score Banding', {});
+  const withFlags = mergedPairs.map((p) => ({ ...p, suggestion: null, flags: [] }));
+  const aboveBeforePenalties = withFlags.filter((m) => m.merged.finalScore >= min).length;
+  stageLogger.stage5ThresholdLog(min, aboveBeforePenalties, withFlags.length, '(before location/salary penalties)');
+  const filtered = applyThreshold(withFlags, jobRow, min);
+  stageLogger.stage5ThresholdLog(
+    min,
+    filtered.stats?.aboveMinScore ?? 0,
+    withFlags.length,
+    '(after penalties)'
+  );
+  stageLogger.stageEnd('STAGE 4', JSON.stringify(filtered.stats));
+  stageLogger.finalScoresSummary(filtered.visible, jobRow.title);
+
+  const eligibleForSuggestion = filtered.visible.filter((m) => m.merged.finalScore >= min);
+  stageLogger.stageStart('STAGE 5 STARTED — LLM Suggestion Engine', {
+    pairsAboveThreshold: eligibleForSuggestion.length,
+  });
+
+  const suggestionInputs = eligibleForSuggestion.map((p) => ({
     candidateName: p.pair.name,
     jobTitle: jobRow.title,
     finalScore: p.merged.finalScore,
@@ -362,57 +378,13 @@ async function runMatchPipeline({
 
   const suggestions = await generateSuggestions(suggestionInputs);
   const suggMap = new Map(suggestions.map((s) => [s.pairIndex, s.suggestion]));
-  const preIdxByCand = new Map(preThreshold.map((p, i) => [p.pair.rawCandidate.id, i]));
-
-  const mergedWithSugg = mergedPairs.map((p) => {
-    const idx = preIdxByCand.get(p.pair.rawCandidate.id);
-    const suggestion = idx !== undefined ? suggMap.get(idx) : null;
-    return { ...p, suggestion: suggestion || null, flags: [] };
-  });
-
-  stageLogger.stageEnd('STAGE 4', `${suggestions.length} suggestions generated`);
-
-  stageLogger.stageStart('STAGE 5 STARTED — Threshold Filter and Score Banding', {});
-  const aboveBeforePenalties = mergedWithSugg.filter((m) => m.merged.finalScore >= min).length;
-  stageLogger.stage5ThresholdLog(min, aboveBeforePenalties, mergedWithSugg.length, '(before location/salary penalties)');
-  const filtered = applyThreshold(mergedWithSugg, jobRow, min);
-  stageLogger.stage5ThresholdLog(
-    min,
-    filtered.stats?.aboveMinScore ?? 0,
-    mergedWithSugg.length,
-    '(after penalties)'
-  );
-  stageLogger.stageEnd('STAGE 5', JSON.stringify(filtered.stats));
-  stageLogger.finalScoresSummary(filtered.visible, jobRow.title);
+  for (let i = 0; i < eligibleForSuggestion.length; i += 1) {
+    const sug = suggMap.get(i);
+    if (sug) eligibleForSuggestion[i].suggestion = sug;
+  }
+  stageLogger.stageEnd('STAGE 5', `${suggestions.length} suggestions generated`);
 
   stageLogger.stageStart('STAGE 6 STARTED — Persisting and Delivering Results', {});
-
-  if (isAppliedPipeline) {
-    const candidateIds = candidates.map((c) => c.id).filter(Boolean);
-    if (candidateIds.length) {
-      await prisma.match.deleteMany({
-        where: {
-          jobId,
-          candidateId: { in: candidateIds },
-          createdById: AI_MATCH_AUTHOR_WHERE,
-        },
-      });
-    }
-  } else {
-    const existingAi = await prisma.match.findMany({
-      where: { jobId, createdById: AI_MATCH_AUTHOR_WHERE, status: { not: 'REJECTED' } },
-      select: { id: true, evaluation: true },
-    });
-    const deleteIds = existingAi
-      .filter(
-        (row) =>
-          !(row.evaluation && typeof row.evaluation === 'object' && row.evaluation.origin === 'applied')
-      )
-      .map((row) => row.id);
-    if (deleteIds.length) {
-      await prisma.match.deleteMany({ where: { id: { in: deleteIds } } });
-    }
-  }
 
   const computedAt = new Date().toISOString();
   const toPersist = filtered.visible;
@@ -442,32 +414,36 @@ async function runMatchPipeline({
           : poolStats?.portalIncluded
             ? 'tenant+portal'
             : 'tenant',
-      origin: isAppliedPipeline
-        ? 'applied'
-        : 'ai',
+      origin: isAppliedPipeline ? 'applied' : 'ai',
     };
 
     let candidateId = ep.pair.rawCandidate.id;
-    if (typeof materializeCandidate === 'function') {
-      const resolved = await materializeCandidate(ep.pair.rawCandidate);
-      if (!resolved?.id) {
-        skippedPersist += 1;
-        continue;
+    try {
+      if (typeof materializeCandidate === 'function') {
+        const resolved = await materializeCandidate(ep.pair.rawCandidate);
+        if (!resolved?.id) {
+          skippedPersist += 1;
+          continue;
+        }
+        if (resolved.materialized) materialized += 1;
+        candidateId = resolved.id;
       }
-      if (resolved.materialized) materialized += 1;
-      candidateId = resolved.id;
-    }
 
-    await prisma.match.create({
-      data: {
+      await upsertAiAuthoredMatch(prisma, {
         candidateId,
         jobId,
         score: ep.merged.finalScore,
         status: 'SUGGESTED',
         evaluation: evaluationJson,
-      },
-    });
-    persisted += 1;
+      });
+      persisted += 1;
+    } catch (persistErr) {
+      skippedPersist += 1;
+      stageLogger.errorLog(
+        `persist ${candidateId}`,
+        persistErr?.message || persistErr
+      );
+    }
   }
 
   const stage6Summary =

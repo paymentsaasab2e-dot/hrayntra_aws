@@ -17,9 +17,12 @@ function mergeScores(pass1, pass2, pass3, pass4) {
   const s4 = pass4?.skipped ? 0 : Number(pass4?.score) || 0;
 
   const p4Skipped = Boolean(pass4?.skipped);
-  const p3Neutral =
-    pass3?.engine === 'fallback-neutral' ||
-    (pass3?.engine === 'lexical-fallback' && Number(pass3?.score) === 50);
+  // Meaningful lexical Jaccard (pass3 lexical-fallback) keeps full P3 weight — it is a real signal.
+  // Only redistribute when semantic score is explicitly unavailable/neutral (no embedding, no lexical).
+  const p3Unavailable =
+    pass3?.engine === 'unavailable' ||
+    pass3?.semanticUnavailable === true ||
+    (pass3?.skipped === true);
 
   let p1 = 0.3;
   let p2 = 0.25;
@@ -33,7 +36,7 @@ function mergeScores(pass1, pass2, pass3, pass4) {
     p4 = 0;
   }
 
-  if (p3Neutral) {
+  if (p3Unavailable) {
     if (p4Skipped) {
       p1 = 0.55;
       p2 = 0.45;

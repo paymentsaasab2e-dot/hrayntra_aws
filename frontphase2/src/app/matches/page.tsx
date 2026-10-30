@@ -435,12 +435,13 @@ export default function MatchesPage() {
     const tab = opts?.source ?? activeTab;
     const apiSource = tab === 'manual' || tab === 'applied' ? 'applied' : 'ai';
 
+    const runPipeline =
+      (apiSource === 'ai' || apiSource === 'applied') &&
+      Boolean(opts?.runPipeline || opts?.forcePipeline);
+
     setLoading(true);
     setError(null);
     try {
-      const runPipeline =
-        (apiSource === 'ai' || apiSource === 'applied') &&
-        Boolean(opts?.runPipeline || opts?.forcePipeline);
       const matchesResponse = await apiGetMatches({
         jobId: selectedJob.id,
         source: apiSource,
@@ -466,6 +467,8 @@ export default function MatchesPage() {
       setError(fetchError.message || 'Unable to load matches');
       setCandidates([]);
       setSavedMatches([]);
+      // Surface pipeline failures to Run AI / Applied handlers (no false success toast).
+      if (runPipeline) throw fetchError;
       return [] as MatchCandidate[];
     } finally {
       setLoading(false);

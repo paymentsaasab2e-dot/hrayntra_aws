@@ -2948,6 +2948,7 @@ async function loadMatchPipelineCandidatePool(req, jobId) {
   const tenantCandidates = await prisma.candidate.findMany({
     where: {
       isDeleted: { not: true },
+      status: { in: ['NEW', 'ACTIVE'] },
     },
     orderBy: { updatedAt: 'desc' },
     take: tenantLimit,
@@ -2964,10 +2965,19 @@ async function loadMatchPipelineCandidatePool(req, jobId) {
   if (portalIncluded) {
     const portalPrisma = getJobPortalPrismaClient();
     const portalLimit = matchPortalPoolMax();
-    portalCandidates = await portalPrisma.candidate.findMany({
-      take: portalLimit,
-      orderBy: { updatedAt: 'desc' },
-    });
+    try {
+      portalCandidates = await portalPrisma.candidate.findMany({
+        where: { isDeleted: { not: true } },
+        take: portalLimit,
+        orderBy: { updatedAt: 'desc' },
+      });
+    } catch {
+      // Portal schema may not expose isDeleted — fall back without that filter.
+      portalCandidates = await portalPrisma.candidate.findMany({
+        take: portalLimit,
+        orderBy: { updatedAt: 'desc' },
+      });
+    }
   }
 
   const portalIdsForTombstone = [

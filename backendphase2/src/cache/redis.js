@@ -95,3 +95,39 @@ export async function deleteCacheByPattern(pattern) {
     return false;
   }
 }
+
+/**
+ * Distributed lock via SET NX EX.
+ * @returns {{ ok: true, token: string } | { ok: false, reason: 'held'|'unavailable' }}
+ */
+export async function acquireLock(key, ttlSeconds = 300) {
+  if (!hasRedisConfig()) return { ok: false, reason: 'unavailable' };
+  const client = await getRedisClient();
+  if (!client) return { ok: false, reason: 'unavailable' };
+  const token = `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+  try {
+    const result = await client.set(key, token, 'EX', Math.max(1, ttlSeconds), 'NX');
+    if (result === 'OK') return { ok: true, token };
+    return { ok: false, reason: 'held' };
+  } catch {
+    return { ok: false, reason: 'unavailable' };
+  }
+}
+
+/** Release only if token still owns the lock (best-effort). */
+export async function releaseLock(key, token) {
+  const client = await getRedisClient();
+  if (!client || !token) return false;
+  try {
+    const script = `
+      if redis.call("get", KEYS[1]) == ARGV[1] then
+        return redis.call("del", KEYS[1])
+      end
+      return 0
+    `;
+    await client.eval(script, 1, key, token);
+    return true;
+  } catch {
+    return false;
+  }
+}
