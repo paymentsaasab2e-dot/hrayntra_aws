@@ -24,7 +24,11 @@ import {
   getCandidateStageLabel,
 } from '../../../utils/candidateStage';
 import { WhatsAppIcon } from '../../../components/icons/WhatsAppIcon';
-import { displayMatchBand, scoreBadgeClass } from '../../../components/matches/types';
+import {
+  displayMatchBand,
+  normalizeMatchDisplayScore,
+  scoreBadgeClass,
+} from '../../../components/matches/types';
 import type { AuditMeta } from '../../../types/audit';
 import { TableAuditColumnHeader, TableAuditCell } from '../../../components/table/TableAuditCell';
 import { useFormatTableLocationCell } from '../../../components/table/LocationColumnHeader';
@@ -478,20 +482,26 @@ export const CandidateTable: React.FC<CandidateTableProps> = React.memo(({
                 </td>
                 {showMatchScore ? (
                   <td className="px-3 py-3 text-center sm:px-4 sm:py-3.5">
-                    {(candidate.matchScore ?? 0) > 0 ? (
-                      <div className="flex items-center justify-center">
-                        <span
-                          className={`inline-flex min-w-[2.85rem] items-center justify-center rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums shadow-sm ${scoreBadgeClass(candidate.matchScore ?? 0)}`}
-                          title={candidate.matchScoreBand || displayMatchBand(candidate.matchScore ?? 0)}
-                        >
-                          {candidate.matchScore}%
-                        </span>
-                      </div>
-                    ) : (
-                      <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-xs font-normal uppercase tracking-wide text-slate-400">
-                        Not scored
-                      </span>
-                    )}
+                    {(() => {
+                      const displayScore = normalizeMatchDisplayScore(candidate.matchScore ?? 0);
+                      if (displayScore <= 0) {
+                        return (
+                          <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-xs font-normal uppercase tracking-wide text-slate-400">
+                            Not scored
+                          </span>
+                        );
+                      }
+                      return (
+                        <div className="flex items-center justify-center">
+                          <span
+                            className={`inline-flex min-w-[2.85rem] items-center justify-center rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums shadow-sm ${scoreBadgeClass(displayScore)}`}
+                            title={candidate.matchScoreBand || displayMatchBand(displayScore)}
+                          >
+                            {displayScore}%
+                          </span>
+                        </div>
+                      );
+                    })()}
                   </td>
                 ) : null}
                 {show('roleCompany') ? (

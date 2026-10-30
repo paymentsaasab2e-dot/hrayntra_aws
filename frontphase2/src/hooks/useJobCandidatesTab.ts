@@ -1162,6 +1162,8 @@ export function useJobCandidatesTab(options: UseJobCandidatesTabOptions) {
       } else {
         void requestInfo('AI matching complete — no scored candidates yet for this job.');
       }
+      // Keep Candidates (applied) scores in sync with the refreshed 4-pass engine.
+      await refreshAppliedJobCandidates({ runPipeline: false, refresh: false, silent: true });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unable to run AI matching';
       setAiMatchesError(message);
@@ -1169,7 +1171,36 @@ export function useJobCandidatesTab(options: UseJobCandidatesTabOptions) {
     } finally {
       setAiPipelineRunning(false);
     }
-  }, [jobId, refreshAiMatches]);
+  }, [jobId, refreshAiMatches, refreshAppliedJobCandidates]);
+
+  const handleRunAppliedMatches = useCallback(async () => {
+    if (!jobId) return;
+    try {
+      const list = await refreshAppliedJobCandidates({ runPipeline: true, refresh: true });
+      const scored = list
+        .map((row) => ({
+          name: row.candidateName,
+          score: parseJobCandidateScore(row.score),
+        }))
+        .filter((row) => row.score > 0)
+        .sort((a, b) => b.score - a.score);
+      const top = scored[0];
+      if (top) {
+        void requestInfo(
+          `Applied matching complete — ${list.length} candidate(s). Top: ${top.name} (${top.score}%).`,
+        );
+      } else if (list.length) {
+        void requestInfo(
+          `${list.length} applied candidate(s) loaded. Run AI Applied Matches again if scores are missing.`,
+        );
+      } else {
+        void requestInfo('No candidates assigned to this job yet.');
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unable to run applied matching';
+      void requestError(message);
+    }
+  }, [jobId, refreshAppliedJobCandidates]);
 
   const updateAiMatchCandidate = useCallback(
     (candidateId: string, updater: (candidate: MatchCandidate) => MatchCandidate) => {
@@ -1408,6 +1439,7 @@ export function useJobCandidatesTab(options: UseJobCandidatesTabOptions) {
     aiExpandedAnalysis,
     setAiExpandedAnalysis,
     onRunAiMatches: handleRunAiMatches,
+    onRunAppliedMatches: handleRunAppliedMatches,
     onToggleAiSelect,
     onToggleAiSelectAll,
     onToggleAiSave,

@@ -147,6 +147,7 @@ import {
   AI_SCORE_TIERS,
   computeAiTierStats,
   displayMatchBand,
+  normalizeMatchDisplayScore,
   type MatchCandidate,
 } from '../matches/types';
 import { useSubmitToClientModal } from '../../hooks/useSubmitToClientModal';
@@ -964,7 +965,7 @@ export function mapJobCandidateToTableRow(
   jobTitle?: string | null,
   jobId?: string | null,
 ): JobDrawerTableCandidate {
-  const matchScore = parseJobCandidateScore(candidate.score);
+  const matchScore = normalizeMatchDisplayScore(parseJobCandidateScore(candidate.score));
   return {
     id: candidate.id,
     name: candidate.candidateName,
@@ -1003,6 +1004,7 @@ export function matchCandidateToJobTableRow(
   jobTitle?: string | null,
   jobId?: string | null,
 ): JobDrawerTableCandidate {
+  const matchScore = normalizeMatchDisplayScore(match.score);
   return {
     id: match.id,
     name: match.name,
@@ -1027,9 +1029,9 @@ export function matchCandidateToJobTableRow(
     source: match.matchSource || '',
     rating: match.matchRating ?? 0,
     pipelineJobId: jobId || undefined,
-    matchScore: match.score,
+    matchScore: matchScore > 0 ? matchScore : undefined,
     matchId: match.matchId,
-    matchScoreBand: match.score > 0 ? displayMatchBand(match.score) : undefined,
+    matchScoreBand: matchScore > 0 ? displayMatchBand(matchScore) : undefined,
   };
 }
 
