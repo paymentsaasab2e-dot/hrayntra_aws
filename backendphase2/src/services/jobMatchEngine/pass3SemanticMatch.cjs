@@ -208,6 +208,7 @@ async function embedTriple(jobParts, candParts, clients, cache) {
   };
 }
 
+/** Lexical Jaccard is a real semantic signal — scoreMerger keeps full P3 weight for lexical-fallback. */
 function lexicalPass3Result(jobText, candidateText, reason) {
   const score = lexicalSemanticScore(jobText, candidateText);
   fallbackLog('pass3', `${reason || 'embeddings failed'} — using lexical overlap score ${score}`);

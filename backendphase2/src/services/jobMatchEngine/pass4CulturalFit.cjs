@@ -89,13 +89,14 @@ Respond with ONLY this JSON:
       reasoning: parsed.reasoning || '',
     };
   } catch (parseErr) {
+    // No reliable cultural signal — skip so scoreMerger redistributes P4 weight.
     return {
-      score: 50,
-      skipped: false,
-      source: 'default-fallback',
+      score: 0,
+      skipped: true,
+      source: 'skipped-llm-failure',
       error: true,
       errorMessage: parseErr?.message || String(parseErr),
-      dimensions: { workPace: 10, collaboration: 10, communication: 10, leadership: 10, innovation: 10 },
+      dimensions: { workPace: 0, collaboration: 0, communication: 0, leadership: 0, innovation: 0 },
       rawLlmResponse: raw,
     };
   }

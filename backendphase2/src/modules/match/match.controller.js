@@ -7,7 +7,8 @@ export const matchController = {
       const result = await matchService.getAll(req);
       sendResponse(res, 200, 'Matches retrieved successfully', result);
     } catch (error) {
-      sendError(res, 500, error.message, error);
+      const status = Number(error?.statusCode) || 500;
+      sendError(res, status, error.message, error);
     }
   },
 

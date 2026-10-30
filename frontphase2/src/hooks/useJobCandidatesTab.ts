@@ -511,6 +511,7 @@ export function useJobCandidatesTab(options: UseJobCandidatesTabOptions) {
         const message =
           err instanceof Error ? err.message : 'Unable to load applied candidates for this job';
         void requestError(message);
+        if (loadingPipeline) throw err;
         return [] as JobCandidateItem[];
       } finally {
         if (loadingPipeline) {
@@ -1135,6 +1136,7 @@ export function useJobCandidatesTab(options: UseJobCandidatesTabOptions) {
         const message = err instanceof Error ? err.message : 'Unable to load AI matches';
         setAiMatchesError(message);
         setAiMatchCandidates([]);
+        if (opts?.runPipeline) throw err;
         return [] as MatchCandidate[];
       } finally {
         setAiMatchesLoading(false);

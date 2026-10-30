@@ -33,6 +33,21 @@ import {
   pruneOrphanedCandidateLinks,
 } from '../../utils/pruneOrphanedCandidateLinks.js';
 import { isDeliverableEmail } from '../../utils/emailDeliverability.js';
+import { acquireLock, releaseLock, hasRedisConfig } from '../../cache/redis.js';
+import {
+  acquirePipelineLock as acquireJobPipelineLock,
+  releasePipelineLock as releaseJobPipelineLock,
+} from './matchPipelineLock.js';
+
+const redisLockApi = { hasRedisConfig, acquireLock, releaseLock };
+
+async function acquirePipelineLock(jobId) {
+  return acquireJobPipelineLock(jobId, redisLockApi);
+}
+
+async function releasePipelineLock(lock) {
+  return releaseJobPipelineLock(lock, redisLockApi);
+}
 
 // Mirror of the interview drawer's purpose codes. Keeping the resolution
 // logic here means a match-submitted-to-client carries the same UX (tag
@@ -670,10 +685,13 @@ export const matchService = {
     const shouldRunAppliedPipeline = String(source) === 'applied' && jobId && pipelineRequested;
 
     if (shouldRunAiPipeline || shouldRunAppliedPipeline) {
+      const pipelineMode = shouldRunAppliedPipeline ? 'applied' : 'ai';
+      let pipelineLock = null;
       try {
+        pipelineLock = await acquirePipelineLock(String(jobId));
         const { runMatchPipeline } = require('../../services/jobMatchEngine/matchPipelineRunner.cjs');
         const forceRefresh = req.query.refresh === '1' || req.query.forceRefresh === '1';
-        const suggestionMin = Number(process.env.MATCH_SUGGESTION_MIN_SCORE || 50);
+        const suggestionMin = Number(process.env.MATCH_SUGGESTION_MIN_SCORE || 60);
         const minForPipeline = minScore ? parseFloat(minScore) : suggestionMin;
 
         if (shouldRunAppliedPipeline) {
@@ -720,6 +738,20 @@ export const matchService = {
         }
       } catch (pipeErr) {
         console.error('[matchService] Match pipeline failed:', pipeErr?.message || pipeErr);
+        if (
+          pipeErr?.statusCode === 409 ||
+          pipeErr?.statusCode === 503 ||
+          pipeErr?.code === 'PIPELINE_LOCKED' ||
+          pipeErr?.code === 'PIPELINE_LOCK_UNAVAILABLE'
+        ) {
+          throw pipeErr;
+        }
+        const err = new Error(pipeErr?.message || 'Match pipeline failed');
+        err.statusCode = 500;
+        err.code = 'PIPELINE_FAILED';
+        throw err;
+      } finally {
+        await releasePipelineLock(pipelineLock);
       }
     }
 
