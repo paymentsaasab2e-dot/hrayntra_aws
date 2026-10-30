@@ -420,12 +420,83 @@ function summarizeCandidate(candidate) {
   };
 }
 
+/** Generic role words — not usable as required skill tags. */
+const ROLE_NOISE_SKILLS = new Set([
+  'developer',
+  'engineer',
+  'engineering',
+  'software',
+  'programmer',
+  'programming',
+  'manager',
+  'management',
+  'analyst',
+  'consultant',
+  'specialist',
+  'lead',
+  'senior',
+  'junior',
+  'intern',
+  'associate',
+  'professional',
+  'team',
+  'role',
+  'job',
+  'position',
+]);
+
+/** Short requirement lines that look like skill tags — not full JD sentences. */
+function looksLikeSkillRequirement(value) {
+  const s = String(value || '').trim();
+  if (!s || s.length > 48) return false;
+  if (/[.!?]/.test(s)) return false;
+  const words = s.split(/\s+/).filter(Boolean);
+  if (words.length > 6) return false;
+  if (/\b(the|and|with|for|our|you|will|must|should|responsible|ability)\b/i.test(s) && words.length > 3) {
+    return false;
+  }
+  const normalized = normalizeSkill(s);
+  if (ROLE_NOISE_SKILLS.has(normalized)) return false;
+  return true;
+}
+
+/**
+ * Prefer structured `job.skills`. Fall back to short requirement tags, then
+ * known tech tokens from JD text. Never treat full responsibility sentences as skills.
+ */
+function extractJobRequiredSkills(job) {
+  const fromSkills = uniqueNormalized(job.skills || []).filter((s) => !ROLE_NOISE_SKILLS.has(normalizeSkill(s)));
+  if (fromSkills.length) return fromSkills;
+
+  const fromReqs = uniqueNormalized(job.requirements || []).filter(looksLikeSkillRequirement);
+  if (fromReqs.length) return fromReqs;
+
+  const blob = [
+    job.title,
+    job.description,
+    job.overview,
+    job.aboutRole,
+    ...(Array.isArray(job.keyResponsibilities) ? job.keyResponsibilities : []),
+    ...(Array.isArray(job.requirements) ? job.requirements : []),
+  ]
+    .filter(Boolean)
+    .join(' ');
+  const tokens = tokenizeText(blob);
+  const known = new Set(
+    Object.values(DOMAIN_KEYWORDS)
+      .flat()
+      .concat(Object.keys(SKILL_ALIASES), Object.values(SKILL_ALIASES))
+  );
+  return uniqueNormalized(
+    tokens.filter((t) => {
+      if (ROLE_NOISE_SKILLS.has(t) || ROLE_NOISE_SKILLS.has(normalizeSkill(t))) return false;
+      return known.has(t) || known.has(t.replace(/\s+/g, ''));
+    })
+  );
+}
+
 function summarizeJob(job) {
-  const requiredSkills = uniqueNormalized([
-    job.skills || [],
-    job.requirements || [],
-    job.keyResponsibilities || [],
-  ]);
+  const requiredSkills = extractJobRequiredSkills(job);
   const preferredSkills = uniqueNormalized(job.preferredSkills || []);
   const responsibilities = uniqueNormalized([
     job.responsibilities,

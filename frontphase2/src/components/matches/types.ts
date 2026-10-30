@@ -59,23 +59,36 @@ export interface MatchSubmissionHistory {
 
 export type AiScoreTierId = 'tier100_80' | 'tier80_60' | 'tier50_59' | 'tierBelow50';
 
+/**
+ * AI match summary buckets (inclusive integer % after rounding).
+ * Aligned with backend thresholdFilter: >=80, 60–79, then UI splits <60 into
+ * 50–59 (review) vs below 50.
+ */
 export const AI_SCORE_TIERS: Array<{ id: AiScoreTierId; label: string; min: number; max: number }> = [
-  { id: 'tier100_80', label: '100 – 80', min: 80, max: 100 },
-  { id: 'tier80_60', label: '80 – 60', min: 60, max: 79.99 },
-  { id: 'tier50_59', label: '50 – 59 (review)', min: 50, max: 59.99 },
-  { id: 'tierBelow50', label: 'Below 50', min: 0, max: 49.99 },
+  { id: 'tier100_80', label: '80 – 100', min: 80, max: 100 },
+  { id: 'tier80_60', label: '60 – 79', min: 60, max: 79 },
+  { id: 'tier50_59', label: '50 – 59 (review)', min: 50, max: 59 },
+  { id: 'tierBelow50', label: 'Below 50', min: 0, max: 49 },
 ];
 
+/** Round/clamp to the same 0–100 integer shown in the Match % column. */
+export function normalizeMatchDisplayScore(score: number): number {
+  const n = Number(score);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
+
 export function tierForScore(score: number): AiScoreTierId {
-  if (score >= 80) return 'tier100_80';
-  if (score >= 60) return 'tier80_60';
-  if (score >= 50) return 'tier50_59';
+  const value = normalizeMatchDisplayScore(score);
+  if (value >= 80) return 'tier100_80';
+  if (value >= 60) return 'tier80_60';
+  if (value >= 50) return 'tier50_59';
   return 'tierBelow50';
 }
 
 export type AiTierStats = Record<AiScoreTierId, number>;
 
-/** Count AI matches per score tier (pipeline bands). */
+/** Count AI matches per score tier (same rounding as the Match % column). */
 export function computeAiTierStats(candidates: MatchCandidate[]): AiTierStats {
   const stats: AiTierStats = {
     tier100_80: 0,
@@ -127,11 +140,12 @@ export function tierSectionStyles(tierId: AiScoreTierId): {
  * Scores below 60 are typically filtered or flagged as weak for recruiters.
  */
 export function matchScoreBandLabel(score: number): string {
-  if (score >= 90) return 'Excellent Fit';
-  if (score >= 80) return 'Strong Fit';
-  if (score >= 70) return 'Good Fit';
-  if (score >= 60) return 'Fair Fit';
-  if (score >= 50) return 'Review';
+  const value = normalizeMatchDisplayScore(score);
+  if (value >= 90) return 'Excellent Fit';
+  if (value >= 80) return 'Strong Fit';
+  if (value >= 70) return 'Good Fit';
+  if (value >= 60) return 'Fair Fit';
+  if (value >= 50) return 'Review';
   return 'Low match';
 }
 
@@ -151,12 +165,13 @@ export function displayMatchBand(score: number, apiBand?: string | null): string
 }
 
 export function scoreBadgeClass(score: number): string {
-  if (score >= 90) return 'bg-violet-600 text-white shadow-violet-500/25';
-  if (score >= 80) return 'bg-emerald-600 text-white shadow-emerald-500/25';
-  if (score >= 70) return 'bg-sky-600 text-white shadow-sky-500/25';
-  if (score >= 60) return 'bg-teal-600 text-white shadow-teal-500/25';
-  if (score >= 50) return 'bg-amber-500 text-white shadow-amber-500/25';
-  if (score >= 40) return 'bg-orange-500 text-white shadow-orange-500/25';
+  const value = normalizeMatchDisplayScore(score);
+  if (value >= 90) return 'bg-violet-600 text-white shadow-violet-500/25';
+  if (value >= 80) return 'bg-emerald-600 text-white shadow-emerald-500/25';
+  if (value >= 70) return 'bg-sky-600 text-white shadow-sky-500/25';
+  if (value >= 60) return 'bg-teal-600 text-white shadow-teal-500/25';
+  if (value >= 50) return 'bg-amber-500 text-white shadow-amber-500/25';
+  if (value >= 40) return 'bg-orange-500 text-white shadow-orange-500/25';
   return 'bg-slate-500 text-white shadow-slate-500/20';
 }
 

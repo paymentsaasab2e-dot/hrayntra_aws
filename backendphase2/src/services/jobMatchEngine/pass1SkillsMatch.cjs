@@ -27,16 +27,48 @@ const ADJACENCY_MAP = {
   agile: ['scrum', 'kanban', 'jira'],
 };
 
+const SKILL_ALIASES = {
+  'react.js': 'react',
+  reactjs: 'react',
+  'node.js': 'node',
+  nodejs: 'node',
+  'next.js': 'next',
+  nextjs: 'next',
+  typescript: 'ts',
+  javascript: 'js',
+  postgresql: 'postgres',
+  mongodb: 'mongo',
+  'tailwind css': 'tailwind',
+  tailwindcss: 'tailwind',
+};
+
 function norm(s) {
-  return String(s || '')
+  const cleaned = String(s || '')
     .toLowerCase()
     .trim()
     .replace(/\s+/g, ' ');
+  if (!cleaned) return '';
+  const aliasKey = cleaned.replace(/[\s.-]+/g, '');
+  return SKILL_ALIASES[cleaned] || SKILL_ALIASES[aliasKey] || cleaned;
 }
 
 function listNorm(arr) {
   if (!Array.isArray(arr)) return [];
-  return arr.map(norm).filter(Boolean);
+  return [...new Set(arr.map(norm).filter(Boolean))];
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** True when `needle` appears as a whole token inside `haystack` (not "react" inside "reactys"). */
+function containsSkillToken(haystack, needle) {
+  const h = norm(haystack);
+  const n = norm(needle);
+  if (!h || !n || n.length < 2) return false;
+  if (h === n) return true;
+  const re = new RegExp(`(^|[^a-z0-9+#])${escapeRegExp(n)}([^a-z0-9+#]|$)`, 'i');
+  return re.test(h);
 }
 
 function skillMatch(requiredSkill, candidateSkills) {
@@ -45,7 +77,8 @@ function skillMatch(requiredSkill, candidateSkills) {
   for (const c of candidateSkills) {
     if (!c) continue;
     if (c === rs) return true;
-    if (c.includes(rs) || rs.includes(c)) return true;
+    // Token-aware only — bare substring matching caused false hits (react ⊂ reactys).
+    if (containsSkillToken(c, rs) || containsSkillToken(rs, c)) return true;
   }
   return false;
 }
@@ -55,6 +88,24 @@ function computePass1(candidateSkills, jobRequiredSkills, jobPreferredSkills) {
   const req = listNorm(jobRequiredSkills);
   const pref = listNorm(jobPreferredSkills);
 
+  // No structured skills on the JD → neutral mid score so Pass 3 (semantic) / Pass 2
+  // drive ranking instead of giving every candidate a free ~90 skills score.
+  if (req.length === 0 && pref.length === 0) {
+    return {
+      score: 50,
+      matchedRequired: [],
+      missingRequired: [],
+      matchedPreferred: [],
+      adjacencyBonus: 0,
+      breakdown: {
+        required: 0,
+        preferred: 0,
+        adjacency: 0,
+        neutral: 50,
+      },
+    };
+  }
+
   const matchedRequired = [];
   const missingRequired = [];
   for (const r of req) {
@@ -62,9 +113,13 @@ function computePass1(candidateSkills, jobRequiredSkills, jobPreferredSkills) {
     else missingRequired.push(r);
   }
 
-  let scoreRequired = 70;
-  if (req.length === 0) scoreRequired = 70;
-  else scoreRequired = (matchedRequired.length / req.length) * 70;
+  let scoreRequired = 0;
+  if (req.length > 0) {
+    scoreRequired = (matchedRequired.length / req.length) * 70;
+  } else {
+    // Preferred-only JD: keep a modest base so preferred overlap still ranks.
+    scoreRequired = 25;
+  }
 
   const matchedPreferred = [];
   const missingPreferred = [];
@@ -73,9 +128,13 @@ function computePass1(candidateSkills, jobRequiredSkills, jobPreferredSkills) {
     else missingPreferred.push(p);
   }
 
-  let scorePreferred = 20;
-  if (pref.length === 0) scorePreferred = 20;
-  else scorePreferred = (matchedPreferred.length / pref.length) * 20;
+  let scorePreferred = 0;
+  if (pref.length > 0) {
+    scorePreferred = (matchedPreferred.length / pref.length) * (req.length > 0 ? 20 : 55);
+  } else if (req.length > 0) {
+    // Required-only JD: do not gift preferred points.
+    scorePreferred = 0;
+  }
 
   const jobUnion = [...new Set([...req, ...pref])];
   let adjacencyBonus = 0;

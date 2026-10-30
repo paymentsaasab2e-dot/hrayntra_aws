@@ -14,7 +14,7 @@ import {
 import { ImageWithFallback, initialsFromDisplayName } from '../ImageWithFallback';
 import AIAnalysisPanel from './AIAnalysisPanel';
 import type { ActiveView, MatchCandidate, MatchStatus } from './types';
-import { displayMatchBand, scoreBadgeClass } from './types';
+import { displayMatchBand, normalizeMatchDisplayScore, scoreBadgeClass } from './types';
 import type { AiWorkspaceBriefAlert } from '@/lib/apiAiWorkspaceBrief';
 import { WorkspaceAlertTableCell, WorkspaceAlertTableHeader } from '../ai/WorkspaceAlertTableCell';
 import {
@@ -151,10 +151,11 @@ export default function MatchCandidateTable({
               const isSelected = selectedCandidates.includes(candidate.id);
               const isSaved = savedMatches.includes(candidate.id);
               const isExpanded = expandedAnalysis === candidate.id;
-              const band = displayMatchBand(candidate.score, candidate.explanation?.scoreBand);
+              const displayScore = normalizeMatchDisplayScore(candidate.score);
+              const band = displayMatchBand(displayScore, candidate.explanation?.scoreBand);
               const hasPipelineScore = Boolean(candidate.matchId);
               const showScoreValue =
-                candidate.score > 0 || hasPipelineScore || !candidate.isAppliedCandidate;
+                displayScore > 0 || hasPipelineScore || !candidate.isAppliedCandidate;
               const scoreSubLabel = isAppliedMatchesTab
                 ? hasPipelineScore
                   ? band
@@ -218,10 +219,10 @@ export default function MatchCandidateTable({
                           {showScoreValue ? (
                             <span
                               className={`inline-flex min-w-[2.85rem] justify-center rounded-full px-2.5 py-1 text-xs font-medium tabular-nums shadow-sm ${scoreBadgeClass(
-                                candidate.score,
+                                displayScore,
                               )}`}
                             >
-                              {candidate.score}%
+                              {displayScore}%
                             </span>
                           ) : (
                             <span className="inline-flex min-w-[2.85rem] justify-center rounded-full border border-dashed border-indigo-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-400">
