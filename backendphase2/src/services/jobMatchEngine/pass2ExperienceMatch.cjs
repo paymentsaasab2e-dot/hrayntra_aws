@@ -110,10 +110,16 @@ function computePass2(
   jobDescription
 ) {
   const candY = Number(candidateYears) || 0;
-  const { min: minY, max: maxY } = parseExperienceRange(jobExperienceRequired);
+  const hasExpRequirement = Boolean(String(jobExperienceRequired || '').trim());
+  const { min: minY, max: maxY } = hasExpRequirement
+    ? parseExperienceRange(jobExperienceRequired)
+    : { min: 0, max: 99 };
 
   let yearsScore = 5;
-  if (candY >= minY && candY <= maxY) yearsScore = 40;
+  if (!hasExpRequirement) {
+    // JD has no experience band — neutral mid so title/domain still differentiate.
+    yearsScore = 25;
+  } else if (candY >= minY && candY <= maxY) yearsScore = 40;
   else if (candY > maxY) yearsScore = Math.max(0, 40 - (candY - maxY) * 2);
   else if (candY === minY - 1) yearsScore = 30;
   else if (candY === minY - 2) yearsScore = 18;

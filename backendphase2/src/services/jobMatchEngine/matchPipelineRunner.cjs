@@ -22,6 +22,9 @@ const {
 /** Prisma Mongo: unset ObjectId fields must use isSet:false, not null. */
 const AI_MATCH_AUTHOR_WHERE = { isSet: false };
 
+/** Bump when scoring logic changes so 24h cache does not keep stale inaccurate scores. */
+const MATCH_ENGINE_VERSION = '1.1';
+
 /** Candidates scored per batch before a short pause (reduces Mistral 429 bursts). */
 const EMBED_BATCH_SIZE = Math.max(1, Number(process.env.MATCH_EMBED_BATCH_SIZE || 3) || 3);
 const EMBED_BATCH_PAUSE_MS = Number(process.env.MATCH_EMBED_BATCH_PAUSE_MS || 500) || 500;
@@ -212,13 +215,13 @@ async function runMatchPipeline({
       orderBy: { updatedAt: 'desc' },
       select: { evaluation: true },
     });
-    const computedAt =
-      latest?.evaluation && typeof latest.evaluation === 'object' ? latest.evaluation.computedAt : null;
-    const latestIsApplied =
-      latest?.evaluation &&
-      typeof latest.evaluation === 'object' &&
-      latest.evaluation.origin === 'applied';
-    if (computedAt && matchCount >= candidates.length && !latestIsApplied) {
+    const latestEval =
+      latest?.evaluation && typeof latest.evaluation === 'object' ? latest.evaluation : null;
+    const computedAt = latestEval?.computedAt || null;
+    const cachedEngineVersion = String(latestEval?.engineVersion || '');
+    const latestIsApplied = latestEval?.origin === 'applied';
+    const engineMatches = cachedEngineVersion === MATCH_ENGINE_VERSION;
+    if (computedAt && matchCount >= candidates.length && !latestIsApplied && engineMatches) {
       const age = Date.now() - new Date(computedAt).getTime();
       if (age < 24 * 60 * 60 * 1000) {
         stageLogger.stageStart('PIPELINE CACHE HIT', { computedAt, ageHours: (age / 3600000).toFixed(2) });
@@ -234,6 +237,14 @@ async function runMatchPipeline({
         });
         return { runId, cached: true, totalPairs: pairs.length, visible: matchCount };
       }
+    }
+    if (!engineMatches && computedAt) {
+      stageLogger.stageStart('PIPELINE CACHE MISS', {
+        reason: 'engineVersion mismatch',
+        cached: cachedEngineVersion || 'none',
+        current: MATCH_ENGINE_VERSION,
+      });
+      stageLogger.stageEnd('PIPELINE CACHE MISS', 'recomputing with updated engine');
     }
   }
 
@@ -421,7 +432,7 @@ async function runMatchPipeline({
       weights: ep.merged.weights,
       suggestion: ep.suggestion,
       flags: ep.flags || [],
-      engineVersion: '1.0',
+      engineVersion: MATCH_ENGINE_VERSION,
       runId,
       computedAt,
       poolSource: isAppliedPipeline

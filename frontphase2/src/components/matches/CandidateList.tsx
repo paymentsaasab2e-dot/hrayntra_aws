@@ -220,7 +220,7 @@ export default function CandidateList(props: CandidateListProps) {
                 </div>
                 {aiTierStats.tier80_60 > 0 ? (
                   <p className="mt-2 text-xs text-emerald-800">
-                    Top picks (60–79): review Phase 1 dev profiles first — strongest skill overlap for this role.
+                    Top picks (60–79): strongest skill overlap for this role — review these next after 80+.
                   </p>
                 ) : null}
               </div>

@@ -120,7 +120,13 @@ export default function AIAnalysisPanel({ candidate, rating = 0, onRate }: AIAna
               </tr>
             </tbody>
           </table>
-          {ai?.formula ? <p className="mt-2 font-mono text-[11px] leading-relaxed text-slate-500">{ai.formula}</p> : null}
+          {ai?.formula ? (
+            <p className="mt-2 font-mono text-[11px] leading-relaxed text-slate-500">{ai.formula}</p>
+          ) : null}
+          <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+            Score blends JD skills, experience, semantic profile fit, and culture signals from the
+            real job description and candidate profile.
+          </p>
         </div>
       ) : breakdownEntries.length > 0 ? (
         <div className="mt-4 rounded-xl border border-blue-100 bg-white/90 p-4">

@@ -1,5 +1,5 @@
 import type { BackendMatch } from './api';
-import type { MatchCandidate } from '../components/matches/types';
+import { normalizeMatchDisplayScore, type MatchCandidate } from '../components/matches/types';
 
 /** Map API match row to UI candidate (same shape as Matches page). */
 export function mapBackendMatch(match: BackendMatch): MatchCandidate {
@@ -14,7 +14,7 @@ export function mapBackendMatch(match: BackendMatch): MatchCandidate {
     name: match.name,
     photo: match.photo,
     initials: match.initials,
-    score: match.score,
+    score: normalizeMatchDisplayScore(match.score),
     skills: match.skills,
     experience: match.experience,
     location: match.location,
