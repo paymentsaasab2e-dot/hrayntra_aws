@@ -13,6 +13,7 @@ import {
   buildAdzunaXmlFeed,
   getAdzunaStatus as loadAdzunaStatus,
 } from './adzuna.service.js';
+import { getJobPublishQuotaStatus } from './jobPublishQuota.service.js';
 
 function portalApiBase() {
   const raw = env.JOB_PORTAL_API_URL || process.env.PHASE1_API_URL || 'http://localhost:5000';
@@ -66,6 +67,15 @@ export const jobController = {
     try {
       const result = await jobService.getAll(req);
       sendResponse(res, 200, 'Jobs retrieved successfully', result);
+    } catch (error) {
+      sendError(res, 500, error.message, error);
+    }
+  },
+
+  async getPublishQuota(req, res) {
+    try {
+      const quota = await getJobPublishQuotaStatus();
+      sendResponse(res, 200, 'Job publish quota retrieved successfully', quota);
     } catch (error) {
       sendError(res, 500, error.message, error);
     }

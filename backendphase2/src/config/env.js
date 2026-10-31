@@ -553,6 +553,13 @@ export const env = {
     }
     return 2 * 1024 * 1024 * 1024;
   })(),
+
+  /**
+   * Freemium job-publish quota: max first-publishes per company per calendar
+   * month. Default 10 (free tier). Set <= 0 for unlimited (premium tenants)
+   * until HQ plans wire a per-plan monthly cap.
+   */
+  JOB_PUBLISH_MONTHLY_LIMIT: String(process.env.JOB_PUBLISH_MONTHLY_LIMIT || '').trim(),
 };
 
 export { OPENAI_CHAT_MODEL, ALLOWED_OPENAI_CHAT_MODEL };

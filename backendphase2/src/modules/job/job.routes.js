@@ -57,6 +57,12 @@ router.post(
 
 router.get('/', requireAnyPermission(['jobs_read', 'view_jobs']), jobController.getAll);
 router.get('/metrics', requireAnyPermission(['jobs_read', 'view_jobs']), jobController.getMetrics);
+// Freemium publish quota badge (7 / 10) — registered BEFORE '/:id' so it isn't read as an id.
+router.get(
+  '/publish-quota',
+  requireAnyPermission(['jobs_read', 'view_jobs', 'jobs_create', 'create_job', 'publish_job']),
+  jobController.getPublishQuota,
+);
 // Super Admin: retroactively publish member jobs to HRyantra portal (before /:id)
 router.get('/portal-access/members', jobController.listPortalAccessMembers);
 router.get('/portal-access/members/:userId/jobs', jobController.listPortalAccessJobsForMember);

@@ -49,6 +49,11 @@ import {
 } from '../setting/recruitmentMode.service.js';
 import { assertCanCreateJob } from '../setting/planAccess.service.js';
 import {
+  checkJobPublishAllowance,
+  buildJobPublishQuotaError,
+  resolveJobPublishCharge,
+} from './jobPublishQuota.service.js';
+import {
   normalizeApplicationFormSchema,
   schemaFromLegacyQuestions,
   defaultApplicationFormSchema,
@@ -1887,6 +1892,14 @@ export const jobService = {
   async create(data, createdByUserId, req = null) {
     await assertCanCreateJob();
 
+    // Freemium quota: creating a job with a live status IS a publish — the
+    // wizard's last step is literally "Publish Job". When the month is full the
+    // job is still saved as a draft so no form work is lost; the 402 payload
+    // carries the draft jobId for the Premium modal's post-pay republish.
+    const publishIntent = String(data.status || 'OPEN').trim().toUpperCase() === 'OPEN';
+    const publishCheck = publishIntent ? await checkJobPublishAllowance() : null;
+    const publishBlocked = Boolean(publishCheck && !publishCheck.allowed);
+
     // Utility function to remove undefined values
     const removeUndefined = (obj) => {
       return Object.fromEntries(
@@ -1952,6 +1965,13 @@ export const jobService = {
           : null,
       postingCompanyName: String(data.postingCompanyName || '').trim() || null,
     });
+
+    if (publishBlocked) {
+      jobData.status = 'DRAFT';
+      jobData.statusLabel = 'Draft';
+    } else if (publishIntent) {
+      jobData.firstPublishedAt = new Date();
+    }
 
     if (data.clientId) {
       const liveClient = await prisma.client.findFirst({
@@ -2094,7 +2114,10 @@ export const jobService = {
 
     try {
       const platforms = data.distributionPlatforms || job.distributionPlatforms;
-      if (shouldPublishJobToHryantraPortal(platforms)) {
+      if (publishBlocked) {
+        // Publish refused by quota — keep the draft tenant-internal so it is
+        // not listed publicly before the tenant upgrades and republishes.
+      } else if (shouldPublishJobToHryantraPortal(platforms)) {
         await syncJobToPortal(job, data);
         if (String(job.status || '').toUpperCase() === 'OPEN') {
           queueCandidateJobMatchAlerts(job.id);
@@ -2117,6 +2140,10 @@ export const jobService = {
       actorUserId: createdByUserId,
       trigger: 'create',
     });
+
+    if (publishBlocked) {
+      throw buildJobPublishQuotaError(publishCheck.quota, { jobId: job.id, draftSaved: true });
+    }
 
     return enrichJobWithAssessments(job);
   },
@@ -2147,6 +2174,8 @@ export const jobService = {
         education: true,
         benefits: true,
         postedDate: true,
+        firstPublishedAt: true,
+        createdAt: true,
         hiringManager: true,
         hiringManagerId: true,
         department: true,
@@ -2214,6 +2243,16 @@ export const jobService = {
     if (revertingToDraft && existingStatus && existingStatus !== 'DRAFT') {
       throw new Error('Once a job is Active, it cannot be set back to Draft');
     }
+
+    // Freemium quota: only the FIRST transition to OPEN consumes a monthly
+    // slot. Re-opens (status already stamped) and edits while live are free.
+    const publishCharge = resolveJobPublishCharge({
+      existingStatus,
+      firstPublishedAt: currentJob.firstPublishedAt,
+      requestedStatus,
+    });
+    const publishCheck = publishCharge === 'first-publish' ? await checkJobPublishAllowance() : null;
+    const publishBlocked = Boolean(publishCheck && !publishCheck.allowed);
 
     // Utility function to remove undefined values
     const removeUndefined = (obj) => {
@@ -2311,11 +2350,42 @@ export const jobService = {
       }
     }
 
+    // Legacy rows published before firstPublishedAt existed: a job that is
+    // already live was provably published — stamp its original date so a later
+    // close → re-open does not consume another slot.
+    if (!currentJob.firstPublishedAt && existingStatus === 'OPEN') {
+      updateData.firstPublishedAt = currentJob.postedDate || currentJob.createdAt || new Date();
+    }
+    if (publishBlocked) {
+      // Rejected publish — strip the status change; the job stays a draft.
+      delete updateData.status;
+      delete updateData.statusLabel;
+    } else if (publishCharge === 'first-publish') {
+      updateData.firstPublishedAt = new Date();
+    }
+
     // Log data being updated
     dbLogger.logUpdate('JOB', id, updateData);
 
     const hasFieldUpdates = Object.keys(updateData).length > 0;
     const hasPipelineStageUpdates = Array.isArray(data.pipelineStages);
+
+    if (publishBlocked) {
+      // Still persist the non-status edits so the draft keeps the latest work;
+      // pipeline-stage writes are part of the rejected publish and are retried
+      // after upgrade (the 402 payload carries the Premium modal data).
+      if (hasFieldUpdates) {
+        try {
+          await prisma.job.update({ where: { id }, data: updateData });
+        } catch (draftSaveError) {
+          console.warn(
+            `[job.update] draft save during rejected publish failed for job ${id}:`,
+            draftSaveError?.message || draftSaveError,
+          );
+        }
+      }
+      throw buildJobPublishQuotaError(publishCheck.quota, { jobId: id, draftSaved: true });
+    }
 
     if (!hasFieldUpdates && !hasPipelineStageUpdates) {
       if (Array.isArray(data.preScreenAssessments)) {

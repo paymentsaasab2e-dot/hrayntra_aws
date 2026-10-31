@@ -90,8 +90,9 @@ All routes are prefixed with `/api/v1/`
 | Method | Path | Auth Required | Frontend Section | Description |
 |--------|------|---------------|------------------|-------------|
 | GET | `/` | Yes | `job`, `matches`, `pipeline` | Get all jobs (paginated) |
+| GET | `/publish-quota` | Yes | `job` | Freemium monthly publish quota `{used, limit, remaining, blocked, plan, period}` (registered before `/:id`) |
 | GET | `/:id` | Yes | `job` | Get job by ID with pipeline stages, matches, interviews |
-| POST | `/` | Yes | `job` | Create new job (creates default pipeline stages) |
+| POST | `/` | Yes | `job` | Create new job (creates default pipeline stages). Publishing over the monthly quota returns `402 JOB_PUBLISH_QUOTA_EXCEEDED` and keeps the job as a draft |
 | PATCH | `/:id` | Yes | `job` | Update job |
 | DELETE | `/:id` | Yes | `job` | Delete job |
 
