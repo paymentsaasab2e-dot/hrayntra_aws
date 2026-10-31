@@ -64,6 +64,7 @@ import { CreateTaskModal } from '../../components/CreateTaskModal';
 import type { JobForDrawer, JobCandidateItem } from '../../components/drawers/JobDetailsDrawer';
 
 import { PageErrorBoundary } from '../../components/PageErrorBoundary';
+import { JobPublishQuotaMeter } from '../../components/jobs/JobPublishQuotaMeter';
 
 import {
   SmartSearchActiveKeywordsBar,
@@ -1086,7 +1087,8 @@ export function JobListPage() {
         icon={<Briefcase className="h-5 w-5" strokeWidth={2.2} />}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <ShowSummaryCardsButton
+            <JobPublishQuotaMeter />
+            <ShowSummaryCardsButton>
               open={showSummaryCards}
               onToggle={() => setShowSummaryCards((open) => !open)}
             />

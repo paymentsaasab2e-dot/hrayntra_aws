@@ -78,6 +78,25 @@ export async function apiGetJobs(params: {
   return apiFetch<BackendJob[]>(path, { auth: true, signal });
 }
 
+/**
+ * Freemium calendar-month publish quota.
+ * Backend: GET /jobs/publish-quota MUST be registered before GET /jobs/:id.
+ * Count first successful publish this calendar month. Draft does not count.
+ * Missing endpoint (404 while Devin lands) is handled by the meter (hidden).
+ */
+export type JobPublishQuota = {
+  used: number;
+  limit: number;
+  remaining: number;
+  blocked: boolean;
+  plan?: string;
+  period?: string;
+};
+
+export async function apiGetJobPublishQuota(signal?: AbortSignal) {
+  return apiFetch<JobPublishQuota>('/jobs/publish-quota', { auth: true, signal });
+}
+
 export async function apiGetPortalAccessJobsForMember(userId: string) {
   return apiFetch<{
     member: { id: string; name: string; email: string; roleName?: string };
