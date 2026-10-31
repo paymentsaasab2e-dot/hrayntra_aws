@@ -82,7 +82,8 @@ export async function apiGetJobs(params: {
  * Freemium calendar-month publish quota.
  * Backend: GET /jobs/publish-quota MUST be registered before GET /jobs/:id.
  * Count first successful publish this calendar month. Draft does not count.
- * Missing endpoint (404 while Devin lands) is handled by the meter (hidden).
+ * Meter hides itself if the endpoint is missing. 402 JOB_PUBLISH_QUOTA_EXCEEDED
+ * opens the Premium modal and keeps the job as a draft.
  */
 export type JobPublishQuota = {
   used: number;
@@ -91,6 +92,11 @@ export type JobPublishQuota = {
   blocked: boolean;
   plan?: string;
   period?: string;
+  warnAt?: number;
+  warning?: boolean;
+  upgradeRequired?: boolean;
+  monthKey?: string;
+  monthLabel?: string;
 };
 
 export async function apiGetJobPublishQuota(signal?: AbortSignal) {

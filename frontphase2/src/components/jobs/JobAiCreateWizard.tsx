@@ -50,6 +50,7 @@ import {
   type JobCreationPipelineResult,
   type SocialPublishingAccount,
 } from '@/lib/api';
+import { reportJobPublishQuotaError } from '@/lib/jobPublishQuota';
 import {
   apiCreateTenantCompanyPost,
   apiGetTenantCompanyPage,
@@ -2029,6 +2030,12 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
       onJobCreated?.();
       onClose();
     } catch (err: unknown) {
+      if (reportJobPublishQuotaError(err)) {
+        markWizardClean();
+        onJobCreated?.();
+        onClose();
+        return;
+      }
       setError(err instanceof Error ? err.message : 'Failed to publish job.');
     } finally {
       setPublishing(false);

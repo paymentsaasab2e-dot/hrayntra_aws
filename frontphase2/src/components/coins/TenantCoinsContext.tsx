@@ -29,11 +29,15 @@ type TenantCoinsContextValue = {
 const TenantCoinsContext = createContext<TenantCoinsContextValue | null>(null);
 
 export function isInsufficientCoinsError(error: unknown): boolean {
-  if (error instanceof ApiRequestError && error.status === 402) return true;
   const data = (error as { data?: { code?: string } })?.data;
   if (data?.code === 'INSUFFICIENT_COINS') return true;
+  if (data?.code === 'JOB_PUBLISH_QUOTA_EXCEEDED') return false;
   const msg = String((error as Error)?.message || '').toLowerCase();
-  return msg.includes('insufficient') && msg.includes('coin');
+  if (msg.includes('insufficient') && msg.includes('coin')) return true;
+  if (error instanceof ApiRequestError && error.status === 402) {
+    return msg.includes('coin');
+  }
+  return false;
 }
 
 export function TenantCoinsProvider({ children }: { children: React.ReactNode }) {

@@ -636,7 +636,7 @@ export async function apiFetch<T>(
       : detailedMsg;
     if (
       typeof window !== 'undefined' &&
-      (res.status === 402 || json?.data?.code === 'INSUFFICIENT_COINS')
+      json?.data?.code === 'INSUFFICIENT_COINS'
     ) {
       notifyTenantCoinsChanged({
         coins:
@@ -880,7 +880,7 @@ export async function apiFetchFormData<T>(
 
     if (
       typeof window !== 'undefined' &&
-      (res.status === 402 || json?.data?.code === 'INSUFFICIENT_COINS')
+      json?.data?.code === 'INSUFFICIENT_COINS'
     ) {
       notifyTenantCoinsChanged({
         coins:

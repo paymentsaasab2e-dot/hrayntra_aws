@@ -1,63 +1,58 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { apiGetJobPublishQuota, type JobPublishQuota } from '@/lib/api/jobs';
-
-function toInt(value: unknown): number | null {
-  const n = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(n) ? n : null;
-}
-
-function normalizeQuota(raw: unknown): JobPublishQuota | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const row = raw as Record<string, unknown>;
-  const used = toInt(row.used ?? row.publishedThisMonth ?? row.published);
-  const limit = toInt(row.limit ?? row.maxJobs ?? row.quota);
-  if (used == null || limit == null || limit <= 0) return null;
-  const remaining = toInt(row.remaining) ?? Math.max(0, limit - used);
-  const blocked = typeof row.blocked === 'boolean' ? row.blocked : remaining <= 0;
-  return {
-    used,
-    limit,
-    remaining,
-    blocked,
-    plan: typeof row.plan === 'string' ? row.plan : undefined,
-    period: typeof row.period === 'string' ? row.period : 'calendar_month',
-  };
-}
+import React, { useCallback, useEffect, useState } from 'react';
+import { apiGetJobPublishQuota } from '@/lib/api/jobs';
+import {
+  JOB_PUBLISH_QUOTA_EVENT,
+  normalizeJobPublishQuota,
+  openJobPublishQuotaModal,
+} from '@/lib/jobPublishQuota';
+import type { JobPublishQuota } from '@/lib/api/jobs';
 
 export function useJobPublishQuota() {
   const [quota, setQuota] = useState<JobPublishQuota | null>(null);
 
-  useEffect(() => {
-    const ac = new AbortController();
-    void apiGetJobPublishQuota(ac.signal)
+  const refresh = useCallback((signal?: AbortSignal) => {
+    void apiGetJobPublishQuota(signal)
       .then((res) => {
-        const next = normalizeQuota(res?.data ?? res);
-        if (next) setQuota(next);
+        const next = normalizeJobPublishQuota(res?.data ?? res);
+        setQuota(next);
       })
       .catch(() => {
         setQuota(null);
       });
-    return () => ac.abort();
   }, []);
+
+  useEffect(() => {
+    const ac = new AbortController();
+    refresh(ac.signal);
+    const onRefresh = () => refresh();
+    window.addEventListener(JOB_PUBLISH_QUOTA_EVENT, onRefresh);
+    window.addEventListener('jobportal:jobs-changed', onRefresh);
+    return () => {
+      ac.abort();
+      window.removeEventListener(JOB_PUBLISH_QUOTA_EVENT, onRefresh);
+      window.removeEventListener('jobportal:jobs-changed', onRefresh);
+    };
+  }, [refresh]);
 
   return quota;
 }
 
-/** Hidden until GET /jobs/publish-quota exists. Always-on meter after Devin lands. */
 export function JobPublishQuotaMeter({ className = '' }: { className?: string }) {
   const quota = useJobPublishQuota();
   if (!quota) return null;
 
   const full = quota.blocked || quota.remaining <= 0;
-  const warn = !full && quota.used >= Math.max(1, quota.limit - 2);
+  const warnAt = quota.warnAt ?? Math.max(1, quota.limit - 2);
+  const warn = !full && (quota.warning || quota.used >= warnAt);
   const label = full
     ? `${quota.limit} / ${quota.limit} — Upgrade to post more`
     : `Job posts this month: ${quota.used} / ${quota.limit}`;
 
   return (
-    <div
+    <button
+      type="button"
       className={`inline-flex h-9 max-w-full items-center rounded-full border px-3 text-xs font-semibold tabular-nums ${
         full
           ? 'border-rose-200 bg-rose-50 text-rose-800'
@@ -71,8 +66,17 @@ export function JobPublishQuotaMeter({ className = '' }: { className?: string })
           : 'Successfully published jobs in this calendar month. Drafts do not count.'
       }
       aria-label={label}
+      disabled={!full}
+      onClick={() => {
+        if (!full) return;
+        openJobPublishQuotaModal({
+          draftSaved: false,
+          quota,
+          message: label,
+        });
+      }}
     >
       <span className="truncate">{label}</span>
-    </div>
+    </button>
   );
 }

@@ -16,6 +16,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { DetailsModalShell } from '../components/drawers/DetailsModalShell';
 import { DrawerTabBar } from '../components/drawers/DrawerTabBar';
 import { requestCornerAlert, requestConfirm, requestError, requestInfo } from '../lib/appDialog';
+import { reportJobPublishQuotaError } from '../lib/jobPublishQuota';
 import { ApiRequestError } from '../lib/apiNetworkErrors';
 import { isValidObjectId } from '../lib/mapCandidateProfile';
 import { RECYCLE_BIN_SYNC_EVENT } from '../constants/recycleBin';
@@ -309,6 +310,7 @@ const applyJobStatusChange = async (status: string) => {
     toast.success(`Status updated to "${status}".`);
   } catch (error: any) {
     setLocalJobStatus(previous);
+    if (reportJobPublishQuotaError(error)) return;
     void requestError(error?.message || 'Failed to update job status');
   } finally {
     setUpdatingJobStatus(false);

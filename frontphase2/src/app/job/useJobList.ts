@@ -122,6 +122,7 @@ import {
   getCachedOrgRecruitmentMode,
   ORG_RECRUITMENT_CACHE_EVENT,
 } from '../../lib/api';
+import { reportJobPublishQuotaError } from '../../lib/jobPublishQuota';
 import {
   DEFAULT_JOB_STATUS_OPTIONS,
   displayJobStatusFromBackend,
@@ -2508,7 +2509,9 @@ export function useJobList() {
       await reloadMyJobsAndMetrics();
     } catch (err: any) {
       console.error('Failed to update job status with remark:', err);
-      void requestError(err.message || 'Failed to update job status');
+      if (!reportJobPublishQuotaError(err)) {
+        void requestError(err.message || 'Failed to update job status');
+      }
       await reloadMyJobsAndMetrics();
     } finally {
       setStatusEdit({ jobId: null, newStatus: null, remark: '' });
@@ -2619,6 +2622,7 @@ export function useJobList() {
           : 'Job published successfully.'
       );
     } catch (err: unknown) {
+      if (reportJobPublishQuotaError(err)) return;
       const message = err instanceof Error ? err.message : 'Failed to publish job';
       void requestError(message);
     }

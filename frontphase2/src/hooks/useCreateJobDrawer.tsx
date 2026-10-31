@@ -8,6 +8,7 @@ import { assigneeCompanyId, formatAssigneeDisplayName } from '../lib/assigneeDis
 import { buildCandidatePortalApplyUrlPreview, replaceApplyUrlInSocialPostText, ensureApplyUrlInSocialPostText, buildLinkedInJobPost, buildTwitterJobPost, buildFacebookJobPost, type JobSocialPostInput } from '../lib/jobSocialPost';
 import { useLinkedIn } from './useLinkedIn';
 import { requestError, requestInfo, requestSuccess, requestWarning } from '../lib/appDialog';
+import { reportJobPublishQuotaError } from '../lib/jobPublishQuota';
 import { type CreateJobDetailsFormData } from '../components/drawers/CreateJobDetailsForm';
 import { customJdSectionsToHtml, extractAdditionalJdSectionsFromHtml, mergeCustomJdSections, mergeDescriptionWithCustomJdSections, type JobCustomJdSection } from '../lib/jobCustomJdSections';
 import { plainTextToJobDescriptionHtml, readJdPlainFromClipboard } from '../lib/jobDescriptionHtml';
@@ -2825,6 +2826,11 @@ const handleSaveJob = async () => {
       markCreateJobClean();
       onClose();
     } catch (error: any) {
+      if (reportJobPublishQuotaError(error)) {
+        markCreateJobClean();
+        onClose();
+        return;
+      }
       console.error('Failed to save job:', error);
       void requestError(error.message || 'Failed to save job');
     } finally {
