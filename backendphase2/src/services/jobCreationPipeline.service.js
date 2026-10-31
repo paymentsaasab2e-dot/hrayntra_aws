@@ -20,7 +20,18 @@ import {
   isImplausibleJobLocation,
 } from './jobCreationPipelineSchema.js';
 
-const TEXT_CAP = 22000;
+const TEXT_CAP = 8000;
+const AI_EXTRACT_TIMEOUT_MS = 20000;
+
+function withTimeout(promise, ms, label) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
 
 function stripHtmlApprox(html) {
   return String(html || '')
@@ -194,33 +205,38 @@ async function extractJobStructuredWithAi(cleanedText, currentForm = {}, options
   const isNaturalLanguagePrompt =
     options.source === 'prompt' && sourceText.length > 0 && sourceText.length < 1200;
 
-  const completion = await chatCompletionWithFallback(
-    {
-      model: env.OPENAI_CHAT_MODEL,
-      temperature: 0.2,
-      max_tokens: 6000,
-      response_format: {
-        type: 'json_schema',
-        json_schema: jobCreationJsonSchema,
+  const completion = await withTimeout(
+    chatCompletionWithFallback(
+      {
+        model: env.OPENAI_CHAT_MODEL,
+        temperature: 0.2,
+        // Fields only — full JD HTML is taken from the source document after merge.
+        max_tokens: 1800,
+        response_format: {
+          type: 'json_schema',
+          json_schema: jobCreationJsonSchema,
+        },
+        messages: [
+          {
+            role: 'system',
+            content: isNaturalLanguagePrompt
+              ? 'You are an ATS job creation assistant. Extract ALL Add Job form fields from a recruiter\'s short instruction. jobTitle must be a short role name only (no method parentheses). Never invent location, salary, or country — use only what the user explicitly states. Never put language preferences into city/location. Generate rich description, skills, and responsibilities for the role. Return only valid JSON matching the schema.'
+              : 'You are an ATS job creation assistant. Extract job posting fields from document text for an Add Job form. jobTitle must be short and clean (role ± domain only; drop parenthetical methods). Location fields must be real places, never language requirements. Preserve the full job description content in jobDescriptionHtml — do not summarize or shorten. Do not ask questions. Return only valid JSON matching the schema.',
+          },
+          {
+            role: 'user',
+            content: [
+              buildJobExtractionPromptInstructions(isNaturalLanguagePrompt),
+              `Current form (preserve unless document overrides):\n${JSON.stringify(currentForm, null, 2)}`,
+              `${isNaturalLanguagePrompt ? 'Recruiter instruction' : 'Document text'}:\n${sourceText.slice(0, TEXT_CAP)}`,
+            ].join('\n\n'),
+          },
+        ],
       },
-      messages: [
-        {
-          role: 'system',
-          content: isNaturalLanguagePrompt
-            ? 'You are an ATS job creation assistant. Extract ALL Add Job form fields from a recruiter\'s short instruction. jobTitle must be a short role name only (no method parentheses). Never invent location, salary, or country — use only what the user explicitly states. Never put language preferences into city/location. Generate rich description, skills, and responsibilities for the role. Return only valid JSON matching the schema.'
-            : 'You are an ATS job creation assistant. Extract job posting fields from document text for an Add Job form. jobTitle must be short and clean (role ± domain only; drop parenthetical methods). Location fields must be real places, never language requirements. Preserve the full job description content in jobDescriptionHtml — do not summarize or shorten. Do not ask questions. Return only valid JSON matching the schema.',
-        },
-        {
-          role: 'user',
-          content: [
-            buildJobExtractionPromptInstructions(isNaturalLanguagePrompt),
-            `Current form (preserve unless document overrides):\n${JSON.stringify(currentForm, null, 2)}`,
-            `${isNaturalLanguagePrompt ? 'Recruiter instruction' : 'Document text'}:\n${sourceText.slice(0, TEXT_CAP)}`,
-          ].join('\n\n'),
-        },
-      ],
-    },
-    'jobcreation-pipeline'
+      'jobcreation-pipeline',
+    ),
+    AI_EXTRACT_TIMEOUT_MS,
+    'JD AI extract',
   );
 
   const raw = completion.choices?.[0]?.message?.content?.trim();

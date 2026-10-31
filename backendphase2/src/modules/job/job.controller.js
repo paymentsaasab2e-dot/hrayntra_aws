@@ -8,12 +8,38 @@ import {
   processJobCreationPipeline,
   cleanupJobPipelineUpload,
 } from '../../services/jobCreationPipeline.service.js';
+import { resolveCompanyIdByName } from '../../services/jobCreationPipelineSchema.js';
 import { getEntityActivities, ENTITY_TYPES } from '../../services/activityService.js';
 import {
   buildAdzunaXmlFeed,
   getAdzunaStatus as loadAdzunaStatus,
 } from './adzuna.service.js';
 import { getJobPublishQuotaStatus } from './jobPublishQuota.service.js';
+
+function withTimeout(promise, ms, label) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
+async function loadClientsForJdMatch(req) {
+  try {
+    const listReq = {
+      ...req,
+      query: { ...req.query, page: '1', limit: '100' },
+    };
+    const clientResult = await withTimeout(clientService.getAll(listReq), 1200, 'jd-clients');
+    const raw = clientResult?.data ?? clientResult;
+    return Array.isArray(raw) ? raw : Array.isArray(raw?.data) ? raw.data : [];
+  } catch (err) {
+    console.warn('[processJdFile] skipped client match:', err?.message || err);
+    return [];
+  }
+}
 
 function portalApiBase() {
   const raw = env.JOB_PORTAL_API_URL || process.env.PHASE1_API_URL || 'http://localhost:5000';
@@ -120,20 +146,15 @@ export const jobController = {
         }
       }
 
-      let clients = [];
-      try {
-        const listReq = {
-          ...req,
-          query: { ...req.query, page: '1', limit: '500' },
-        };
-        const clientResult = await clientService.getAll(listReq);
-        const raw = clientResult?.data ?? clientResult;
-        clients = Array.isArray(raw) ? raw : Array.isArray(raw?.data) ? raw.data : [];
-      } catch {
-        clients = [];
+      // Do not wait on Mongo before extracting — a replica-set stall was making
+      // JD upload sit on "Extracting job details" for ~2 minutes. Company match
+      // is optional and capped.
+      const clientsPromise = loadClientsForJdMatch(req);
+      const result = await processJobCreationPipeline(req.file, { currentForm, clients: [] });
+      const clients = await clientsPromise;
+      if (!result.companyId && result.companyName && clients.length) {
+        result.companyId = resolveCompanyIdByName(result.companyName, clients) || result.companyId;
       }
-
-      const result = await processJobCreationPipeline(req.file, { currentForm, clients });
       cleanupJobPipelineUpload(req.file);
 
       return sendResponse(res, 200, 'Job details extracted from document', result);
