@@ -185,6 +185,11 @@ export function toAssignablePlan(pkg, billingCycle = 'monthly', planStartDate, p
     billingCycle: limits.billingCycle,
     maxUsers: limits.maxUsers,
     maxJobs: limits.maxJobs,
+    ...(pkg?.monthlyJobPublishLimit !== null &&
+    pkg?.monthlyJobPublishLimit !== undefined &&
+    Number.isFinite(Number(pkg.monthlyJobPublishLimit))
+      ? { monthlyJobPublishLimit: Math.floor(Number(pkg.monthlyJobPublishLimit)) }
+      : {}),
     planStartDate: start,
     planEndDate: explicitEnd || computePlanEndDate(start, limits.billingCycle),
     ...(coins !== undefined ? { coins } : {}),

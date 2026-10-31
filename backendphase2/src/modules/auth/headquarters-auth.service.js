@@ -450,6 +450,11 @@ function normalizeSubscriptionPlanForHq(value) {
         String(value.billingCycle || '').trim().toLowerCase() === 'annual' ? 'annual' : 'monthly',
       maxUsers: value.maxUsers === undefined ? null : value.maxUsers,
       maxJobs: value.maxJobs === undefined ? null : value.maxJobs,
+      ...(value.monthlyJobPublishLimit !== null &&
+      value.monthlyJobPublishLimit !== undefined &&
+      Number.isFinite(Number(value.monthlyJobPublishLimit))
+        ? { monthlyJobPublishLimit: Math.floor(Number(value.monthlyJobPublishLimit)) }
+        : {}),
       ...(planStartDate ? { planStartDate } : {}),
       ...(planEndDate ? { planEndDate } : {}),
       ...(isTrial ? { isTrial: true } : {}),

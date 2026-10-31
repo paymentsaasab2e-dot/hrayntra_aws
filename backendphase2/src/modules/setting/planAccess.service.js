@@ -28,6 +28,7 @@ function planRecordsMatch(local, target) {
     planIdentity(local) === planIdentity(target) &&
     (local.maxUsers ?? null) === (target.maxUsers ?? null) &&
     (local.maxJobs ?? null) === (target.maxJobs ?? null) &&
+    (local.monthlyJobPublishLimit ?? null) === (target.monthlyJobPublishLimit ?? null) &&
     String(local.planStartDate || '') === String(target.planStartDate || '') &&
     String(local.planEndDate || '') === String(target.planEndDate || '') &&
     Boolean(local.isTrial) === Boolean(target.isTrial) &&
@@ -82,6 +83,9 @@ function mergeHqPlanMetadata(resolvedPlan, hqPlan) {
     ...(hqPlan?.price ? { price: String(hqPlan.price) } : {}),
     ...(hqPlan?.maxUsers !== undefined ? { maxUsers: hqPlan.maxUsers } : {}),
     ...(hqPlan?.maxJobs !== undefined ? { maxJobs: hqPlan.maxJobs } : {}),
+    ...(hqPlan?.monthlyJobPublishLimit !== undefined
+      ? { monthlyJobPublishLimit: hqPlan.monthlyJobPublishLimit }
+      : {}),
   };
 }
 

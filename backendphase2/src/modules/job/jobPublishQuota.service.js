@@ -16,8 +16,14 @@ import { getSubscriptionPlan } from '../setting/recruitmentMode.service.js';
  * - Tenant scope is the tenant Mongo database itself (per-company workspace):
  *   `prisma` already routes to the active tenant DB, so counts are per company.
  *
- * Limit source for this ticket: flat `JOB_PUBLISH_MONTHLY_LIMIT` (default 10,
- * <= 0 means unlimited for premium tenants until HQ plans wire per-plan caps).
+ * Limit resolution order (HQ subscription plan wired):
+ * a) `JOB_PUBLISH_MONTHLY_LIMIT` env — set AND parses as a number => wins
+ *    (testing override; <= 0 means unlimited).
+ * b) `plan.monthlyJobPublishLimit` on the org subscription-plan JSON — a
+ *    number => wins (<= 0 means unlimited). HQ packages carry it through
+ *    `toAssignablePlan`; it persists on the org setting, not on a Prisma model.
+ * c) No plan / plan named Free or Trial / empty name => 10.
+ * d) Any other named (paid) plan => 0, unlimited.
  */
 
 export const JOB_PUBLISH_QUOTA_CODE = 'JOB_PUBLISH_QUOTA_EXCEEDED';
@@ -25,12 +31,34 @@ export const JOB_PUBLISH_QUOTA_HTTP_STATUS = 402; // Payment Required — drives
 export const JOB_PUBLISH_WARN_AT = 8;
 export const DEFAULT_JOB_PUBLISH_MONTHLY_LIMIT = 10;
 
-export function resolveJobPublishMonthlyLimit(raw = env.JOB_PUBLISH_MONTHLY_LIMIT) {
+const FREE_TIER_PLAN_NAMES = new Set(['free', 'freemium', 'trial']);
+
+/** Free tier = missing plan, blank/Free/Trial name, or an HQ trial assignment. */
+function isFreeTierPlan(plan) {
+  if (!plan) return true;
+  if (plan.isTrial === true) return true;
+  const name = String(plan.name || '').trim().toLowerCase();
+  if (!name) return true;
+  if (FREE_TIER_PLAN_NAMES.has(name)) return true;
+  return /(^|\s)trial$/.test(name); // e.g. "Professional Trial"
+}
+
+function toPlanLimitNumber(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.floor(n) : null;
+}
+
+export function resolveJobPublishMonthlyLimit(raw = env.JOB_PUBLISH_MONTHLY_LIMIT, plan = null) {
   const text = String(raw ?? '').trim();
-  if (!text) return DEFAULT_JOB_PUBLISH_MONTHLY_LIMIT;
-  const value = Number(text);
-  if (!Number.isFinite(value)) return DEFAULT_JOB_PUBLISH_MONTHLY_LIMIT;
-  return Math.floor(value); // <= 0 => unlimited
+  if (text) {
+    const envValue = Number(text);
+    if (Number.isFinite(envValue)) return Math.floor(envValue); // <= 0 => unlimited
+  }
+  const planLimit = toPlanLimitNumber(plan?.monthlyJobPublishLimit);
+  if (planLimit !== null) return planLimit;
+  if (isFreeTierPlan(plan)) return DEFAULT_JOB_PUBLISH_MONTHLY_LIMIT;
+  return 0; // named paid plan => unlimited
 }
 
 /** Server-local calendar month window (codebase convention: new Date(y, m, 1)). */
@@ -54,12 +82,10 @@ export async function countJobsPublishedInWindow({ windowStart, windowEnd }) {
 
 /** Full quota payload for the always-visible badge and the Premium modal. */
 export async function getJobPublishQuotaStatus(now = new Date()) {
-  const limit = resolveJobPublishMonthlyLimit();
+  const plan = await getSubscriptionPlan().catch(() => null);
+  const limit = resolveJobPublishMonthlyLimit(env.JOB_PUBLISH_MONTHLY_LIMIT, plan);
   const { monthKey, monthLabel, windowStart, windowEnd } = jobPublishMonthWindow(now);
-  const [used, plan] = await Promise.all([
-    countJobsPublishedInWindow({ windowStart, windowEnd }),
-    getSubscriptionPlan().catch(() => null),
-  ]);
+  const used = await countJobsPublishedInWindow({ windowStart, windowEnd });
   const unlimited = !(limit > 0);
   const remaining = unlimited ? null : Math.max(0, limit - used);
   const upgradeRequired = !unlimited && remaining === 0;

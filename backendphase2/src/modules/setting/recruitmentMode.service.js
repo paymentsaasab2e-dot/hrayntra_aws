@@ -473,6 +473,9 @@ export async function getSubscriptionPlan() {
       billingCycle: String(v.billingCycle || '').trim().toLowerCase() === 'annual' ? 'annual' : 'monthly',
       maxUsers: v.maxUsers ?? null,
       maxJobs: v.maxJobs ?? null,
+      ...(v.monthlyJobPublishLimit !== null && v.monthlyJobPublishLimit !== undefined && Number.isFinite(Number(v.monthlyJobPublishLimit))
+        ? { monthlyJobPublishLimit: Math.floor(Number(v.monthlyJobPublishLimit)) }
+        : {}),
       ...(v.planStartDate ? { planStartDate: String(v.planStartDate).trim() } : {}),
       ...(v.planEndDate ? { planEndDate: String(v.planEndDate).trim() } : {}),
       ...(v.isTrial ? { isTrial: true } : {}),
@@ -511,6 +514,9 @@ export async function setSubscriptionPlan(plan) {
     billingCycle: String(plan?.billingCycle || '').trim().toLowerCase() === 'annual' ? 'annual' : 'monthly',
     maxUsers: plan?.maxUsers ?? null,
     maxJobs: plan?.maxJobs ?? null,
+    ...(plan?.monthlyJobPublishLimit !== null && plan?.monthlyJobPublishLimit !== undefined && Number.isFinite(Number(plan.monthlyJobPublishLimit))
+      ? { monthlyJobPublishLimit: Math.floor(Number(plan.monthlyJobPublishLimit)) }
+      : {}),
     ...(planStartDate ? { planStartDate } : {}),
     ...(planEndDate ? { planEndDate } : {}),
     ...(plan?.isTrial ? { isTrial: true } : {}),

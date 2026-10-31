@@ -54,6 +54,7 @@ function toPackageRow(doc) {
     isPopular: enriched.isPopular,
     maxUsers: doc.maxUsers ?? null,
     maxJobs: doc.maxJobs ?? null,
+    monthlyJobPublishLimit: doc.monthlyJobPublishLimit ?? null,
     annualMaxUsers: doc.annualMaxUsers ?? null,
     annualMaxJobs: doc.annualMaxJobs ?? null,
     isSystem: Boolean(doc.isSystem),
@@ -112,6 +113,10 @@ function parsePackageInput(data, { partial = false } = {}) {
 
   const maxUsers = data?.maxUsers !== undefined ? parseLimit(data.maxUsers) : undefined;
   const maxJobs = data?.maxJobs !== undefined ? parseLimit(data.maxJobs) : undefined;
+  const monthlyJobPublishLimit =
+    data?.monthlyJobPublishLimit !== undefined
+      ? parseLimit(data.monthlyJobPublishLimit)
+      : undefined;
   const annualMaxUsers =
     data?.annualMaxUsers !== undefined ? parseLimit(data.annualMaxUsers) : undefined;
   const annualMaxJobs =
@@ -128,6 +133,7 @@ function parsePackageInput(data, { partial = false } = {}) {
   if (isPopular !== undefined) out.isPopular = isPopular;
   if (maxUsers !== undefined) out.maxUsers = maxUsers;
   if (maxJobs !== undefined) out.maxJobs = maxJobs;
+  if (monthlyJobPublishLimit !== undefined) out.monthlyJobPublishLimit = monthlyJobPublishLimit;
   if (annualMaxUsers !== undefined) out.annualMaxUsers = annualMaxUsers;
   if (annualMaxJobs !== undefined) out.annualMaxJobs = annualMaxJobs;
   return out;

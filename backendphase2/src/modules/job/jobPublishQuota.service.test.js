@@ -24,6 +24,48 @@ describe('job publish quota helpers', () => {
     assert.ok(resolveJobPublishMonthlyLimit('-1') <= 0);
   });
 
+  it('lets the env override beat the subscription plan (testing override)', () => {
+    const paidPlan = { name: 'Professional' };
+    assert.equal(resolveJobPublishMonthlyLimit('25', paidPlan), 25);
+    assert.ok(resolveJobPublishMonthlyLimit('0', paidPlan) <= 0);
+    // env set but unparsable falls through to plan resolution
+    assert.equal(resolveJobPublishMonthlyLimit('abc', { name: 'Free' }), 10);
+    assert.ok(resolveJobPublishMonthlyLimit('abc', paidPlan) <= 0);
+  });
+
+  it('uses plan.monthlyJobPublishLimit when present (<=0 means unlimited)', () => {
+    assert.equal(
+      resolveJobPublishMonthlyLimit('', { name: 'Professional', monthlyJobPublishLimit: 25 }),
+      25,
+    );
+    // explicit cap wins even on free-tier names
+    assert.equal(
+      resolveJobPublishMonthlyLimit('', { name: 'Free', monthlyJobPublishLimit: 30 }),
+      30,
+    );
+    assert.ok(
+      resolveJobPublishMonthlyLimit('', { name: 'Free', monthlyJobPublishLimit: 0 }) <= 0,
+    );
+    assert.ok(
+      resolveJobPublishMonthlyLimit('', { name: 'Starter', monthlyJobPublishLimit: -2 }) <= 0,
+    );
+  });
+
+  it('falls back to 10 for Free / Trial / missing plans', () => {
+    assert.equal(resolveJobPublishMonthlyLimit('', null), 10);
+    assert.equal(resolveJobPublishMonthlyLimit('', { name: 'Free' }), 10);
+    assert.equal(resolveJobPublishMonthlyLimit('', { name: 'Trial' }), 10);
+    assert.equal(resolveJobPublishMonthlyLimit('', { name: '' }), 10);
+    assert.equal(resolveJobPublishMonthlyLimit('', { name: 'Professional Trial' }), 10);
+    assert.equal(resolveJobPublishMonthlyLimit('', { name: 'Starter', isTrial: true }), 10);
+  });
+
+  it('treats any named paid plan as unlimited', () => {
+    for (const name of ['Starter', 'Basic', 'Pro', 'Professional', 'Enterprise', 'Premium']) {
+      assert.ok(resolveJobPublishMonthlyLimit('', { name }) <= 0, `${name} should be unlimited`);
+    }
+  });
+
   it('builds the calendar-month window (server-local)', () => {
     const { monthKey, windowStart, windowEnd } = jobPublishMonthWindow(new Date(2026, 9, 31, 23, 59));
     assert.equal(monthKey, '2026-10');
