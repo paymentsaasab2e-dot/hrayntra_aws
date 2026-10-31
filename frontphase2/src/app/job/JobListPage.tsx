@@ -1088,7 +1088,7 @@ export function JobListPage() {
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <JobPublishQuotaMeter />
-            <ShowSummaryCardsButton>
+            <ShowSummaryCardsButton
               open={showSummaryCards}
               onToggle={() => setShowSummaryCards((open) => !open)}
             />
