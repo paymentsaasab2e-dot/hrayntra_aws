@@ -19,8 +19,8 @@ import {
 import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '../lib/api/teamApi';
 import { getActiveOrgUnitId } from '../lib/org/orgWorkspaceStorage';
 import {
-  fetchAllAccessibleCandidatesForPlacementPicker,
   fetchAllAccessibleJobsForPlacementPicker,
+  fetchPlacementPickerCandidatesPage,
 } from '../lib/myJobsListParams';
 import type {
   CreatePlacementPayload,
@@ -162,6 +162,16 @@ export function usePlacements(filters: PlacementFilters) {
     }
   }, []);
 
+  const mapCandidateOption = useCallback((candidate: any) => ({
+    id: candidate.id,
+    name: [candidate.firstName, candidate.lastName]
+      .map((part: unknown) => String(part ?? '').trim())
+      .filter((part: string) => part && part.toLowerCase() !== 'null' && part.toLowerCase() !== 'undefined')
+      .join(' ')
+      .trim() || candidate.email || 'Candidate',
+    email: candidate.email,
+  }), []);
+
   const ensurePlacementFormOptions = useCallback(async (force = false) => {
     if (!force && placementOptionsLoadedRef.current) return;
     if (placementOptionsInFlightRef.current) {
@@ -172,22 +182,13 @@ export function usePlacements(filters: PlacementFilters) {
     setPlacementOptionsLoading(true);
     const run = (async () => {
       try {
-        const [candidates, jobs] = await Promise.all([
-          fetchAllAccessibleCandidatesForPlacementPicker(),
+        // First lean pages open the drawer quickly, then remaining candidate pages append.
+        const [firstCandidates, jobs] = await Promise.all([
+          fetchPlacementPickerCandidatesPage(1),
           fetchAllAccessibleJobsForPlacementPicker(),
         ]);
 
-        setCandidateOptions(
-          candidates.map((candidate: any) => ({
-            id: candidate.id,
-            name: [candidate.firstName, candidate.lastName]
-              .map((part: unknown) => String(part ?? '').trim())
-              .filter((part: string) => part && part.toLowerCase() !== 'null' && part.toLowerCase() !== 'undefined')
-              .join(' ')
-              .trim() || candidate.email || 'Candidate',
-            email: candidate.email,
-          })),
-        );
+        setCandidateOptions(firstCandidates.items.map(mapCandidateOption));
 
         const sortedJobs = [...jobs].sort((a: any, b: any) =>
           String(a?.title || '').localeCompare(String(b?.title || ''), undefined, {
@@ -205,6 +206,22 @@ export function usePlacements(filters: PlacementFilters) {
             salaryAmount: job.salary?.amount ?? null,
           })),
         );
+        setPlacementOptionsLoading(false);
+
+        if (firstCandidates.totalPages > 1) {
+          const seen = new Set(firstCandidates.items.map((row) => String(row.id)));
+          for (let page = 2; page <= firstCandidates.totalPages; page += 1) {
+            const next = await fetchPlacementPickerCandidatesPage(page);
+            const fresh = next.items.filter((row) => {
+              const id = String(row.id || '');
+              if (!id || seen.has(id)) return false;
+              seen.add(id);
+              return true;
+            });
+            if (!fresh.length) continue;
+            setCandidateOptions((current) => [...current, ...fresh.map(mapCandidateOption)]);
+          }
+        }
         placementOptionsLoadedRef.current = true;
       } catch {
         // Keep drawer usable; user can retry by reopening.
@@ -216,7 +233,7 @@ export function usePlacements(filters: PlacementFilters) {
 
     placementOptionsInFlightRef.current = run;
     await run;
-  }, []);
+  }, [mapCandidateOption]);
 
   useEffect(() => {
     fetchData();
