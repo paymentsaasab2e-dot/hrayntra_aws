@@ -352,6 +352,8 @@ export async function apiGetCandidates(
     includeCommonPool?: boolean;
     /** Lightweight id/name/phone/job rows for the schedule-interview picker. */
     picker?: boolean;
+    /** Lean high-limit id/name/email list for Add Manual Placement. */
+    placementPicker?: boolean;
   },
   options: { signal?: AbortSignal } = {},
 ) {
@@ -359,7 +361,12 @@ export async function apiGetCandidates(
   Object.entries(params).forEach(([key, value]) => {
     if (value === undefined || value === null || value === '') return;
     if (typeof value === 'boolean') {
-      if (key === 'includeCommonPool' || key === 'mine' || key === 'picker') {
+      if (
+        key === 'includeCommonPool' ||
+        key === 'mine' ||
+        key === 'picker' ||
+        key === 'placementPicker'
+      ) {
         query.set(key, value ? 'true' : 'false');
         return;
       }

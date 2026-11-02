@@ -1496,11 +1496,15 @@ export const jobService = {
     });
     const { page, limit, skip } = getPaginationParams(req);
     const { status, clientId, assignedToId, search, mine, ids } = req.query;
+    const placementPicker =
+      req.query?.placementPicker === 'true' ||
+      req.query?.placementPicker === '1' ||
+      req.query?.placementPicker === true;
 
     const hasSearch = Boolean(String(search || '').trim());
     const hasIds = Boolean(String(ids || '').trim());
-    // Pipeline repair is one-time and expensive — skip on search/id list requests.
-    if (!hasSearch && !hasIds) {
+    // Pipeline repair is one-time and expensive — skip on search/id/picker requests.
+    if (!hasSearch && !hasIds && !placementPicker) {
       await ensureOrgPipelineTemplateRepairOnce();
     }
 
@@ -1574,6 +1578,33 @@ export const jobService = {
         idListOrder = idList;
         scopedWhere = { AND: [scopedWhere, { id: { in: idList } }] };
       }
+    }
+
+    // Manual placement drawer: lean id/title/client/salary only (high limit, no heavy includes).
+    if (placementPicker) {
+      const pickerLimit = Math.min(
+        Math.max(Number.parseInt(String(req.query.limit || '1000'), 10) || 1000, 1),
+        2000,
+      );
+      const pickerPage = Math.max(1, Number.parseInt(String(req.query.page || '1'), 10) || 1);
+      const pickerSkip = (pickerPage - 1) * pickerLimit;
+      const [pickerJobs, pickerTotal] = await Promise.all([
+        prisma.job.findMany({
+          where: scopedWhere,
+          skip: pickerSkip,
+          take: pickerLimit,
+          select: {
+            id: true,
+            title: true,
+            clientId: true,
+            salary: true,
+            client: { select: { id: true, companyName: true } },
+          },
+          orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+        }),
+        prisma.job.count({ where: scopedWhere }),
+      ]);
+      return formatPaginationResponse(pickerJobs, pickerPage, pickerLimit, pickerTotal);
     }
 
     const jobListInclude = {

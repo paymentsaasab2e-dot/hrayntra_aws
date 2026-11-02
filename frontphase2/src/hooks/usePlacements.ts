@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CreatePlacementInvoicePayload } from '../types/recruitmentInvoice';
 import {
   apiCreatePlacement,
@@ -75,6 +75,9 @@ export function usePlacements(filters: PlacementFilters) {
   }>>([]);
   const [clientOptions, setClientOptions] = useState<Array<{ id: string; companyName: string }>>([]);
   const [recruiterOptions, setRecruiterOptions] = useState<Array<{ id: string; name: string; email: string }>>([]);
+  const [placementOptionsLoading, setPlacementOptionsLoading] = useState(false);
+  const placementOptionsLoadedRef = useRef(false);
+  const placementOptionsInFlightRef = useRef<Promise<void> | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -115,59 +118,15 @@ export function usePlacements(filters: PlacementFilters) {
     }
   }, [filters]);
 
-  const fetchOptions = useCallback(async () => {
+  const fetchSupportOptions = useCallback(async () => {
     try {
-      const [candidates, jobs, placementsForClientsRes, teamMembers] = await Promise.all([
-        // Every candidate this user can access (pages through the server list cap).
-        fetchAllAccessibleCandidatesForPlacementPicker(),
-        // Every job this user can access (all statuses; pages through the server list cap).
-        fetchAllAccessibleJobsForPlacementPicker(),
-        // Unfiltered placement list — All Clients filter only shows clients that have placements.
+      const [placementsForClientsRes, teamMembers] = await Promise.all([
         apiGetPlacements({ page: 1, limit: 1000 }),
         getAllTeamMembersForAssign(getActiveOrgUnitId() || undefined, 'Placements'),
       ]);
 
       const placementsForClients = unwrapCollection(placementsForClientsRes.data as any);
       const users = teamMembersToBackendUsers(teamMembers);
-
-      setCandidateOptions(
-        candidates.map((candidate: any) => ({
-          id: candidate.id,
-          name: [candidate.firstName, candidate.lastName]
-            .map((part: unknown) => String(part ?? '').trim())
-            .filter((part: string) => part && part.toLowerCase() !== 'null' && part.toLowerCase() !== 'undefined')
-            .join(' ')
-            .trim() || candidate.email || 'Candidate',
-          email: candidate.email,
-        }))
-      );
-      const sortedJobs = [...jobs].sort((a: any, b: any) =>
-        String(a?.title || '').localeCompare(String(b?.title || ''), undefined, {
-          sensitivity: 'base',
-        }),
-      );
-      setJobOptions(
-        sortedJobs.map((job: any) => ({
-          id: job.id,
-          title: job.title,
-          clientId: job.client?.id || job.clientId || undefined,
-          clientName: job.client?.companyName || 'No client linked',
-          minSalary: job.salary?.min ?? job.minSalary ?? null,
-          maxSalary: job.salary?.max ?? job.maxSalary ?? null,
-          salaryAmount: job.salary?.amount ?? null,
-          clientEmail: (() => {
-            const c = job.client;
-            if (!c) return '';
-            const fromEmails = Array.isArray(c.emails)
-              ? c.emails.map((e: string) => String(e || '').trim()).find(Boolean)
-              : '';
-            const fromContacts = Array.isArray(c.contacts)
-              ? c.contacts.map((ct: { email?: string }) => String(ct?.email || '').trim()).find(Boolean)
-              : '';
-            return fromEmails || c.teamMemberEmail?.trim() || fromContacts || '';
-          })(),
-        }))
-      );
 
       const clientsById = new Map<string, { id: string; companyName: string }>();
       for (const placement of placementsForClients as any[]) {
@@ -203,13 +162,69 @@ export function usePlacements(filters: PlacementFilters) {
     }
   }, []);
 
+  const ensurePlacementFormOptions = useCallback(async (force = false) => {
+    if (!force && placementOptionsLoadedRef.current) return;
+    if (placementOptionsInFlightRef.current) {
+      await placementOptionsInFlightRef.current;
+      return;
+    }
+
+    setPlacementOptionsLoading(true);
+    const run = (async () => {
+      try {
+        const [candidates, jobs] = await Promise.all([
+          fetchAllAccessibleCandidatesForPlacementPicker(),
+          fetchAllAccessibleJobsForPlacementPicker(),
+        ]);
+
+        setCandidateOptions(
+          candidates.map((candidate: any) => ({
+            id: candidate.id,
+            name: [candidate.firstName, candidate.lastName]
+              .map((part: unknown) => String(part ?? '').trim())
+              .filter((part: string) => part && part.toLowerCase() !== 'null' && part.toLowerCase() !== 'undefined')
+              .join(' ')
+              .trim() || candidate.email || 'Candidate',
+            email: candidate.email,
+          })),
+        );
+
+        const sortedJobs = [...jobs].sort((a: any, b: any) =>
+          String(a?.title || '').localeCompare(String(b?.title || ''), undefined, {
+            sensitivity: 'base',
+          }),
+        );
+        setJobOptions(
+          sortedJobs.map((job: any) => ({
+            id: job.id,
+            title: job.title,
+            clientId: job.client?.id || job.clientId || undefined,
+            clientName: job.client?.companyName || 'No client linked',
+            minSalary: job.salary?.min ?? job.minSalary ?? null,
+            maxSalary: job.salary?.max ?? job.maxSalary ?? null,
+            salaryAmount: job.salary?.amount ?? null,
+          })),
+        );
+        placementOptionsLoadedRef.current = true;
+      } catch {
+        // Keep drawer usable; user can retry by reopening.
+      } finally {
+        setPlacementOptionsLoading(false);
+        placementOptionsInFlightRef.current = null;
+      }
+    })();
+
+    placementOptionsInFlightRef.current = run;
+    await run;
+  }, []);
+
   useEffect(() => {
     fetchData();
   }, [fetchData]);
 
   useEffect(() => {
-    fetchOptions();
-  }, [fetchOptions]);
+    void fetchSupportOptions();
+  }, [fetchSupportOptions]);
 
   const actions = useMemo(
     () => ({
@@ -217,7 +232,7 @@ export function usePlacements(filters: PlacementFilters) {
         setSubmitting(true);
         try {
           const response = await apiCreatePlacement(payload, offerLetter);
-          await Promise.all([fetchData(), fetchOptions()]);
+          await fetchData();
           return response?.data;
         } finally {
           setSubmitting(false);
@@ -227,7 +242,7 @@ export function usePlacements(filters: PlacementFilters) {
         setSubmitting(true);
         try {
           const response = await apiUpdatePlacement(id, payload);
-          await Promise.all([fetchData(), fetchOptions()]);
+          await fetchData();
           return response?.data;
         } finally {
           setSubmitting(false);
@@ -282,7 +297,7 @@ export function usePlacements(filters: PlacementFilters) {
         setSubmitting(true);
         try {
           await apiUndoPlacement(id);
-          await Promise.all([fetchData(), fetchOptions()]);
+          await fetchData();
         } finally {
           setSubmitting(false);
         }
@@ -300,7 +315,7 @@ export function usePlacements(filters: PlacementFilters) {
         setSubmitting(true);
         try {
           await apiDeletePlacement(id);
-          await Promise.all([fetchData(), fetchOptions()]);
+          await fetchData();
         } finally {
           setSubmitting(false);
         }
@@ -318,9 +333,10 @@ export function usePlacements(filters: PlacementFilters) {
       async exportPlacements() {
         return apiExportPlacements(filters);
       },
+      ensurePlacementFormOptions,
       refresh: fetchData,
     }),
-    [fetchData, fetchOptions, filters]
+    [ensurePlacementFormOptions, fetchData, filters]
   );
 
   return {
@@ -330,6 +346,7 @@ export function usePlacements(filters: PlacementFilters) {
     loading,
     error,
     submitting,
+    placementOptionsLoading,
     candidateOptions,
     jobOptions,
     clientOptions,

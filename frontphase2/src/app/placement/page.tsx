@@ -146,6 +146,8 @@ function PlacementsPageContent() {
     jobOptions,
     clientOptions,
     recruiterOptions,
+    placementOptionsLoading,
+    ensurePlacementFormOptions,
     createPlacement,
     updatePlacement,
     updatePlacementStatus,
@@ -159,6 +161,12 @@ function PlacementsPageContent() {
     exportPlacements,
     refresh,
   } = usePlacements(apiFilters);
+
+  useEffect(() => {
+    if (createOpen || editingPlacement || resendingPlacement) {
+      void ensurePlacementFormOptions();
+    }
+  }, [createOpen, editingPlacement, ensurePlacementFormOptions, resendingPlacement]);
   const { alertsByEntityId: workspaceAlertsByEntityId } = useWorkspaceEntityAlerts(
     'PLACEMENT',
     placements.map((placement) => placement.id),
@@ -631,6 +639,7 @@ function PlacementsPageContent() {
       <CreatePlacementDrawer
         isOpen={canCreatePlacement && createOpen}
         isSubmitting={submitting}
+        optionsLoading={placementOptionsLoading}
         currentUserId={currentUserId}
         candidates={candidateOptions}
         jobs={jobOptions}
@@ -651,6 +660,7 @@ function PlacementsPageContent() {
       <CreatePlacementDrawer
         isOpen={canUpdatePlacement && Boolean(editingPlacement)}
         isSubmitting={submitting}
+        optionsLoading={placementOptionsLoading}
         mode="edit"
         currentUserId={currentUserId}
         candidates={candidateOptions}
@@ -673,6 +683,7 @@ function PlacementsPageContent() {
       <CreatePlacementDrawer
         isOpen={canUpdatePlacement && Boolean(resendingPlacement)}
         isSubmitting={submitting}
+        optionsLoading={placementOptionsLoading}
         mode="resend"
         currentUserId={currentUserId}
         candidates={candidateOptions}

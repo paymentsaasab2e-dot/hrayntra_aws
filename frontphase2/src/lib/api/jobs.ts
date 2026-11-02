@@ -61,6 +61,8 @@ export async function apiGetJobs(params: {
   ids?: string;
   /** When true, backend returns only jobs created by the logged-in user */
   mine?: boolean;
+  /** Lean high-limit list for Add Manual Placement */
+  placementPicker?: boolean;
   signal?: AbortSignal;
 }) {
   const { signal, ...queryParams } = params;
