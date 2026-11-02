@@ -89,13 +89,14 @@ import { TableColumnsMenu } from '../../components/table/TableColumnsMenu';
 import { usePersistedColumnVisibility } from '../../hooks/usePersistedColumnVisibility';
 import { CANDIDATE_TABLE_COLUMNS } from '../../lib/tableColumns/moduleTableColumns';
 import { fetchAllPaginated, totalPagesFromPagination } from '../../lib/export/fetchAllPaginated';
+import { fetchAllAccessibleJobsForPlacementPicker } from '../../lib/myJobsListParams';
 import { CreateTaskModal } from '../../components/CreateTaskModal';
 import { Toaster, toast } from 'sonner';
 import PaginationAll from '../../components/PaginationAll';
 import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../constants/tablePagination';
 import { requestConfirm, requestError, requestPrompt } from '../../lib/appDialog';
 import { RECYCLE_BIN_SYNC_EVENT } from '../../constants/recycleBin';
-import { parseClientsListFromResponse, parseJobsListFromResponse } from '../../lib/parseApiList';
+import { parseClientsListFromResponse } from '../../lib/parseApiList';
 import { dedupeCompanyNameLabels } from '../../lib/companyNameKey';
 import { resolveCountryFilterLabel, getCscCountryOptions } from '../../lib/cscData';
 import {
@@ -110,7 +111,6 @@ import {
   apiGetCandidate,
   apiGetCandidates,
   apiGetClients,
-  apiGetJobs,
   apiGetPipelineStages,
   apiMoveCandidateStage,
   apiPinCandidateNote,
@@ -1118,8 +1118,7 @@ export function useCandidateList() {
 
   const refreshJobFilterOptions = useCallback(async () => {
     try {
-      const res = await apiGetJobs({ page: 1, limit: 100 });
-      const jobs = toJobFilterOptions(parseJobsListFromResponse(res));
+      const jobs = toJobFilterOptions(await fetchAllAccessibleJobsForPlacementPicker());
       if (jobs.length > 0 || jobFilterOptionsRef.current.length === 0) {
         jobFilterOptionsRef.current = jobs;
         setJobFilterOptions(jobs);
@@ -1362,15 +1361,14 @@ export function useCandidateList() {
 
     async function loadPipelineOptions() {
       try {
-        const [allJobsRes, clientsRes, candidateMembers, interviewMembers] = await Promise.all([
-          apiGetJobs({ page: 1, limit: 100 }),
+        const [allJobsParsed, clientsRes, candidateMembers, interviewMembers] = await Promise.all([
+          fetchAllAccessibleJobsForPlacementPicker(),
           apiGetClients({ page: 1, limit: 100, recruitmentEnabled: true }),
           getAllTeamMembersForAssign(getActiveOrgUnitId() || undefined, 'Candidates'),
           getAllTeamMembersForAssign(getActiveOrgUnitId() || undefined, 'Interviews'),
         ]);
         if (cancelled) return;
 
-        const allJobsParsed = parseJobsListFromResponse(allJobsRes);
         const allJobsForFilter = toJobFilterOptions(allJobsParsed);
         const clientNames = clientNamesFromApiResponse(clientsRes);
 
@@ -2155,8 +2153,7 @@ export function useCandidateList() {
         setPendingStageAfterWorkflow(null);
       }
       try {
-        const jobsRes = await apiGetJobs({ page: 1, limit: 100 });
-        const parsed = parseJobsListFromResponse(jobsRes);
+        const parsed = await fetchAllAccessibleJobsForPlacementPicker();
         setBulkScheduleJobs(
           parsed
             .filter((job) => job.id)
