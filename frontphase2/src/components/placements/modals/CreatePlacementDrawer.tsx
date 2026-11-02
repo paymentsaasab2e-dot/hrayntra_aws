@@ -8,7 +8,8 @@ import {
   getPlacementStatusLabel,
   PLACEMENT_STATUS_OPTIONS,
 } from '../../../utils/placements';
-import { SUPPORTED_CURRENCIES, formatCurrencyAmount } from '../../../utils/currency';
+import { formatCurrencyAmount } from '../../../utils/currency';
+import { CurrencySearchPicker } from '../../CurrencySearchPicker';
 import { DrawerFormShell, DrawerFormCancelButton } from '../../drawers/DrawerFormShell';
 import {
   DrawerFieldLabel,
@@ -445,11 +446,12 @@ export function CreatePlacementDrawer({
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div>
             <DrawerFieldLabel label="Currency" />
-            <DrawerSelectDropdown
-              value={form.currency}
+            <CurrencySearchPicker
+              compact
               preferUpward
-              options={SUPPORTED_CURRENCIES.map((code) => ({ value: code, label: code }))}
+              value={form.currency}
               onChange={(currency) => setForm((current) => ({ ...current, currency }))}
+              hint="Search any world currency by code, name, or country."
             />
           </div>
           <div>

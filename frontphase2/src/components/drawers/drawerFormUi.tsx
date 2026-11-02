@@ -239,7 +239,7 @@ type DrawerDropdownMenuPosition = {
 };
 
 export function useDrawerPortalDropdownPosition(open: boolean, preferUpward: boolean, onClose: () => void) {
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const triggerRef = useRef<HTMLElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [menuPosition, setMenuPosition] = useState<DrawerDropdownMenuPosition | null>(null);
 

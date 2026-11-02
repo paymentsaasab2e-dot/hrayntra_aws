@@ -1,12 +1,14 @@
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Check, ChevronDown, Search, X } from 'lucide-react';
 import { phase1EditInputClass, phase1EditLabelClass } from '@/lib/phase1Typography';
 import { SUPPORTED_CURRENCIES } from '@/utils/currency';
 import { WORLD_CURRENCIES } from '@/lib/hqWorldCurrencies';
 import { HQ_CURRENCY_FLAGS } from '@/lib/hqCurrency';
 import { matchesQuickSearch, buildQuickSearchHaystack } from '@/lib/quickSearch';
+import { useDrawerPortalDropdownPosition } from '@/components/drawers/drawerFormUi';
 
 type CurrencySearchPickerProps = {
   value: string;
@@ -16,6 +18,8 @@ type CurrencySearchPickerProps = {
   disabled?: boolean;
   /** Compact single-field mode for forms (commission / invoice). */
   compact?: boolean;
+  /** Open the compact menu above the field when space below is tight (drawers). */
+  preferUpward?: boolean;
   className?: string;
 };
 
@@ -46,12 +50,24 @@ export function CurrencySearchPicker({
   hint,
   disabled = false,
   compact = false,
+  preferUpward = false,
   className = '',
 }: CurrencySearchPickerProps) {
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const selected = String(value || (compact ? '' : 'USD')).trim().toUpperCase();
+
+  const closeMenu = useCallback(() => {
+    setOpen(false);
+    setSearch('');
+  }, []);
+
+  const { triggerRef, menuRef, menuPosition } = useDrawerPortalDropdownPosition(
+    compact && open,
+    preferUpward,
+    closeMenu,
+  );
 
   const quickPicks = useMemo(() => {
     return Array.from(new Set([...SUPPORTED_CURRENCIES, 'CNY', selected]));
@@ -80,7 +96,7 @@ export function CurrencySearchPicker({
   };
 
   useEffect(() => {
-    if (!compact || !open) return undefined;
+    if (compact || !open) return undefined;
     const onPointerDown = (event: MouseEvent) => {
       if (!rootRef.current?.contains(event.target as Node)) {
         setOpen(false);
@@ -97,12 +113,63 @@ export function CurrencySearchPicker({
     : selected;
 
   if (compact) {
+    const menu =
+      open && menuPosition && typeof document !== 'undefined'
+        ? createPortal(
+            <div
+              ref={menuRef}
+              className="fixed z-[1200] flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl"
+              style={{
+                left: menuPosition.left,
+                width: Math.max(menuPosition.width, 280),
+                maxHeight: menuPosition.maxHeight,
+                ...(menuPosition.placement === 'top'
+                  ? { bottom: menuPosition.bottom }
+                  : { top: menuPosition.top }),
+              }}
+            >
+              <div className="min-h-0 flex-1 overflow-y-auto py-1">
+                {listRows.length === 0 ? (
+                  <p className="px-3 py-2 text-sm text-slate-500">No matching currency</p>
+                ) : (
+                  listRows.map((row) => {
+                    const active = row.code === selected;
+                    return (
+                      <button
+                        key={row.code}
+                        type="button"
+                        disabled={disabled}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => pick(row.code)}
+                        className={`flex w-full items-center justify-between gap-2 px-2.5 py-1.5 text-left text-sm hover:bg-indigo-50 disabled:opacity-50 ${
+                          active ? 'bg-indigo-50 text-indigo-800' : 'text-slate-800'
+                        }`}
+                      >
+                        <span className="min-w-0 truncate">
+                          <span className="mr-1.5">{flagForCode(row.code)}</span>
+                          <span className="font-semibold">{row.code}</span>
+                          <span className="ml-1.5 text-slate-500">{row.name}</span>
+                        </span>
+                        {active ? <Check className="h-3.5 w-3.5 shrink-0 text-indigo-600" /> : null}
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </div>,
+            document.body,
+          )
+        : null;
+
     return (
       <div ref={rootRef} className={`relative min-w-0 ${className}`}>
         {label ? <p className={`mb-1 ${phase1EditLabelClass}`}>{label}</p> : null}
         <div className="relative">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 z-[1] h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
           <input
+            ref={(node) => {
+              triggerRef.current = node;
+            }}
             type="text"
             value={open ? search : closedLabel}
             disabled={disabled}
@@ -119,37 +186,7 @@ export function CurrencySearchPicker({
           />
           <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
         </div>
-        {open ? (
-          <ul className="absolute z-30 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
-            {listRows.length === 0 ? (
-              <li className="px-3 py-2 text-sm text-slate-500">No matching currency</li>
-            ) : (
-              listRows.map((row) => {
-                const active = row.code === selected;
-                return (
-                  <li key={row.code}>
-                    <button
-                      type="button"
-                      disabled={disabled}
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={() => pick(row.code)}
-                      className={`flex w-full items-center justify-between gap-2 px-2.5 py-1.5 text-left text-sm hover:bg-indigo-50 disabled:opacity-50 ${
-                        active ? 'bg-indigo-50 text-indigo-800' : 'text-slate-800'
-                      }`}
-                    >
-                      <span className="min-w-0 truncate">
-                        <span className="mr-1.5">{flagForCode(row.code)}</span>
-                        <span className="font-semibold">{row.code}</span>
-                        <span className="ml-1.5 text-slate-500">{row.name}</span>
-                      </span>
-                      {active ? <Check className="h-3.5 w-3.5 shrink-0 text-indigo-600" /> : null}
-                    </button>
-                  </li>
-                );
-              })
-            )}
-          </ul>
-        ) : null}
+        {menu}
         {hint ? <p className="mt-1 text-[11px] font-normal text-slate-500">{hint}</p> : null}
       </div>
     );
