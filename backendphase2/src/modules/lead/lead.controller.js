@@ -6,90 +6,15 @@ import { isDepartmentHeadUser } from '../../services/departmentRole.service.js';
 import * as XLSX from 'xlsx';
 import {
   filterMeaningfulImportColumns,
+  isMeaninglessImportColumn,
   parseImportSheetRows,
   pickImportWorksheet,
   slimImportRows,
 } from '../../utils/importSpreadsheet.js';
-
-const LEAD_IMPORT_FIELD_ALIASES = {
-  companyName: ['company', 'company name', 'lead company', 'client', 'organization', 'organisation'],
-  contactPerson: ['name', 'contact person', 'contact', 'primary contact'],
-  directorName: ['director name', 'director'],
-  email: ['email', 'email address', 'contact email'],
-  phone: ['phone', 'phone number', 'mobile', 'mobile number', 'contact number'],
-  type: ['type', 'lead type'],
-  source: ['source', 'lead source'],
-  status: ['status', 'lead status'],
-  priority: ['priority', 'interest level', 'lead priority'],
-  interestedNeeds: [
-    'services needed',
-    'service needed',
-    'interested needs',
-    'requirements',
-    'needs',
-  ],
-  nextFollowUpDue: [
-    'next follow up date',
-    'next follow-up date',
-    'next followup date',
-    'follow up date',
-    'next follow up',
-  ],
-  expectedBusinessValue: ['expected business value', 'expected value', 'business value'],
-  notes: ['notes', 'remarks', 'comments'],
-  industry: ['industry', 'sector', 'business type'],
-  companySize: ['team name', 'company size', 'team'],
-  website: ['website', 'company website', 'site'],
-  linkedIn: ['linkedin', 'linkedin url', 'linked in'],
-  location: ['location', 'address', 'region'],
-  designation: ['designation', 'title', 'job title'],
-  directorSalutation: ['salutation', 'title prefix', 'director salutation', 'prefix', 'honorific'],
-  city: ['city'],
-  country: ['country'],
-  campaignName: ['campaign', 'campaign name'],
-};
-
-const normalizeHeader = (value = '') =>
-  String(value)
-    .replace(/\u00a0/g, ' ')
-    .trim()
-    .replace(/\s*\*+\s*$/g, '')
-    .replace(/([a-z])([A-Z])/g, '$1 $2')
-    .toLowerCase()
-    .replace(/[_-]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-const suggestLeadImportMapping = (columns = []) => {
-  const mapping = {};
-  const normalizedColumns = columns.map((column) => ({
-    column,
-    normalized: normalizeHeader(column),
-  }));
-
-  const PARTIAL_MATCH_EXCLUDED_ALIASES = new Set(['name']);
-
-  Object.entries(LEAD_IMPORT_FIELD_ALIASES).forEach(([fieldId, aliases]) => {
-    const normalizedAliases = aliases.map((alias) => normalizeHeader(alias));
-    const exact = normalizedColumns.find(({ normalized }) => normalizedAliases.includes(normalized));
-    if (exact) {
-      mapping[fieldId] = exact.column;
-      return;
-    }
-
-    const partial = normalizedColumns.find(({ normalized }) =>
-      normalizedAliases.some((alias) => {
-        if (PARTIAL_MATCH_EXCLUDED_ALIASES.has(alias)) return false;
-        return normalized.includes(alias) || alias.includes(normalized);
-      })
-    );
-    if (partial) {
-      mapping[fieldId] = partial.column;
-    }
-  });
-
-  return mapping;
-};
+import {
+  assertLeadImportUsesSystemTemplate,
+  buildLeadImportTemplateMapping,
+} from '../../utils/leadImportTemplate.js';
 
 export const leadController = {
   async getAll(req, res) {
@@ -149,10 +74,17 @@ export const leadController = {
 
       const rows = parseImportSheetRows(firstSheet, { defval: null });
       const rawColumns = rows.length > 0 ? Object.keys(rows[0]) : [];
+      const headerColumns = rawColumns.filter(
+        (column) => !isMeaninglessImportColumn(column) && !/^watermark\b/i.test(String(column ?? '').trim()),
+      );
+
+      // Only accept our downloadable Leads template — reject any other Excel/CSV layout.
+      assertLeadImportUsesSystemTemplate(headerColumns.length ? headerColumns : rawColumns);
+
       const columns = filterMeaningfulImportColumns(rawColumns, rows);
       const slimRows = slimImportRows(rows, columns);
       const previewRows = slimRows.slice(0, 8);
-      const suggestedMapping = suggestLeadImportMapping(columns);
+      const suggestedMapping = buildLeadImportTemplateMapping(columns);
       const columnStats = Object.fromEntries(
         columns.map((column) => [
           column,
@@ -174,7 +106,11 @@ export const leadController = {
         suggestedMapping,
       });
     } catch (error) {
-      sendError(res, 400, 'Failed to parse import file', error);
+      const message =
+        error?.code === 'LEAD_IMPORT_TEMPLATE_REQUIRED'
+          ? error.message
+          : error?.message || 'Failed to parse import file';
+      sendError(res, 400, message, error);
     }
   },
 
