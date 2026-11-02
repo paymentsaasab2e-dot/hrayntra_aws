@@ -334,9 +334,10 @@ export function DrawerSelectDropdown({
   error,
   searchable = false,
   searchPlaceholder = 'Search…',
+  onSearchChange,
 }: {
   value: string;
-  options: { value: string; label: string }[];
+  options: { value: string; label: string; searchText?: string }[];
   onChange: (value: string) => void;
   preferUpward?: boolean;
   triggerClassName?: string;
@@ -347,6 +348,8 @@ export function DrawerSelectDropdown({
   /** Show a filter input at the top of the menu (useful for long lists). */
   searchable?: boolean;
   searchPlaceholder?: string;
+  /** Optional remote search hook (debounced by the parent if needed). */
+  onSearchChange?: (query: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -354,7 +357,8 @@ export function DrawerSelectDropdown({
   const closeMenu = useCallback(() => {
     setOpen(false);
     setSearch('');
-  }, []);
+    onSearchChange?.('');
+  }, [onSearchChange]);
   const { triggerRef, menuRef, menuPosition } = useDrawerPortalDropdownPosition(open, preferUpward, closeMenu);
   const selectedLabel = options.find((option) => option.value === value)?.label ?? (value || placeholder || 'Select…');
 
@@ -364,7 +368,10 @@ export function DrawerSelectDropdown({
     if (!q) return options;
     return options.filter((option) => {
       if (!option.value && !option.label) return true;
-      return matchesQuickSearch(buildQuickSearchHaystack(option.label, option.value), q);
+      return matchesQuickSearch(
+        buildQuickSearchHaystack(option.label, option.value, option.searchText),
+        q,
+      );
     });
   }, [options, search, searchable]);
 
@@ -400,7 +407,11 @@ export function DrawerSelectDropdown({
                     ref={searchInputRef}
                     type="text"
                     value={search}
-                    onChange={(event) => setSearch(event.target.value)}
+                    onChange={(event) => {
+                      const next = event.target.value;
+                      setSearch(next);
+                      onSearchChange?.(next);
+                    }}
                     onKeyDown={(event) => {
                       if (event.key === 'Escape') {
                         event.stopPropagation();

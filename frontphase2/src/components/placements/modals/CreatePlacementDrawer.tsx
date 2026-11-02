@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Award, Briefcase, Calendar, IndianRupee, Loader2, Upload, User } from 'lucide-react';
 import type { CreatePlacementPayload, EmploymentType, PlacementStatus } from '../../../types/placement';
 import {
@@ -20,6 +20,53 @@ import {
 import { useOrgCommissionSlabs } from '../../../lib/useOrgCommissionSlabs';
 import { resolveCommissionPercent } from '../../../lib/commissionSlabs';
 import { formatAssigneeDisplayName } from '../../../lib/assigneeDisplay';
+import {
+  fetchAllAccessibleCandidatesForPlacementPicker,
+  fetchAllAccessibleJobsForPlacementPicker,
+} from '../../../lib/myJobsListParams';
+
+type PlacementCandidateOption = { id: string; name: string; email: string };
+type PlacementJobOption = {
+  id: string;
+  title: string;
+  clientId?: string;
+  clientName: string;
+  minSalary?: number | null;
+  maxSalary?: number | null;
+  salaryAmount?: number | null;
+};
+
+function mapCandidateRows(rows: Array<{ id?: string; firstName?: string | null; lastName?: string | null; email?: string | null }>): PlacementCandidateOption[] {
+  return rows
+    .filter((row) => row?.id)
+    .map((candidate) => ({
+      id: String(candidate.id),
+      name:
+        [candidate.firstName, candidate.lastName]
+          .map((part) => String(part ?? '').trim())
+          .filter((part) => part && part.toLowerCase() !== 'null' && part.toLowerCase() !== 'undefined')
+          .join(' ')
+          .trim() || candidate.email || 'Candidate',
+      email: String(candidate.email || ''),
+    }));
+}
+
+function mapJobRows(rows: any[]): PlacementJobOption[] {
+  return [...rows]
+    .filter((job) => job?.id)
+    .sort((a, b) =>
+      String(a?.title || '').localeCompare(String(b?.title || ''), undefined, { sensitivity: 'base' }),
+    )
+    .map((job) => ({
+      id: String(job.id),
+      title: String(job.title || 'Untitled job'),
+      clientId: job.client?.id || job.clientId || undefined,
+      clientName: job.client?.companyName || 'No client linked',
+      minSalary: job.salary?.min ?? job.minSalary ?? null,
+      maxSalary: job.salary?.max ?? job.maxSalary ?? null,
+      salaryAmount: job.salary?.amount ?? null,
+    }));
+}
 
 interface CreatePlacementDrawerProps {
   isOpen: boolean;
@@ -28,16 +75,8 @@ interface CreatePlacementDrawerProps {
   optionsLoading?: boolean;
   mode?: 'create' | 'edit' | 'resend';
   currentUserId?: string;
-  candidates: Array<{ id: string; name: string; email: string }>;
-  jobs: Array<{
-    id: string;
-    title: string;
-    clientId?: string;
-    clientName: string;
-    minSalary?: number | null;
-    maxSalary?: number | null;
-    salaryAmount?: number | null;
-  }>;
+  candidates: PlacementCandidateOption[];
+  jobs: PlacementJobOption[];
   recruiters: Array<{ id: string; name: string; email: string }>;
   prefill?: Partial<Pick<CreatePlacementPayload, 'candidateId' | 'jobId' | 'companyId' | 'recruiterId'>>;
   initialValues?: Partial<CreatePlacementPayload>;
@@ -108,7 +147,96 @@ export function CreatePlacementDrawer({
   const [offerLetter, setOfferLetter] = useState<File | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [pctEditedManually, setPctEditedManually] = useState(false);
+  const [candidateChoices, setCandidateChoices] = useState<PlacementCandidateOption[]>(candidates);
+  const [jobChoices, setJobChoices] = useState<PlacementJobOption[]>(jobs);
+  const [searchingCandidates, setSearchingCandidates] = useState(false);
+  const [searchingJobs, setSearchingJobs] = useState(false);
+  const candidateSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const jobSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const candidateSearchAbort = useRef<AbortController | null>(null);
+  const jobSearchAbort = useRef<AbortController | null>(null);
   const { settings: commissionSlabs } = useOrgCommissionSlabs();
+
+  useEffect(() => {
+    setCandidateChoices(candidates);
+  }, [candidates]);
+
+  useEffect(() => {
+    setJobChoices(jobs);
+  }, [jobs]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      if (candidateSearchTimer.current) clearTimeout(candidateSearchTimer.current);
+      if (jobSearchTimer.current) clearTimeout(jobSearchTimer.current);
+      candidateSearchAbort.current?.abort();
+      jobSearchAbort.current?.abort();
+      setSearchingCandidates(false);
+      setSearchingJobs(false);
+    }
+  }, [isOpen]);
+
+  const handleCandidateSearch = useCallback((query: string) => {
+    if (candidateSearchTimer.current) clearTimeout(candidateSearchTimer.current);
+    const q = query.trim();
+    if (!q) {
+      candidateSearchAbort.current?.abort();
+      setCandidateChoices(candidates);
+      setSearchingCandidates(false);
+      return;
+    }
+    candidateSearchTimer.current = setTimeout(async () => {
+      candidateSearchAbort.current?.abort();
+      const controller = new AbortController();
+      candidateSearchAbort.current = controller;
+      setSearchingCandidates(true);
+      try {
+        const rows = await fetchAllAccessibleCandidatesForPlacementPicker(controller.signal, q);
+        if (controller.signal.aborted) return;
+        const mapped = mapCandidateRows(rows);
+        const selected = candidates.find((row) => row.id === form.candidateId);
+        const merged = selected && !mapped.some((row) => row.id === selected.id)
+          ? [selected, ...mapped]
+          : mapped;
+        setCandidateChoices(merged);
+      } catch {
+        if (!controller.signal.aborted) setCandidateChoices(candidates);
+      } finally {
+        if (!controller.signal.aborted) setSearchingCandidates(false);
+      }
+    }, 220);
+  }, [candidates, form.candidateId]);
+
+  const handleJobSearch = useCallback((query: string) => {
+    if (jobSearchTimer.current) clearTimeout(jobSearchTimer.current);
+    const q = query.trim();
+    if (!q) {
+      jobSearchAbort.current?.abort();
+      setJobChoices(jobs);
+      setSearchingJobs(false);
+      return;
+    }
+    jobSearchTimer.current = setTimeout(async () => {
+      jobSearchAbort.current?.abort();
+      const controller = new AbortController();
+      jobSearchAbort.current = controller;
+      setSearchingJobs(true);
+      try {
+        const rows = await fetchAllAccessibleJobsForPlacementPicker(controller.signal, q);
+        if (controller.signal.aborted) return;
+        const mapped = mapJobRows(rows);
+        const selected = jobs.find((row) => row.id === form.jobId);
+        const merged = selected && !mapped.some((row) => row.id === selected.id)
+          ? [selected, ...mapped]
+          : mapped;
+        setJobChoices(merged);
+      } catch {
+        if (!controller.signal.aborted) setJobChoices(jobs);
+      } finally {
+        if (!controller.signal.aborted) setSearchingJobs(false);
+      }
+    }, 220);
+  }, [form.jobId, jobs]);
 
   useEffect(() => {
     if (isOpen) {
@@ -142,10 +270,19 @@ export function CreatePlacementDrawer({
     }
   }, [isOpen, currentUserId, initialValues, prefill?.candidateId, prefill?.jobId, prefill?.recruiterId]);
 
-  const selectedJob = useMemo(() => jobs.find((job) => job.id === form.jobId) || null, [jobs, form.jobId]);
+  const selectedJob = useMemo(
+    () =>
+      jobChoices.find((job) => job.id === form.jobId) ||
+      jobs.find((job) => job.id === form.jobId) ||
+      null,
+    [form.jobId, jobChoices, jobs],
+  );
   const selectedCandidate = useMemo(
-    () => candidates.find((candidate) => candidate.id === form.candidateId) || null,
-    [candidates, form.candidateId]
+    () =>
+      candidateChoices.find((candidate) => candidate.id === form.candidateId) ||
+      candidates.find((candidate) => candidate.id === form.candidateId) ||
+      null,
+    [candidateChoices, candidates, form.candidateId],
   );
   const teamMemberOptions = useMemo(() => {
     const byId = new Map<string, { id: string; name: string; email: string }>();
@@ -345,10 +482,10 @@ export function CreatePlacementDrawer({
       }
     >
       <DrawerSectionCard title="Placement Details" subtitle="Candidate, job, and team" icon={User} accent="blue">
-        {optionsLoading ? (
+        {optionsLoading || searchingCandidates || searchingJobs ? (
           <div className="mb-4 flex items-center gap-2 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-800">
             <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
-            Loading candidates and jobs…
+            {optionsLoading ? 'Loading candidates and jobs…' : 'Searching…'}
           </div>
         ) : null}
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -366,13 +503,13 @@ export function CreatePlacementDrawer({
                 searchPlaceholder="Search candidate…"
                 placeholder="Select candidate"
                 error={Boolean(errors.candidateId)}
+                onSearchChange={handleCandidateSearch}
                 options={[
                   { value: '', label: 'Select candidate' },
-                  ...candidates.map((candidate) => ({
+                  ...candidateChoices.map((candidate) => ({
                     value: candidate.id,
-                    label: candidate.email
-                      ? `${candidate.name} · ${candidate.email}`
-                      : candidate.name,
+                    label: candidate.name,
+                    searchText: `${candidate.name} ${candidate.email}`,
                   })),
                 ]}
                 onChange={(candidateId) => setForm((current) => ({ ...current, candidateId }))}
@@ -395,13 +532,13 @@ export function CreatePlacementDrawer({
                 searchPlaceholder="Search job…"
                 placeholder="Select job"
                 error={Boolean(errors.jobId)}
+                onSearchChange={handleJobSearch}
                 options={[
                   { value: '', label: 'Select job' },
-                  ...jobs.map((job) => ({
+                  ...jobChoices.map((job) => ({
                     value: job.id,
-                    label: job.clientId
-                      ? `${job.title} · ${job.clientName}`
-                      : `${job.title} (assign client first)`,
+                    label: job.clientId ? job.title : `${job.title} (assign client first)`,
+                    searchText: `${job.title} ${job.clientName}`,
                   })),
                 ]}
                 onChange={(jobId) => setForm((current) => ({ ...current, jobId }))}
