@@ -1502,9 +1502,18 @@ export const jobService = {
     const where = {};
     // Default Jobs page: keep working pipeline only (hide Closed / Closed Won / Closed not Won / Duplicate).
     // Pass ?status=CLOSED or ?status=FILLED (or any single status) to include closed outcomes.
+    // Pass ?status=ALL for pickers (manual placement, etc.) so every accessible job is listed.
     // When fetching by explicit ids (smart search), do not hide closed jobs.
     if (status) {
-      where.status = status;
+      const statusRaw = String(status).trim().toUpperCase();
+      if (statusRaw && statusRaw !== 'ALL' && statusRaw !== '*') {
+        const statusList = statusRaw
+          .split(',')
+          .map((value) => value.trim())
+          .filter(Boolean);
+        if (statusList.length > 1) where.status = { in: statusList };
+        else if (statusList.length === 1) where.status = statusList[0];
+      }
     } else if (!ids) {
       where.status = { in: ['OPEN', 'ON_HOLD', 'DRAFT'] };
     }

@@ -391,7 +391,7 @@ export function CreatePlacementDrawer({
                   ...jobs.map((job) => ({
                     value: job.id,
                     label: job.clientId
-                      ? job.title
+                      ? `${job.title} · ${job.clientName}`
                       : `${job.title} (assign client first)`,
                   })),
                 ]}
