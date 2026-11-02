@@ -128,9 +128,16 @@ export async function postSyncEmployerDemoVerified(req, res) {
 export async function postProvisionEmployerTrial(req, res) {
   try {
     const body = req.body || {};
+    const accountKind = String(body.accountKind || '').trim().toLowerCase();
+    const signupSource = String(body.signupSource || '').trim();
+    const isFreeJobs =
+      accountKind === 'free_jobs' ||
+      signupSource === 'landing_free_jobs' ||
+      String(body.requestKind || '').trim().toLowerCase() === 'free_jobs';
     const result = await hqTrialService.provisionEmployerTrialRequest(body, {
-      trialDays: body.trialDays ?? 5,
-      signupSource: body.signupSource || 'landing_trial',
+      trialDays: isFreeJobs ? undefined : body.trialDays ?? 5,
+      signupSource: signupSource || (isFreeJobs ? 'landing_free_jobs' : 'landing_trial'),
+      accountKind: isFreeJobs ? 'free_jobs' : undefined,
       note: body.note,
       skipLeadSync: body.skipLeadSync,
       notifyEmails: body.notifyEmails,
@@ -138,8 +145,12 @@ export async function postProvisionEmployerTrial(req, res) {
     return res.json({
       success: true,
       message: result.alreadyProvisioned
-        ? 'Trial workspace already exists for this email'
-        : '5-day trial workspace provisioned',
+        ? isFreeJobs
+          ? 'Free Jobs workspace already exists for this email'
+          : 'Trial workspace already exists for this email'
+        : isFreeJobs
+          ? 'Free Jobs workspace provisioned'
+          : '5-day trial workspace provisioned',
       data: result,
     });
   } catch (error) {

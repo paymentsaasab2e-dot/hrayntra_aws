@@ -521,6 +521,7 @@ export async function setSubscriptionPlan(plan) {
     ...(planEndDate ? { planEndDate } : {}),
     ...(plan?.isTrial ? { isTrial: true } : {}),
     ...(plan?.trialDays ? { trialDays: Number(plan.trialDays) || undefined } : {}),
+    ...(plan?.accountKind ? { accountKind: String(plan.accountKind) } : {}),
     ...(plan?.upgradedAt ? { upgradedAt: String(plan.upgradedAt) } : {}),
     ...(plan?.upgradedFrom ? { upgradedFrom: String(plan.upgradedFrom) } : {}),
     ...(plan?.lastPaymentReference ? { lastPaymentReference: String(plan.lastPaymentReference) } : {}),

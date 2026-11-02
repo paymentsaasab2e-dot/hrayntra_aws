@@ -14,7 +14,12 @@ import { SecuritySettings } from '../../components/SecuritySettings';
 import { CustomizationSettings } from '../../components/CustomizationSettings';
 import { ProfileSettings } from '../../components/ProfileSettings';
 import { Toaster } from 'sonner';
-import { isOrgBillingNavEnabled, ORG_RECRUITMENT_CACHE_EVENT, getCachedOrgRecruitmentMode } from '../../lib/api';
+import {
+  isOrgBillingNavEnabled,
+  ORG_RECRUITMENT_CACHE_EVENT,
+  getCachedOrgRecruitmentMode,
+  isCachedFreeJobsWorkspace,
+} from '../../lib/api';
 import { CommissionSlabSettings } from '../../components/settings/CommissionSlabSettings';
 import { usePermissions } from '../../hooks/usePermissions';
 import { ActivityLogSettings } from '../../components/settings/ActivityLogSettings';
@@ -42,8 +47,22 @@ export default function SettingsPage() {
   // Profile + Customization are always available; everything else needs at
   // least one of the listed permissions. This keeps non-admin users from
   // seeing confidential org configuration even via deep-link.
+  const [freeJobsOnly, setFreeJobsOnly] = useState(false);
+
+  useEffect(() => {
+    setFreeJobsOnly(isCachedFreeJobsWorkspace());
+    const sync = () => setFreeJobsOnly(isCachedFreeJobsWorkspace());
+    window.addEventListener(ORG_RECRUITMENT_CACHE_EVENT, sync);
+    window.addEventListener('storage', sync);
+    return () => {
+      window.removeEventListener(ORG_RECRUITMENT_CACHE_EVENT, sync);
+      window.removeEventListener('storage', sync);
+    };
+  }, []);
+
   const canSeeSection = useMemo(
     () => (section: string): boolean => {
+      if (freeJobsOnly) return section === 'profile' || section === 'communication';
       switch (section) {
         case 'profile':
         case 'customization':
@@ -80,7 +99,7 @@ export default function SettingsPage() {
           return true;
       }
     },
-    [hasAnyPermission, isSuperAdmin, isAgencyMode, showBillingSection],
+    [hasAnyPermission, isSuperAdmin, isAgencyMode, showBillingSection, freeJobsOnly],
   );
 
   useEffect(() => {
@@ -174,7 +193,7 @@ export default function SettingsPage() {
 
   const sectionTitleMap: Record<string, string> = {
     profile: 'Personal Profile',
-    communication: 'Communication & Integrations',
+    communication: freeJobsOnly ? 'Connectors' : 'Communication & Integrations',
     'public-visibility': 'Public Visibility',
     'notifications-triggers': 'Notifications Trigger Points',
     'alerts-management': 'Alerts Management',

@@ -61,6 +61,7 @@ export type HqNavId =
   | 'billing'
   | 'accountSupport'
   | 'company'
+  | 'freeJobs'
   | 'employeeTickets'
   | 'employerTickets'
   | 'recycleBin'
@@ -164,6 +165,14 @@ export const HQ_NAV_ITEMS: {
     href: '/hq?tab=tenants',
     icon: Users,
     accent: 'blue',
+    group: 'employers',
+  },
+  {
+    id: 'freeJobs',
+    label: 'Free Jobs',
+    href: '/hq/free-jobs',
+    icon: Briefcase,
+    accent: 'emerald',
     group: 'employers',
   },
   {
@@ -297,6 +306,9 @@ function isNavActive(
   if (item.id === 'reports') return pathname === '/hq/reports' || pathname.startsWith('/hq/reports/');
   if (item.id === 'settings') return pathname === '/hq/settings' || pathname.startsWith('/hq/settings/');
   if (item.id === 'company') return pathname === '/hq/company' || pathname.startsWith('/hq/company/');
+  if (item.id === 'freeJobs') {
+    return pathname === '/hq/free-jobs' || pathname.startsWith('/hq/free-jobs/');
+  }
   if (item.id === 'employeeTickets') {
     return (
       (pathname === '/hq/tickets' || pathname.startsWith('/hq/tickets/')) && audience !== 'employer'
@@ -363,6 +375,7 @@ function isEmployersSectionActive(
   audience: string | null,
 ) {
   if (pathname === '/hq/company' || pathname.startsWith('/hq/company/')) return true;
+  if (pathname === '/hq/free-jobs' || pathname.startsWith('/hq/free-jobs/')) return true;
   if (pathname === '/hq/recycle-bin' || pathname.startsWith('/hq/recycle-bin/')) return true;
   if (pathname === '/hq/tickets' || pathname.startsWith('/hq/tickets/')) {
     return audience === 'employer';

@@ -10,6 +10,7 @@ import {
   type SubscriptionPlanOption,
 } from '@/lib/api';
 import { PackageUpgradeSection } from '@/components/billing/PackageUpgradeSection';
+import { JobPostingPlanSection } from '@/components/billing/JobPostingPlanSection';
 import type { BillingCycle } from '@/components/hq/hqPackagePresentation';
 import {
   findPackageForPlan,
@@ -300,6 +301,8 @@ export function BillingSettings() {
             currency={currency}
             onUpgrade={handleUpgrade}
           />
+
+          <JobPostingPlanSection />
 
           <div className="flex items-start gap-2 rounded-2xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-xs text-indigo-900">
             <Info className="mt-0.5 h-4 w-4 shrink-0 text-indigo-600" />

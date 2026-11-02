@@ -4,7 +4,7 @@ import { ObjectId } from 'mongodb';
 import { prisma, runWithTenantContext } from '../../config/prisma.js';
 import { headquartersAuthService } from '../auth/headquarters-auth.service.js';
 import { authService } from '../auth/auth.service.js';
-import { setSubscriptionPlan } from '../setting/recruitmentMode.service.js';
+import { setSubscriptionPlan, setHqEnabledModules } from '../setting/recruitmentMode.service.js';
 import { sendCredentialInvite } from '../../utils/emailService.js';
 import { generateTempPassword } from '../../utils/credentialGenerator.js';
 import { resolvePublicFrontendUrl } from '../../config/env.js';
@@ -15,8 +15,14 @@ import {
   TRIAL_PACKAGE_DAYS,
   todayPlanStartDate,
   toTrialAssignablePlan,
+  toFreeJobsAssignablePlan,
 } from './hq-packages.config.js';
 import { isReservedPlatformTenantDbName } from '../auth/headquarters-auth.service.js';
+import {
+  FREE_MONTHLY_PUBLISH_LIMIT,
+  JOB_POSTING_PLAN_SETTING_KEY,
+} from '../job-posting-plan/jobPostingPlan.constants.js';
+import { upsertOrgSettingJson } from '../setting/orgSettingStore.util.js';
 
 function normalizeEmail(email) {
   return String(email || '').trim().toLowerCase();
@@ -39,6 +45,19 @@ function buildTrialLoginId(email, fullName) {
   const base = local || namePart || 'employer';
   const suffix = crypto.randomBytes(2).toString('hex');
   return `${base}_${suffix}@trial`;
+}
+
+function buildFreeJobsLoginId(email, fullName) {
+  const local = slugLoginPart(email.split('@')[0]);
+  const namePart = slugLoginPart(fullName.split(/\s+/)[0]);
+  const base = local || namePart || 'employer';
+  const suffix = crypto.randomBytes(2).toString('hex');
+  return `${base}_${suffix}@free`;
+}
+
+function isFreeJobsSignupSource(source) {
+  const s = String(source || '').trim().toLowerCase();
+  return s === 'landing_free_jobs' || s === 'free_jobs' || s === 'hq_grant_free_jobs';
 }
 
 /** Phase 2 employer login base (not the marketing try-free page). */
@@ -71,7 +90,18 @@ function normalizeTrialDays(raw) {
   return Math.max(1, Math.min(365, Math.round(n)));
 }
 
-async function sendTrialCopies({ emails, loginId, password, trialDays, trialEndsAt, tenantDbName, tryFreeUrl }) {
+async function sendTrialCopies({
+  emails,
+  loginId,
+  password,
+  trialDays,
+  trialEndsAt,
+  tenantDbName,
+  tryFreeUrl,
+  accountKind,
+  roleName,
+  monthlyJobLimit,
+}) {
   const results = [];
   for (const extra of emails || []) {
     try {
@@ -79,12 +109,18 @@ async function sendTrialCopies({ emails, loginId, password, trialDays, trialEnds
         email: extra,
         loginId,
         tempPassword: password,
-        roleName: `Try-free access (${trialDays} days)`,
+        roleName:
+          roleName ||
+          (accountKind === 'free_jobs'
+            ? 'Free Jobs employer'
+            : `Try-free access (${trialDays} days)`),
         inviteToken: password,
         tenantDbName,
         loginBaseUrl: tryFreeUrl,
-        trialDays,
-        trialEndsAt,
+        trialDays: accountKind === 'free_jobs' ? undefined : trialDays,
+        trialEndsAt: accountKind === 'free_jobs' ? undefined : trialEndsAt,
+        accountKind,
+        monthlyJobLimit,
       });
       results.push({ email: extra, sent: true });
     } catch (err) {
@@ -95,14 +131,70 @@ async function sendTrialCopies({ emails, loginId, password, trialDays, trialEnds
   return results;
 }
 
-async function resolveStarterTrialPlan(trialDays) {
+async function resolveStarterPackage() {
   const packages = await hqPackagesService.listPackages();
   const starter =
     packages.find((p) => p.slug === 'starter') ||
     packages.find((p) => String(p.name || '').toLowerCase() === 'starter') ||
     packages[0];
   if (!starter) throw new Error('Starter package is not configured');
-  return toTrialAssignablePlan(starter, todayPlanStartDate(), trialDays);
+  return starter;
+}
+
+async function resolveStarterTrialPlan(trialDays) {
+  return toTrialAssignablePlan(await resolveStarterPackage(), todayPlanStartDate(), trialDays);
+}
+
+async function resolveFreeJobsPlan() {
+  return toFreeJobsAssignablePlan(await resolveStarterPackage(), todayPlanStartDate());
+}
+
+/** Free Jobs module — Recruitment Dashboard, Jobs, Candidates, Settings (profile only in UI). */
+const FREE_JOBS_ENABLED_MODULES = ['command_center', 'jobs', 'candidates', 'settings'];
+const FREE_JOBS_PRODUCT_LINE = 'recruitment';
+
+async function seedFreeJobsPostingPlan(tenantDbName) {
+  if (!tenantDbName) return;
+  try {
+    await runWithTenantContext(tenantDbName, async () => {
+      await upsertOrgSettingJson(JOB_POSTING_PLAN_SETTING_KEY, {
+        tier: 'free',
+        monthlyLimit: FREE_MONTHLY_PUBLISH_LIMIT,
+        billingCycle: 'monthly',
+        activatedAt: new Date().toISOString(),
+        premiumUntil: null,
+        lastPaymentReference: 'free_jobs_signup',
+        activatedBy: 'landing_free_jobs',
+      });
+    });
+  } catch (err) {
+    console.warn('[hq-trial] failed to seed Free Jobs posting plan:', err?.message || err);
+  }
+}
+
+async function seedFreeJobsModules(email, tenantDbName) {
+  if (!email || !tenantDbName) return;
+  try {
+    await headquartersAuthService.setEnabledModulesForEmail(email, {
+      productLine: FREE_JOBS_PRODUCT_LINE,
+      enabledModules: FREE_JOBS_ENABLED_MODULES,
+      phase1CommonPoolEnabled: false,
+    });
+  } catch (err) {
+    console.warn('[hq-trial] failed to set Free Jobs HQ modules:', err?.message || err);
+  }
+  try {
+    await runWithTenantContext(tenantDbName, () =>
+      setHqEnabledModules({
+        productLine: FREE_JOBS_PRODUCT_LINE,
+        enabledModules: FREE_JOBS_ENABLED_MODULES,
+        modulesRestricted: true,
+        phase1CommonPoolEnabled: false,
+      }),
+    );
+  } catch (err) {
+    console.warn('[hq-trial] failed to seed Free Jobs tenant modules:', err?.message || err);
+  }
 }
 
 async function markDemoRequestProvisioned(requestId, patch) {
@@ -156,17 +248,37 @@ export const hqTrialService = {
     const name = String(demo?.fullName || '').trim();
     const email = normalizeEmail(demo?.email);
     const organizationName = String(demo?.organizationName || '').trim();
-    const trialDays = normalizeTrialDays(options.trialDays ?? demo?.trialDays ?? 5);
     const note = String(options.note || '').trim();
     const skipLeadSync = Boolean(options.skipLeadSync);
-    const signupSource = String(options.signupSource || demo?.signupSource || 'landing_trial')
-      .trim() || 'landing_trial';
+    const signupSourceRaw = String(options.signupSource || demo?.signupSource || 'landing_trial').trim();
+    const isFreeJobs =
+      String(options.accountKind || demo?.accountKind || '').trim().toLowerCase() === 'free_jobs' ||
+      isFreeJobsSignupSource(signupSourceRaw) ||
+      String(demo?.requestKind || '').trim().toLowerCase() === 'free_jobs';
+    const signupSource =
+      (isFreeJobs
+        ? signupSourceRaw && isFreeJobsSignupSource(signupSourceRaw)
+          ? signupSourceRaw
+          : 'landing_free_jobs'
+        : signupSourceRaw || 'landing_trial') || (isFreeJobs ? 'landing_free_jobs' : 'landing_trial');
+    const trialDays = isFreeJobs
+      ? null
+      : normalizeTrialDays(options.trialDays ?? demo?.trialDays ?? 5);
+    const accountKind = isFreeJobs ? 'free_jobs' : 'trial';
+    const roleName = isFreeJobs
+      ? 'Free Jobs employer'
+      : `Try-free access (${trialDays} days)`;
+    const requestKindMark = isFreeJobs ? 'free_jobs' : 'trial';
     const notifyEmails = Array.isArray(options.notifyEmails)
       ? [...new Set(options.notifyEmails.map((item) => normalizeEmail(item)).filter((item) => item && item !== email))]
       : [];
 
     if (!name || !email || !organizationName) {
-      throw new Error('Trial request is missing name, email, or organization');
+      throw new Error(
+        isFreeJobs
+          ? 'Free Jobs request is missing name, email, or organization'
+          : 'Trial request is missing name, email, or organization',
+      );
     }
 
     const existingTenants = await headquartersAuthService.listTenants();
@@ -179,16 +291,17 @@ export const hqTrialService = {
         } catch (rehomeErr) {
           console.warn('[hq-trial] failed to rehome trial off platform tenant:', rehomeErr?.message || rehomeErr);
           throw new Error(
-            `Your try-free account was incorrectly linked to the platform workspace (${existing.tenantDbName}). ` +
-              `Please contact HRyantra support to reset your trial tenant.`,
+            `Your account was incorrectly linked to the platform workspace (${existing.tenantDbName}). ` +
+              `Please contact HRyantra support to reset your workspace.`,
           );
         }
       }
 
       const tenantDbName = existing.tenantDbName;
       const tryFreeUrl = resolveTryFreeLoginUrl(tenantDbName);
-      // Re-grant / extend trial window for an existing tenant and re-email credentials
-      const subscriptionPlan = await resolveStarterTrialPlan(trialDays);
+      const subscriptionPlan = isFreeJobs
+        ? await resolveFreeJobsPlan()
+        : await resolveStarterTrialPlan(trialDays);
       const loginId = existing.loginId || email;
       const password = generateTempPassword();
       let credentialEmailSent = false;
@@ -199,8 +312,8 @@ export const hqTrialService = {
           ...subscriptionPlan,
           employerDemoRequestId: requestId || existing.subscriptionPlan?.employerDemoRequestId || null,
         });
+        await headquartersAuthService.setSignupSourceForEmail(email, signupSource);
         await headquartersAuthService.updateWorkspacePasswordForEmail(email, password);
-        // Ensure local SUPER_ADMIN + credentials exist in the (possibly new) tenant DB.
         const mapped = await authService.provisionHeadquartersMappedTenant({
           ...existing,
           password,
@@ -253,8 +366,12 @@ export const hqTrialService = {
             }
           }
         });
+        if (isFreeJobs) {
+          await seedFreeJobsPostingPlan(tenantDbName);
+          await seedFreeJobsModules(email, tenantDbName);
+        }
       } catch (err) {
-        console.warn('[hq-trial] failed to refresh existing trial:', err?.message || err);
+        console.warn('[hq-trial] failed to refresh existing workspace:', err?.message || err);
       }
 
       try {
@@ -262,12 +379,14 @@ export const hqTrialService = {
           email,
           loginId,
           tempPassword: password,
-          roleName: `Try-free access (${trialDays} days)`,
+          roleName,
           inviteToken: password,
           tenantDbName,
           loginBaseUrl: tryFreeUrl,
-          trialDays,
-          trialEndsAt: subscriptionPlan?.planEndDate || null,
+          trialDays: isFreeJobs ? undefined : trialDays,
+          trialEndsAt: isFreeJobs ? undefined : subscriptionPlan?.planEndDate || null,
+          accountKind,
+          monthlyJobLimit: isFreeJobs ? FREE_MONTHLY_PUBLISH_LIMIT : undefined,
         });
         credentialEmailSent = true;
       } catch (emailErr) {
@@ -280,20 +399,24 @@ export const hqTrialService = {
         loginId,
         password,
         trialDays,
-        trialEndsAt: subscriptionPlan?.planEndDate || null,
+        trialEndsAt: isFreeJobs ? undefined : subscriptionPlan?.planEndDate || null,
         tenantDbName,
         tryFreeUrl,
+        accountKind,
+        roleName,
+        monthlyJobLimit: isFreeJobs ? FREE_MONTHLY_PUBLISH_LIMIT : undefined,
       });
 
       await markDemoRequestProvisioned(requestId, {
-        requestKind: 'trial',
+        requestKind: requestKindMark,
         trialProvisioned: true,
         trialTenantDbName: tenantDbName,
         trialLoginId: loginId,
-        trialDays,
+        trialDays: isFreeJobs ? null : trialDays,
         trialStartsAt: subscriptionPlan?.planStartDate || null,
-        trialEndsAt: subscriptionPlan?.planEndDate || null,
+        trialEndsAt: isFreeJobs ? null : subscriptionPlan?.planEndDate || null,
         trialLoginUrl: tryFreeUrl,
+        accountKind,
         credentialsSentAt: new Date().toISOString(),
         ...(note ? { hqGrantNote: note } : {}),
       });
@@ -302,18 +425,20 @@ export const hqTrialService = {
         try {
           await hqLeadsService.createLeadFromEmployerDemoRequest({
             ...demo,
-            requestKind: 'trial',
+            requestKind: requestKindMark,
             outcome:
               note ||
-              (signupSource === 'hq_grant_trial'
-                ? `${trialDays}-day try-free access — refreshed by HQ`
-                : `${trialDays}-day try-free access — refreshed from landing`),
+              (isFreeJobs
+                ? 'Free Jobs employer account — refreshed'
+                : signupSource === 'hq_grant_trial'
+                  ? `${trialDays}-day try-free access — refreshed by HQ`
+                  : `${trialDays}-day try-free access — refreshed from landing`),
             trialProvisioned: true,
             trialLoginId: loginId,
             trialTenantDbName: tenantDbName,
-            trialDays,
+            trialDays: isFreeJobs ? null : trialDays,
             trialStartsAt: subscriptionPlan?.planStartDate || null,
-            trialEndsAt: subscriptionPlan?.planEndDate || null,
+            trialEndsAt: isFreeJobs ? null : subscriptionPlan?.planEndDate || null,
             trialLoginUrl: tryFreeUrl,
             trialEmail: email,
           });
@@ -324,25 +449,33 @@ export const hqTrialService = {
 
       return {
         alreadyProvisioned: true,
+        accountKind,
         tenantDbName,
         loginId,
         loginUrl: tryFreeUrl,
-        trialEndsAt: subscriptionPlan?.planEndDate || null,
+        trialEndsAt: isFreeJobs ? null : subscriptionPlan?.planEndDate || null,
         trialStartsAt: subscriptionPlan?.planStartDate || null,
-        trialDays,
+        trialDays: isFreeJobs ? null : trialDays,
+        monthlyJobLimit: isFreeJobs ? FREE_MONTHLY_PUBLISH_LIMIT : undefined,
         subscriptionPlan,
         credentialEmailSent,
         credentialEmailError,
         extraEmailResults,
         message: credentialEmailSent
-          ? 'Existing tenant trial refreshed and credentials emailed.'
-          : 'Existing tenant trial refreshed. Credential email could not be sent.',
+          ? isFreeJobs
+            ? 'Existing Free Jobs account refreshed and credentials emailed.'
+            : 'Existing tenant trial refreshed and credentials emailed.'
+          : isFreeJobs
+            ? 'Existing Free Jobs account refreshed. Credential email could not be sent.'
+            : 'Existing tenant trial refreshed. Credential email could not be sent.',
         devPassword: process.env.NODE_ENV === 'development' ? password : undefined,
       };
     }
 
-    const subscriptionPlan = await resolveStarterTrialPlan(trialDays);
-    const loginId = buildTrialLoginId(email, name);
+    const subscriptionPlan = isFreeJobs
+      ? await resolveFreeJobsPlan()
+      : await resolveStarterTrialPlan(trialDays);
+    const loginId = isFreeJobs ? buildFreeJobsLoginId(email, name) : buildTrialLoginId(email, name);
     const password = generateTempPassword();
     const organizationType = normalizeOrganizationType(demo?.organizationType);
 
@@ -354,6 +487,13 @@ export const hqTrialService = {
       organizationType,
       organizationName,
       signupSource,
+      ...(isFreeJobs
+        ? {
+            productLine: FREE_JOBS_PRODUCT_LINE,
+            enabledModules: FREE_JOBS_ENABLED_MODULES,
+            phase1CommonPoolEnabled: false,
+          }
+        : {}),
       subscriptionPlan: {
         ...subscriptionPlan,
         employerDemoRequestId: requestId || null,
@@ -371,6 +511,10 @@ export const hqTrialService = {
         console.warn('[hq-trial] failed to seed subscription plan:', err?.message || err);
       }
     }
+    if (isFreeJobs) {
+      await seedFreeJobsPostingPlan(hqUser.tenantDbName);
+      await seedFreeJobsModules(email, hqUser.tenantDbName);
+    }
 
     let credentialEmailSent = false;
     let credentialEmailError = null;
@@ -380,12 +524,14 @@ export const hqTrialService = {
         email,
         loginId,
         tempPassword: password,
-        roleName: `Try-free access (${trialDays} days)`,
+        roleName,
         inviteToken: password,
         tenantDbName: hqUser.tenantDbName,
         loginBaseUrl: tryFreeUrl,
-        trialDays,
-        trialEndsAt: subscriptionPlan?.planEndDate || null,
+        trialDays: isFreeJobs ? undefined : trialDays,
+        trialEndsAt: isFreeJobs ? undefined : subscriptionPlan?.planEndDate || null,
+        accountKind,
+        monthlyJobLimit: isFreeJobs ? FREE_MONTHLY_PUBLISH_LIMIT : undefined,
       });
       credentialEmailSent = true;
     } catch (emailErr) {
@@ -398,27 +544,32 @@ export const hqTrialService = {
       loginId,
       password,
       trialDays,
-      trialEndsAt: subscriptionPlan?.planEndDate || null,
+      trialEndsAt: isFreeJobs ? undefined : subscriptionPlan?.planEndDate || null,
       tenantDbName: hqUser.tenantDbName,
       tryFreeUrl,
+      accountKind,
+      roleName,
+      monthlyJobLimit: isFreeJobs ? FREE_MONTHLY_PUBLISH_LIMIT : undefined,
     });
 
     if (!skipLeadSync) {
       try {
         await hqLeadsService.createLeadFromEmployerDemoRequest({
           ...demo,
-          requestKind: 'trial',
+          requestKind: requestKindMark,
           outcome:
             note ||
-            (signupSource === 'hq_grant_trial'
-              ? `${trialDays}-day try-free access — granted by HQ`
-              : `${trialDays}-day try-free access — auto from landing`),
+            (isFreeJobs
+              ? 'Free Jobs employer account — auto from landing'
+              : signupSource === 'hq_grant_trial'
+                ? `${trialDays}-day try-free access — granted by HQ`
+                : `${trialDays}-day try-free access — auto from landing`),
           trialProvisioned: true,
           trialLoginId: loginId,
           trialTenantDbName: hqUser.tenantDbName,
-          trialDays,
+          trialDays: isFreeJobs ? null : trialDays,
           trialStartsAt: subscriptionPlan?.planStartDate || null,
-          trialEndsAt: subscriptionPlan?.planEndDate || null,
+          trialEndsAt: isFreeJobs ? null : subscriptionPlan?.planEndDate || null,
           trialLoginUrl: tryFreeUrl,
           trialEmail: email,
         });
@@ -428,26 +579,29 @@ export const hqTrialService = {
     }
 
     await markDemoRequestProvisioned(requestId, {
-      requestKind: 'trial',
+      requestKind: requestKindMark,
       trialProvisioned: true,
       trialTenantDbName: hqUser.tenantDbName,
       trialLoginId: loginId,
-      trialDays,
+      trialDays: isFreeJobs ? null : trialDays,
       trialStartsAt: subscriptionPlan?.planStartDate || null,
-      trialEndsAt: subscriptionPlan?.planEndDate || null,
+      trialEndsAt: isFreeJobs ? null : subscriptionPlan?.planEndDate || null,
       trialLoginUrl: tryFreeUrl,
+      accountKind,
       credentialsSentAt: new Date().toISOString(),
       ...(note ? { hqGrantNote: note } : {}),
     });
 
     return {
       alreadyProvisioned: false,
+      accountKind,
       tenantDbName: hqUser.tenantDbName,
       loginId,
       loginUrl: tryFreeUrl,
-      trialEndsAt: subscriptionPlan?.planEndDate || null,
+      trialEndsAt: isFreeJobs ? null : subscriptionPlan?.planEndDate || null,
       trialStartsAt: subscriptionPlan?.planStartDate || null,
-      trialDays,
+      trialDays: isFreeJobs ? null : trialDays,
+      monthlyJobLimit: isFreeJobs ? FREE_MONTHLY_PUBLISH_LIMIT : undefined,
       subscriptionPlan,
       credentialEmailSent,
       credentialEmailError,

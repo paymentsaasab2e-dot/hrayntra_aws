@@ -148,6 +148,23 @@ export function toTrialAssignablePlan(pkg, planStartDate, trialDays = TRIAL_PACK
   };
 }
 
+/** Free Jobs module — lasting free account (job-post quota), not a timed trial. */
+export function toFreeJobsAssignablePlan(pkg, planStartDate) {
+  const base = toAssignablePlan(pkg, 'monthly', planStartDate);
+  if (!base) return null;
+  return {
+    id: base.id,
+    name: 'Free Jobs',
+    billingCycle: base.billingCycle,
+    maxUsers: base.maxUsers,
+    maxJobs: base.maxJobs,
+    planStartDate: base.planStartDate,
+    isTrial: false,
+    accountKind: 'free_jobs',
+    ...(base.price ? { price: base.price } : {}),
+  };
+}
+
 export function resolvePackageLimits(pkg, billingCycle = 'monthly') {
   const cycle = resolveBillingCycle(billingCycle);
   if (cycle === 'annual') {

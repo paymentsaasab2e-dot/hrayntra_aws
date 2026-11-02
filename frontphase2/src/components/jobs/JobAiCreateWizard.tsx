@@ -2036,6 +2036,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
         onClose();
         return;
       }
+
       setError(err instanceof Error ? err.message : 'Failed to publish job.');
     } finally {
       setPublishing(false);

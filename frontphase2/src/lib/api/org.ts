@@ -28,6 +28,28 @@ export function getCachedOrgSubscriptionPlanName(): string {
   return localStorage.getItem('orgSubscriptionPlanName') || '';
 }
 
+/** Free Jobs tenants — Dashboard / Jobs / Candidates / Settings(profile). */
+export function isCachedFreeJobsWorkspace(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const raw = localStorage.getItem('orgSubscriptionPlan');
+    if (raw) {
+      const plan = JSON.parse(raw) as { accountKind?: string; name?: string };
+      const kind = String(plan?.accountKind || '').trim().toLowerCase();
+      if (kind === 'free_jobs' || kind === 'free') return true;
+      if (/^free jobs$/i.test(String(plan?.name || '').trim())) return true;
+    }
+  } catch {
+    /* ignore */
+  }
+  if (/^free jobs$/i.test(getCachedOrgSubscriptionPlanName())) return true;
+  if (!isOrgModulesRestricted()) return false;
+  const mods = getCachedOrgEnabledModules();
+  if (!mods.length) return false;
+  const allowed = new Set(['command_center', 'jobs', 'candidates', 'settings']);
+  return mods.every((m) => allowed.has(m)) && mods.includes('jobs') && mods.includes('candidates');
+}
+
 export function getCachedOrgPlanUsage(): OrgPlanUsageCache | null {
   if (typeof window === 'undefined') return null;
   const raw = localStorage.getItem('orgPlanUsage');
@@ -127,10 +149,11 @@ export function applyOrgRecruitmentSummaryPayload(
         planEndDate?: string;
         isTrial?: boolean;
         trialDays?: number;
+        accountKind?: string;
       }
     | null
     | undefined;
-  if (sp && (sp.name || sp.planStartDate || sp.planEndDate)) {
+  if (sp && (sp.name || sp.planStartDate || sp.planEndDate || sp.accountKind)) {
     localStorage.setItem(
       'orgSubscriptionPlan',
       JSON.stringify({
@@ -139,6 +162,7 @@ export function applyOrgRecruitmentSummaryPayload(
         planEndDate: sp.planEndDate || undefined,
         isTrial: Boolean(sp.isTrial),
         trialDays: sp.trialDays ?? undefined,
+        accountKind: sp.accountKind || undefined,
       })
     );
   } else {

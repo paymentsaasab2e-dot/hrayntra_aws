@@ -90,6 +90,7 @@ export const ROUTE_HQ_MODULE_MAP: Array<{ prefix: string; moduleId: string }> = 
   { prefix: '/leads', moduleId: 'leads' },
   { prefix: '/client', moduleId: 'clients' },
   { prefix: '/dashboard', moduleId: 'crm_dashboard' },
+  { prefix: '/company-page', moduleId: 'clients' },
   { prefix: '/job', moduleId: 'jobs' },
   { prefix: '/candidate', moduleId: 'candidates' },
   { prefix: '/interviews', moduleId: 'interviews' },

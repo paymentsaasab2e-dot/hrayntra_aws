@@ -156,6 +156,53 @@ export async function apiHqListTenants() {
   }>('/hq/tenants', { auth: true });
 }
 
+export type HqFreeJobTenantQuota = {
+  monthKey: string;
+  tier: string;
+  limit: number;
+  used: number;
+  remaining: number;
+  canPublish: boolean;
+  premiumUntil?: string | null;
+  freeLimit?: number;
+  premiumLimit?: number;
+};
+
+export type HqFreeJobTenantRow = HqTenantRow & {
+  jobPostingQuota?: HqFreeJobTenantQuota | null;
+};
+
+export async function apiHqListFreeJobTenants() {
+  return apiFetch<{
+    tenants: HqFreeJobTenantRow[];
+    stats: {
+      total: number;
+      agency: number;
+      standalone: number;
+      withDb: number;
+    };
+  }>('/hq/free-job-tenants', { auth: true });
+}
+
+export async function apiHqSetFreeJobTenantQuota(body: {
+  email: string;
+  monthlyLimit: number;
+  tier?: 'free' | 'premium';
+  billingCycle?: 'monthly' | 'annual';
+  premiumUntilDays?: number;
+  note?: string;
+}) {
+  return apiFetch<{
+    email: string;
+    tenantDbName: string;
+    jobPostingQuota: HqFreeJobTenantQuota;
+  }>('/hq/free-job-tenants/quota', {
+    method: 'PUT',
+    auth: true,
+    body,
+  });
+}
+
 export async function apiHqAccountSupportLookup(params: {
   email?: string;
   customerId?: string;

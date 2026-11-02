@@ -2512,6 +2512,7 @@ export function useJobList() {
       if (!reportJobPublishQuotaError(err)) {
         void requestError(err.message || 'Failed to update job status');
       }
+
       await reloadMyJobsAndMetrics();
     } finally {
       setStatusEdit({ jobId: null, newStatus: null, remark: '' });
@@ -2616,6 +2617,9 @@ export function useJobList() {
         prev.map((item) => (item.id === job.id ? { ...item, status: 'Active' } : item))
       );
       await reloadMyJobsAndMetrics();
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('hryantra:job-posting-quota-refresh'));
+      }
       toast.success(
         mappedApplyUrl
           ? 'Job published. Apply link is ready in the job drawer.'
@@ -2623,6 +2627,7 @@ export function useJobList() {
       );
     } catch (err: unknown) {
       if (reportJobPublishQuotaError(err)) return;
+
       const message = err instanceof Error ? err.message : 'Failed to publish job';
       void requestError(message);
     }

@@ -5,6 +5,7 @@ export * from './api/core-helpers';
 export * from './api/auth';
 export * from './api/hq';
 export * from './api/jobs';
+export * from './api/jobPostingPlan';
 export * from './api/candidates';
 export * from './api/clients';
 export * from './api/interviews';

@@ -4,6 +4,7 @@ import { Sidenav } from '../../components/Sidenav';
 import PermissionRouteGuard from '../../components/PermissionRouteGuard';
 import { DashboardLayoutProvider } from '../../lib/dashboard/DashboardLayoutProvider';
 import { DashboardWelcomeFallback } from '../../components/dashboard/v2/DashboardWelcomeFallback';
+import { DashboardHqModuleGate } from '../../components/dashboard/v2/DashboardHqModuleGate';
 import { ROUTE_PERMISSION_GUARDS } from '../../lib/rbac/moduleAccess';
 
 export default function DashboardLayout({
@@ -17,19 +18,22 @@ export default function DashboardLayout({
   return (
     <div className="min-h-screen font-['Arimo',sans-serif]">
       <Sidenav avatarUrl={avatarUrl}>
-        <PermissionRouteGuard
-          anyPermissions={ROUTE_PERMISSION_GUARDS['/dashboard']}
-          fallback={
-            <div className="p-4 sm:p-6 lg:p-8">
-              <DashboardWelcomeFallback
-                title="Welcome"
-                description="You do not have the main dashboard permission, but you can still open modules assigned to your role."
-              />
-            </div>
-          }
-        >
-          <DashboardLayoutProvider>{children}</DashboardLayoutProvider>
-        </PermissionRouteGuard>
+        <DashboardHqModuleGate>
+          <PermissionRouteGuard
+            anyPermissions={ROUTE_PERMISSION_GUARDS['/dashboard']}
+            hqModuleId="crm_dashboard"
+            fallback={
+              <div className="p-4 sm:p-6 lg:p-8">
+                <DashboardWelcomeFallback
+                  title="Welcome"
+                  description="You do not have the main dashboard permission, but you can still open modules assigned to your role."
+                />
+              </div>
+            }
+          >
+            <DashboardLayoutProvider>{children}</DashboardLayoutProvider>
+          </PermissionRouteGuard>
+        </DashboardHqModuleGate>
       </Sidenav>
     </div>
   );

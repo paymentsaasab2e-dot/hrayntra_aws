@@ -146,7 +146,8 @@ export default function LoginPage() {
             document.cookie = `refreshToken=${encodeURIComponent(refreshToken)}; Path=/; SameSite=Lax`;
           }
           window.history.replaceState(null, '', window.location.pathname + window.location.search);
-          window.location.href = '/dashboard';
+          const redirectParam = new URLSearchParams(window.location.search).get('redirect');
+          window.location.href = resolvePostLoginPath(redirectParam);
           return;
         }
       } catch {

@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
   Share2,
@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { usePermissions } from '../hooks/usePermissions';
 import { MODULE_ACCESS_MAP } from '../lib/rbac/moduleAccess';
+import { isCachedFreeJobsWorkspace, ORG_RECRUITMENT_CACHE_EVENT } from '../lib/api';
 
 /**
  * Profile, Customization, Communication & Integrations, and Subscription & Plan
@@ -125,14 +126,34 @@ export function SettingsSidebar({
   isAgencyMode = true,
 }: SettingsSidebarProps) {
   const { hasAnyPermission, isSuperAdmin } = usePermissions();
+  const [freeJobsOnly, setFreeJobsOnly] = useState(false);
 
-  const settingsNav = baseSettingsNav.filter((item) => {
-    if (item.requiresBillingNav && !showBillingSection) return false;
-    if (item.agencyOnly && !isAgencyMode) return false;
-    if (item.superAdminOnly && !isSuperAdmin()) return false;
-    if (item.anyPermissions && !hasAnyPermission(item.anyPermissions)) return false;
-    return true;
-  });
+  useEffect(() => {
+    setFreeJobsOnly(isCachedFreeJobsWorkspace());
+    const sync = () => setFreeJobsOnly(isCachedFreeJobsWorkspace());
+    window.addEventListener('storage', sync);
+    window.addEventListener(ORG_RECRUITMENT_CACHE_EVENT, sync);
+    return () => {
+      window.removeEventListener('storage', sync);
+      window.removeEventListener(ORG_RECRUITMENT_CACHE_EVENT, sync);
+    };
+  }, []);
+
+  const settingsNav = baseSettingsNav
+    .filter((item) => {
+      // Free Jobs employers: Profile + Connectors (Communication & Integrations).
+      if (freeJobsOnly) return item.id === 'profile' || item.id === 'communication';
+      if (item.requiresBillingNav && !showBillingSection) return false;
+      if (item.agencyOnly && !isAgencyMode) return false;
+      if (item.superAdminOnly && !isSuperAdmin()) return false;
+      if (item.anyPermissions && !hasAnyPermission(item.anyPermissions)) return false;
+      return true;
+    })
+    .map((item) =>
+      freeJobsOnly && item.id === 'communication'
+        ? { ...item, label: 'Connectors' }
+        : item,
+    );
 
   return (
     <aside className="flex w-full shrink-0 flex-col border-b border-indigo-100/60 bg-white/90 backdrop-blur-md lg:w-[17.5rem] lg:border-b-0 lg:border-r">

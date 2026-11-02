@@ -241,6 +241,22 @@ const JobAiCreateWizard = nextDynamic(
   { ssr: false },
 );
 
+const JobPostingQuotaMeter = nextDynamic(
+  () =>
+    import('../../components/jobs/JobPostingQuotaMeter').then((mod) => ({
+      default: mod.JobPostingQuotaMeter,
+    })),
+  { ssr: false },
+);
+
+const JobPostingPremiumModal = nextDynamic(
+  () =>
+    import('../../components/jobs/JobPostingPremiumModal').then((mod) => ({
+      default: mod.JobPostingPremiumModal,
+    })),
+  { ssr: false },
+);
+
 const AddCandidateDrawer = nextDynamic(
   () => import('../../components/candidates/AddCandidateDrawer'),
   { ssr: false, loading: () => null }
@@ -1068,7 +1084,71 @@ export function JobListPage() {
     handleCloseJob,
   } = useJobList();
 
+  const [jobPostingQuota, setJobPostingQuota] = useState<{
+    used: number;
+    limit: number;
+    tier?: string;
+    canPublish: boolean;
+  } | null>(null);
+  const [jobPostingQuotaLoading, setJobPostingQuotaLoading] = useState(false);
+  const [premiumModalOpen, setPremiumModalOpen] = useState(false);
+  const [premiumModalSnapshot, setPremiumModalSnapshot] = useState<
+    import('../../lib/api').JobPostingQuotaSnapshot | null
+  >(null);
+
+  const refreshJobPostingQuota = useCallback(async () => {
+    setJobPostingQuotaLoading(true);
+    try {
+      const { apiGetJobPostingPlan } = await import('../../lib/api');
+      const res = await apiGetJobPostingPlan();
+      const snap = res.data?.snapshot;
+      if (snap) {
+        setJobPostingQuota({
+          used: snap.used,
+          limit: snap.limit,
+          tier: snap.tier,
+          canPublish: snap.canPublish,
+        });
+        setPremiumModalSnapshot(snap);
+      }
+    } catch {
+      /* non-blocking */
+    } finally {
+      setJobPostingQuotaLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshJobPostingQuota();
+    const onExceeded = (event: Event) => {
+      const detail = (event as CustomEvent).detail as {
+        quota?: import('../../lib/api').JobPostingQuotaSnapshot | null;
+      };
+      if (detail?.quota) {
+        setPremiumModalSnapshot(detail.quota);
+        setJobPostingQuota({
+          used: detail.quota.used,
+          limit: detail.quota.limit,
+          tier: detail.quota.tier,
+          canPublish: detail.quota.canPublish,
+        });
+      }
+      setPremiumModalOpen(true);
+    };
+    const onRefresh = () => void refreshJobPostingQuota();
+    window.addEventListener('hryantra:job-posting-quota-exceeded', onExceeded);
+    window.addEventListener('hryantra:job-posting-quota-refresh', onRefresh);
+    return () => {
+      window.removeEventListener('hryantra:job-posting-quota-exceeded', onExceeded);
+      window.removeEventListener('hryantra:job-posting-quota-refresh', onRefresh);
+    };
+  }, [refreshJobPostingQuota]);
+
   const openCreateJob = (mode: 'ai' | 'manual') => {
+    if (jobPostingQuota && !jobPostingQuota.canPublish) {
+      setPremiumModalOpen(true);
+      return;
+    }
     if (mode === 'ai' && jobAiGate.locked) {
       void jobAiGate.confirmAndUnlock();
       return;
@@ -1082,12 +1162,27 @@ export function JobListPage() {
   return (
     <>
       <Toaster position="top-right" richColors />
+      <JobPostingPremiumModal
+        open={premiumModalOpen}
+        onClose={() => setPremiumModalOpen(false)}
+        initialSnapshot={premiumModalSnapshot}
+        onActivated={(snap) => {
+          setJobPostingQuota({
+            used: snap.used,
+            limit: snap.limit,
+            tier: snap.tier,
+            canPublish: snap.canPublish,
+          });
+          setPremiumModalSnapshot(snap);
+        }}
+      />
       <Ph2ModulePageLayout
         title="Jobs"
         icon={<Briefcase className="h-5 w-5" strokeWidth={2.2} />}
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <JobPublishQuotaMeter />
+
             <ShowSummaryCardsButton
               open={showSummaryCards}
               onToggle={() => setShowSummaryCards((open) => !open)}
@@ -1421,6 +1516,7 @@ export function JobListPage() {
           setCreateJobDrawerOpen(false);
           setDuplicateFromJobId(null);
           void reloadMyJobsAndMetrics();
+          void refreshJobPostingQuota();
         }}
       />
       ) : null}
@@ -1435,6 +1531,7 @@ export function JobListPage() {
           setJobAiWizardOpen(false);
           toast.success('Job published');
           void reloadMyJobsAndMetrics();
+          void refreshJobPostingQuota();
         }}
       />
       ) : null}
@@ -1476,7 +1573,17 @@ export function JobListPage() {
           setEditJobDrawerOpen(true);
         } : undefined}
         onPublish={canUpdateJob ? handlePublishJob : undefined}
-        onClone={canCreateJob ? handleCloneJob : undefined}
+        onClone={
+          canCreateJob
+            ? (job) => {
+                if (jobPostingQuota && !jobPostingQuota.canPublish) {
+                  setPremiumModalOpen(true);
+                  return;
+                }
+                handleCloneJob(job);
+              }
+            : undefined
+        }
         onCloseJob={canUpdateJob ? handleCloseJob : undefined}
         onAddToPipeline={
           canUpdateCandidate

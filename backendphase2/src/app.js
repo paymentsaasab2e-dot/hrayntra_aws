@@ -88,6 +88,7 @@ import notificationRoutes from './modules/notification/notification.routes.js';
 import preScreenAssessmentRoutes from './modules/pre-screen-assessment/assessment.routes.js';
 import publicLandingRoutes from './modules/public/public.routes.js';
 import publicTenantJobsRoutes from './modules/public/tenant-jobs.routes.js';
+import jobPostingPlanRoutes from './modules/job-posting-plan/jobPostingPlan.routes.js';
 
 const app = express();
 
@@ -317,6 +318,7 @@ app.use('/api/v1/candidates', candidateRoutes);
 app.use('/api/v1/clients', clientRoutes);
 app.use('/api/v1/contacts', contactRoutes);
 app.use('/api/v1/jobs', jobRoutes);
+app.use('/api/v1/job-posting-plan', jobPostingPlanRoutes);
 app.use('/api/v1/files', filesRoutes);
 app.use('/api/v1/leads', leadRoutes);
 app.use('/api/v1/agreements', agreementRoutes);

@@ -132,6 +132,7 @@ function validateDemoPayload(body) {
   const requestKindRaw = String(body.requestKind || 'demo').trim().toLowerCase();
   let requestKind = 'demo';
   if (requestKindRaw === 'trial') requestKind = 'trial';
+  else if (requestKindRaw === 'free_jobs' || requestKindRaw === 'free-jobs') requestKind = 'free_jobs';
   else if (requestKindRaw === 'purchase') requestKind = 'purchase';
 
   let outcome = String(body.outcome || '').trim() || null;
@@ -335,7 +336,7 @@ function logPhase2SyncFailure(label, result) {
   });
 }
 
-async function syncEmployerTrialToPhase2(verified) {
+async function syncEmployerTrialToPhase2(verified, { freeJobs = false } = {}) {
   const result = await postPhase2Internal('provision-employer-trial', {
     requestId: verified.id,
     fullName: verified.fullName,
@@ -347,13 +348,26 @@ async function syncEmployerTrialToPhase2(verified) {
     organizationName: verified.organizationName,
     organizationType: verified.organizationType || 'agency',
     outcome: verified.outcome || '',
-    trialDays: 5,
-    signupSource: 'landing_trial',
+    requestKind: freeJobs ? 'free_jobs' : 'trial',
+    accountKind: freeJobs ? 'free_jobs' : undefined,
+    trialDays: freeJobs ? undefined : 5,
+    signupSource: freeJobs ? 'landing_free_jobs' : 'landing_trial',
   });
 
   if (!result.ok) {
-    logPhase2SyncFailure('EmployerTrial', result);
-    return null;
+    logPhase2SyncFailure(freeJobs ? 'EmployerFreeJobs' : 'EmployerTrial', result);
+    const message = String(result?.data?.message || '').trim();
+    return {
+      error: true,
+      message:
+        message ||
+        (result?.networkError
+          ? 'Employer workspace API is unreachable. Ensure Phase 2 is running on port 5001.'
+          : freeJobs
+            ? 'Could not create Free Jobs workspace'
+            : 'Could not create try-free workspace'),
+      phase2Status: result.status,
+    };
   }
   return result.data?.data || null;
 }
@@ -477,8 +491,10 @@ async function verifyDemoRequestOtp(req, res) {
       }),
     );
 
-    const isTrial = String(verified.requestKind || '').toLowerCase() === 'trial';
-    const isPurchase = String(verified.requestKind || '').toLowerCase() === 'purchase';
+    const requestKind = String(verified.requestKind || '').toLowerCase();
+    const isTrial = requestKind === 'trial';
+    const isFreeJobs = requestKind === 'free_jobs';
+    const isPurchase = requestKind === 'purchase';
 
     if (isPurchase) {
       const purchaseMeta = parsePurchaseOutcome(verified.outcome);
@@ -496,45 +512,52 @@ async function verifyDemoRequestOtp(req, res) {
       });
     }
 
-    // Auto-provision 5-day try-free workspace after OTP (Agency/Standalone + all modules).
-    if (isTrial) {
+    // Auto-provision try-free (5-day) or Free Jobs (lasting free account) after OTP.
+    if (isTrial || isFreeJobs) {
+      const kind = isFreeJobs ? 'free_jobs' : 'trial';
       if (verified.trialProvisioned && verified.trialLoginId) {
-        // Keep HQ CRM lead in sync with the form person + trial access status.
         await syncEmployerDemoToHq({
           ...verified,
-          requestKind: 'trial',
+          requestKind: kind,
           trialProvisioned: true,
           trialLoginId: verified.trialLoginId,
           trialTenantDbName: verified.trialTenantDbName,
-          trialDays: verified.trialDays,
+          trialDays: isFreeJobs ? null : verified.trialDays,
           trialStartsAt: verified.trialStartsAt,
-          trialEndsAt: verified.trialEndsAt,
+          trialEndsAt: isFreeJobs ? null : verified.trialEndsAt,
           trialLoginUrl: verified.trialLoginUrl,
         }).catch(() => null);
         return res.json({
           success: true,
-          message: 'Your try-free workspace is ready. Sign in with the credentials we emailed you.',
+          message: isFreeJobs
+            ? 'Your Free Jobs account is ready. Sign in with the credentials we emailed you.'
+            : 'Your try-free workspace is ready. Sign in with the credentials we emailed you.',
           data: {
             requestId: verified.id,
             email: verified.email,
-            requestKind: 'trial',
+            requestKind: kind,
+            accountKind: isFreeJobs ? 'free_jobs' : 'trial',
             loginUrl: verified.trialLoginUrl || undefined,
             loginId: verified.trialLoginId,
             tenantDbName: verified.trialTenantDbName || undefined,
-            trialEndsAt: verified.trialEndsAt || undefined,
+            trialEndsAt: isFreeJobs ? undefined : verified.trialEndsAt || undefined,
+            monthlyJobLimit: isFreeJobs ? 10 : undefined,
             credentialEmailSent: true,
           },
         });
       }
 
-      const provision = await syncEmployerTrialToPhase2(verified);
-      if (!provision) {
-        // Still land the lead in HQ so sales can follow up if provisioning failed.
+      const provision = await syncEmployerTrialToPhase2(verified, { freeJobs: isFreeJobs });
+      if (!provision || provision.error) {
         await syncEmployerDemoToHq(verified).catch(() => null);
+        const detail = String(provision?.message || '').trim();
         return res.status(502).json({
           success: false,
-          message:
-            'Email verified, but we could not create your try-free workspace yet. Please try again or contact HRyantra.',
+          message: detail
+            ? `Email verified, but workspace setup failed: ${detail}`
+            : isFreeJobs
+              ? 'Email verified, but we could not create your Free Jobs account yet. Please try again or contact HRyantra.'
+              : 'Email verified, but we could not create your try-free workspace yet. Please try again or contact HRyantra.',
         });
       }
 
@@ -543,21 +566,33 @@ async function verifyDemoRequestOtp(req, res) {
         loginId: provision.loginId,
         loginUrl: provision.loginUrl,
         planStartDate: provision.subscriptionPlan?.planStartDate || provision.trialStartsAt,
-        planEndDate: provision.subscriptionPlan?.planEndDate || provision.trialEndsAt,
+        planEndDate: isFreeJobs
+          ? null
+          : provision.subscriptionPlan?.planEndDate || provision.trialEndsAt,
       });
 
       return res.json({
         success: true,
-        message: provision.credentialEmailSent
-          ? 'Email verified. Your 5-day try-free login was emailed to you.'
-          : 'Email verified. Your 5-day try-free workspace is ready.',
+        message: isFreeJobs
+          ? provision.credentialEmailSent
+            ? 'Email verified. Your Free Jobs login was emailed to you.'
+            : 'Email verified. Your Free Jobs account is ready.'
+          : provision.credentialEmailSent
+            ? 'Email verified. Your 5-day try-free login was emailed to you.'
+            : 'Email verified. Your 5-day try-free workspace is ready.',
         data: {
           requestId: verified.id,
           email: verified.email,
-          requestKind: 'trial',
+          requestKind: kind,
+          accountKind: isFreeJobs ? 'free_jobs' : 'trial',
           ...buildProvisionResponse(verified.id, verified.email, provision),
-          trialEndsAt: provision.trialEndsAt || provision.subscriptionPlan?.planEndDate,
-          trialDays: provision.trialDays || 5,
+          trialEndsAt: isFreeJobs
+            ? undefined
+            : provision.trialEndsAt || provision.subscriptionPlan?.planEndDate,
+          trialDays: isFreeJobs ? undefined : provision.trialDays || 5,
+          monthlyJobLimit: isFreeJobs
+            ? provision.monthlyJobLimit || 10
+            : undefined,
         },
       });
     }

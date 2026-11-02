@@ -59,6 +59,8 @@ export interface HqTenantSubscriptionPlan {
   planEndDate?: string;
   isTrial?: boolean;
   trialDays?: number;
+  /** Free Jobs module — lasting free employer account (not a timed trial). */
+  accountKind?: 'free_jobs' | 'trial' | string;
   upgradedAt?: string;
   upgradedFrom?: string;
   lastPaymentReference?: string;

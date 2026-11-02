@@ -67,14 +67,13 @@ export default function PermissionRouteGuard({
   const resolvedModuleId = hqModuleId ?? getHqModuleIdForPath(pathname);
   // modulesTick forces re-check after HQ updates tenant tabs
   void modulesTick;
+  // HQ-disabled modules must NOT reuse the permission fallback (that was listing every Super Admin tab).
   if (resolvedModuleId && !isOrgModuleEnabled(resolvedModuleId)) {
-    return fallback != null ? (
-      <>{fallback}</>
-    ) : (
+    return (
       <AccessDenied
-          title="This section isn’t available"
-          message="It isn’t enabled for your organization."
-        />
+        title="This section isn’t available"
+        message="It isn’t enabled for your organization."
+      />
     );
   }
 

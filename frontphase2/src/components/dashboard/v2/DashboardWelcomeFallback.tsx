@@ -5,11 +5,17 @@ import Link from 'next/link';
 import { ArrowRight, LayoutDashboard } from 'lucide-react';
 import { usePermissions } from '@/hooks/usePermissions';
 import { MODULE_ACCESS_MAP, ROUTE_PERMISSION_GUARDS } from '@/lib/rbac/moduleAccess';
+import { isOrgModuleEnabled, ORG_RECRUITMENT_CACHE_EVENT } from '@/lib/api';
+import { getHqModuleIdForPath } from '@/lib/tenantModuleCatalog';
 
 const WORKSPACE_LINKS: Array<{ route: string; label: string; permissions: string[] }> = [
   { route: '/leads', label: 'Leads', permissions: MODULE_ACCESS_MAP.Leads },
   { route: '/client', label: 'CRM Clients', permissions: MODULE_ACCESS_MAP.Clients },
-  { route: '/client?scope=recruitment', label: 'Recruitment Clients', permissions: MODULE_ACCESS_MAP.RecruitmentClients },
+  {
+    route: '/client?scope=recruitment',
+    label: 'Recruitment Clients',
+    permissions: MODULE_ACCESS_MAP.RecruitmentClients,
+  },
   { route: '/job', label: 'Jobs', permissions: MODULE_ACCESS_MAP.Jobs },
   { route: '/candidate', label: 'Candidates', permissions: MODULE_ACCESS_MAP.Candidates },
   { route: '/interviews', label: 'Interviews', permissions: MODULE_ACCESS_MAP.Interviews },
@@ -20,8 +26,18 @@ const WORKSPACE_LINKS: Array<{ route: string; label: string; permissions: string
   { route: '/reports', label: 'Reports', permissions: MODULE_ACCESS_MAP.Reports },
   { route: '/calendar', label: 'Calendar', permissions: MODULE_ACCESS_MAP.Calendar },
   { route: '/inbox', label: 'Inbox', permissions: MODULE_ACCESS_MAP.Inbox },
-  { route: '/activity-feed', label: 'Activity log', permissions: ROUTE_PERMISSION_GUARDS['/activity-feed'] },
+  {
+    route: '/activity-feed',
+    label: 'Activity log',
+    permissions: ROUTE_PERMISSION_GUARDS['/activity-feed'],
+  },
 ];
+
+function linkAllowedByHqModules(route: string): boolean {
+  const moduleId = getHqModuleIdForPath(route.split('?')[0]);
+  if (!moduleId) return true;
+  return isOrgModuleEnabled(moduleId);
+}
 
 type Props = {
   title?: string;
@@ -34,16 +50,29 @@ export function DashboardWelcomeFallback({
 }: Props) {
   const { hasAnyPermission, isSuperAdmin } = usePermissions();
   const [mounted, setMounted] = useState(false);
+  const [modulesTick, setModulesTick] = useState(0);
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
+  useEffect(() => {
+    const bump = () => setModulesTick((n) => n + 1);
+    window.addEventListener(ORG_RECRUITMENT_CACHE_EVENT, bump);
+    window.addEventListener('storage', bump);
+    return () => {
+      window.removeEventListener(ORG_RECRUITMENT_CACHE_EVENT, bump);
+      window.removeEventListener('storage', bump);
+    };
+  }, []);
+
   const links = useMemo(() => {
+    void modulesTick;
     if (!mounted) return [];
-    if (isSuperAdmin()) return WORKSPACE_LINKS;
-    return WORKSPACE_LINKS.filter((item) => hasAnyPermission(item.permissions));
-  }, [mounted, hasAnyPermission, isSuperAdmin]);
+    const byHq = WORKSPACE_LINKS.filter((item) => linkAllowedByHqModules(item.route));
+    if (isSuperAdmin()) return byHq;
+    return byHq.filter((item) => hasAnyPermission(item.permissions));
+  }, [mounted, hasAnyPermission, isSuperAdmin, modulesTick]);
 
   return (
     <div className="mx-auto max-w-3xl rounded-2xl border border-indigo-100/80 bg-gradient-to-br from-indigo-50/50 via-white to-violet-50/40 p-8 shadow-sm">

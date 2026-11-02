@@ -26,6 +26,7 @@ import {
   NOTIFICATIONS_UPDATED_EVENT,
   isOrgBillingNavEnabled,
   isOrgModuleEnabled,
+  isCachedFreeJobsWorkspace,
   getAccessToken,
   getCachedOrgSubscriptionPlanName,
   getCachedOrgPlanUsage,
@@ -119,6 +120,7 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
     typeof getCachedOrgSubscriptionPlan
   >>(null);
   const [recruitmentMode, setRecruitmentMode] = useState<'agency' | 'standalone'>('agency');
+  const [freeJobsFlatNav, setFreeJobsFlatNav] = useState(false);
   const [searchResults, setSearchResults] = useState<GlobalSearchResult[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchFocused, setSearchFocused] = useState(false);
@@ -145,6 +147,7 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
       setOrgPlanUsage(getCachedOrgPlanUsage());
       setOrgSubscriptionPlan(getCachedOrgSubscriptionPlan());
       setRecruitmentMode(getCachedOrgRecruitmentMode());
+      setFreeJobsFlatNav(isCachedFreeJobsWorkspace());
       setHqModulesTick((n) => n + 1);
     };
     sync();
@@ -840,8 +843,53 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
             />
           )}
 
-          {/* Recruitment — hover flyout: Dashboard first, then Jobs → … */}
-          {mounted && canViewRecruitmentNav && (
+          {/* Free Jobs — flat tabs (no Recruitment group): Dashboard, Jobs, Candidates */}
+          {mounted && freeJobsFlatNav && canViewRecruitmentNav ? (
+            <>
+              {canViewRecruitmentDashboard ? (
+                <NavItem
+                  icon={LayoutDashboard}
+                  label="Dashboard"
+                  href="/recruitment"
+                  collapsed={navCollapsed}
+                  onNavigate={handleNavigate}
+                  accent="indigo"
+                  active={
+                    (pathname || '') === '/recruitment' ||
+                    (pathname || '').startsWith('/recruitment/')
+                  }
+                />
+              ) : null}
+              {canViewJobs ? (
+                <NavItem
+                  icon={Briefcase}
+                  label="Jobs"
+                  href="/job"
+                  collapsed={navCollapsed}
+                  onNavigate={handleNavigate}
+                  accent="amber"
+                  active={(pathname || '') === '/job' || (pathname || '').startsWith('/job/')}
+                />
+              ) : null}
+              {canViewCandidates ? (
+                <NavItem
+                  icon={UserRound}
+                  label="Candidates"
+                  href="/candidate"
+                  collapsed={navCollapsed}
+                  onNavigate={handleNavigate}
+                  accent="violet"
+                  active={
+                    (pathname || '') === '/candidate' ||
+                    (pathname || '').startsWith('/candidate/')
+                  }
+                />
+              ) : null}
+            </>
+          ) : null}
+
+          {/* Recruitment — hover flyout (full tenants only) */}
+          {mounted && canViewRecruitmentNav && !freeJobsFlatNav && (
             <NavGroupFlyout
               icon={Briefcase}
               imageSrc="/image-removebg-preview.png"
@@ -876,7 +924,7 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
           )}
 
           {(mounted &&
-            (isOrgModuleEnabled('clients') || isOrgModuleEnabled('jobs')) &&
+            isOrgModuleEnabled('clients') &&
             (showAll || hasAnyPermission(MODULE_ACCESS_MAP.CompanyPage))) && (
             <NavItem icon={Building2} label="Company Page" href="/company-page" collapsed={navCollapsed} onNavigate={handleNavigate} accent="blue" />
           )}
@@ -1000,14 +1048,20 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
                   Purchase plan
                 </a>
               </div>
-            ) : orgPlanName ? (
+            ) : orgPlanName || isCachedFreeJobsWorkspace() ? (
               <div className="hry-plan-card mb-3 rounded-xl border border-white/12 bg-white/[0.06] p-2.5 backdrop-blur-md">
                 <div className="flex items-center justify-between mb-1.5">
                   <span className="text-[10px] font-medium uppercase tracking-wider text-sky-400">Active Plan</span>
                   <span className="text-[10px] text-sky-400/70">Live</span>
                 </div>
-                <div className="truncate text-xs font-medium text-sky-300">{orgPlanName}</div>
-                {orgPlanUsage ? (
+                <div className="truncate text-xs font-medium text-sky-300">
+                  {isCachedFreeJobsWorkspace() ? 'Free Jobs' : orgPlanName}
+                </div>
+                {isCachedFreeJobsWorkspace() ? (
+                  <div className="mt-1 text-[10px] text-sky-300/80">
+                    Free account · up to 10 job posts / month
+                  </div>
+                ) : orgPlanUsage ? (
                   <div className="mt-1 text-[10px] text-sky-300/80">
                     {orgPlanUsage.maxUsers == null
                       ? `${orgPlanUsage.activeUsers} users`

@@ -94,9 +94,26 @@ export function isReservedPlatformTenantDbName(tenantDbName) {
   return false;
 }
 
+/** Auth-critical collections required before a Free Jobs / trial login can work. */
+const CRITICAL_TENANT_COLLECTIONS = [
+  'users',
+  'user_credentials',
+  'settings',
+  'jobs',
+  'clients',
+  'candidates',
+  'matches',
+  'applications',
+  'pipeline_stages',
+  'system_roles',
+  'permissions',
+  'role_permissions',
+];
+
 /**
  * When Atlas hits the 500-collection cap, reclaim an existing DB that already
  * has the tenant schema and has zero HQ owners — never steal adm01 / live tenants.
+ * Also reclaim unowned partial DBs (e.g. abandoned inf01 with users but incomplete schema).
  */
 async function findOrphanTenantDbName(workspaceCollection) {
   const client = await getHeadquartersClient();
@@ -114,6 +131,19 @@ async function findOrphanTenantDbName(workspaceCollection) {
     if (name) owned.add(name);
   }
 
+  // DBs only referenced by deleted HQ users are reclaimable.
+  const deletedOwnerRows = await workspaceCollection
+    .find(
+      { tenantDbName: { $exists: true, $ne: '' }, isDeleted: true },
+      { projection: { tenantDbName: 1 } },
+    )
+    .toArray();
+  const deletedOwned = new Set(
+    deletedOwnerRows
+      .map((row) => normalizeLookupValue(row?.tenantDbName).toLowerCase())
+      .filter(Boolean),
+  );
+
   let databases = [];
   try {
     const listed = await client.db().admin().listDatabases({ nameOnly: true });
@@ -125,11 +155,13 @@ async function findOrphanTenantDbName(workspaceCollection) {
   const schemaCollections = await getSchemaCollectionNames();
   const minSchema = Math.max(10, Math.floor(schemaCollections.length * 0.5));
   const requiredNames = new Set(['users', 'user_credentials']);
+  let partialCandidate = '';
 
   for (const row of databases) {
     const name = normalizeLookupValue(row?.name);
     if (!name || isReservedPlatformTenantDbName(name)) continue;
-    if (owned.has(name.toLowerCase())) continue;
+    const lower = name.toLowerCase();
+    if (owned.has(lower) && !deletedOwned.has(lower)) continue;
     try {
       const colls = await client.db(name).listCollections({}, { nameOnly: true }).toArray();
       const collNameSet = new Set(colls.map((c) => String(c.name || '')));
@@ -137,11 +169,111 @@ async function findOrphanTenantDbName(workspaceCollection) {
       if (colls.length >= minSchema && hasAuthCollections) {
         return name;
       }
+      // Prefer unowned DBs that already have users — we can lean-fill credentials.
+      if (!partialCandidate && collNameSet.has('users') && colls.length >= 5) {
+        partialCandidate = name;
+      }
     } catch {
       /* skip unreadable DB */
     }
   }
-  return '';
+  return partialCandidate;
+}
+
+const DROPPABLE_EMPTY_COLLECTIONS = new Set([
+  'failed_bulk_resumes',
+  'purged_candidate_refs',
+  'proctoring_events',
+  'assessment_sessions',
+  'scheduled_meetings',
+  'contact_activities',
+  'contact_communications',
+  'contact_notes',
+  'client_notes',
+  'lead_notes',
+  'job_notes',
+  'interview_notes',
+  'interview_files',
+  'interview_activity_logs',
+]);
+
+/** Drop empty / junk DBs + empty safe collections on UNOWNED DBs only. */
+async function freeAtlasCollectionSlots(minFree = 8, workspaceCollection = null) {
+  const client = await getHeadquartersClient();
+  if (!client) return 0;
+  let freed = 0;
+
+  const owned = new Set();
+  try {
+    const col = workspaceCollection || (await getCollection());
+    if (col) {
+      const ownerRows = await col
+        .find(
+          { tenantDbName: { $exists: true, $ne: '' }, isDeleted: { $ne: true } },
+          { projection: { tenantDbName: 1 } },
+        )
+        .toArray();
+      for (const row of ownerRows) {
+        const n = normalizeLookupValue(row?.tenantDbName).toLowerCase();
+        if (n) owned.add(n);
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+
+  try {
+    const listed = await client.db().admin().listDatabases({ nameOnly: true });
+    for (const row of listed?.databases || []) {
+      const name = normalizeLookupValue(row?.name);
+      if (!name) continue;
+      const lower = name.toLowerCase();
+      if (['admin', 'test', 'tests'].includes(lower)) {
+        try {
+          const colls = await client.db(name).listCollections({}, { nameOnly: true }).toArray();
+          if (colls.length === 0) {
+            await client.db(name).dropDatabase();
+            freed += 1;
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+
+    // Drop empty "safe" collections only from unowned non-platform DBs.
+    for (const row of listed?.databases || []) {
+      if (freed >= minFree) break;
+      const name = normalizeLookupValue(row?.name);
+      if (!name || isReservedPlatformTenantDbName(name)) continue;
+      if (['jobportal', 'candidatecommon', 'headquarters'].includes(name.toLowerCase())) continue;
+      if (owned.has(name.toLowerCase())) continue;
+      try {
+        const db = client.db(name);
+        for (const collName of DROPPABLE_EMPTY_COLLECTIONS) {
+          if (freed >= minFree) break;
+          try {
+            const coll = db.collection(collName);
+            const count = await coll.estimatedDocumentCount();
+            if (count === 0) {
+              await coll.drop();
+              freed += 1;
+            }
+          } catch {
+            /* missing collection */
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  if (freed > 0) {
+    console.info(`[tenant-schema] freed ~${freed} Atlas collection slot(s) before lean provision`);
+  }
+  return freed;
 }
 
 async function resolveProvisioningTenant(collection, normalizedEmail) {
@@ -162,9 +294,12 @@ async function resolveProvisioningTenant(collection, normalizedEmail) {
       throw error;
     }
 
+    await freeAtlasCollectionSlots(12, collection);
+
     // Prefer reclaiming an unused DB that already has collections (no new Atlas collections).
     const orphanTenantDbName = await findOrphanTenantDbName(collection);
     if (orphanTenantDbName && !isReservedPlatformTenantDbName(orphanTenantDbName)) {
+      await ensureTenantSchema(orphanTenantDbName, { lean: true });
       return {
         tenantDbName: orphanTenantDbName,
         tenantDatabaseUrl: buildTenantDatabaseUrl(orphanTenantDbName),
@@ -180,11 +315,11 @@ async function resolveProvisioningTenant(collection, normalizedEmail) {
       );
     }
     try {
-      await ensureTenantSchema(sharedTenantDbName);
+      await ensureTenantSchema(sharedTenantDbName, { lean: true });
     } catch (sharedSchemaError) {
-      if (isCollectionLimitError(sharedSchemaError)) {
+      if (isCollectionLimitError(sharedSchemaError) || /collection limit reached/i.test(String(sharedSchemaError?.message || ''))) {
         throw new Error(
-          'MongoDB Atlas collection limit reached (500/500). Cannot create a dedicated or shared trial workspace.'
+          'MongoDB Atlas collection limit reached (500/500). Cannot create a dedicated or shared trial workspace. Free unused tenant DBs in Atlas (or purge recycle-bin tenants) and try again.'
         );
       }
       throw sharedSchemaError;
@@ -268,7 +403,20 @@ async function getNextTenantDatabaseName(collection, email) {
   return `${prefix}${String(highestSuffix + 1).padStart(2, '0')}`;
 }
 
-async function ensureTenantSchema(tenantDbName) {
+async function createCollectionSafe(tenantDb, collectionName) {
+  try {
+    await tenantDb.createCollection(collectionName);
+    return true;
+  } catch (error) {
+    if (isCollectionLimitError(error)) return false;
+    // Already exists / race
+    const msg = String(error?.message || '').toLowerCase();
+    if (msg.includes('already exists') || msg.includes('namespace exists')) return true;
+    throw error;
+  }
+}
+
+async function ensureTenantSchema(tenantDbName, { lean = false } = {}) {
   const client = await getHeadquartersClient();
   if (!client) return;
 
@@ -276,15 +424,53 @@ async function ensureTenantSchema(tenantDbName) {
   const existingCollections = await tenantDb.listCollections({}, { nameOnly: true }).toArray();
   const existingNames = new Set(existingCollections.map((row) => row.name));
   const schemaCollections = await getSchemaCollectionNames();
+  const wanted = lean
+    ? [...new Set([...CRITICAL_TENANT_COLLECTIONS, TENANT_PROVISIONING_COLLECTION])]
+    : schemaCollections;
 
-  for (const collectionName of schemaCollections) {
-    if (!existingNames.has(collectionName)) {
-      await tenantDb.createCollection(collectionName);
+  let hitLimit = false;
+  for (const collectionName of wanted) {
+    if (existingNames.has(collectionName)) continue;
+    const created = await createCollectionSafe(tenantDb, collectionName);
+    if (!created) {
+      hitLimit = true;
+      break;
+    }
+    existingNames.add(collectionName);
+  }
+
+  // Full schema preferred; if Atlas is full, keep going as long as auth collections exist.
+  if (!lean && !hitLimit) {
+    for (const collectionName of schemaCollections) {
+      if (existingNames.has(collectionName)) continue;
+      const created = await createCollectionSafe(tenantDb, collectionName);
+      if (!created) {
+        hitLimit = true;
+        break;
+      }
+      existingNames.add(collectionName);
     }
   }
 
-  await ensureTenantBootstrapData(tenantDb);
-  await ensureTenantIndexes(tenantDb);
+  const hasUsers = existingNames.has('users');
+  const hasCreds = existingNames.has('user_credentials');
+  if (!hasUsers || !hasCreds) {
+    throw new Error(
+      'MongoDB Atlas collection limit reached (500/500). Cannot create a dedicated or shared trial workspace.',
+    );
+  }
+
+  try {
+    await ensureTenantBootstrapData(tenantDb);
+  } catch (bootErr) {
+    if (!isCollectionLimitError(bootErr)) throw bootErr;
+    console.warn('[tenant-schema] bootstrap skipped under collection limit:', bootErr?.message || bootErr);
+  }
+  try {
+    await ensureTenantIndexes(tenantDb);
+  } catch (idxErr) {
+    console.warn('[tenant-schema] indexes skipped:', idxErr?.message || idxErr);
+  }
 
   await tenantDb.collection(TENANT_PROVISIONING_COLLECTION).updateOne(
     { key: 'schema' },
@@ -292,8 +478,8 @@ async function ensureTenantSchema(tenantDbName) {
       $set: {
         key: 'schema',
         tenantDbName,
-        status: 'READY',
-        schemaCollections,
+        status: hitLimit ? 'LEAN_READY' : 'READY',
+        schemaCollections: [...existingNames],
         updatedAt: new Date(),
       },
       $setOnInsert: {
@@ -443,6 +629,7 @@ function normalizeSubscriptionPlanForHq(value) {
       value.trialDays === undefined || value.trialDays === null
         ? undefined
         : Number(value.trialDays) || undefined;
+    const accountKind = String(value.accountKind || '').trim().toLowerCase();
     return {
       ...(id ? { id } : {}),
       name: name || id,
@@ -459,6 +646,7 @@ function normalizeSubscriptionPlanForHq(value) {
       ...(planEndDate ? { planEndDate } : {}),
       ...(isTrial ? { isTrial: true } : {}),
       ...(trialDays ? { trialDays } : {}),
+      ...(accountKind ? { accountKind } : {}),
       ...(value.upgradedAt ? { upgradedAt: String(value.upgradedAt) } : {}),
       ...(value.upgradedFrom ? { upgradedFrom: String(value.upgradedFrom) } : {}),
       ...(value.lastPaymentReference ? { lastPaymentReference: String(value.lastPaymentReference) } : {}),
@@ -1037,6 +1225,20 @@ export const headquartersAuthService = {
     await collection.updateOne(
       { email: normalizedEmail },
       { $set: { subscriptionPlan: normalizedPlan, updatedAt: new Date() } }
+    );
+    const updated = await collection.findOne({ email: normalizedEmail });
+    return normalizeHeadquartersUser(updated);
+  },
+
+  async setSignupSourceForEmail(email, signupSource) {
+    const collection = await getCollection();
+    if (!collection) return null;
+    const normalizedEmail = normalizeEmail(email);
+    const source = normalizeLookupValue(signupSource);
+    if (!normalizedEmail || !source) return null;
+    await collection.updateOne(
+      { email: normalizedEmail },
+      { $set: { signupSource: source, updatedAt: new Date() } },
     );
     const updated = await collection.findOne({ email: normalizedEmail });
     return normalizeHeadquartersUser(updated);

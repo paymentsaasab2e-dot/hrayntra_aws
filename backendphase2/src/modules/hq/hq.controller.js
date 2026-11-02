@@ -61,6 +61,24 @@ export const hqController = {
     }
   },
 
+  async listFreeJobTenants(req, res) {
+    try {
+      const result = await hqService.listFreeJobTenants(req.user);
+      sendResponse(res, 200, 'OK', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async setTenantJobPostingQuota(req, res) {
+    try {
+      const result = await hqService.setTenantJobPostingQuota(req.body, req.user);
+      sendResponse(res, 200, 'Job posting quota updated', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
   async createTenantImpersonationAccess(req, res) {
     try {
       const result = await hqService.createTenantImpersonationAccess(req.body, req.user);

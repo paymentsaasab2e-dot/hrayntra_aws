@@ -49,6 +49,12 @@ function packageLookupName(name) {
  * syncSubscriptionPlanFromHq used to re-resolve monthly packages and wipe 5-day
  * trial end dates back to +30 days.
  */
+function isFreeJobsHqPlan(hqPlan) {
+  const kind = String(hqPlan?.accountKind || '').trim().toLowerCase();
+  if (kind === 'free_jobs' || kind === 'free') return true;
+  return /^free jobs$/i.test(String(hqPlan?.name || '').trim());
+}
+
 function mergeHqPlanMetadata(resolvedPlan, hqPlan) {
   if (!resolvedPlan && !hqPlan) return null;
   if (!resolvedPlan) {
@@ -57,25 +63,31 @@ function mergeHqPlanMetadata(resolvedPlan, hqPlan) {
       ...(hqPlan?.isTrial ? { isTrial: true } : {}),
     };
   }
+  const freeJobs = isFreeJobsHqPlan(hqPlan);
   return {
     ...resolvedPlan,
-    // Keep HQ trial display name (e.g. "Starter Trial") instead of bare package name.
-    ...(hqPlan?.isTrial && hqPlan?.name ? { name: String(hqPlan.name).trim() } : {}),
+    // Keep HQ trial / Free Jobs display name instead of bare package name (Starter/Basic).
+    ...((hqPlan?.isTrial || freeJobs) && hqPlan?.name ? { name: String(hqPlan.name).trim() } : {}),
+    ...(freeJobs ? { name: 'Free Jobs', accountKind: 'free_jobs', isTrial: false } : {}),
+    ...(hqPlan?.accountKind ? { accountKind: String(hqPlan.accountKind) } : {}),
     ...(hqPlan?.planStartDate
       ? { planStartDate: String(hqPlan.planStartDate).trim().slice(0, 10) }
       : {}),
     // HQ end date wins — never replace a 5-day trial with monthly +30.
-    ...(hqPlan?.planEndDate
-      ? { planEndDate: String(hqPlan.planEndDate).trim().slice(0, 10) }
-      : {}),
+    // Free Jobs has no timed end — drop package-derived end dates.
+    ...(freeJobs
+      ? {}
+      : hqPlan?.planEndDate
+        ? { planEndDate: String(hqPlan.planEndDate).trim().slice(0, 10) }
+        : {}),
     ...(hqPlan?.upgradedAt ? { upgradedAt: String(hqPlan.upgradedAt) } : {}),
     ...(hqPlan?.upgradedFrom ? { upgradedFrom: String(hqPlan.upgradedFrom) } : {}),
     ...(hqPlan?.upgradedBy ? { upgradedBy: String(hqPlan.upgradedBy) } : {}),
     ...(hqPlan?.lastPaymentReference
       ? { lastPaymentReference: String(hqPlan.lastPaymentReference) }
       : {}),
-    ...(hqPlan?.isTrial ? { isTrial: true } : {}),
-    ...(hqPlan?.trialDays ? { trialDays: Number(hqPlan.trialDays) || undefined } : {}),
+    ...(hqPlan?.isTrial && !freeJobs ? { isTrial: true } : {}),
+    ...(hqPlan?.trialDays && !freeJobs ? { trialDays: Number(hqPlan.trialDays) || undefined } : {}),
     ...(hqPlan?.purchasedAt ? { purchasedAt: String(hqPlan.purchasedAt) } : {}),
     ...(hqPlan?.coins !== undefined && hqPlan?.coins !== null
       ? { coins: Math.max(0, Number(hqPlan.coins) || 0) }

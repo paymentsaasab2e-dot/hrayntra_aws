@@ -4,6 +4,7 @@ export type CachedOrgSubscriptionPlan = {
   planEndDate?: string;
   isTrial?: boolean;
   trialDays?: number;
+  accountKind?: string;
 };
 
 const CACHE_KEY = 'orgSubscriptionPlan';

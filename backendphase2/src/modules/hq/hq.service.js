@@ -224,21 +224,29 @@ function mapTenantForHqResponse(tenant) {
   };
 }
 
-/** HQ Tenants tab lists paid/platform workspaces only — hide try-free / trial grants. */
+/** HQ Tenants tab lists paid/platform workspaces only — hide try-free / Free Jobs grants. */
 function isHqTrialTenant(tenant) {
   const source = String(tenant?.signupSource || '')
     .trim()
     .toLowerCase();
-  if (source === 'landing_trial' || source === 'hq_grant_trial' || source.includes('trial')) {
+  if (
+    source === 'landing_trial' ||
+    source === 'hq_grant_trial' ||
+    source === 'landing_free_jobs' ||
+    source === 'hq_grant_free_jobs' ||
+    source.includes('trial') ||
+    source.includes('free_jobs')
+  ) {
     return true;
   }
   if (tenant?.subscriptionPlan?.isTrial) return true;
+  if (String(tenant?.subscriptionPlan?.accountKind || '').toLowerCase() === 'free_jobs') return true;
   const planName = String(tenant?.subscriptionPlan?.name || '').toLowerCase();
-  if (planName.includes('trial')) return true;
+  if (planName.includes('trial') || planName === 'free jobs') return true;
   const loginId = String(tenant?.loginId || '')
     .trim()
     .toLowerCase();
-  if (loginId.endsWith('@trial')) return true;
+  if (loginId.endsWith('@trial') || loginId.endsWith('@free')) return true;
   return false;
 }
 
@@ -660,6 +668,87 @@ export const hqService = {
       tenants: visibleTenants.map(mapTenantForHqResponse),
       stats,
       planOptions: packages,
+    };
+  },
+
+  /** Free Jobs / try-free landing tenants + their monthly publish quota. */
+  async listFreeJobTenants(reqUser) {
+    assertPlatformProvisioner(reqUser);
+    let tenants = await headquartersAuthService.listTenants();
+    tenants = await enrichTenantsFromLandingSignups(tenants);
+    const freeJobs = tenants.filter((t) => isHqTrialTenant(t) && !t.isDeleted);
+
+    const { getJobPostingQuotaSnapshot } = await import(
+      '../job-posting-plan/jobPostingPlan.service.js'
+    );
+
+    const rows = [];
+    for (const tenant of freeJobs) {
+      const base = mapTenantForHqResponse(tenant);
+      let jobPostingQuota = null;
+      const dbName = String(tenant.tenantDbName || '').trim();
+      if (dbName) {
+        try {
+          jobPostingQuota = await runWithTenantContext(dbName, () => getJobPostingQuotaSnapshot());
+        } catch (err) {
+          console.warn(
+            '[hq] free-jobs quota read failed for',
+            dbName,
+            err?.message || err,
+          );
+        }
+      }
+      rows.push({ ...base, jobPostingQuota });
+    }
+
+    return {
+      tenants: rows,
+      stats: {
+        total: rows.length,
+        agency: rows.filter((t) => t.organizationType === 'agency').length,
+        standalone: rows.filter((t) => t.organizationType === 'standalone').length,
+        withDb: rows.filter((t) => Boolean(t.tenantDbName)).length,
+      },
+    };
+  },
+
+  async setTenantJobPostingQuota(data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    const email = normalizeTenantEmail(data?.email);
+    if (!email) throw new Error('email is required');
+
+    const monthlyLimit = Math.max(1, Math.floor(Number(data?.monthlyLimit) || 0));
+    if (!monthlyLimit) throw new Error('monthlyLimit must be at least 1');
+
+    const tier = String(data?.tier || '').toLowerCase() === 'premium' ? 'premium' : 'free';
+    const billingCycle = data?.billingCycle === 'annual' ? 'annual' : 'monthly';
+    const premiumUntilDays = Math.max(1, Math.floor(Number(data?.premiumUntilDays) || 30));
+    const note = String(data?.note || '').trim();
+
+    const tenants = await headquartersAuthService.listTenants();
+    const existing = tenants.find((t) => normalizeTenantEmail(t.email) === email);
+    if (!existing) throw new Error('Tenant not found');
+    const tenantDbName = String(existing.tenantDbName || '').trim();
+    if (!tenantDbName) {
+      throw new Error('Tenant database is not provisioned yet');
+    }
+
+    const { hqSetJobPostingPlan } = await import('../job-posting-plan/jobPostingPlan.service.js');
+    const snapshot = await runWithTenantContext(tenantDbName, () =>
+      hqSetJobPostingPlan({
+        monthlyLimit,
+        tier,
+        billingCycle,
+        premiumUntilDays,
+        note: note || `HQ override by ${reqUser?.email || 'hq'}`,
+        activatedBy: reqUser?.email || 'hq',
+      }),
+    );
+
+    return {
+      email,
+      tenantDbName,
+      jobPostingQuota: snapshot,
     };
   },
 

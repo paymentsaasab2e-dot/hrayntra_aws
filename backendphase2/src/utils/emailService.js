@@ -66,6 +66,8 @@ export async function sendCredentialInvite({
   loginBaseUrl,
   trialDays,
   trialEndsAt,
+  accountKind,
+  monthlyJobLimit,
 }) {
   const base = env.FRONTEND_URL;
   const tenantQ = tenantQuerySuffix(tenantDbName);
@@ -74,16 +76,27 @@ export async function sendCredentialInvite({
     ? withTenantOnLoginUrl(String(loginBaseUrl).trim(), tenantDbName)
     : defaultLoginLink;
   const resetPasswordLink = `${base}/reset-password${tenantQ ? `?${tenantQ.slice(1)}` : ''}`;
-  const isTryFreeInvite = Boolean(trialDays || trialEndsAt);
-  const passwordLabel = isTryFreeInvite ? 'Password' : 'Temporary Password';
-  const trialNote = isTryFreeInvite
+  const kind = String(accountKind || '').trim().toLowerCase();
+  const isFreeJobsInvite = kind === 'free_jobs' || kind === 'free';
+  const isTryFreeInvite = !isFreeJobsInvite && Boolean(trialDays || trialEndsAt);
+  const isFinalPasswordInvite = isTryFreeInvite || isFreeJobsInvite;
+  const passwordLabel = isFinalPasswordInvite ? 'Password' : 'Temporary Password';
+  const jobLimit = Number(monthlyJobLimit) > 0 ? Number(monthlyJobLimit) : 10;
+  const trialNote = isFreeJobsInvite
     ? `<p style="font-size: 14px; color: #0f766e; margin: 0 0 16px 0;">
+          This is your <strong>Free Jobs</strong> employer account — it does not expire.
+          You can publish up to <strong>${jobLimit} jobs per month</strong> on the free plan.
+          Upgrade to Premium only when you need more posts. Applicants stay free.
+          Sign in with the credentials below. This password is your final login password.
+        </p>`
+    : isTryFreeInvite
+      ? `<p style="font-size: 14px; color: #0f766e; margin: 0 0 16px 0;">
           Your try-free access lasts <strong>${trialDays || '—'} day(s)</strong>
           ${trialEndsAt ? ` and ends on <strong>${trialEndsAt}</strong>` : ''}.
           Sign in to HRyantra with the credentials below. This password is your final login password.
         </p>`
-    : '';
-  const resetPasswordBlock = isTryFreeInvite
+      : '';
+  const resetPasswordBlock = isFinalPasswordInvite
     ? `<p style="font-size: 14px; color: #6b7280; margin-top: 24px;">
         You can change your password later from your account settings if you wish.
       </p>`
@@ -128,7 +141,7 @@ export async function sendCredentialInvite({
     </div>
     
     <div style="text-align: center; margin: 30px 0;">
-      <a href="${loginLink}" style="display: inline-block; background: #2563eb; color: white; text-decoration: none; padding: 12px 30px; border-radius: 6px; font-weight: 600; font-size: 16px;">${isTryFreeInvite ? 'Sign in to HRyantra' : 'Open Login'}</a>
+      <a href="${loginLink}" style="display: inline-block; background: #2563eb; color: white; text-decoration: none; padding: 12px 30px; border-radius: 6px; font-weight: 600; font-size: 16px;">${isFinalPasswordInvite ? 'Sign in to HRyantra' : 'Open Login'}</a>
     </div>
     
     <p style="font-size: 13px; color: #374151; margin: 0 0 6px 0;">
@@ -165,9 +178,11 @@ export async function sendCredentialInvite({
     const result = await getResend().emails.send({
       from: getEmailFromForTrigger('team.invite_email'),
       to: recipient,
-      subject: trialDays
-        ? `Your ${trialDays}-day HRYANTRA try-free access`
-        : `Welcome to HRYANTRA - Your Login Credentials`,
+      subject: isFreeJobsInvite
+        ? `Your HRYANTRA Free Jobs account`
+        : trialDays
+          ? `Your ${trialDays}-day HRYANTRA try-free access`
+          : `Welcome to HRYANTRA - Your Login Credentials`,
       html,
     });
 

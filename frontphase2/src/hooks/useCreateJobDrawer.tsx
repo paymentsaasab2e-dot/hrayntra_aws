@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { X, Check, Upload, Twitter, Facebook, User } from 'lucide-react';
 import { apiCreateJob, apiUpdateJob, apiGetJob, getJobPreScreenAssessments, apiGetWorkspaceClient, apiGetClient, apiGetContacts, apiGenerateJobDescription, apiGenerateJobFromPrompt, apiProcessJobCreationPipeline, type JobCreationPipelineResult, apiUploadJobFile, filesApiUpload, apiPublishSocialJob, apiGetSocialStatus, apiConnectIntegration, apiDisconnectIntegration, apiGetJobApplyLink, apiListLinkedInPostTemplates, type SocialPublishingAccount, getTenantDbName, getCachedOrgRecruitmentMode, isOwnCompanyWorkspaceClient, type CreateJobData, type BackendClient, type BackendContact, type BackendUser } from '../lib/api';
+import { notifyJobPostingQuotaIfNeeded } from '../lib/jobPostingQuotaEvents';
 import { getAllTeamMembersForAssign, getLineManagersForJobPicker, linkTeamRequestToJob, teamMembersToBackendUsers } from '../lib/api/teamApi';
 import { assigneeCompanyId, formatAssigneeDisplayName } from '../lib/assigneeDisplay';
 import { buildCandidatePortalApplyUrlPreview, replaceApplyUrlInSocialPostText, ensureApplyUrlInSocialPostText, buildLinkedInJobPost, buildTwitterJobPost, buildFacebookJobPost, type JobSocialPostInput } from '../lib/jobSocialPost';
@@ -2832,7 +2833,11 @@ const handleSaveJob = async () => {
         return;
       }
       console.error('Failed to save job:', error);
-      void requestError(error.message || 'Failed to save job');
+      if (notifyJobPostingQuotaIfNeeded(error)) {
+        void requestError(error.message || 'Monthly job posting limit reached. Upgrade to Premium.');
+      } else {
+        void requestError(error.message || 'Failed to save job');
+      }
     } finally {
       setLoading(false);
     }
