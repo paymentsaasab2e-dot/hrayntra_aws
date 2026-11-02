@@ -13,7 +13,17 @@ export function formatLeadSourceDisplay(
   sourceOther?: string | null,
 ): string {
   if (source === 'Other') {
-    return String(sourceOther || '').trim() || 'Other';
+    const other = String(sourceOther || '').trim();
+    if (!other) return 'Other';
+    // Import / AI research notes were often stored as sourceOther — keep the
+    // chip short; full text remains available via SourceCell tooltip.
+    const looksLikeResearchNote =
+      other.length > 48 ||
+      /not uniquely identified|need confirmation|before publishing|contact details|spelling|legal name/i.test(
+        other,
+      );
+    if (looksLikeResearchNote) return 'Other';
+    return other;
   }
   return String(source || '').trim();
 }

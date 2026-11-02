@@ -302,6 +302,16 @@ function normalizeImportSource(value) {
   return 'Other';
 }
 
+/** Free-text import "Source" cells that are research notes, not a channel name. */
+function isImportSourceResearchNote(value) {
+  const text = stripNbsp(value).trim();
+  if (!text) return false;
+  if (text.length > 48) return true;
+  return /not uniquely identified|need confirmation|before publishing|contact details|spelling|legal name|official .+ contact page|company website identified/i.test(
+    text,
+  );
+}
+
 function parseImportDateValue(value) {
   if (value === undefined || value === null) return undefined;
   const s = stripNbsp(String(value)).trim();
@@ -590,12 +600,18 @@ function buildLeadImportPayload(row = {}, mapping = {}, { performedById } = {}) 
     return cleanMapped(crmFieldKey);
   };
 
-  const companyName = cleanMapped('companyName');
   const directorName = cleanMapped('directorName');
   const contactPerson = cleanMapped('contactPerson') || directorName || null;
   const emailRaw = cleanMapped('email');
   const email = emailRaw ? emailRaw.toLowerCase() : null;
   const phone = cleanMapped('phone');
+  // Prefer a real company name; never leave LEAD blank when contact/phone exist.
+  const companyName =
+    cleanMapped('companyName') ||
+    contactPerson ||
+    phone ||
+    email ||
+    null;
 
   const websiteRaw = cleanMapped('website');
   const website = websiteRaw && isLikelyWebAddress(websiteRaw) ? websiteRaw : null;
@@ -615,6 +631,23 @@ function buildLeadImportPayload(row = {}, mapping = {}, { performedById } = {}) 
   const country = countryRaw || 'Cameroon';
   const importedDynamicOtherDetails = buildImportedDynamicOtherDetails(row, mapping);
 
+  const sourceRaw = cleanMapped('source');
+  const sourceIsResearchNote = isImportSourceResearchNote(sourceRaw);
+  const mappedSource = sourceIsResearchNote
+    ? 'Other'
+    : normalizeImportSource(sourceRaw) ?? null;
+  const sourceOther =
+    !sourceIsResearchNote && mappedSource === 'Other'
+      ? (() => {
+          const trimmed = stripNbsp(sourceRaw).trim();
+          if (!trimmed || trimmed.toLowerCase() === 'other') return null;
+          return trimmed;
+        })()
+      : null;
+  const notesFromSource = sourceIsResearchNote ? stripNbsp(sourceRaw).trim() : '';
+  const existingNotes = cleanMapped('notes');
+  const notes = [existingNotes, notesFromSource].filter(Boolean).join('\n\n') || null;
+
   return {
     companyName,
     contactPerson,
@@ -623,20 +656,13 @@ function buildLeadImportPayload(row = {}, mapping = {}, { performedById } = {}) 
     email,
     phone,
     type: normalizeImportType(cleanMapped('type')) || 'Company',
-    source: normalizeImportSource(cleanMapped('source')) ?? null,
-    sourceOther: (() => {
-      const raw = cleanMapped('source');
-      const mapped = normalizeImportSource(raw);
-      if (mapped !== 'Other') return null;
-      const trimmed = stripNbsp(raw).trim();
-      if (!trimmed || trimmed.toLowerCase() === 'other') return null;
-      return trimmed;
-    })(),
+    source: mappedSource,
+    sourceOther,
     status: normalizeImportStatus(cleanMapped('status')) || 'New',
     priority: normalizeImportPriority(cleanMapped('priority') || ''),
     interestedNeeds: servicesVal,
     servicesNeeded: servicesVal,
-    notes: cleanMapped('notes'),
+    notes,
     expectedBusinessValue,
     industry: sectorVal,
     sector: sectorVal,

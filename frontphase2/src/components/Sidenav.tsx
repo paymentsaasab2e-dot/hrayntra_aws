@@ -828,8 +828,10 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
           onScroll={persistScrollPosition}
           className="sidenav-scrollbar flex-1 overflow-y-auto overflow-x-hidden py-2"
         >
-          {/* CRM — hover flyout: Dashboard → Leads → Clients */}
-          {mounted && (canViewLeads || canViewClients || canViewDashboard) && (
+          {/* CRM — Free Jobs tenants never get CRM / Leads (recruitment-only). */}
+          {mounted &&
+            !freeJobsFlatNav &&
+            (canViewLeads || canViewClients || canViewDashboard) && (
             <NavGroupFlyout
               icon={Building2}
               imageSrc="/crmlog.png"

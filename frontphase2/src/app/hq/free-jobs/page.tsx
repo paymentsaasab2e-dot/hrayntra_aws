@@ -138,7 +138,7 @@ export default function HqFreeJobsPage() {
   return (
     <HqModulePageLayout
       title="Free Jobs"
-      description="Landing Free Jobs / try-free tenants. Raise monthly publish limits so they can post more jobs."
+      subtitle="Landing Free Jobs / try-free tenants. Raise monthly publish limits so they can post more jobs."
       icon={<Briefcase className="h-5 w-5" />}
     >
       <div className={HQ_TOOLBAR_ROW_CLASS}>
