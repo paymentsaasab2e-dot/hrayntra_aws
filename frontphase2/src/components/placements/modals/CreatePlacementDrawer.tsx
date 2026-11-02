@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Award, Briefcase, Calendar, IndianRupee, Upload, User } from 'lucide-react';
+import { Award, Briefcase, Calendar, IndianRupee, Loader2, Upload, User } from 'lucide-react';
 import type { CreatePlacementPayload, EmploymentType, PlacementStatus } from '../../../types/placement';
 import {
   calculatePlacementFee,
@@ -24,6 +24,8 @@ import { formatAssigneeDisplayName } from '../../../lib/assigneeDisplay';
 interface CreatePlacementDrawerProps {
   isOpen: boolean;
   isSubmitting: boolean;
+  /** True while candidate/job picker options are loading. */
+  optionsLoading?: boolean;
   mode?: 'create' | 'edit' | 'resend';
   currentUserId?: string;
   candidates: Array<{ id: string; name: string; email: string }>;
@@ -89,6 +91,7 @@ const initialState = {
 export function CreatePlacementDrawer({
   isOpen,
   isSubmitting,
+  optionsLoading = false,
   mode = 'create',
   currentUserId,
   candidates,
@@ -342,6 +345,12 @@ export function CreatePlacementDrawer({
       }
     >
       <DrawerSectionCard title="Placement Details" subtitle="Candidate, job, and team" icon={User} accent="blue">
+        {optionsLoading ? (
+          <div className="mb-4 flex items-center gap-2 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-800">
+            <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+            Loading candidates and jobs…
+          </div>
+        ) : null}
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div>
             <DrawerFieldLabel label="Candidate" icon={User} iconClassName="text-blue-500" required />

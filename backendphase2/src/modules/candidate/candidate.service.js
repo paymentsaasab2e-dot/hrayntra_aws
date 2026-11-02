@@ -5482,16 +5482,21 @@ export const candidateService = {
       req.query?.picker === '1' ||
       req.query?.picker === 'true' ||
       req.query?.picker === true;
+    const placementPickerMode =
+      req.query?.placementPicker === '1' ||
+      req.query?.placementPicker === 'true' ||
+      req.query?.placementPicker === true;
     // My candidates is tenant CRM + applicants/assignees on accessible jobs — never the full Phase 1 pool.
     // Picker skips the common-pool decision and tenant job scan — those delayed the dropdown.
-    const loadCommonPool = mine || pickerMode ? false : await resolveLoadCommonPool(req.query);
+    const loadCommonPool =
+      mine || pickerMode || placementPickerMode ? false : await resolveLoadCommonPool(req.query);
     const canViewAllCandidates =
       canViewAllAssignments(req) || hasAnyPermissionScope(req, ['view_all_candidates']);
     const canViewAllTenantJobs = canViewAllCandidates || canViewAllJobs(req);
     // Display scoping must use the full tenant job set. Using only personal myJobIds here
     // wiped Assigned Job titles on My Candidates (jobs outside the mine cap → "—").
     const tenantJobIdSet =
-      pickerMode || !isTenantScopedRequest() ? null : await getTenantJobIdSet();
+      pickerMode || placementPickerMode || !isTenantScopedRequest() ? null : await getTenantJobIdSet();
     const livePortalMerge = isLivePortalListMergeEnabled();
     // View-all users: My includes applied/assigned on any tenant job (not only personally owned).
     // Recruiters without view-all: still limited to jobs they own / support.
@@ -5595,6 +5600,32 @@ export const candidateService = {
     }
     if (andParts.length) {
       where.AND = andParts;
+    }
+
+    // Manual placement drawer: lean id/name/email list (high limit, no portal/hydration).
+    if (placementPickerMode) {
+      const pickerLimit = Math.min(
+        Math.max(Number.parseInt(String(req.query.limit || '1000'), 10) || 1000, 1),
+        2000,
+      );
+      const pickerPage = Math.max(1, Number.parseInt(String(req.query.page || '1'), 10) || 1);
+      const pickerSkip = (pickerPage - 1) * pickerLimit;
+      const [rows, total] = await Promise.all([
+        prisma.candidate.findMany({
+          where,
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+          },
+          orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+          skip: pickerSkip,
+          take: pickerLimit,
+        }),
+        prisma.candidate.count({ where }),
+      ]);
+      return formatPaginationResponse(rows, pickerPage, pickerLimit, total);
     }
 
     // Schedule-interview picker: id/name/phone/job only. Skip portal merge,
