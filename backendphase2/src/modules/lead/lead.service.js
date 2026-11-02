@@ -25,6 +25,7 @@ import {
   filterMeaningfulImportColumns,
   slimImportRows,
 } from '../../utils/importSpreadsheet.js';
+import { assertLeadImportUsesSystemTemplate } from '../../utils/leadImportTemplate.js';
 import {
   applyAgreementTermsUpdateFields,
   buildAgreementTermsCreateFields,
@@ -2206,6 +2207,7 @@ export const leadService = {
 
   async checkImportDuplicates({ rows = [], mapping = {} }) {
     const rawColumns = rows.length > 0 ? Object.keys(rows[0]) : [];
+    assertLeadImportUsesSystemTemplate(rawColumns);
     const mappedColumns = Object.values(mapping).filter((c) => typeof c === 'string' && c.trim());
     const meaningfulColumns = [
       ...new Set([
@@ -2243,6 +2245,7 @@ export const leadService = {
 
   async importLeads({ rows = [], mapping = {}, duplicateRule = 'skip', performedById, performedByRole }, req = null) {
     const rawColumns = rows.length > 0 ? Object.keys(rows[0]) : [];
+    assertLeadImportUsesSystemTemplate(rawColumns);
     const mappedColumns = Object.values(mapping).filter((c) => typeof c === 'string' && c.trim());
     const meaningfulColumns = [
       ...new Set([

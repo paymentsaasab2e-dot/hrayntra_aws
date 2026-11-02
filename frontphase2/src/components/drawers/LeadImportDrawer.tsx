@@ -373,8 +373,11 @@ export function LeadImportDrawer({
     } catch (error: any) {
       setFileUploaded(false);
       uploadProgress.reset();
-      toast.error(error.message || 'Failed to read the import file');
-      setParseError(error.message || 'Failed to read the import file');
+      const message =
+        error?.message ||
+        'Please use our Leads import template. Download the template and upload that file.';
+      toast.error(message);
+      setParseError(message);
       setFileColumns([]);
       setColumnStats({});
       setPreviewRows([]);
@@ -474,7 +477,10 @@ export function LeadImportDrawer({
                 }`}
               >
                 <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Upload file</h4>
-                <p className="text-sm text-slate-600 mb-4">Upload a CSV or Excel file containing your lead data.</p>
+                <p className="text-sm text-slate-600 mb-4">
+                  Only our system template is accepted. Download the template, fill your leads, then upload that file.
+                  Other Excel or CSV layouts will be rejected.
+                </p>
                 <label
                   htmlFor="lead-import-file"
                   className={`relative flex cursor-pointer rounded-xl border-2 p-8 transition-colors ${
@@ -537,7 +543,7 @@ export function LeadImportDrawer({
                     >
                       {fileUploaded && hasParsedFile
                         ? 'Uploaded successfully — continue to map columns'
-                        : 'CSV, XLSX up to 10MB'}
+                        : 'Use Download template · CSV / XLSX up to 10MB'}
                     </span>
                   </div>
                 </label>
@@ -547,7 +553,20 @@ export function LeadImportDrawer({
                     percent={uploadProgress.percent}
                   />
                 ) : null}
-                {parseError ? <p className="mt-3 text-sm text-red-600">{parseError}</p> : null}
+                {parseError ? (
+                  <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                    <p className="font-semibold">Use our template</p>
+                    <p className="mt-1">{parseError}</p>
+                    <button
+                      type="button"
+                      onClick={handleDownloadSample}
+                      className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-semibold text-red-800 hover:bg-red-50"
+                    >
+                      <Download size={14} />
+                      Download template
+                    </button>
+                  </div>
+                ) : null}
                 {fileUploaded && hasParsedFile && sheetName ? (
                   <motion.div
                     initial={{ opacity: 0, y: 6 }}
@@ -573,9 +592,8 @@ export function LeadImportDrawer({
             <div className="space-y-4">
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
                 <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Map columns</h4>
-                <p className="text-sm text-slate-600 mb-4">The uploaded sheet columns are listed below with their suggested lead field mapping.</p>
-                <p className="mb-4 rounded-lg border border-indigo-100 bg-indigo-50 px-3 py-2 text-xs text-indigo-800">
-                  Any Excel columns you do not map to the standard lead fields will be saved as dynamic fields and shown in the lead drawer. You can also choose those dynamic fields as extra table columns on the Leads page.
+                <p className="text-sm text-slate-600 mb-4">
+                  Columns from our system template are mapped automatically. Confirm the mapping below, then continue.
                 </p>
                 <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
                   <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Detected columns</p>
