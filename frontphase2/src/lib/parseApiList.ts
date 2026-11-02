@@ -1,4 +1,4 @@
-import type { BackendClient, BackendJob } from './api';
+import type { BackendCandidate, BackendClient, BackendJob } from './api';
 import { dedupeByCompanyName } from './companyNameKey';
 
 /** Unwrap paginated list responses from apiFetch (`{ success, data: { data, pagination } }`). */
@@ -10,6 +10,22 @@ export function parseJobsListFromResponse(res: { data?: unknown }): BackendJob[]
     if (Array.isArray(inner.data)) return inner.data;
     if (Array.isArray(inner.items)) return inner.items;
     if (Array.isArray(inner.jobs)) return inner.jobs;
+  }
+  return [];
+}
+
+export function parseCandidatesListFromResponse(res: { data?: unknown }): BackendCandidate[] {
+  const payload = res?.data;
+  if (Array.isArray(payload)) return payload as BackendCandidate[];
+  if (payload && typeof payload === 'object') {
+    const inner = payload as {
+      data?: BackendCandidate[];
+      items?: BackendCandidate[];
+      candidates?: BackendCandidate[];
+    };
+    if (Array.isArray(inner.data)) return inner.data;
+    if (Array.isArray(inner.items)) return inner.items;
+    if (Array.isArray(inner.candidates)) return inner.candidates;
   }
   return [];
 }
