@@ -238,8 +238,12 @@ type DrawerDropdownMenuPosition = {
   maxHeight: number;
 };
 
-export function useDrawerPortalDropdownPosition(open: boolean, preferUpward: boolean, onClose: () => void) {
-  const triggerRef = useRef<HTMLElement | null>(null);
+export function useDrawerPortalDropdownPosition<T extends HTMLElement = HTMLButtonElement>(
+  open: boolean,
+  preferUpward: boolean,
+  onClose: () => void,
+) {
+  const triggerRef = useRef<T | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [menuPosition, setMenuPosition] = useState<DrawerDropdownMenuPosition | null>(null);
 

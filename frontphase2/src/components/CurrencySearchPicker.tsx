@@ -63,7 +63,7 @@ export function CurrencySearchPicker({
     setSearch('');
   }, []);
 
-  const { triggerRef, menuRef, menuPosition } = useDrawerPortalDropdownPosition(
+  const { triggerRef, menuRef, menuPosition } = useDrawerPortalDropdownPosition<HTMLInputElement>(
     compact && open,
     preferUpward,
     closeMenu,
