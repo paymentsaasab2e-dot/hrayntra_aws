@@ -7,7 +7,6 @@ import {
   apiUpdatePlacementStatus,
   apiDeletePlacement,
   apiExportPlacements,
-  apiGetCandidates,
   apiGetPlacementStats,
   apiGetPlacements,
   apiMarkPlacementFailed,
@@ -19,7 +18,10 @@ import {
 } from '../lib/api';
 import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '../lib/api/teamApi';
 import { getActiveOrgUnitId } from '../lib/org/orgWorkspaceStorage';
-import { fetchAllAccessibleJobsForPlacementPicker } from '../lib/myJobsListParams';
+import {
+  fetchAllAccessibleCandidatesForPlacementPicker,
+  fetchAllAccessibleJobsForPlacementPicker,
+} from '../lib/myJobsListParams';
 import type {
   CreatePlacementPayload,
   MarkFailedPayload,
@@ -115,8 +117,9 @@ export function usePlacements(filters: PlacementFilters) {
 
   const fetchOptions = useCallback(async () => {
     try {
-      const [candidatesRes, jobs, placementsForClientsRes, teamMembers] = await Promise.all([
-        apiGetCandidates({ page: 1, limit: 500 }),
+      const [candidates, jobs, placementsForClientsRes, teamMembers] = await Promise.all([
+        // Every candidate this user can access (pages through the server list cap).
+        fetchAllAccessibleCandidatesForPlacementPicker(),
         // Every job this user can access (all statuses; pages through the server list cap).
         fetchAllAccessibleJobsForPlacementPicker(),
         // Unfiltered placement list — All Clients filter only shows clients that have placements.
@@ -124,7 +127,6 @@ export function usePlacements(filters: PlacementFilters) {
         getAllTeamMembersForAssign(getActiveOrgUnitId() || undefined, 'Placements'),
       ]);
 
-      const candidates = unwrapCollection(candidatesRes.data as any);
       const placementsForClients = unwrapCollection(placementsForClientsRes.data as any);
       const users = teamMembersToBackendUsers(teamMembers);
 

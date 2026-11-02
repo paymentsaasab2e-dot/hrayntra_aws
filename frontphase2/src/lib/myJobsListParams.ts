@@ -1,6 +1,6 @@
-import { apiGetJobs, type BackendJob } from './api';
+import { apiGetCandidates, apiGetJobs, type BackendCandidate, type BackendJob } from './api';
 import { fetchAllPaginated, totalPagesFromPagination } from './export/fetchAllPaginated';
-import { parseJobsListFromResponse } from './parseApiList';
+import { parseCandidatesListFromResponse, parseJobsListFromResponse } from './parseApiList';
 
 /**
  * Same query as the /job table: only jobs created by the logged-in user.
@@ -20,6 +20,14 @@ export const PLACEMENT_FORM_JOBS_PARAMS = {
   status: 'ALL' as const,
 };
 
+function paginationFromListResponse(res: { data?: unknown; pagination?: { totalPages?: number; total?: number } }) {
+  const nested =
+    res?.data && typeof res.data === 'object' && !Array.isArray(res.data)
+      ? (res.data as { pagination?: { totalPages?: number; total?: number } }).pagination
+      : undefined;
+  return res?.pagination || nested;
+}
+
 /** Load every accessible job for Add Manual Placement / similar pickers. */
 export async function fetchAllAccessibleJobsForPlacementPicker(
   signal?: AbortSignal,
@@ -34,14 +42,40 @@ export async function fetchAllAccessibleJobsForPlacementPicker(
         signal,
       });
       const items = parseJobsListFromResponse(jobsRes);
-      const nested =
-        jobsRes?.data && typeof jobsRes.data === 'object' && !Array.isArray(jobsRes.data)
-          ? (jobsRes.data as { pagination?: { totalPages?: number; total?: number } }).pagination
-          : undefined;
-      const pagination = jobsRes?.pagination || nested;
       return {
         items,
-        totalPages: totalPagesFromPagination(pagination, items.length, limit),
+        totalPages: totalPagesFromPagination(paginationFromListResponse(jobsRes), items.length, limit),
+      };
+    },
+  });
+}
+
+/**
+ * Load every candidate this user can access for Add Manual Placement.
+ * Pages through the server list cap (~100). Skips Phase 1 common-pool merge.
+ */
+export async function fetchAllAccessibleCandidatesForPlacementPicker(
+  signal?: AbortSignal,
+): Promise<BackendCandidate[]> {
+  return fetchAllPaginated<BackendCandidate>({
+    batchSize: 100,
+    fetchPage: async (page, limit) => {
+      const candidatesRes = await apiGetCandidates(
+        {
+          page,
+          limit,
+          includeCommonPool: false,
+        },
+        { signal },
+      );
+      const items = parseCandidatesListFromResponse(candidatesRes);
+      return {
+        items,
+        totalPages: totalPagesFromPagination(
+          paginationFromListResponse(candidatesRes),
+          items.length,
+          limit,
+        ),
       };
     },
   });
