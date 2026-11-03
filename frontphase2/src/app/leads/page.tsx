@@ -399,15 +399,35 @@ function readIntakeAddedByName(row: Record<string, unknown> | BackendLead): stri
   return undefined;
 }
 
+/** LEAD column label — company first, then people / phone / email (never blank "?" only). */
+function getLeadListDisplayName(lead: Pick<
+  Lead,
+  'companyName' | 'contactPerson' | 'contactName' | 'directorName' | 'phone' | 'phones' | 'email' | 'emails'
+>): string {
+  const phone =
+    String(lead.phone || '').trim() ||
+    (Array.isArray(lead.phones) ? String(lead.phones[0] || '').trim() : '');
+  const email =
+    String(lead.email || '').trim() ||
+    (Array.isArray(lead.emails) ? String(lead.emails[0] || '').trim() : '');
+  return (
+    [lead.companyName, lead.contactPerson, lead.contactName, lead.directorName, phone, email]
+      .map((v) => String(v || '').trim())
+      .find(Boolean) || 'Untitled lead'
+  );
+}
+
 function mapBackendLeadToFrontend(backendLead: BackendLead): Lead {
   const source = isLeadSource(backendLead.source) ? backendLead.source : undefined;
+  const contactName = String((backendLead as { contactName?: string | null }).contactName || '').trim();
 
   return {
     id: backendLead.id,
     companyName: backendLead.companyName || '',
     type: backendLead.type,
     source,
-    contactPerson: backendLead.contactPerson || '',
+    contactPerson: backendLead.contactPerson || contactName || '',
+    contactName: contactName || undefined,
     directorSalutation: backendLead.directorSalutation || undefined,
     directorName: backendLead.directorName || undefined,
     email: backendLead.email || '',
@@ -2420,7 +2440,7 @@ export default function RecruitmentAgencyDashboard() {
                               <div className="flex min-w-0 items-center gap-2">
                                 <span className="shrink-0">
                                   <TableBrandAvatar
-                                    name={lead.companyName}
+                                    name={getLeadListDisplayName(lead)}
                                     size="xs"
                                     showStatusDot={false}
                                     statusDotTitle={`Lead: ${lead.status}`}
@@ -2430,12 +2450,12 @@ export default function RecruitmentAgencyDashboard() {
                                 <button
                                   type="button"
                                   className="min-w-0 truncate text-left text-[13px] font-semibold leading-none text-slate-900 hover:text-indigo-700 transition-colors"
-                                  title={lead.companyName}
+                                  title={getLeadListDisplayName(lead)}
                                   onClick={() => {
                                     void openLeadDrawerWithFreshData(lead, 'view');
                                   }}
                                 >
-                                  {lead.companyName}
+                                  {getLeadListDisplayName(lead)}
                                 </button>
                                 {(() => {
                                   const conversion = getStatusForLead(lead.id);
@@ -2477,10 +2497,22 @@ export default function RecruitmentAgencyDashboard() {
                               <td>
                                 <div
                                   className="min-w-0 truncate"
-                                  title={formatDirectorDisplay(lead.directorSalutation, lead.directorName || lead.contactPerson)}
+                                  title={
+                                    formatDirectorDisplay(
+                                      lead.directorSalutation,
+                                      lead.directorName || lead.contactPerson || lead.contactName,
+                                    ) ||
+                                    formatContactListDisplay(lead.phones, lead.phone) ||
+                                    undefined
+                                  }
                                 >
                                   <span className="text-[13px] font-semibold leading-none text-slate-800">
-                                    {formatDirectorDisplay(lead.directorSalutation, lead.directorName || lead.contactPerson)}
+                                    {formatDirectorDisplay(
+                                      lead.directorSalutation,
+                                      lead.directorName || lead.contactPerson || lead.contactName,
+                                    ) ||
+                                      formatContactListDisplay(lead.phones, lead.phone) ||
+                                      '—'}
                                   </span>
                                 </div>
                               </td>
