@@ -9,7 +9,7 @@ import { buildMatchesCsvColumns, MATCHES_EXPORT_COLUMNS } from '../../lib/export
 import { TableColumnsMenu } from '../../components/table/TableColumnsMenu';
 import { usePersistedColumnVisibility } from '../../hooks/usePersistedColumnVisibility';
 import { MATCH_TABLE_COLUMNS } from '../../lib/tableColumns/moduleTableColumns';
-import { Toaster } from 'sonner';
+
 import AIManualToggle from '../../components/matches/AIManualToggle';
 import JobSelector from '../../components/matches/JobSelector';
 import FilterBar from '../../components/matches/FilterBar';
@@ -957,7 +957,6 @@ export default function MatchesPage() {
 
   return (
     <div className="w-full min-h-screen overflow-hidden text-slate-900">
-      <Toaster position="top-right" richColors style={{ top: '5rem' }} />
       <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
         <header className="flex min-h-[4.5rem] shrink-0 flex-wrap items-center justify-between gap-3 border-b border-indigo-100/50 bg-white/80 px-4 py-3 shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)] backdrop-blur-md sm:px-6">
           <div className="flex items-center gap-2.5 sm:gap-3">

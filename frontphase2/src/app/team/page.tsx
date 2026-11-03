@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { Plus, Users, Download, RefreshCcw } from 'lucide-react';
 import { motion } from 'motion/react';
-import { Toaster } from 'sonner';
+
 import { usePermissions } from '../../hooks/usePermissions';
 import { MembersTab, type TeamMembersHeaderExtras } from '../../components/team/tabs/MembersTab';
 import { RolesTab } from '../../components/team/tabs/RolesTab';
@@ -151,7 +151,6 @@ function TeamPageContent() {
 
   return (
     <>
-      <Toaster position="top-right" richColors style={{ top: '5rem' }} />
       <div className="ph2-page-shell flex h-[calc(100dvh-3.5rem)] w-full flex-col overflow-hidden text-slate-900">
         <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
           <header className="flex min-h-[4.5rem] shrink-0 flex-wrap items-center justify-between gap-3 border-b border-indigo-100/50 bg-white/80 px-4 py-3 shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)] backdrop-blur-md sm:px-6">

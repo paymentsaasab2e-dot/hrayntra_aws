@@ -85,7 +85,7 @@ import { usePersistedColumnVisibility } from '../../hooks/usePersistedColumnVisi
 import { CANDIDATE_TABLE_COLUMNS } from '../../lib/tableColumns/moduleTableColumns';
 import { fetchAllPaginated, totalPagesFromPagination } from '../../lib/export/fetchAllPaginated';
 import { CreateTaskModal } from '../../components/CreateTaskModal';
-import { Toaster, toast } from 'sonner';
+import { toast } from 'sonner';
 import PaginationAll from '../../components/PaginationAll';
 import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../constants/tablePagination';
 import { requestConfirm, requestError, requestPrompt } from '../../lib/appDialog';
@@ -448,7 +448,6 @@ export function CandidateListPage() {
 
   return (
     <>
-      <Toaster position="top-right" richColors style={{ top: '5rem' }} />
       <div className="ph2-page-shell flex h-[calc(100dvh-3.5rem)] w-full flex-col overflow-hidden text-slate-900">
         <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
           <header className="flex min-h-0 shrink-0 flex-nowrap items-center justify-between gap-2 overflow-x-auto border-b border-indigo-100/50 bg-white/80 px-3 py-2 shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)] backdrop-blur-md sm:px-5">

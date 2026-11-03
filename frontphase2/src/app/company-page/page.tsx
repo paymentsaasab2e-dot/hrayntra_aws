@@ -13,7 +13,7 @@ import {
   Sparkles,
   X,
 } from 'lucide-react';
-import { Toaster, toast } from 'sonner';
+import { toast } from 'sonner';
 import {
   apiCreateTenantCompanyPost,
   apiGetTenantCompanyPage,
@@ -411,7 +411,6 @@ export default function CompanyPageManager() {
 
   return (
     <div className="mx-auto w-full max-w-[1400px] space-y-4 p-4 md:p-6 lg:px-8">
-      <Toaster position="top-right" richColors />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-sky-600">

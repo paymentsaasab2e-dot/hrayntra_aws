@@ -12,6 +12,7 @@ import { TenantIntelligenceHost } from "../components/phase2-intelligence/Tenant
 import { WritingAssistHost } from "../components/common/WritingAssistHost";
 import { RouteErrorBoundary } from "../components/PageErrorBoundary";
 import { IdleMount } from "../components/IdleMount";
+import { GlobalToaster } from "../components/GlobalToaster";
 import "./globals.css";
 import "../styles/nexus-dashboard.css";
 import "../styles/hry-premium.css";
@@ -43,6 +44,7 @@ export default function RootLayout({
         <TenantCoinsProvider>
           <TenantImpersonationBanner />
           <RouteErrorBoundary>{children}</RouteErrorBoundary>
+          <GlobalToaster />
           <PageTitleSync />
           <GlobalAlertHost />
           <TrialPlanHost />

@@ -7,7 +7,7 @@ import { downloadCsv } from '../../utils/csv';
 import { ExportColumnsModal } from '../../components/export/ExportColumnsModal';
 import { buildContactsCsvColumns, CONTACTS_EXPORT_COLUMNS } from '../../lib/export/contactsExportColumns';
 import { fetchAllPaginated, totalPagesFromPagination } from '../../lib/export/fetchAllPaginated';
-import { Toaster, toast } from 'sonner';
+import { toast } from 'sonner';
 import { matchesQuickSearch, buildQuickSearchHaystack } from '../../lib/quickSearch';
 import {
   apiGetContacts,
@@ -400,7 +400,6 @@ function ContactsPageContent() {
 
   return (
     <>
-      <Toaster position="top-right" richColors />
       <Ph2ModulePageLayout
         title="Contacts"
         icon={<BookUser className="h-5 w-5" strokeWidth={2.2} />}

@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { Coins, Loader2, Ticket } from 'lucide-react';
-import { toast, Toaster } from 'sonner';
+import { toast } from 'sonner';
 import { TokenCoinIcon } from '@/components/coins/TokenCoinIcon';
 import { useTenantCoins } from '@/components/coins/TenantCoinsContext';
 import {
@@ -74,7 +74,6 @@ export default function SubscriptionPage() {
 
   return (
     <>
-      <Toaster position="top-right" richColors style={{ top: '5rem' }} />
       <div className={`${dashTextFont} w-full min-h-screen text-slate-800`}>
         <header className="flex min-h-[4.5rem] shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200/80 bg-white/80 px-4 py-3 backdrop-blur-md sm:px-6">
           <div className="flex items-center gap-2.5">

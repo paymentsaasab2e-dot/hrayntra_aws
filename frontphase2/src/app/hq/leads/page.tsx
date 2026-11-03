@@ -25,7 +25,7 @@ import {
   UserPlus,
   XCircle,
 } from 'lucide-react';
-import { Toaster, toast } from 'sonner';
+import { toast } from 'sonner';
 import { requestConfirm } from '@/lib/appDialog';
 import { LeadDetailsDrawer } from '@/components/drawers/LeadDetailsDrawer';
 import { HqCrmEmbed } from '@/components/hq/HqCrmEmbed';
@@ -1074,7 +1074,6 @@ export default function HqLeadsPage() {
   return (
     <HqCrmEmbed>
       <div className="ph2-page-shell flex h-[100dvh] w-full flex-col overflow-hidden text-slate-900">
-        <Toaster position="top-right" richColors style={{ top: '5rem' }} />
 
         <CreateTenantModal
           open={createUserOpen}

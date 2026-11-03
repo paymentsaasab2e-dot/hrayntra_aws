@@ -3,7 +3,7 @@
 import React, { Suspense } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Building2 } from 'lucide-react';
-import { Toaster } from 'sonner';
+
 import { CrossDepartmentApprovalsPanel } from '../../../components/team/CrossDepartmentApprovalsPanel';
 
 export const dynamic = 'force-dynamic';
@@ -11,7 +11,6 @@ export const dynamic = 'force-dynamic';
 function CrossDeptApprovalContent() {
   return (
     <>
-      <Toaster position="top-right" richColors style={{ top: '5rem' }} />
       <div className="w-full min-h-screen overflow-hidden text-slate-900">
         <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
           <header className="flex min-h-[4.5rem] shrink-0 flex-wrap items-center justify-between gap-3 border-b border-indigo-100/50 bg-white/80 px-4 py-3 shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)] backdrop-blur-md sm:px-6">

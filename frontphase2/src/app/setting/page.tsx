@@ -13,7 +13,6 @@ import { InvoiceTemplateSettings } from '../../components/settings/InvoiceTempla
 import { SecuritySettings } from '../../components/SecuritySettings';
 import { CustomizationSettings } from '../../components/CustomizationSettings';
 import { ProfileSettings } from '../../components/ProfileSettings';
-import { Toaster } from 'sonner';
 import { isOrgBillingNavEnabled, ORG_RECRUITMENT_CACHE_EVENT, getCachedOrgRecruitmentMode } from '../../lib/api';
 import { CommissionSlabSettings } from '../../components/settings/CommissionSlabSettings';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -192,7 +191,6 @@ export default function SettingsPage() {
 
   return (
     <>
-      <Toaster position="top-right" richColors />
 
       <div className="flex min-h-[calc(100dvh-3.5rem)] min-w-0 flex-col bg-gradient-to-br from-slate-50 via-indigo-50/20 to-violet-50/15 lg:flex-row">
         <SettingsSidebar

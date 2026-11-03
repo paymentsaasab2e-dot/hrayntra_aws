@@ -21,7 +21,7 @@ import {
   Upload,
   Users,
 } from 'lucide-react';
-import { Toaster, toast } from 'sonner';
+import { toast } from 'sonner';
 import { ClientDetailsDrawer } from '@/components/drawers/ClientDetailsDrawer';
 import { HqCrmEmbed } from '@/components/hq/HqCrmEmbed';
 import {
@@ -457,7 +457,6 @@ export default function HqClientsPage() {
   return (
     <HqCrmEmbed>
       <div className="ph2-page-shell flex h-[100dvh] w-full flex-col overflow-hidden text-slate-900">
-        <Toaster position="top-right" richColors style={{ top: '5rem' }} />
 
         <HqProductLinePickerModal
           open={productLinePickerOpen}
