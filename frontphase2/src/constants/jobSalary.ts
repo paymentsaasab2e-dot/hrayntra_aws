@@ -134,6 +134,16 @@ const COMMON_ISO_SYMBOL_FALLBACKS: Record<string, string> = {
   XAF: 'Fr',
   XOF: 'Fr',
   CFA: 'Fr',
+  // Intl often returns the ISO code for these — use local abbreviations instead.
+  TZS: 'TSh',
+  KES: 'KSh',
+  UGX: 'USh',
+  RWF: 'FRw',
+  NGN: '₦',
+  GHS: 'GH₵',
+  ZMW: 'ZK',
+  ETB: 'Br',
+  EGP: 'E£',
 };
 
 function isIsoLikeCode(value: string): boolean {
@@ -245,7 +255,11 @@ export function formatJobSalaryCurrencyOptionLabel(code: string, symbol?: string
   return cleanCode;
 }
 
-/** Prefix for salary amounts in LinkedIn / job lists — symbol only, never ISO code. */
+/**
+ * Prefix for salary amounts in job drawer / lists / posts.
+ * Prefer a distinct glyph/abbreviation; if none exists, fall back to the ISO code
+ * so ranges never show bare numbers when a currency is selected (e.g. TZS).
+ */
 export function formatJobSalaryAmountPrefix(
   code?: string | null,
   storedSymbol?: string | null,
@@ -253,15 +267,19 @@ export function formatJobSalaryAmountPrefix(
   const cleanCode = String(code || '')
     .trim()
     .toUpperCase();
-  const cleanSymbol = String(
-    storedSymbol != null && String(storedSymbol).trim()
-      ? storedSymbol
-      : getJobSalaryCurrencySymbol(cleanCode),
-  ).trim();
-  if (cleanSymbol && cleanSymbol.toUpperCase() !== cleanCode) {
-    return cleanSymbol.length > 1 ? `${cleanSymbol} ` : cleanSymbol;
-  }
-  return '';
+  if (!cleanCode) return '';
+
+  const stored = String(storedSymbol || '').trim();
+  const resolved = String(getJobSalaryCurrencySymbol(cleanCode) || '').trim();
+  const cleanSymbol =
+    stored && stored.toUpperCase() !== cleanCode
+      ? stored
+      : resolved && resolved.toUpperCase() !== cleanCode
+        ? resolved
+        : stored || resolved || cleanCode;
+
+  if (!cleanSymbol) return '';
+  return cleanSymbol.length > 1 ? `${cleanSymbol} ` : cleanSymbol;
 }
 
 /** Strip leading ISO codes and currency symbols from a salary amount/range string. */
@@ -281,10 +299,16 @@ export function stripJobSalaryCurrencyCodePrefix(
   next = next.replace(/^[A-Z]{3}\s+(?=\d|[₹$€£¥₩₱₫₺₽]|Fr\.?|Rp|RM|kr)/i, '').trim();
   // Strip one or more leading currency symbols (handles "$ ₹600000" leftovers).
   next = next
-    .replace(/^(?:[₹$€£¥₩₱₫₺₽]|R\$|A\$|C\$|S\$|HK\$|NZ\$|Mex\$|Fr\.?|Rp|RM|kr|د\.إ)\s*/u, '')
+    .replace(
+      /^(?:[₹$€£¥₩₱₫₺₽₦₵]|R\$|A\$|C\$|S\$|HK\$|NZ\$|Mex\$|Fr\.?|FRw|Rp|RM|kr|TSh|KSh|USh|ZK|Br|E£|د\.إ)\s*/iu,
+      '',
+    )
     .trim();
   next = next
-    .replace(/^(?:[₹$€£¥₩₱₫₺₽]|R\$|A\$|C\$|S\$|HK\$|NZ\$|Mex\$|Fr\.?|Rp|RM|kr|د\.إ)\s*/u, '')
+    .replace(
+      /^(?:[₹$€£¥₩₱₫₺₽₦₵]|R\$|A\$|C\$|S\$|HK\$|NZ\$|Mex\$|Fr\.?|FRw|Rp|RM|kr|TSh|KSh|USh|ZK|Br|E£|د\.إ)\s*/iu,
+      '',
+    )
     .trim();
   return next;
 }

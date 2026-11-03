@@ -59,7 +59,7 @@ import PaginationAll from '../../components/PaginationAll';
 import { TABLE_PAGE_SIZE_OPTIONS, type TablePageSize } from '../../constants/tablePagination';
 import { requestConfirm, requestError } from '../../lib/appDialog';
 import { motion } from 'motion/react';
-import { Toaster, toast } from 'sonner';
+import { toast } from 'sonner';
 import { CreateTaskModal } from '../../components/CreateTaskModal';
 import type { JobForDrawer, JobCandidateItem } from '../../components/drawers/JobDetailsDrawer';
 
@@ -1161,7 +1161,6 @@ export function JobListPage() {
 
   return (
     <>
-      <Toaster position="top-right" richColors />
       <JobPostingPremiumModal
         open={premiumModalOpen}
         onClose={() => setPremiumModalOpen(false)}

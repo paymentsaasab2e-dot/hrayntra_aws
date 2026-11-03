@@ -57,8 +57,18 @@ function createRateLimiter({
   };
 }
 
-/** OTP send: per IP + per email */
+/** OTP send: short cooldown (double-click / slow UI) + per IP + per email */
 function otpSendRateLimit() {
+  const byEmailCooldown = createRateLimiter({
+    windowMs: 45 * 1000,
+    max: 1,
+    keyGenerator: (req) => {
+      const email = String(req.body?.email || '').trim().toLowerCase();
+      return `otp-send-email-cd:${email || 'none'}`;
+    },
+    message:
+      'A verification code was just requested for this email. Please wait about 45 seconds before requesting another.',
+  });
   const byIp = createRateLimiter({
     windowMs: 15 * 60 * 1000,
     max: 20,
@@ -74,7 +84,8 @@ function otpSendRateLimit() {
     },
     message: 'Too many OTP requests for this email. Please wait before requesting another code.',
   });
-  return (req, res, next) => byIp(req, res, () => byEmail(req, res, next));
+  return (req, res, next) =>
+    byEmailCooldown(req, res, () => byIp(req, res, () => byEmail(req, res, next)));
 }
 
 /** OTP verify: stricter per IP + email */

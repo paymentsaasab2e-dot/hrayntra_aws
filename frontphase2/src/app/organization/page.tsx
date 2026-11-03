@@ -15,7 +15,7 @@ import {
   UserPlus,
   Users,
 } from 'lucide-react';
-import { toast, Toaster } from 'sonner';
+import { toast } from 'sonner';
 import { requestConfirm } from '../../lib/appDialog';
 import { usePermissions } from '../../hooks/usePermissions';
 import { getDepartments, getRoles, getTeamMembers } from '../../lib/api/teamApi';
@@ -1234,7 +1234,6 @@ export default function OrganizationPage() {
 
   return (
     <div className="mx-auto max-w-6xl p-4 sm:p-6">
-      <Toaster position="top-right" />
 
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>

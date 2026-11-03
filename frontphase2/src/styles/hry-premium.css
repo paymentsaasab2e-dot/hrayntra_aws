@@ -261,9 +261,16 @@
   background: rgba(120, 100, 255, 0.2);
 }
 
-.hry-premium .ph2-page-shell > * {
+/* Keep page content above aurora blobs — but never demote Sonner toasts
+   (they must stay position:fixed above Import / Create header actions). */
+.hry-premium .ph2-page-shell > *:not([data-sonner-toaster]) {
   position: relative;
   z-index: 1;
+}
+
+.hry-premium .ph2-page-shell > [data-sonner-toaster] {
+  position: fixed !important;
+  z-index: 2147483000 !important;
 }
 
 .hry-premium .ph2-page-shell main > header {

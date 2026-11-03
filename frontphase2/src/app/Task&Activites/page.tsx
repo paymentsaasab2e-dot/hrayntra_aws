@@ -21,7 +21,7 @@ import {
   RefreshCcw,
   XCircle,
 } from 'lucide-react';
-import { toast, Toaster } from 'sonner';
+import { toast } from 'sonner';
 import { matchesQuickSearch, buildQuickSearchHaystack } from '../../lib/quickSearch';
 import { downloadCsv } from '../../utils/csv';
 import { ExportColumnsModal } from '../../components/export/ExportColumnsModal';
@@ -1245,7 +1245,6 @@ export default function App() {
 
   return (
     <>
-      <Toaster position="top-right" richColors style={{ top: '5rem' }} />
       <div className="ph2-page-shell flex h-[calc(100dvh-3.5rem)] w-full flex-col overflow-hidden text-slate-900">
         <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
           <header className="flex min-h-[4.5rem] shrink-0 flex-wrap items-center justify-between gap-3 border-b border-indigo-100/50 bg-white/80 px-4 py-3 shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)] backdrop-blur-md sm:px-6">

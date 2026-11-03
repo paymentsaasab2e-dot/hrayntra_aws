@@ -17,14 +17,43 @@ const buildTargetUrl = (req: NextRequest, pathParts: string[]) => {
   return `${normalizedBase}/${pathname}${query}`;
 };
 
+/** HTTP header values / statusText must be ByteString (code points ≤ 255). */
+function toByteString(value: string, fallback = ''): string {
+  let out = '';
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+    if (code <= 255) out += value[i];
+  }
+  return out || fallback;
+}
+
+function sanitizeOutgoingHeaders(source: Headers): Headers {
+  const headers = new Headers();
+  source.forEach((value, key) => {
+    const safeKey = toByteString(key);
+    const safeValue = toByteString(value);
+    if (!safeKey) return;
+    try {
+      headers.append(safeKey, safeValue);
+    } catch {
+      // Skip any header Node/undici still rejects.
+    }
+  });
+  headers.delete('host');
+  headers.delete('origin');
+  headers.delete('accept-encoding');
+  headers.delete('content-length');
+  headers.delete('content-encoding');
+  headers.delete('transfer-encoding');
+  headers.delete('connection');
+  return headers;
+}
+
 async function proxyRequest(req: NextRequest, pathParts: string[]) {
   try {
     const targetUrl = buildTargetUrl(req, pathParts);
 
-    const headers = new Headers(req.headers);
-    headers.delete('host');
-    headers.delete('origin');
-    headers.delete('accept-encoding');
+    const headers = sanitizeOutgoingHeaders(req.headers);
 
     const method = req.method.toUpperCase();
     const hasBody = !['GET', 'HEAD'].includes(method);
@@ -44,13 +73,12 @@ async function proxyRequest(req: NextRequest, pathParts: string[]) {
       redirect: 'manual',
     });
 
-    const respHeaders = new Headers(response.headers);
-    respHeaders.delete('content-length');
-    respHeaders.delete('content-encoding');
-    respHeaders.delete('transfer-encoding');
-    respHeaders.delete('connection');
+    const respHeaders = sanitizeOutgoingHeaders(response.headers);
 
-    if (response.status >= 500 && response.headers.get('content-length') === '0') {
+    // Buffer upstream body so we never hand a locked/disturbed ReadableStream to NextResponse.
+    const responseBody = await response.arrayBuffer();
+
+    if (response.status >= 500 && responseBody.byteLength === 0) {
       return NextResponse.json(
         {
           success: false,
@@ -60,9 +88,10 @@ async function proxyRequest(req: NextRequest, pathParts: string[]) {
       );
     }
 
-    return new NextResponse(response.body, {
+    return new NextResponse(responseBody, {
       status: response.status,
-      statusText: response.statusText,
+      // Never forward emoji / non-Latin-1 statusText (throws ByteString TypeError).
+      statusText: toByteString(response.statusText || '', 'OK'),
       headers: respHeaders,
     });
   } catch (error) {

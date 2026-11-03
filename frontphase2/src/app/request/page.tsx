@@ -3,7 +3,7 @@
 import React, { Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { MessageSquarePlus, Plus, ShieldCheck } from 'lucide-react';
-import { Toaster } from 'sonner';
+
 import { RequestsTab } from '../../components/team/tabs/RequestsTab';
 import { ApprovalsInbox } from '../../components/team/ApprovalsInbox';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -31,7 +31,6 @@ function RequestHubInner() {
 
   return (
     <>
-      <Toaster position="top-right" richColors style={{ top: '5rem' }} />
       <div className={`${dashTextFont} w-full min-h-screen overflow-hidden text-slate-900`}>
         <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
           <header className="flex min-h-[4.5rem] shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200/80 bg-white/80 px-4 py-3 backdrop-blur-md sm:px-6">

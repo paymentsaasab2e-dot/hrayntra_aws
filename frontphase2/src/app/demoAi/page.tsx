@@ -13,7 +13,7 @@ import {
   Loader2,
   X,
 } from 'lucide-react';
-import { Toaster, toast } from 'sonner';
+import { toast } from 'sonner';
 import { SummaryCard } from '../../components/ui/SummaryCard';
 import { usePermissions } from '../../hooks/usePermissions';
 import { apiParseCandidateResumeQueued } from '../../lib/api';
@@ -231,7 +231,6 @@ export default function DemoAiPage() {
 
   return (
     <div className="min-h-screen bg-slate-100 font-['Arimo',sans-serif] text-slate-900">
-      <Toaster position="top-right" richColors style={{ top: '5rem' }} />
       <div className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
         <header className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>

@@ -1107,3 +1107,19 @@ table tbody td .text-sm {
     min-width: 0;
   }
 }
+
+/*
+  Global Sonner host is portaled to document.body (see GlobalToaster).
+  Keep z-index above AppShellHeader (z-50) and every page toolbar.
+*/
+body > [data-sonner-toaster],
+[data-sonner-toaster] {
+  position: fixed !important;
+  z-index: 2147483646 !important;
+  pointer-events: none;
+}
+
+[data-sonner-toaster] [data-sonner-toast] {
+  pointer-events: auto;
+  z-index: 2147483646 !important;
+}

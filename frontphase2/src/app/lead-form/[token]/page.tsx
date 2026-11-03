@@ -18,7 +18,7 @@ import {
   Eye,
   EyeOff,
 } from 'lucide-react';
-import { Toaster, toast } from 'sonner';
+import { toast } from 'sonner';
 import {
   apiDeletePublicLeadFormLead,
   apiGetLead,
@@ -505,7 +505,6 @@ export default function PublicLeadFormPage() {
   if (!isAuthenticated) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[linear-gradient(180deg,#f8fafc_0%,#eef2ff_48%,#f8fafc_100%)] px-4">
-        <Toaster position="top-right" richColors />
         <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-xl">
           <div className="border-b border-slate-100 px-6 py-5">
             <p className="text-lg font-semibold text-slate-900">Sign in to open this lead form</p>
@@ -606,7 +605,6 @@ export default function PublicLeadFormPage() {
 
   return (
     <div className="ph2-page-shell flex h-[100dvh] w-full flex-col overflow-hidden bg-[linear-gradient(180deg,#f8fafc_0%,#eef2ff_48%,#f8fafc_100%)] text-slate-900 [font-size:100%]">
-      <Toaster position="top-right" richColors />
 
       <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
         <header className="flex min-h-[4.5rem] shrink-0 flex-wrap items-center justify-between gap-3 border-b border-indigo-100/50 bg-white/80 px-4 py-3 shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)] backdrop-blur-md sm:px-6">

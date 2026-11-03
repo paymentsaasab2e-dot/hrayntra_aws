@@ -4,7 +4,7 @@ import React, { Suspense, useEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { DRAWER_QUERY, readDrawerQuery, useBindDrawerQuery } from '../../lib/drawerUrlState';
 import { Download, FileText, Plus, RefreshCcw, Trophy } from 'lucide-react';
-import { Toaster, toast } from 'sonner';
+import { toast } from 'sonner';
 import { FiltersBar } from '../../components/placements/FiltersBar';
 import { KPICards } from '../../components/placements/KPICards';
 import { PlacementsTable } from '../../components/placements/PlacementsTable';
@@ -355,7 +355,6 @@ function PlacementsPageContent() {
 
   return (
     <>
-      <Toaster position="top-right" richColors style={{ top: '5rem' }} />
       <div className="ph2-page-shell flex h-[calc(100dvh-3.5rem)] w-full flex-col overflow-hidden text-slate-900">
         <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
           <header className="flex min-h-[4.5rem] shrink-0 flex-wrap items-center justify-between gap-3 border-b border-indigo-100/50 bg-white/80 px-4 py-3 shadow-[inset_0_-1px_0_0_rgba(99,102,241,0.08)] backdrop-blur-md sm:px-6">

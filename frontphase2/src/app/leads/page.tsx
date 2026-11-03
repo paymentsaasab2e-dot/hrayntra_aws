@@ -80,7 +80,7 @@ import { getActiveOrgUnitId } from '../../lib/org/orgWorkspaceStorage';
 import { formatAssigneeDisplayName } from '../../lib/assigneeDisplay';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { DRAWER_QUERY, readDrawerQuery, useBindDrawerQuery } from '../../lib/drawerUrlState';
-import { Toaster, toast } from 'sonner';
+import { toast } from 'sonner';
 import { splitDateTimeForDisplay } from '../../utils/formatLeadDateTime';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useWorkspaceEntityAlerts } from '../../hooks/useWorkspaceEntityAlerts';
@@ -1960,11 +1960,6 @@ export default function RecruitmentAgencyDashboard() {
 
   return (
     <div className="ph2-page-shell flex h-[calc(100dvh-3.5rem)] w-full min-w-0 max-w-full flex-col overflow-hidden text-slate-900">
-      <Toaster
-        position="top-right"
-        richColors
-        style={{ top: '5rem' }}
-      />
       {/* Main Content — viewport-locked so only the table body scrolls */}
       <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <div className="hry-aurora" aria-hidden />

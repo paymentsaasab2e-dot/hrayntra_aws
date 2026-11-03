@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { Briefcase, ChevronRight, CheckCircle2 } from 'lucide-react';
-import { Toaster } from 'sonner';
+
 import { apiGetPublicApplyPage, apiSubmitPublicApply } from '../../../lib/api';
 import {
   normalizeApplicationFormSchema,
@@ -172,7 +172,6 @@ export default function PublicJobApplyPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-100 to-white">
-      <Toaster position="top-right" richColors />
       {shareUrl ? <PublicJobShareRail shareUrl={shareUrl} jobTitle={job?.title} /> : null}
 
       <header className="border-b border-slate-200 bg-white/90 backdrop-blur">
