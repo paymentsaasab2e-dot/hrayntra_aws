@@ -79,11 +79,21 @@ export const jobPublicApplyController = {
 
   async getApplyLink(req, res) {
     try {
-      const token = await jobPublicApplyService.ensureApplyTokenForJob(req.params.jobId);
+      const jobId = String(req.params.jobId || '').trim();
+      const token = await jobPublicApplyService.ensureApplyTokenForJob(jobId);
       if (!token) {
         return sendError(res, 404, 'Job not found or unavailable');
       }
-      const job = await jobPublicApplyService.getJobTenantForApplyLink(req.params.jobId);
+      // Guard: public lookup by token must resolve back to THIS job.
+      const owners = await jobPublicApplyService.listJobsForApplyToken(token);
+      const ownsToken = owners.some((row) => String(row.id) === jobId);
+      const finalToken = ownsToken
+        ? token
+        : await jobPublicApplyService.reissueApplyTokenForJob(jobId);
+      if (!finalToken) {
+        return sendError(res, 404, 'Job not found or unavailable');
+      }
+      const job = await jobPublicApplyService.getJobTenantForApplyLink(jobId);
       const tenantDbName =
         job?.tenantDbName ||
         req.user?.tenantDbName ||
@@ -91,11 +101,15 @@ export const jobPublicApplyController = {
         String(req.query?.tenantDbName || '').trim() ||
         null;
       const applyUrl = buildApplyUrlFromToken(
-        token,
+        finalToken,
         req.query?.frontendBase || process.env.FRONTEND_URL,
         tenantDbName
       );
-      sendResponse(res, 200, 'Apply link', { token, applyUrl });
+      sendResponse(res, 200, 'Apply link', {
+        token: finalToken,
+        applyUrl,
+        jobId,
+      });
     } catch (error) {
       sendError(res, 500, error.message, error);
     }

@@ -409,6 +409,18 @@ const openApplyShareTarget = useCallback(
 
 const fetchApplyLink = useCallback(async (jobId: string, fallbackToken?: string | null) => {
   const res = await apiGetJobApplyLink(jobId);
+  const root = (res || {}) as {
+    data?: { applyUrl?: string; token?: string; jobId?: string };
+    applyUrl?: string;
+    token?: string;
+    jobId?: string;
+  };
+  const payload = root.data && typeof root.data === 'object' ? root.data : root;
+  const linkedJobId = String(payload?.jobId || root.jobId || '').trim();
+  if (linkedJobId && linkedJobId !== jobId) {
+    console.error('Apply link jobId mismatch', { expected: jobId, got: linkedJobId });
+    return null;
+  }
   return resolveJobApplyUrlFromResponse(res, fallbackToken);
 }, []);
 
@@ -420,24 +432,20 @@ useEffect(() => {
   }
 
   const jobId = job.id;
-  const seeded =
-    String(job.applyUrl || '').trim() ||
-    resolveJobApplyUrlFromResponse(null, job.applyLinkToken) ||
-    null;
-  setApplyUrl(seeded);
+  // Never seed from another job's cached applyUrl/token — always resolve via API for this id.
+  setApplyUrl(null);
 
   let cancelled = false;
   setApplyLinkLoading(true);
-  void fetchApplyLink(jobId, job.applyLinkToken)
+  void fetchApplyLink(jobId)
     .then((url: any) => {
       if (cancelled) return;
-      if (url) setApplyUrl(url);
-      else if (!seeded) setApplyUrl(null);
+      setApplyUrl(url || null);
     })
     .catch((err: any) => {
       if (cancelled) return;
       console.error('Failed to load job apply link:', err);
-      if (!seeded) setApplyUrl(null);
+      setApplyUrl(null);
     })
     .finally(() => {
       if (!cancelled) setApplyLinkLoading(false);
@@ -446,18 +454,15 @@ useEffect(() => {
   return () => {
     cancelled = true;
   };
-}, [job?.id, job?.applyUrl, job?.applyLinkToken, fetchApplyLink]);
+}, [job?.id, fetchApplyLink]);
 
 const openApplyShareMenu = useCallback(async () => {
   if (!job?.id) return;
-  if (applyUrl) {
-    setApplyShareOpen((open: any) => !open);
-    return;
-  }
   if (applyLinkLoading) return;
   setApplyLinkLoading(true);
   try {
-    const url = await fetchApplyLink(job.id, job.applyLinkToken);
+    // Always re-fetch for the open job so copy never reuses a sibling job's URL.
+    const url = await fetchApplyLink(job.id);
     if (url) {
       setApplyUrl(url);
       setApplyShareOpen(true);
@@ -470,7 +475,7 @@ const openApplyShareMenu = useCallback(async () => {
   } finally {
     setApplyLinkLoading(false);
   }
-}, [applyLinkLoading, applyUrl, fetchApplyLink, job?.applyLinkToken, job?.id]);
+}, [applyLinkLoading, fetchApplyLink, job?.id]);
 
   return {
     addJobStatusOption,
