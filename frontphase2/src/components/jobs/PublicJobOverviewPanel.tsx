@@ -159,11 +159,13 @@ export function PublicJobOverviewPanel({ job }: { job: PublicJobOverviewJob }) {
     ? [...(job.skills || []), ...(job.preferredSkills || [])].filter(Boolean)
     : [];
   const hasStructuredLists =
-    !hasHtml &&
-    ((show('keyResponsibilities') && (job.keyResponsibilities?.length ?? 0) > 0) ||
-      (show('qualifications') && (job.requirements?.length ?? 0) > 0) ||
-      (show('candidateRequirements') && (job.candidateRequirements?.length ?? 0) > 0) ||
-      (show('jobDescription') && (job.benefits?.length ?? 0) > 0));
+    (show('keyResponsibilities') && (job.keyResponsibilities?.length ?? 0) > 0) ||
+    (show('qualifications') && (job.requirements?.length ?? 0) > 0) ||
+    (show('candidateRequirements') && (job.candidateRequirements?.length ?? 0) > 0) ||
+    (show('jobDescription') && (job.benefits?.length ?? 0) > 0);
+
+  // Prefer live structured CRM fields when present so apply pages reflect job edits.
+  const useStructuredBody = hasStructuredLists;
 
   return (
     <div className="space-y-4">
@@ -189,7 +191,7 @@ export function PublicJobOverviewPanel({ job }: { job: PublicJobOverviewJob }) {
         </div>
       )}
 
-      {hasHtml && htmlSections.length > 0
+      {!useStructuredBody && hasHtml && htmlSections.length > 0
         ? htmlSections
             .filter((section) => htmlSectionTitleVisibleOnPortal(section.title, show))
             .map((section, index) => (
@@ -202,7 +204,7 @@ export function PublicJobOverviewPanel({ job }: { job: PublicJobOverviewJob }) {
             ))
         : null}
 
-      {!hasHtml && show('jobDescription') && (job.overview || job.description) ? (
+      {useStructuredBody && show('jobDescription') && (job.overview || (!hasHtml && job.description)) ? (
         <SectionCard title="Overview">
           <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
             {stripHtml(job.overview || job.description || '')}
@@ -210,19 +212,27 @@ export function PublicJobOverviewPanel({ job }: { job: PublicJobOverviewJob }) {
         </SectionCard>
       ) : null}
 
-      {hasStructuredLists && show('keyResponsibilities') && (job.keyResponsibilities?.length ?? 0) > 0 ? (
+      {!useStructuredBody && !hasHtml && show('jobDescription') && (job.overview || job.description) ? (
+        <SectionCard title="Overview">
+          <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
+            {stripHtml(job.overview || job.description || '')}
+          </p>
+        </SectionCard>
+      ) : null}
+
+      {useStructuredBody && show('keyResponsibilities') && (job.keyResponsibilities?.length ?? 0) > 0 ? (
         <SectionCard title="Key responsibilities">
           <BulletList items={job.keyResponsibilities!} />
         </SectionCard>
       ) : null}
 
-      {hasStructuredLists && show('qualifications') && (job.requirements?.length ?? 0) > 0 ? (
+      {useStructuredBody && show('qualifications') && (job.requirements?.length ?? 0) > 0 ? (
         <SectionCard title="Preferred education / qualifications">
           <BulletList items={job.requirements!} />
         </SectionCard>
       ) : null}
 
-      {hasStructuredLists && show('candidateRequirements') && (job.candidateRequirements?.length ?? 0) > 0 ? (
+      {useStructuredBody && show('candidateRequirements') && (job.candidateRequirements?.length ?? 0) > 0 ? (
         <SectionCard title="Candidate requirements">
           <BulletList items={job.candidateRequirements!} />
         </SectionCard>

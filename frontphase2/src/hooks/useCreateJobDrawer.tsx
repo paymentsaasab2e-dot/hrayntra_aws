@@ -2486,12 +2486,15 @@ const handleSaveJob = async () => {
         .filter(Boolean)
         .join('');
 
-      const descriptionWithCustomSections = formData.jobDescriptionHtml.trim()
-        ? mergeDescriptionWithCustomJdSections(
+      // Always rebuild description HTML from the structured edit fields so public
+      // apply links (/apply/{token}) pick up title/summary/responsibilities/etc.
+      // Preferring stale jobDescriptionHtml left CRM edits invisible on apply pages.
+      const descriptionWithCustomSections = composedDescription.trim()
+        ? composedDescription
+        : mergeDescriptionWithCustomJdSections(
             formData.jobDescriptionHtml.trim(),
             formData.customJdSections,
-          )
-        : composedDescription;
+          );
 
       const applicationFormLogoStored =
         formData.logoOption === 'custom' && formData.applicationLogoUrl.trim()
