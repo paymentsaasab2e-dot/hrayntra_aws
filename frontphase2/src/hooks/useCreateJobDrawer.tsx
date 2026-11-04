@@ -909,17 +909,29 @@ useEffect(() => {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: visibility-only
   }, [publicVisibilitySignature]);
 useEffect(() => {
-    if (!isOpen || !jobId) return;
+    if (!isOpen || !jobId) {
+      setApplicationApplyUrl('');
+      setApplicationApplyUrlLoading(false);
+      return;
+    }
     let cancelled = false;
+    setApplicationApplyUrl('');
     const loadApplyLink = async () => {
       try {
         setApplicationApplyUrlLoading(true);
         const response = await apiGetJobApplyLink(jobId);
-        if (!cancelled && response.data?.applyUrl) {
-          setApplicationApplyUrl(response.data.applyUrl);
+        if (cancelled) return;
+        const url = String(response.data?.applyUrl || '').trim();
+        // Only accept a link that belongs to this job id (backend now returns jobId).
+        const linkedJobId = String((response.data as { jobId?: string } | undefined)?.jobId || '').trim();
+        if (url && (!linkedJobId || linkedJobId === jobId)) {
+          setApplicationApplyUrl(url);
+        } else {
+          setApplicationApplyUrl('');
         }
       } catch (err) {
         console.error('Failed to load job apply link:', err);
+        if (!cancelled) setApplicationApplyUrl('');
       } finally {
         if (!cancelled) setApplicationApplyUrlLoading(false);
       }

@@ -198,10 +198,8 @@ async function loadRankedJobPage(scopedWhere, search, { skip, limit }) {
 }
 async function enrichJobWithApplyLink(job) {
   if (!job?.id) return job;
-  let token = job.applyLinkToken || null;
-  if (!token) {
-    token = await jobPublicApplyService.ensureApplyTokenForJob(job.id);
-  }
+  // Always go through ensureApplyToken so shared/legacy duplicate tokens are reissued.
+  const token = await jobPublicApplyService.ensureApplyTokenForJob(job.id);
   const applyUrl = token
     ? buildApplyUrlFromToken(token, undefined, job.tenantDbName || getActiveTenantDbName())
     : null;

@@ -265,19 +265,61 @@ function formatPublicJob(job) {
   return payload;
 }
 
+async function mintUniqueApplyToken(jobId) {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const token = generateApplyLinkToken();
+    const clash = await prisma.job.findFirst({
+      where: {
+        applyLinkToken: token,
+        id: { not: jobId },
+        isDeleted: { not: true },
+      },
+      select: { id: true },
+    });
+    if (clash) continue;
+    await prisma.job.update({
+      where: { id: jobId },
+      data: { applyLinkToken: token },
+    });
+    return token;
+  }
+  throw new Error('Could not allocate a unique apply link token');
+}
+
+/**
+ * Return this job's apply token. If the stored token is missing OR shared with
+ * another job (legacy duplicates), mint a fresh unique token for this job only.
+ */
 async function ensureApplyToken(jobId) {
+  const id = String(jobId || '').trim();
+  if (!id) return null;
   const job = await prisma.job.findUnique({
-    where: { id: jobId },
+    where: { id },
     select: { id: true, applyLinkToken: true, isDeleted: true },
   });
   if (!job || job.isDeleted) return null;
-  if (job.applyLinkToken) return job.applyLinkToken;
-  const token = generateApplyLinkToken();
-  await prisma.job.update({
-    where: { id: jobId },
-    data: { applyLinkToken: token },
-  });
-  return token;
+
+  const existing = String(job.applyLinkToken || '').trim();
+  if (existing) {
+    const owners = await prisma.job.findMany({
+      where: {
+        applyLinkToken: existing,
+        isDeleted: { not: true },
+      },
+      select: { id: true },
+      take: 5,
+    });
+    const shared = owners.some((row) => String(row.id) !== id);
+    if (!shared) return existing;
+    console.warn(
+      `[apply-link] token collision for job ${id}; reissuing unique token (was shared with ${owners
+        .map((row) => row.id)
+        .filter((ownerId) => ownerId !== id)
+        .join(', ')})`,
+    );
+  }
+
+  return mintUniqueApplyToken(id);
 }
 
 export const jobPublicApplyService = {
@@ -285,6 +327,30 @@ export const jobPublicApplyService = {
 
   async ensureApplyTokenForJob(jobId) {
     return ensureApplyToken(jobId);
+  },
+
+  async reissueApplyTokenForJob(jobId) {
+    const id = String(jobId || '').trim();
+    if (!id) return null;
+    const job = await prisma.job.findUnique({
+      where: { id },
+      select: { id: true, isDeleted: true },
+    });
+    if (!job || job.isDeleted) return null;
+    return mintUniqueApplyToken(id);
+  },
+
+  async listJobsForApplyToken(token) {
+    const cleanToken = String(token || '').trim();
+    if (!cleanToken) return [];
+    return prisma.job.findMany({
+      where: {
+        applyLinkToken: cleanToken,
+        isDeleted: { not: true },
+      },
+      select: { id: true, title: true, updatedAt: true },
+      take: 20,
+    });
   },
 
   async getJobTenantForApplyLink(jobId) {
@@ -344,9 +410,10 @@ export const jobPublicApplyService = {
   },
 
   async getPublicApplyPage(token) {
-    const job = await prisma.job.findFirst({
+    const cleanToken = String(token || '').trim();
+    const matches = await prisma.job.findMany({
       where: {
-        applyLinkToken: String(token || '').trim(),
+        applyLinkToken: cleanToken,
         isDeleted: { not: true },
         status: { in: ['OPEN', 'DRAFT'] },
       },
@@ -356,12 +423,20 @@ export const jobPublicApplyService = {
           select: { id: true, name: true, email: true, avatar: true, designation: true },
         },
       },
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+      take: 10,
     });
-    if (!job) {
+    if (!matches.length) {
       throw Object.assign(new Error('Apply link not found or job is no longer accepting applications'), {
         statusCode: 404,
       });
     }
+    if (matches.length > 1) {
+      console.warn(
+        `[apply-link] token ${cleanToken} matched ${matches.length} jobs; using newest ${matches[0].id}`,
+      );
+    }
+    const job = matches[0];
     const schema = resolveJobFormSchema(job);
     await hydrateApplyJobPublicProfile(job);
     return {
@@ -371,16 +446,20 @@ export const jobPublicApplyService = {
   },
 
   async submitPublicApplication(token, { answers = {}, files = {} }) {
-    const job = await prisma.job.findFirst({
+    const cleanToken = String(token || '').trim();
+    const matches = await prisma.job.findMany({
       where: {
-        applyLinkToken: String(token || '').trim(),
+        applyLinkToken: cleanToken,
         isDeleted: { not: true },
         status: { in: ['OPEN', 'DRAFT'] },
       },
       include: {
         client: { select: { companyName: true } },
       },
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+      take: 10,
     });
+    const job = matches[0];
     if (!job) {
       throw Object.assign(new Error('Apply link not found'), { statusCode: 404 });
     }

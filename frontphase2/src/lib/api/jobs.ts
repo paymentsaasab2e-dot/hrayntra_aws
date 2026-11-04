@@ -120,9 +120,12 @@ export const apiGetJob = async (id: string) => {
 export const apiGetJobApplyLink = async (jobId: string) => {
   const frontendBase = resolvePhase1CandidatePortalBase();
   const qs = frontendBase ? `?frontendBase=${encodeURIComponent(frontendBase)}` : '';
-  return apiFetch<{ token: string; applyUrl: string }>(`/jobs/${jobId}/apply-link${qs}`, {
-    auth: true,
-  });
+  return apiFetch<{ token: string; applyUrl: string; jobId?: string }>(
+    `/jobs/${jobId}/apply-link${qs}`,
+    {
+      auth: true,
+    },
+  );
 };
 
 /** Normalize apply-link API payloads (and optional token fallback) into a usable URL. */
