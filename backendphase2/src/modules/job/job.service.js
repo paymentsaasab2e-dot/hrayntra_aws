@@ -484,6 +484,66 @@ function resolvePortalSyncTenantDbName(job, payload = {}) {
   );
 }
 
+function asStringList(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => String(item || '').trim()).filter(Boolean);
+}
+
+function escapeHtmlText(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/**
+ * Rebuild public JD HTML from structured CRM fields so /apply/{token} stays in sync
+ * after edits. Falls back to existing description when no structured lists exist.
+ */
+function composeJobDescriptionHtml({
+  title,
+  overview,
+  keyResponsibilities,
+  requirements,
+  candidateRequirements,
+  benefits,
+  fallbackDescription,
+} = {}) {
+  const responsibilities = asStringList(keyResponsibilities);
+  const qualifications = asStringList(requirements);
+  const candidateReqs = asStringList(candidateRequirements);
+  const benefitItems = asStringList(benefits);
+  const hasStructured =
+    responsibilities.length > 0 ||
+    qualifications.length > 0 ||
+    candidateReqs.length > 0 ||
+    benefitItems.length > 0;
+  const fallback = String(fallbackDescription || '').trim();
+  if (!hasStructured) return fallback || undefined;
+
+  const listHtml = (items) =>
+    `<ul>${items.map((item) => `<li>${escapeHtmlText(item)}</li>`).join('')}</ul>`;
+  const parts = [];
+  const cleanTitle = String(title || '').trim();
+  if (cleanTitle) parts.push(`<h2>${escapeHtmlText(cleanTitle)}</h2>`);
+  const cleanOverview = String(overview || '').trim();
+  if (cleanOverview) parts.push(`<p>${escapeHtmlText(cleanOverview)}</p>`);
+  if (responsibilities.length) {
+    parts.push(`<h3>Key Responsibilities</h3>${listHtml(responsibilities)}`);
+  }
+  if (qualifications.length) {
+    parts.push(`<h3>Preferred Education / Qualifications</h3>${listHtml(qualifications)}`);
+  }
+  if (candidateReqs.length) {
+    parts.push(`<h3>Candidate Requirements</h3>${listHtml(candidateReqs)}`);
+  }
+  if (benefitItems.length) {
+    parts.push(`<h3>Compensation & Benefits</h3>${listHtml(benefitItems)}`);
+  }
+  return parts.join('') || fallback || undefined;
+}
+
 const JOB_PUBLIC_VISIBILITY_FIELDS = [
   'nationality',
   'jobTitle',
@@ -2301,9 +2361,42 @@ export const jobService = {
       );
     };
 
+    const nextTitle = data.title !== undefined ? data.title : currentJob.title;
+    const nextOverview = data.overview !== undefined ? data.overview : currentJob.overview;
+    const nextResponsibilities =
+      data.keyResponsibilities !== undefined
+        ? data.keyResponsibilities
+        : currentJob.keyResponsibilities;
+    const nextRequirements =
+      data.requirements !== undefined ? data.requirements : currentJob.requirements;
+    const nextCandidateRequirements =
+      data.candidateRequirements !== undefined
+        ? data.candidateRequirements
+        : currentJob.candidateRequirements;
+    const nextBenefits = data.benefits !== undefined ? data.benefits : currentJob.benefits;
+    const nextDescriptionFallback =
+      data.description !== undefined ? data.description : currentJob.description;
+    const composedDescription = composeJobDescriptionHtml({
+      title: nextTitle,
+      overview: nextOverview,
+      keyResponsibilities: nextResponsibilities,
+      requirements: nextRequirements,
+      candidateRequirements: nextCandidateRequirements,
+      benefits: nextBenefits,
+      fallbackDescription: nextDescriptionFallback,
+    });
+
     const updateData = removeUndefined({
       title: data.title,
-      description: data.description,
+      description:
+        data.description !== undefined ||
+        data.keyResponsibilities !== undefined ||
+        data.requirements !== undefined ||
+        data.candidateRequirements !== undefined ||
+        data.benefits !== undefined ||
+        data.overview !== undefined
+          ? composedDescription
+          : undefined,
       overview: data.overview,
       requirements: data.requirements,
       skills: data.skills,

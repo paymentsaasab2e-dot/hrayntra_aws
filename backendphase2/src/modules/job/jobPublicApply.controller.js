@@ -47,6 +47,8 @@ export const jobPublicApplyController = {
       const data = tenantDbName
         ? await runWithTenantContext(tenantDbName, run)
         : await run();
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+      res.setHeader('Pragma', 'no-cache');
       sendResponse(res, 200, 'Apply page data', data);
     } catch (error) {
       sendError(res, error.statusCode || 404, error.message, error);
