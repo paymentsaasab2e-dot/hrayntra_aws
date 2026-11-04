@@ -9,7 +9,7 @@ import { buildCandidatePortalApplyUrlPreview, replaceApplyUrlInSocialPostText, e
 import { useLinkedIn } from './useLinkedIn';
 import { requestError, requestInfo, requestSuccess, requestWarning } from '../lib/appDialog';
 import { type CreateJobDetailsFormData } from '../components/drawers/CreateJobDetailsForm';
-import { customJdSectionsToHtml, extractAdditionalJdSectionsFromHtml, mergeCustomJdSections, mergeDescriptionWithCustomJdSections, type JobCustomJdSection } from '../lib/jobCustomJdSections';
+import { customJdSectionsToHtml, extractAdditionalJdSectionsFromHtml, filledCustomJdSections, mergeCustomJdSections, mergeDescriptionWithCustomJdSections, type JobCustomJdSection } from '../lib/jobCustomJdSections';
 import { plainTextToJobDescriptionHtml, readJdPlainFromClipboard } from '../lib/jobDescriptionHtml';
 import { usePageDrawerLifecycle } from '../lib/pageDrawerEvents';
 import { startAsyncLoad } from '../lib/asyncLoadGuard';
@@ -1037,27 +1037,52 @@ const stripHtml = (value: string) =>
       .replace(/\n{3,}/g, '\n\n')
       .trim();
 const getSectionTextFromHtml = (html: string, sectionTitle: string) => {
-    if (!html || typeof window === 'undefined') return '';
-    try {
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(html, 'text/html');
-      const headings = Array.from(doc.querySelectorAll('h3, h4'));
-      const heading = headings.find((node: any) =>
-        (node.textContent || '').trim().toLowerCase().includes(sectionTitle.toLowerCase())
-      );
-      if (!heading) return '';
+    if (!html) return '';
+    const needle = sectionTitle.toLowerCase().trim();
+    if (!needle) return '';
 
-      const chunks: string[] = [];
-      let cursor = heading.nextElementSibling;
-      while (cursor && !['H3', 'H4'].includes(cursor.tagName)) {
-        const text = (cursor.textContent || '').trim();
-        if (text) chunks.push(text);
-        cursor = cursor.nextElementSibling;
+    // HTML headings (Create/Edit JD editor)
+    if (typeof window !== 'undefined' && /<[a-z][\s\S]*>/i.test(html)) {
+      try {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+        const headings = Array.from(doc.querySelectorAll('h2, h3, h4'));
+        const heading = headings.find((node: any) =>
+          (node.textContent || '').trim().toLowerCase().includes(needle),
+        );
+        if (heading) {
+          const chunks: string[] = [];
+          let cursor = heading.nextElementSibling;
+          while (cursor && !['H2', 'H3', 'H4'].includes(cursor.tagName)) {
+            const text = (cursor.textContent || '').trim();
+            if (text) chunks.push(text);
+            cursor = cursor.nextElementSibling;
+          }
+          if (chunks.length) return chunks.join('\n');
+        }
+      } catch {
+        /* fall through to plain-text parse */
       }
-      return chunks.join('\n');
-    } catch {
-      return '';
     }
+
+    // Legacy plain-text JD walls (no newlines / no HTML headings)
+    const plain = stripHtml(html)
+      .replace(
+        /\s+(?=(?:Key Responsibilities(?: and Tasks)?|Main Missions|Desired Profile|Education\s*&\s*Experience|Qualifications|Candidate Requirements|Compensation(?:\s*&\s*Benefits)?|Benefits|Required Skills|Nice to Have)\b)/gi,
+        '\n',
+      )
+      .trim();
+    const lines = plain.split('\n').map((line) => line.trim()).filter(Boolean);
+    const startIdx = lines.findIndex((line) => line.toLowerCase().includes(needle));
+    if (startIdx < 0) return '';
+    const stopRe =
+      /^(?:key responsibilities(?: and tasks)?|main missions|desired profile|education\s*&\s*experience|qualifications|candidate requirements|compensation(?:\s*&\s*benefits)?|benefits|required skills|nice to have)\b/i;
+    const body: string[] = [];
+    for (let i = startIdx + 1; i < lines.length; i += 1) {
+      if (stopRe.test(lines[i]) && !lines[i].toLowerCase().includes(needle)) break;
+      body.push(lines[i]);
+    }
+    return body.join('\n').trim();
   };
 const loadJobData = async (sourceJobId?: string) => {
     const targetJobId = sourceJobId || jobId || duplicateFromJobId || undefined;
@@ -2484,15 +2509,23 @@ const handleSaveJob = async () => {
         .filter(Boolean)
         .join('');
 
-      // Always rebuild description HTML from the structured edit fields so public
-      // apply links (/apply/{token}) pick up title/summary/responsibilities/etc.
-      // Preferring stale jobDescriptionHtml left CRM edits invisible on apply pages.
-      const descriptionWithCustomSections = composedDescription.trim()
+      // When structured JD fields have content, rebuild HTML from them so public
+      // apply links pick up CRM edits. If only the rich-text/plain JD exists
+      // (legacy imports), keep that body instead of wiping it to a title-only HTML.
+      const hasStructuredJdLists =
+        keyResponsibilities.length > 0 ||
+        qualifications.length > 0 ||
+        candidateRequirements.length > 0 ||
+        benefits.length > 0 ||
+        filledCustomJdSections(formData.customJdSections).length > 0;
+      const descriptionWithCustomSections = hasStructuredJdLists
         ? composedDescription
-        : mergeDescriptionWithCustomJdSections(
-            formData.jobDescriptionHtml.trim(),
-            formData.customJdSections,
-          );
+        : formData.jobDescriptionHtml.trim()
+          ? mergeDescriptionWithCustomJdSections(
+              formData.jobDescriptionHtml.trim(),
+              formData.customJdSections,
+            )
+          : composedDescription;
 
       const applicationFormLogoStored =
         formData.logoOption === 'custom' && formData.applicationLogoUrl.trim()
