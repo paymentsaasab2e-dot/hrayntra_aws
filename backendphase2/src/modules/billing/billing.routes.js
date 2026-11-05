@@ -20,6 +20,7 @@ router.get('/invoice/:id/activity', requireAnyPermission(['access_billing']), bi
 router.patch('/invoice/:id/currency', requireAnyPermission(['record_payment', 'create_invoice']), billingController.updateInvoiceCurrency);
 router.patch('/:id/draft-invoice', requireAnyPermission(['create_invoice']), billingController.updateDraftInvoice);
 router.post('/:id/send-invoice', requireAnyPermission(['create_invoice']), billingController.sendInvoiceToClient);
+router.post('/:id/payment-link', requireAnyPermission(['create_invoice', 'record_payment']), billingController.createInvoicePaymentLink);
 router.get('/:id/reminders', requireAnyPermission(['access_billing']), billingController.listInvoiceReminders);
 router.post('/:id/reminders', requireAnyPermission(['create_invoice', 'record_payment']), billingController.sendInvoiceReminder);
 router.delete('/:id/reminders/:reminderId', requireAnyPermission(['create_invoice', 'record_payment']), billingController.cancelInvoiceReminder);

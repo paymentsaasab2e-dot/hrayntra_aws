@@ -35,12 +35,14 @@ import SendInvoiceReminderModal from './SendInvoiceReminderModal';
 import { DetailsModalShell } from '../drawers/DetailsModalShell';
 import { openBillingInvoiceInNewTab, openInvoicePreviewTab } from '../../lib/openBillingInvoice';
 import {
+  apiCreateInvoicePaymentLink,
   apiGetInvoiceActivity,
   apiUpdateBillingRecord,
   apiUpdateInvoiceCurrency,
   type InvoiceActivityEvent,
   type InvoiceActivityResponse,
 } from '../../lib/api';
+import { requestSuccess } from '@/lib/appDialog';
 import { usePermissions } from '../../hooks/usePermissions';
 import { formatCurrencyAmount } from '../../utils/currency';
 import { CurrencySearchPicker } from '../CurrencySearchPicker';
@@ -116,6 +118,7 @@ export default function InvoiceActivityDrawer({
   const [currencyDraft, setCurrencyDraft] = useState<string>('');
   const [savedFlash, setSavedFlash] = useState<string>('');
   const [reminderModalOpen, setReminderModalOpen] = useState(false);
+  const [paymentLinkBusy, setPaymentLinkBusy] = useState(false);
 
   useEffect(() => {
     if (!open || !invoiceId) return;
@@ -321,6 +324,38 @@ export default function InvoiceActivityDrawer({
                         <Bell size={12} />
                         Send reminder
                         {pendingReminderCount > 0 ? ` (${pendingReminderCount} scheduled)` : ''}
+                      </button>
+                    ) : null}
+                    {canSendReminder ? (
+                      <button
+                        type="button"
+                        disabled={paymentLinkBusy || !invoiceId}
+                        onClick={() => {
+                          if (!invoiceId) return;
+                          setPaymentLinkBusy(true);
+                          void apiCreateInvoicePaymentLink(invoiceId)
+                            .then(async (res) => {
+                              const url = String(res.data?.paymentLinkUrl || '').trim();
+                              if (url && typeof navigator !== 'undefined' && navigator.clipboard) {
+                                await navigator.clipboard.writeText(url);
+                              }
+                              void requestSuccess(
+                                url
+                                  ? 'Razorpay payment link created and copied'
+                                  : 'Razorpay payment link created',
+                              );
+                            })
+                            .catch((err: unknown) => {
+                              const message =
+                                err instanceof Error ? err.message : 'Failed to create payment link';
+                              window.alert(message);
+                            })
+                            .finally(() => setPaymentLinkBusy(false));
+                        }}
+                        className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-[11px] font-bold text-indigo-800 hover:bg-indigo-100 disabled:opacity-50"
+                      >
+                        <CreditCard size={12} />
+                        {paymentLinkBusy ? 'Creating link…' : 'Razorpay pay link'}
                       </button>
                     ) : null}
                     {canMarkPaid ? (

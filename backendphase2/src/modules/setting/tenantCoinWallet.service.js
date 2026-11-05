@@ -4,6 +4,25 @@ import { headquartersAuthService } from '../auth/headquarters-auth.service.js';
 import { hqAiFeaturesService } from '../hq/hq-ai-features.service.js';
 import { getCoinPackAsync, listCoinPacksAsync } from './aiCoinPacks.js';
 import { appendTenantBillingTransaction } from '../hq/hq-billing-ledger.service.js';
+import { getActiveTenantDbName } from '../../config/prisma.js';
+import { getRazorpayConfig } from '../payment/razorpay.config.js';
+import { buildUpiPayUri } from '../payment/upi.utils.js';
+import {
+  createRazorpayOrder,
+  getRazorpayPublicConfig,
+  verifyRazorpayPaymentSignature,
+  assertRazorpayPaymentCaptured,
+} from '../payment/razorpay.service.js';
+
+function packAmountPaise(pack) {
+  const config = getRazorpayConfig();
+  const usd =
+    Number.parseFloat(String(pack?.priceUsd ?? pack?.price ?? '').replace(/,/g, '')) || null;
+  if (usd == null || !Number.isFinite(usd) || usd <= 0) {
+    throw new Error('Coin pack price is not configured');
+  }
+  return Math.max(100, Math.round(usd * config.usdToInrRate * 100));
+}
 
 function tenantKeyFromUser(user) {
   return {
@@ -157,15 +176,123 @@ export async function spendTenantCoins(featureId, { user, meta } = {}) {
   };
 }
 
-/** Demo purchase — credits pack coins immediately (no real payment). */
-export async function purchaseCoinPack(packId, { user } = {}) {
+export async function createCoinPackPaymentOrder({ packId, userEmail } = {}) {
   const pack = await getCoinPackAsync(packId);
   if (!pack) throw new Error('Unknown coin pack');
+
+  const amountPaise = packAmountPaise(pack);
+  const amountInr = (amountPaise / 100).toFixed(2);
+  const tenantDbName = String(getActiveTenantDbName() || '').trim();
+  const description = `AI coin pack: ${pack.name} (${pack.coins} coins)`;
+  const publicConfig = getRazorpayPublicConfig();
+
+  if (!publicConfig.enabled) {
+    const orderId = `order_clone_coins_${Date.now()}`;
+    return {
+      mode: 'clone',
+      orderId,
+      amount: amountPaise,
+      amountPaise,
+      amountInr,
+      currency: publicConfig.currency,
+      merchantName: publicConfig.merchantName,
+      merchantUpi: publicConfig.merchantUpi,
+      packId: pack.id,
+      packName: pack.name,
+      coins: pack.coins,
+      description,
+      upiPayLink: buildUpiPayUri({
+        merchantUpi: publicConfig.merchantUpi,
+        merchantName: publicConfig.merchantName,
+        amountInr: Number(amountInr),
+        transactionNote: description,
+        transactionRef: orderId,
+      }),
+    };
+  }
+
+  const order = await createRazorpayOrder({
+    amountPaise,
+    receipt: `coins_${Date.now()}`.slice(0, 40),
+    notes: {
+      type: 'ai_coin_pack',
+      packId: pack.id,
+      coins: String(pack.coins),
+      tenantDbName,
+      payerEmail: String(userEmail || '').trim(),
+    },
+  });
+
+  return {
+    mode: 'live',
+    orderId: order.id,
+    amount: order.amount,
+    amountPaise: order.amount,
+    amountInr,
+    currency: order.currency,
+    keyId: publicConfig.keyId,
+    merchantName: publicConfig.merchantName,
+    merchantUpi: publicConfig.merchantUpi,
+    packId: pack.id,
+    packName: pack.name,
+    coins: pack.coins,
+    description,
+  };
+}
+
+/**
+ * Credit pack after Razorpay capture (live) or clone confirmation.
+ * Live requires order/payment/signature; clone allows paymentReference only when Razorpay is off.
+ */
+export async function purchaseCoinPack(
+  packId,
+  {
+    user,
+    razorpayOrderId,
+    razorpayPaymentId,
+    razorpaySignature,
+    paymentReference,
+  } = {},
+) {
+  const pack = await getCoinPackAsync(packId);
+  if (!pack) throw new Error('Unknown coin pack');
+
+  const publicConfig = getRazorpayPublicConfig();
+  let reference = String(paymentReference || '').trim();
+
+  if (publicConfig.enabled) {
+    if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
+      throw new Error('Complete Razorpay payment is required to buy AI coins');
+    }
+    verifyRazorpayPaymentSignature({
+      orderId: razorpayOrderId,
+      paymentId: razorpayPaymentId,
+      signature: razorpaySignature,
+    });
+    const expectedAmountPaise = packAmountPaise(pack);
+    const tenantDbName = String(getActiveTenantDbName() || '').trim();
+    await assertRazorpayPaymentCaptured({
+      orderId: razorpayOrderId,
+      paymentId: razorpayPaymentId,
+      expectedAmountPaise,
+      expectedNotes: {
+        type: 'ai_coin_pack',
+        packId: pack.id,
+        ...(tenantDbName ? { tenantDbName } : {}),
+      },
+    });
+    reference = String(razorpayPaymentId);
+  } else if (!reference && !(razorpayOrderId && razorpayPaymentId)) {
+    // Legacy demo path only when gateway is not configured.
+    reference = `demo_${pack.id}_${Date.now()}`;
+  } else {
+    reference = reference || String(razorpayPaymentId || razorpayOrderId);
+  }
 
   const result = await addTenantCoins(pack.coins, {
     user,
     packId: pack.id,
-    reason: 'demo_purchase',
+    reason: publicConfig.enabled ? 'razorpay_purchase' : 'demo_purchase',
   });
 
   try {
@@ -178,16 +305,19 @@ export async function purchaseCoinPack(packId, { user } = {}) {
       unit: 'coins',
       packId: pack.id,
       description: `Purchased ${pack.name} (${pack.coins} AI coins)`,
-      reference: `coin_pack_${pack.id}_${Date.now()}`,
+      reference,
     });
   } catch {
     /* ledger is best-effort */
   }
 
   return {
-    demo: true,
-    message: `Demo purchase successful. ${pack.coins} AI coins credited.`,
+    demo: !publicConfig.enabled,
+    message: publicConfig.enabled
+      ? `Payment successful. ${pack.coins} AI coins credited.`
+      : `Demo purchase successful. ${pack.coins} AI coins credited.`,
     pack: { ...pack },
+    paymentReference: reference,
     ...result,
   };
 }
