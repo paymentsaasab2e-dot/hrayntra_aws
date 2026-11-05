@@ -1803,6 +1803,8 @@ export interface SendInvoiceReminderPayload {
   timezone?: string;
   toEmail?: string;
   note?: string;
+  /** When true (default on server), attach a Razorpay payment link to the reminder email. */
+  includePaymentLink?: boolean;
 }
 
 export interface InvoiceActivityEvent {

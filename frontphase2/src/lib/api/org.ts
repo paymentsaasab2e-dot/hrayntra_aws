@@ -509,13 +509,35 @@ export async function apiGetTenantCoins(): Promise<{
 }
 
 export async function apiGetAiCoinPacks() {
-  return apiFetch<{ packs: AiCoinPack[]; demo: boolean }>('/settings/org/coins/packs', {
-    method: 'GET',
-    auth: true,
-  });
+  return apiFetch<{ packs: AiCoinPack[]; demo: boolean; razorpayEnabled?: boolean }>(
+    '/settings/org/coins/packs',
+    {
+      method: 'GET',
+      auth: true,
+    },
+  );
 }
 
-export async function apiPurchaseAiCoinPack(packId: string) {
+export async function apiCreateAiCoinPackPaymentOrder(packId: string) {
+  return apiFetch<SubscriptionPaymentOrder & { packId?: string; coins?: number }>(
+    '/settings/org/coins/payment-order',
+    {
+      method: 'POST',
+      auth: true,
+      body: { packId },
+    },
+  );
+}
+
+export async function apiPurchaseAiCoinPack(
+  packId: string,
+  payment?: {
+    razorpayOrderId?: string;
+    razorpayPaymentId?: string;
+    razorpaySignature?: string;
+    paymentReference?: string;
+  },
+) {
   return apiFetch<{
     demo: boolean;
     message: string;
@@ -526,6 +548,6 @@ export async function apiPurchaseAiCoinPack(packId: string) {
   }>('/settings/org/coins/purchase', {
     method: 'POST',
     auth: true,
-    body: { packId },
+    body: { packId, ...(payment || {}) },
   });
 }

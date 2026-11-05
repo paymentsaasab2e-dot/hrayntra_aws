@@ -254,10 +254,31 @@ router.get('/coins', async (req, res) => {
 router.get('/coins/packs', async (req, res) => {
   try {
     const { listCoinPacks } = await import('./tenantCoinWallet.service.js');
+    const { getRazorpayPublicConfig } = await import('../payment/razorpay.service.js');
     const packs = await listCoinPacks();
-    sendResponse(res, 200, 'OK', { packs, demo: true });
+    const rzp = getRazorpayPublicConfig();
+    sendResponse(res, 200, 'OK', {
+      packs,
+      demo: !rzp.enabled,
+      razorpayEnabled: Boolean(rzp.enabled),
+    });
   } catch (error) {
     sendError(res, 500, error.message || 'Failed to list coin packs', error);
+  }
+});
+
+router.post('/coins/payment-order', async (req, res) => {
+  try {
+    const packId = String(req.body?.packId || '').trim();
+    if (!packId) return sendError(res, 400, 'packId is required');
+    const { createCoinPackPaymentOrder } = await import('./tenantCoinWallet.service.js');
+    const order = await createCoinPackPaymentOrder({
+      packId,
+      userEmail: req.user?.email,
+    });
+    sendResponse(res, 200, 'OK', order);
+  } catch (error) {
+    sendError(res, 400, error.message || 'Failed to create coin payment order', error);
   }
 });
 
@@ -265,8 +286,20 @@ router.post('/coins/purchase', async (req, res) => {
   try {
     const packId = String(req.body?.packId || '').trim();
     if (!packId) return sendError(res, 400, 'packId is required');
+    const {
+      razorpayOrderId,
+      razorpayPaymentId,
+      razorpaySignature,
+      paymentReference,
+    } = req.body || {};
     const { purchaseCoinPack } = await import('./tenantCoinWallet.service.js');
-    const result = await purchaseCoinPack(packId, { user: req.user });
+    const result = await purchaseCoinPack(packId, {
+      user: req.user,
+      razorpayOrderId,
+      razorpayPaymentId,
+      razorpaySignature,
+      paymentReference,
+    });
     res.setHeader('X-Coin-Balance', String(result.coins));
     res.setHeader('X-Coins-Spent', '0');
     sendResponse(res, 200, result.message || 'Coins purchased', {

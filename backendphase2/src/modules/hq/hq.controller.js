@@ -88,6 +88,24 @@ export const hqController = {
     }
   },
 
+  async createTenantCoinTopUpOrder(req, res) {
+    try {
+      const result = await hqService.createTenantCoinTopUpOrder(req.body, req.user);
+      sendResponse(res, 200, 'OK', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async confirmTenantCoinTopUp(req, res) {
+    try {
+      const result = await hqService.confirmTenantCoinTopUp(req.body, req.user);
+      sendResponse(res, 200, result.message || 'Coins topped up', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
   async listAiFeatures(req, res) {
     try {
       const result = await hqService.listAiFeatures(req.user);

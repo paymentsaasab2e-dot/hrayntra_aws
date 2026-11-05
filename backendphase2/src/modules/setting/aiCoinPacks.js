@@ -1,7 +1,7 @@
 /**
- * Default demo AI coin packs for Phase 2 employer tenants.
+ * Default AI coin packs for Phase 2 employer tenants.
  * HQ can override these via `/hq?tab=plans` → Coin packs (`hq_ai_coin_packs`).
- * Purchase is simulated (no real payment gateway) — credits coins immediately.
+ * Live purchases go through Razorpay when RAZORPAY_KEY_ID/SECRET are set.
  */
 export const PHASE2_AI_COIN_PACKS = [
   {
