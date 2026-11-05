@@ -619,11 +619,157 @@ async function verifyDemoRequestOtp(req, res) {
   }
 }
 
+/** Default USD list prices when HQ packages are not fetched at checkout time. */
+const EMPLOYER_PACKAGE_USD = {
+  starter: { monthly: 149, annual: 119 * 12 },
+  professional: { monthly: 399, annual: 319 * 12 },
+  enterprise: { monthly: 999, annual: 799 * 12 },
+};
+
+async function createEmployerPurchaseOrder(req, res) {
+  try {
+    const { requestId, email, packageSlug, billingCycle } = req.body || {};
+    const normalizedEmail = normalizeEmail(email);
+    if (!requestId || !normalizedEmail) {
+      return res.status(400).json({
+        success: false,
+        message: 'Request id and email are required',
+      });
+    }
+
+    const verified = await retryQuery(async () =>
+      prisma.employerDemoRequest.findFirst({
+        where: {
+          id: requestId,
+          email: normalizedEmail,
+          otpStatus: OtpStatus.VERIFIED,
+          requestKind: 'purchase',
+        },
+      }),
+    );
+    if (!verified) {
+      return res.status(400).json({
+        success: false,
+        message: 'Verified purchase request not found. Please complete signup again.',
+      });
+    }
+
+    const purchaseMeta = parsePurchaseOutcome(verified.outcome);
+    const slug = String(packageSlug || purchaseMeta?.packageSlug || 'starter')
+      .trim()
+      .toLowerCase();
+    const cycle =
+      String(billingCycle || purchaseMeta?.billingCycle || 'monthly').trim().toLowerCase() ===
+      'annual'
+        ? 'annual'
+        : 'monthly';
+    const prices = EMPLOYER_PACKAGE_USD[slug] || EMPLOYER_PACKAGE_USD.starter;
+    const usd = cycle === 'annual' ? prices.annual : prices.monthly;
+
+    const {
+      createRazorpayOrder,
+      getRazorpayPublicConfig,
+      usdToPaise,
+    } = require('../services/razorpay.service');
+    const amountPaise = usdToPaise(usd);
+    const amountInr = (amountPaise / 100).toFixed(2);
+    const description = `HRyantra ${slug} plan (${cycle})`;
+    const publicConfig = getRazorpayPublicConfig();
+
+    if (!publicConfig.enabled) {
+      return res.json({
+        success: true,
+        data: {
+          mode: 'clone',
+          orderId: `order_clone_emp_${Date.now()}`,
+          amount: amountPaise,
+          amountPaise,
+          amountInr,
+          currency: publicConfig.currency,
+          merchantName: publicConfig.merchantName,
+          merchantUpi: publicConfig.merchantUpi,
+          packageSlug: slug,
+          billingCycle: cycle,
+          description,
+        },
+      });
+    }
+
+    const order = await createRazorpayOrder({
+      amountPaise,
+      receipt: `emp_${Date.now()}`.slice(0, 40),
+      notes: {
+        type: 'phase1_employer_purchase',
+        requestId: String(verified.id),
+        email: normalizedEmail,
+        packageSlug: slug,
+        billingCycle: cycle,
+      },
+    });
+
+    return res.json({
+      success: true,
+      data: {
+        mode: 'live',
+        orderId: order.id,
+        amount: order.amount,
+        amountPaise: order.amount,
+        amountInr,
+        currency: order.currency,
+        keyId: publicConfig.keyId,
+        merchantName: publicConfig.merchantName,
+        merchantUpi: publicConfig.merchantUpi,
+        packageSlug: slug,
+        billingCycle: cycle,
+        description,
+      },
+    });
+  } catch (error) {
+    console.error('createEmployerPurchaseOrder error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to create payment order',
+    });
+  }
+}
+
 async function completeEmployerPurchase(req, res) {
   try {
-    const { requestId, email, paymentReference } = req.body;
+    const {
+      requestId,
+      email,
+      paymentReference,
+      razorpayOrderId,
+      razorpayPaymentId,
+      razorpaySignature,
+      packageSlug,
+      billingCycle,
+    } = req.body;
     const normalizedEmail = normalizeEmail(email);
-    const paymentRef = String(paymentReference || '').trim();
+
+    const {
+      getRazorpayPublicConfig,
+      verifyRazorpayPaymentSignature,
+      assertRazorpayPaymentCaptured,
+      usdToPaise,
+    } = require('../services/razorpay.service');
+    const publicConfig = getRazorpayPublicConfig();
+
+    let paymentRef = String(paymentReference || '').trim();
+    if (publicConfig.enabled) {
+      if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
+        return res.status(400).json({
+          success: false,
+          message: 'Complete Razorpay payment is required',
+        });
+      }
+      verifyRazorpayPaymentSignature({
+        orderId: razorpayOrderId,
+        paymentId: razorpayPaymentId,
+        signature: razorpaySignature,
+      });
+      paymentRef = String(razorpayPaymentId);
+    }
 
     if (!requestId || !normalizedEmail || !paymentRef) {
       return res.status(400).json({
@@ -647,6 +793,32 @@ async function completeEmployerPurchase(req, res) {
       return res.status(400).json({
         success: false,
         message: 'Verified purchase request not found. Please complete signup again.',
+      });
+    }
+
+    if (publicConfig.enabled) {
+      const purchaseMeta = parsePurchaseOutcome(verified.outcome);
+      const slug = String(packageSlug || purchaseMeta?.packageSlug || 'starter')
+        .trim()
+        .toLowerCase();
+      const cycle =
+        String(billingCycle || purchaseMeta?.billingCycle || 'monthly').trim().toLowerCase() ===
+        'annual'
+          ? 'annual'
+          : 'monthly';
+      const prices = EMPLOYER_PACKAGE_USD[slug] || EMPLOYER_PACKAGE_USD.starter;
+      const usd = cycle === 'annual' ? prices.annual : prices.monthly;
+      await assertRazorpayPaymentCaptured({
+        orderId: razorpayOrderId,
+        paymentId: razorpayPaymentId,
+        expectedAmountPaise: usdToPaise(usd),
+        expectedNotes: {
+          type: 'phase1_employer_purchase',
+          requestId: String(verified.id),
+          email: normalizedEmail,
+          packageSlug: slug,
+          billingCycle: cycle,
+        },
       });
     }
 
@@ -717,5 +889,6 @@ module.exports = {
   sendDemoRequestOtp,
   resendDemoRequestOtp,
   verifyDemoRequestOtp,
+  createEmployerPurchaseOrder,
   completeEmployerPurchase,
 };

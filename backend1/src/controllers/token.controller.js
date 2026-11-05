@@ -59,6 +59,26 @@ async function getCatalog(req, res) {
   }
 }
 
+async function createPurchaseOrder(req, res) {
+  try {
+    const candidateId = tokenService.resolveCandidateId(req.user);
+    if (!candidateId) {
+      return res.status(401).json({ success: false, message: 'Not authorized' });
+    }
+    const packageId = String(req.body?.packageId || '').trim();
+    if (!packageId) {
+      return res.status(400).json({ success: false, message: 'packageId is required' });
+    }
+    const order = await tokenService.createTokenPackPaymentOrder(candidateId, packageId);
+    return res.json({ success: true, data: order });
+  } catch (error) {
+    return res.status(error.status || 500).json({
+      success: false,
+      message: error.message || 'Failed to create payment order',
+    });
+  }
+}
+
 async function purchase(req, res) {
   try {
     const candidateId = tokenService.resolveCandidateId(req.user);
@@ -66,7 +86,13 @@ async function purchase(req, res) {
       return res.status(401).json({ success: false, message: 'Not authorized' });
     }
 
-    const { packageId, paymentReference } = req.body || {};
+    const {
+      packageId,
+      paymentReference,
+      razorpayOrderId,
+      razorpayPaymentId,
+      razorpaySignature,
+    } = req.body || {};
     if (!packageId) {
       return res.status(400).json({
         success: false,
@@ -74,11 +100,11 @@ async function purchase(req, res) {
       });
     }
 
-    const result = await tokenService.purchasePack(
-      candidateId,
-      packageId,
-      paymentReference
-    );
+    const result = await tokenService.purchasePack(candidateId, packageId, paymentReference, {
+      razorpayOrderId,
+      razorpayPaymentId,
+      razorpaySignature,
+    });
 
     return res.json({
       success: true,
@@ -291,6 +317,7 @@ async function getUnlocks(req, res) {
 module.exports = {
   getBalance,
   getCatalog,
+  createPurchaseOrder,
   purchase,
   getTransactions,
   claimWelcome,

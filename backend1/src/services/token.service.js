@@ -345,16 +345,131 @@ async function grantTokensAmount(candidateId, amount, serviceId, description) {
   throw lastErr;
 }
 
-/**
- * Mock purchase — credits tokens without a real payment gateway.
- */
-async function purchasePack(candidateId, packageId, paymentReference) {
+async function createTokenPackPaymentOrder(candidateId, packageId) {
   const { getPurchasePackAsync } = require('./hqPhase1TokenConfig.service');
+  const {
+    createRazorpayOrder,
+    getRazorpayPublicConfig,
+    usdToPaise,
+  } = require('./razorpay.service');
+
   const pack = await getPurchasePackAsync(packageId);
   if (!pack) {
     const err = new Error('Invalid package');
     err.status = 400;
     throw err;
+  }
+
+  const usd = Number(pack.priceAmount ?? pack.priceUsd ?? 0);
+  if (!(usd > 0)) {
+    const err = new Error('Pack price is not configured');
+    err.status = 400;
+    throw err;
+  }
+
+  const amountPaise = usdToPaise(usd);
+  const amountInr = (amountPaise / 100).toFixed(2);
+  const description = `Phase 1 tokens: ${pack.name} (${pack.tokens} tokens)`;
+  const publicConfig = getRazorpayPublicConfig();
+
+  if (!publicConfig.enabled) {
+    return {
+      mode: 'clone',
+      orderId: `order_clone_p1_${Date.now()}`,
+      amount: amountPaise,
+      amountPaise,
+      amountInr,
+      currency: publicConfig.currency,
+      merchantName: publicConfig.merchantName,
+      merchantUpi: publicConfig.merchantUpi,
+      packageId: pack.id,
+      tokens: pack.tokens,
+      description,
+    };
+  }
+
+  const order = await createRazorpayOrder({
+    amountPaise,
+    receipt: `p1tok_${Date.now()}`.slice(0, 40),
+    notes: {
+      type: 'phase1_token_pack',
+      packageId: pack.id,
+      tokens: String(pack.tokens),
+      candidateId: String(candidateId || ''),
+    },
+  });
+
+  return {
+    mode: 'live',
+    orderId: order.id,
+    amount: order.amount,
+    amountPaise: order.amount,
+    amountInr,
+    currency: order.currency,
+    keyId: publicConfig.keyId,
+    merchantName: publicConfig.merchantName,
+    merchantUpi: publicConfig.merchantUpi,
+    packageId: pack.id,
+    tokens: pack.tokens,
+    description,
+  };
+}
+
+/**
+ * Credit tokens after Razorpay capture (live) or clone/demo reference.
+ */
+async function purchasePack(
+  candidateId,
+  packageId,
+  paymentReference,
+  {
+    razorpayOrderId,
+    razorpayPaymentId,
+    razorpaySignature,
+  } = {},
+) {
+  const { getPurchasePackAsync } = require('./hqPhase1TokenConfig.service');
+  const {
+    getRazorpayPublicConfig,
+    usdToPaise,
+    verifyRazorpayPaymentSignature,
+    assertRazorpayPaymentCaptured,
+  } = require('./razorpay.service');
+
+  const pack = await getPurchasePackAsync(packageId);
+  if (!pack) {
+    const err = new Error('Invalid package');
+    err.status = 400;
+    throw err;
+  }
+
+  const publicConfig = getRazorpayPublicConfig();
+  let reference = String(paymentReference || '').trim();
+
+  if (publicConfig.enabled) {
+    if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
+      const err = new Error('Complete Razorpay payment is required to buy tokens');
+      err.status = 400;
+      throw err;
+    }
+    verifyRazorpayPaymentSignature({
+      orderId: razorpayOrderId,
+      paymentId: razorpayPaymentId,
+      signature: razorpaySignature,
+    });
+    await assertRazorpayPaymentCaptured({
+      orderId: razorpayOrderId,
+      paymentId: razorpayPaymentId,
+      expectedAmountPaise: usdToPaise(Number(pack.priceAmount ?? pack.priceUsd ?? 0)),
+      expectedNotes: {
+        type: 'phase1_token_pack',
+        packageId: pack.id,
+        candidateId: String(candidateId || ''),
+      },
+    });
+    reference = String(razorpayPaymentId);
+  } else if (!reference) {
+    reference = `mock_${pack.id}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   }
 
   const candidate = await prisma.candidate.findUnique({
@@ -369,9 +484,6 @@ async function purchasePack(candidateId, packageId, paymentReference) {
   }
 
   const newBalance = (candidate.tokenBalance ?? 0) + pack.tokens;
-  const reference =
-    paymentReference ||
-    `mock_${pack.id}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
   await prisma.candidate.update({
     where: { id: candidateId },
@@ -399,6 +511,7 @@ async function purchasePack(candidateId, packageId, paymentReference) {
     pack,
     reference,
     credited: pack.tokens,
+    demo: !publicConfig.enabled,
   };
 }
 
@@ -877,6 +990,7 @@ module.exports = {
   grantWelcomeTokensIfNeeded,
   spendTokens,
   purchasePack,
+  createTokenPackPaymentOrder,
   listRecentTransactions,
   getCatalog,
   WELCOME_TOKEN_AMOUNT,

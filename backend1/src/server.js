@@ -49,6 +49,7 @@ const employerDemoRoutes = require('./routes/employer-demo.routes');
 const publicEventsRoutes = require('./routes/public-events.routes');
 const publicCoursesRoutes = require('./routes/public-courses.routes');
 const tokenRoutes = require('./routes/token.routes');
+const razorpayWebhookRoutes = require('./routes/razorpay.webhook.routes');
 const { startInterviewReminderScheduler } = require('./services/interview-reminder.service');
 const { startIncompleteAccountCleanup } = require('./services/incomplete-cleanup.service');
 const { registerInterviewRoomSocketHandlers } = require('./realtime/interview-room.socket');
@@ -120,6 +121,8 @@ app.use(cors({
   exposedHeaders: ['X-Token-Balance', 'X-Tokens-Spent'],
 }));
 app.use(securityHeaders);
+// Razorpay webhooks need raw body HMAC — mount BEFORE express.json.
+app.use('/api/payments/razorpay', razorpayWebhookRoutes);
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 

@@ -3,6 +3,7 @@ const { protect } = require('../middleware/auth.middleware');
 const {
   getBalance,
   getCatalog,
+  createPurchaseOrder,
   purchase,
   getTransactions,
   claimWelcome,
@@ -18,6 +19,7 @@ router.get('/balance', protect, getBalance);
 router.get('/catalog', protect, getCatalog);
 router.get('/transactions', protect, getTransactions);
 router.get('/unlocks', protect, getUnlocks);
+router.post('/purchase/payment-order', protect, createPurchaseOrder);
 router.post('/purchase', protect, purchase);
 router.post('/claim-welcome', protect, claimWelcome);
 router.post('/spend', protect, spend);

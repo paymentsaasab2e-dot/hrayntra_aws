@@ -328,7 +328,7 @@ const SERVICE_CATALOG = [
   },
 ];
 
-/** Mock purchase packs (no real payment gateway yet). */
+/** Purchase packs — paid via Razorpay when RAZORPAY_KEY_ID/SECRET are set. */
 const PURCHASE_PACKS = [
   {
     id: 'starter',

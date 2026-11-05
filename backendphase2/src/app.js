@@ -89,6 +89,7 @@ import preScreenAssessmentRoutes from './modules/pre-screen-assessment/assessmen
 import publicLandingRoutes from './modules/public/public.routes.js';
 import publicTenantJobsRoutes from './modules/public/tenant-jobs.routes.js';
 import jobPostingPlanRoutes from './modules/job-posting-plan/jobPostingPlan.routes.js';
+import razorpayWebhookRoutes from './modules/payment/razorpay.webhook.routes.js';
 
 const app = express();
 
@@ -139,6 +140,8 @@ app.use(
 );
 const jsonBodyLimit = process.env.JSON_BODY_LIMIT || '15mb';
 app.use(securityHeaders);
+// Razorpay webhooks need the raw body for HMAC verification — mount BEFORE express.json.
+app.use('/api/v1/payments/razorpay', razorpayWebhookRoutes);
 app.use(express.json({ limit: jsonBodyLimit }));
 app.use(express.urlencoded({ extended: true, limit: jsonBodyLimit }));
 app.use(compression());
