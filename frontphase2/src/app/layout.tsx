@@ -8,6 +8,7 @@ import { UserPermissionsSync } from "../components/UserPermissionsSync";
 import { TrialPlanHost } from "../components/trial/TrialPlanHost";
 import { TenantPausedHost } from "../components/tenant/TenantPausedHost";
 import { TenantCoinsProvider } from "../components/coins/TenantCoinsContext";
+import { JobPublishQuotaHost } from "../components/jobs/JobPublishQuotaModal";
 import { TenantIntelligenceHost } from "../components/phase2-intelligence/TenantIntelligenceHost";
 import { WritingAssistHost } from "../components/common/WritingAssistHost";
 import { RouteErrorBoundary } from "../components/PageErrorBoundary";
