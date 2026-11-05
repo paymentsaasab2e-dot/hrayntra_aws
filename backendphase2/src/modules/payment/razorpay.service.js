@@ -114,54 +114,6 @@ export async function assertRazorpayPaymentCaptured({
   return { orderId: order_id, paymentId: payment_id, payment, order };
 }
 
-/**
- * Create a Razorpay Payment Link (email / WhatsApp / copy-paste).
- * Docs: https://razorpay.com/docs/api/payments/payment-links/
- */
-export async function createRazorpayPaymentLink({
-  amountPaise,
-  description,
-  customer = {},
-  notes = {},
-  callbackUrl,
-  expireBy,
-}) {
-  const config = assertRazorpayConfigured();
-  const amount = Math.round(Number(amountPaise));
-  if (!Number.isFinite(amount) || amount < 100) {
-    throw new Error('Payment amount must be at least ₹1');
-  }
-
-  const body = {
-    amount,
-    currency: config.currency,
-    accept_partial: false,
-    description: String(description || 'Payment').slice(0, 2048),
-    customer: {
-      ...(customer.name ? { name: String(customer.name).slice(0, 120) } : {}),
-      ...(customer.email ? { email: String(customer.email).trim().toLowerCase() } : {}),
-      ...(customer.contact ? { contact: String(customer.contact).replace(/\D/g, '').slice(-15) } : {}),
-    },
-    notify: {
-      sms: Boolean(customer.contact),
-      email: Boolean(customer.email),
-    },
-    reminder_enable: true,
-    notes: {
-      ...notes,
-      merchant_upi: config.merchantUpi,
-    },
-  };
-  if (callbackUrl) body.callback_url = String(callbackUrl);
-  if (callbackUrl) body.callback_method = 'get';
-  if (expireBy) body.expire_by = Math.floor(Number(expireBy));
-
-  const { data } = await axios.post('https://api.razorpay.com/v1/payment_links', body, {
-    headers: authHeader(config),
-  });
-  return data;
-}
-
 export function getRazorpayPublicConfig() {
   const config = getRazorpayConfig();
   return {

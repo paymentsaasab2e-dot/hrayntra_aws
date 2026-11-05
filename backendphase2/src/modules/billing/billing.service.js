@@ -395,14 +395,6 @@ async function dispatchInvoiceReminderEmail(record, reminder, senderUserId) {
   const buyer = payload.buyer || {};
   const seller = payload.seller || {};
   const outstanding = payload.total ?? record.amount;
-  const paymentLink =
-    reminder?.paymentLinkUrl ||
-    payload.razorpayPaymentLinkUrl ||
-    null;
-
-  const noteWithLink = paymentLink
-    ? `${reminder.note || 'Please arrange payment at your earliest convenience.'}\n\nPay online: ${paymentLink}`
-    : reminder.note || null;
 
   return sendInvoicePaymentReminderEmail({
     senderUserId: senderUserId || reminder?.createdById || null,
@@ -414,8 +406,7 @@ async function dispatchInvoiceReminderEmail(record, reminder, senderUserId) {
     dueStatus: describeDueStatus(record),
     companyName: buyer.companyName || record.client?.companyName || 'your organisation',
     sellerName: seller.name || 'Your agency',
-    reminderNote: noteWithLink,
-    paymentLinkUrl: paymentLink,
+    reminderNote: reminder.note || null,
   });
 }
 
@@ -1120,90 +1111,6 @@ export const billingService = {
    * Reminders live on `invoicePayload.paymentReminders` so they surface in the
    * invoice activity timeline without a schema migration.
    */
-  async createInvoicePaymentLink(id, { customerEmail, customerName } = {}) {
-    const existing = await prisma.billingRecord.findUnique({
-      where: { id },
-      include: {
-        client: { select: clientBillingEmailSelect },
-        placement: {
-          include: { client: { select: clientBillingEmailSelect } },
-        },
-      },
-    });
-    if (!existing) throw new Error('Invoice not found');
-    if (isDraftBillingRecord(existing)) {
-      throw new Error('Publish the invoice before creating a payment link');
-    }
-
-    const payload = invoicePayloadObject(existing);
-    const buyer = payload.buyer || {};
-    const outstanding = Number(payload.total ?? existing.amount) || 0;
-    if (!(outstanding > 0)) throw new Error('Invoice has no outstanding amount');
-
-    // Razorpay checkout is INR-only in our config; convert non-INR roughly via USD rate when needed.
-    const { getRazorpayConfig } = await import('../payment/razorpay.config.js');
-    const {
-      createRazorpayPaymentLink,
-      getRazorpayPublicConfig,
-    } = await import('../payment/razorpay.service.js');
-    const publicConfig = getRazorpayPublicConfig();
-    if (!publicConfig.enabled) {
-      throw new Error('Razorpay is not configured. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET.');
-    }
-    const config = getRazorpayConfig();
-    const currency = String(existing.currency || 'INR').toUpperCase();
-    let amountPaise;
-    if (currency === 'INR') {
-      amountPaise = Math.max(100, Math.round(outstanding * 100));
-    } else if (currency === 'USD') {
-      amountPaise = Math.max(100, Math.round(outstanding * config.usdToInrRate * 100));
-    } else {
-      // Treat amount as already major units of a foreign currency → convert via USD rate as estimate.
-      amountPaise = Math.max(100, Math.round(outstanding * config.usdToInrRate * 100));
-    }
-
-    const toEmail =
-      String(customerEmail || buyer.email || '').trim() ||
-      resolveClientBillingEmail(existing.client, existing.client?.contacts) ||
-      resolveClientBillingEmail(existing.placement?.client, existing.placement?.client?.contacts);
-    const invoiceNumber =
-      existing.invoiceNumber || `INV-${String(existing.id).slice(-6).toUpperCase()}`;
-
-    const link = await createRazorpayPaymentLink({
-      amountPaise,
-      description: `Invoice ${invoiceNumber}`,
-      customer: {
-        email: toEmail || undefined,
-        name: customerName || buyer.contactName || buyer.name || buyer.companyName || undefined,
-      },
-      notes: {
-        type: 'placement_invoice',
-        billingRecordId: existing.id,
-        invoiceNumber,
-      },
-    });
-
-    const nextPayload = {
-      ...payload,
-      razorpayPaymentLinkId: link.id,
-      razorpayPaymentLinkUrl: link.short_url || link.url,
-      razorpayPaymentLinkCreatedAt: new Date().toISOString(),
-    };
-    await prisma.billingRecord.update({
-      where: { id: existing.id },
-      data: { invoicePayload: nextPayload },
-    });
-
-    return {
-      billingRecordId: existing.id,
-      invoiceNumber,
-      paymentLinkId: link.id,
-      paymentLinkUrl: link.short_url || link.url,
-      amountPaise,
-      currency: 'INR',
-    };
-  },
-
   async sendInvoiceReminder(id, data = {}, senderUserId) {
     const existing = await prisma.billingRecord.findUnique({
       where: { id },
@@ -1232,27 +1139,12 @@ export const billingService = {
 
     const { mode, scheduledAt, timezone } = resolveReminderSchedule(data);
 
-    let paymentLinkUrl = invoicePayloadObject(existing).razorpayPaymentLinkUrl || null;
-    const wantLink = data.includePaymentLink !== false;
-    if (wantLink && mode === 'now') {
-      try {
-        const linkResult = await this.createInvoicePaymentLink(id, {
-          customerEmail: toEmail,
-          customerName: buyer.contactName || buyer.name,
-        });
-        paymentLinkUrl = linkResult.paymentLinkUrl;
-      } catch (err) {
-        console.warn('[billing] Razorpay payment link skipped:', err?.message || err);
-      }
-    }
-
     const reminder = {
       id: randomUUID(),
       mode,
       status: mode === 'now' ? 'SENT' : 'PENDING',
       toEmail,
       note: String(data.note || '').trim() || null,
-      paymentLinkUrl: paymentLinkUrl || null,
       scheduledAt: scheduledAt.toISOString(),
       timezone: timezone || null,
       createdAt: new Date().toISOString(),

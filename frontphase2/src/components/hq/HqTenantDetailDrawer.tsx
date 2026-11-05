@@ -25,18 +25,13 @@ import {
 import { DrawerLinkActions } from '../drawers/DrawerLinkActions';
 import {
   apiHqSetTenantCoins,
-  apiHqCreateTenantCoinTopUpOrder,
-  apiHqConfirmTenantCoinTopUp,
   apiHqUpdateTenantModules,
   apiHqUpdateTenantOrganizationName,
   apiHqIssueTenantJobsApiKey,
   apiHqRevokeTenantJobsApiKey,
   type HqSubscriptionPackage,
   type HqTenantRow,
-  type SubscriptionPaymentOrder,
 } from '@/lib/api';
-import { openRazorpayCheckout, readCurrentUserPrefill } from '@/lib/razorpayCheckout';
-import { RazorpayCloneCheckoutModal } from '@/components/billing/RazorpayCloneCheckoutModal';
 import {
   ALL_TENANT_MODULES,
   defaultModulesForProductLine,
@@ -144,10 +139,6 @@ export function HqTenantDetailDrawer({
   const [coins, setCoins] = useState('');
   const [savingCoins, setSavingCoins] = useState(false);
   const [coinsError, setCoinsError] = useState('');
-  const [topUpCoins, setTopUpCoins] = useState('500');
-  const [topUpUsd, setTopUpUsd] = useState('39');
-  const [topUpBusy, setTopUpBusy] = useState(false);
-  const [topUpOrder, setTopUpOrder] = useState<SubscriptionPaymentOrder | null>(null);
   const [pricingBillingPreview, setPricingBillingPreview] = useState<BillingCycle>('monthly');
   const [editingCompanyName, setEditingCompanyName] = useState(false);
   const [companyNameDraft, setCompanyNameDraft] = useState('');
@@ -277,63 +268,6 @@ export function HqTenantDetailDrawer({
       setCoinsError(err instanceof Error ? err.message : 'Failed to update coins');
     } finally {
       setSavingCoins(false);
-    }
-  };
-
-  const handleRazorpayTopUp = async () => {
-    setTopUpBusy(true);
-    setCoinsError('');
-    try {
-      const coinsToAdd = Math.max(1, Math.floor(Number(topUpCoins) || 0));
-      const amountUsd = Number.parseFloat(String(topUpUsd || '').replace(/,/g, ''));
-      if (!Number.isFinite(amountUsd) || amountUsd <= 0) {
-        throw new Error('Enter a valid USD amount for the Razorpay charge');
-      }
-      const orderRes = await apiHqCreateTenantCoinTopUpOrder({
-        email: tenant.email,
-        coinsToAdd,
-        amountUsd,
-      });
-      const order = orderRes.data;
-      if (!order?.orderId) throw new Error('Could not start Razorpay checkout');
-
-      const confirmBody = {
-        email: tenant.email,
-        coinsToAdd,
-        amountUsd,
-      };
-
-      if (order.mode === 'live' && order.keyId) {
-        await openRazorpayCheckout({
-          keyId: order.keyId,
-          orderId: order.orderId,
-          amount: Number(order.amountPaise || order.amount),
-          currency: order.currency || 'INR',
-          merchantName: order.merchantName || 'HRYANTRA',
-          description: order.description || `AI coin top-up for ${tenant.email}`,
-          merchantUpi: order.merchantUpi,
-          prefill: readCurrentUserPrefill(),
-          onSuccess: async (response) => {
-            const res = await apiHqConfirmTenantCoinTopUp({
-              ...confirmBody,
-              razorpayOrderId: response.razorpay_order_id,
-              razorpayPaymentId: response.razorpay_payment_id,
-              razorpaySignature: response.razorpay_signature,
-            });
-            setCoins(String(res.data?.coins ?? ''));
-            void requestSuccess(res.data?.message || 'Coins topped up via Razorpay.');
-            onSaved();
-          },
-        });
-        return;
-      }
-
-      setTopUpOrder(order);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Top-up failed';
-      if (message !== 'Payment cancelled') setCoinsError(message);
-    } finally {
-      setTopUpBusy(false);
     }
   };
 
@@ -911,57 +845,14 @@ export function HqTenantDetailDrawer({
                         <HqPrimaryButton
                           type="button"
                           onClick={() => void handleSaveCoins()}
-                          disabled={savingCoins || readOnly || topUpBusy}
+                          disabled={savingCoins || readOnly}
                           loading={savingCoins}
                         >
                           Save coins
                         </HqPrimaryButton>
                       </div>
-                      <div className="mt-4 rounded-xl border border-amber-100 bg-amber-50/60 p-3">
-                        <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-amber-800">
-                          Razorpay top-up
-                        </p>
-                        <div className="flex flex-wrap items-end gap-3">
-                          <div className="min-w-[7rem] flex-1">
-                            <label className="mb-1.5 block text-xs font-semibold text-slate-600">
-                              Coins to add
-                            </label>
-                            <input
-                              type="number"
-                              min={1}
-                              value={topUpCoins}
-                              disabled={topUpBusy || readOnly}
-                              onChange={(e) => setTopUpCoins(e.target.value)}
-                              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                            />
-                          </div>
-                          <div className="min-w-[7rem] flex-1">
-                            <label className="mb-1.5 block text-xs font-semibold text-slate-600">
-                              Charge (USD)
-                            </label>
-                            <input
-                              type="number"
-                              min={1}
-                              step="0.01"
-                              value={topUpUsd}
-                              disabled={topUpBusy || readOnly}
-                              onChange={(e) => setTopUpUsd(e.target.value)}
-                              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                            />
-                          </div>
-                          <HqPrimaryButton
-                            type="button"
-                            onClick={() => void handleRazorpayTopUp()}
-                            disabled={topUpBusy || readOnly || savingCoins}
-                            loading={topUpBusy}
-                          >
-                            Collect via Razorpay
-                          </HqPrimaryButton>
-                        </div>
-                      </div>
                       <p className="mt-2 text-xs text-slate-500">
                         Tenant users spend these on Phase 2 AI features. At 0, AI actions stay locked.
-                        Manual save sets absolute balance; Razorpay top-up adds coins after payment.
                       </p>
                     </section>
                   </div>
@@ -1159,30 +1050,7 @@ export function HqTenantDetailDrawer({
     </AnimatePresence>
   );
 
-  return (
-    <>
-      {createPortal(drawerTree, document.body)}
-      <RazorpayCloneCheckoutModal
-        open={Boolean(topUpOrder)}
-        order={topUpOrder}
-        onClose={() => setTopUpOrder(null)}
-        onConfirmPaid={async (order) => {
-          const coinsToAdd = Math.max(1, Math.floor(Number(topUpCoins) || 0));
-          const amountUsd = Number.parseFloat(String(topUpUsd || '').replace(/,/g, '')) || 0;
-          const res = await apiHqConfirmTenantCoinTopUp({
-            email: tenant.email,
-            coinsToAdd,
-            amountUsd,
-            paymentReference: `pay_clone_${order.orderId}_${Date.now()}`,
-          });
-          setCoins(String(res.data?.coins ?? ''));
-          setTopUpOrder(null);
-          void requestSuccess(res.data?.message || 'Coins topped up.');
-          onSaved();
-        }}
-      />
-    </>
-  );
+  return createPortal(drawerTree, document.body);
 }
 
 function InfoCard({

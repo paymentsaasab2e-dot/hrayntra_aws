@@ -132,17 +132,6 @@ export const billingController = {
     }
   },
 
-  async createInvoicePaymentLink(req, res) {
-    try {
-      const result = await billingService.createInvoicePaymentLink(req.params.id, req.body || {});
-      sendResponse(res, 200, 'Payment link created', result);
-    } catch (error) {
-      const message = String(error?.message || '');
-      const status = message.includes('not found') ? 404 : 400;
-      sendError(res, status, message, error);
-    }
-  },
-
   async listInvoiceReminders(req, res) {
     try {
       const result = await billingService.listInvoiceReminders(req.params.id);

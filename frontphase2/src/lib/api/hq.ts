@@ -1,7 +1,7 @@
 /* hq API */
 import { apiFetch, apiFetchFormData } from './core';
 import { dedupeCompanyNamedPayload } from '../companyNameKey';
-import type { CreateClientData, CreateLeadData, HqAccountSupportLookup, HqAiCoinPack, HqAiFeature, HqAnalyticsPayload, HqBillingCandidateLedgerPayload, HqBillingEmployerLedgerPayload, HqBillingPayload, HqCandidateBehaviorAnalysis, HqCompanyApiRow, HqCompanyStats, HqCourseCertificate, HqCourseEnrollmentResult, HqCoursePayload, HqCourseRow, HqCourseStats, HqCustomReportRow, HqDemoRequestApiRow, HqDemoStats, HqHelpTicket, HqHelpTicketMessage, HqHelpTicketStats, HqHelpTicketStatus, HqKycInterviewerRow, HqLeadApiRow, HqLeadStats, HqLeadStorageInfo, HqPermissionRow, HqPortalCandidateRow, HqPortalJobRow, HqPortalStats, HqPortalStorageInfo, HqPushJobsToFeedsResult, HqRoleRow, HqSubscriptionPackage, HqSupportTicket, HqSupportTicketMessage, HqSupportTicketPriority, HqSupportTicketStats, HqSupportTicketStatus, HqSyncTenantJobsToPhase1Result, HqTeamMemberRow, HqTeamMemberStatus, HqTeamStats, HqTenantBehaviorAnalysis, HqTenantRow, HqTenantSubscriptionPlan, SubscriptionPaymentOrder } from './types';
+import type { CreateClientData, CreateLeadData, HqAccountSupportLookup, HqAiCoinPack, HqAiFeature, HqAnalyticsPayload, HqBillingCandidateLedgerPayload, HqBillingEmployerLedgerPayload, HqBillingPayload, HqCandidateBehaviorAnalysis, HqCompanyApiRow, HqCompanyStats, HqCourseCertificate, HqCourseEnrollmentResult, HqCoursePayload, HqCourseRow, HqCourseStats, HqCustomReportRow, HqDemoRequestApiRow, HqDemoStats, HqHelpTicket, HqHelpTicketMessage, HqHelpTicketStats, HqHelpTicketStatus, HqKycInterviewerRow, HqLeadApiRow, HqLeadStats, HqLeadStorageInfo, HqPermissionRow, HqPortalCandidateRow, HqPortalJobRow, HqPortalStats, HqPortalStorageInfo, HqPushJobsToFeedsResult, HqRoleRow, HqSubscriptionPackage, HqSupportTicket, HqSupportTicketMessage, HqSupportTicketPriority, HqSupportTicketStats, HqSupportTicketStatus, HqSyncTenantJobsToPhase1Result, HqTeamMemberRow, HqTeamMemberStatus, HqTeamStats, HqTenantBehaviorAnalysis, HqTenantRow, HqTenantSubscriptionPlan } from './types';
 
 
 export type HqProvisionTenantBody = {
@@ -1089,36 +1089,6 @@ export async function apiHqSetTenantCoins(body: { email: string; coins: number }
     coins: number;
     subscriptionPlan: HqTenantSubscriptionPlan | null;
   }>('/hq/tenants/coins', { method: 'PUT', auth: true, body });
-}
-
-export async function apiHqCreateTenantCoinTopUpOrder(body: {
-  email: string;
-  coinsToAdd: number;
-  amountUsd: number;
-}) {
-  return apiFetch<SubscriptionPaymentOrder & { email?: string; coinsToAdd?: number }>(
-    '/hq/tenants/coins/topup-order',
-    { method: 'POST', auth: true, body },
-  );
-}
-
-export async function apiHqConfirmTenantCoinTopUp(body: {
-  email: string;
-  coinsToAdd: number;
-  amountUsd: number;
-  razorpayOrderId?: string;
-  razorpayPaymentId?: string;
-  razorpaySignature?: string;
-  paymentReference?: string;
-}) {
-  return apiFetch<{
-    email: string;
-    coins: number;
-    coinsAdded: number;
-    previous: number;
-    message: string;
-    subscriptionPlan: HqTenantSubscriptionPlan | null;
-  }>('/hq/tenants/coins/topup-confirm', { method: 'POST', auth: true, body });
 }
 
 export async function apiHqListAiFeatures() {

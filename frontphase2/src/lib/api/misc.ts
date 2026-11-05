@@ -208,24 +208,6 @@ export async function apiSendInvoiceReminder(invoiceId: string, payload: SendInv
   );
 }
 
-export async function apiCreateInvoicePaymentLink(
-  invoiceId: string,
-  payload?: { customerEmail?: string; customerName?: string },
-) {
-  return apiFetch<{
-    billingRecordId: string;
-    invoiceNumber: string;
-    paymentLinkId: string;
-    paymentLinkUrl: string;
-    amountPaise: number;
-    currency: string;
-  }>(`/billing/${encodeURIComponent(invoiceId)}/payment-link`, {
-    method: 'POST',
-    auth: true,
-    body: payload || {},
-  });
-}
-
 export async function apiListInvoiceReminders(invoiceId: string) {
   return apiFetch<{
     billingRecordId: string;
