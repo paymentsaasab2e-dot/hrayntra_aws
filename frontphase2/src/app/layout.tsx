@@ -50,7 +50,6 @@ export default function RootLayout({
           <GlobalAlertHost />
           <TrialPlanHost />
           <TenantPausedHost />
-          <JobPublishQuotaHost />
           <ActiveSessionManager />
           <IdleMount delayMs={1600}>
             <UserPermissionsSync />
