@@ -1522,6 +1522,7 @@ export type HqBillingCandidateTransactionRow = {
   balanceAfter: number;
   packageId: string | null;
   packageName: string;
+  productName?: string;
   service: string;
   reference: string;
   description: string;
@@ -1540,6 +1541,7 @@ export type HqBillingEmployerTransactionRow = {
   direction: HqBillingTransactionDirection;
   unit: string;
   balanceAfter?: number;
+  productName?: string;
   reference: string;
   description: string;
   featureId?: string;
@@ -1743,6 +1745,20 @@ export type HqAiCoinPack = {
   priceUsd: number;
   priceLabel: string;
   description: string;
+  popular?: boolean;
+  active?: boolean;
+  sortOrder?: number;
+};
+
+/** HQ-managed Free Jobs publish upgrade packs (shown when free quota is exhausted). */
+export type HqFreeJobPack = {
+  id: string;
+  name: string;
+  description: string;
+  monthlyLimit: number;
+  durationDays: number;
+  priceUsd: number;
+  priceLabel: string;
   popular?: boolean;
   active?: boolean;
   sortOrder?: number;

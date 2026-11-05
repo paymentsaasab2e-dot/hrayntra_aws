@@ -2,7 +2,7 @@ import { sendResponse, sendError } from '../../utils/response.js';
 import {
   ensureFreePlanIfMissing,
   getJobPostingQuotaSnapshot,
-  getPremiumOffer,
+  getPremiumOfferWithPacks,
   createPremiumPaymentOrder,
   activatePremium,
 } from './jobPostingPlan.service.js';
@@ -12,8 +12,8 @@ export const jobPostingPlanController = {
     try {
       await ensureFreePlanIfMissing();
       const snapshot = await getJobPostingQuotaSnapshot();
-      const offer = getPremiumOffer();
-      sendResponse(res, 200, 'OK', { snapshot, offer });
+      const offer = await getPremiumOfferWithPacks();
+      sendResponse(res, 200, 'OK', { snapshot, offer, packs: offer.packs || [] });
     } catch (error) {
       sendError(res, 500, error.message || 'Failed to load job posting plan', error);
     }
@@ -21,9 +21,10 @@ export const jobPostingPlanController = {
 
   async createPaymentOrder(req, res) {
     try {
-      const { billingCycle } = req.body || {};
+      const { billingCycle, packId } = req.body || {};
       const order = await createPremiumPaymentOrder({
         billingCycle,
+        packId,
         userEmail: req.user?.email,
       });
       sendResponse(res, 200, 'Payment order created', order);
@@ -36,6 +37,7 @@ export const jobPostingPlanController = {
     try {
       const {
         billingCycle,
+        packId,
         paymentReference,
         razorpayOrderId,
         razorpayPaymentId,
@@ -43,6 +45,7 @@ export const jobPostingPlanController = {
       } = req.body || {};
       const result = await activatePremium({
         billingCycle,
+        packId,
         paymentReference,
         razorpayOrderId,
         razorpayPaymentId,

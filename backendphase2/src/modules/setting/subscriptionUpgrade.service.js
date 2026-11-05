@@ -97,6 +97,32 @@ export async function upgradeSubscriptionPlan({
     await setSubscriptionPlan(upgradedPlan);
   }
 
+  try {
+    const { appendTenantBillingTransaction } = await import('../hq/hq-billing-ledger.service.js');
+    const cycle = billingCycle === 'annual' ? 'annual' : 'monthly';
+    const priceRaw =
+      cycle === 'annual'
+        ? Number(targetPlan?.yearlyPrice ?? targetPlan?.price ?? 0)
+        : Number(targetPlan?.price ?? 0);
+    await appendTenantBillingTransaction({
+      tenantDbName: String(updated.tenantDbName || hqTenant.tenantDbName || ''),
+      tenantEmail: String(updated.email || hqTenant.email || '').trim().toLowerCase(),
+      actorEmail: String(upgradedBy || updated.email || '').trim().toLowerCase(),
+      type: 'PLAN_UPGRADE',
+      amount: Number.isFinite(priceRaw) ? Math.max(0, Math.round(priceRaw)) : 0,
+      balanceAfter: 0,
+      unit: 'INR',
+      moneyAmount: Number.isFinite(priceRaw) ? priceRaw : null,
+      moneyCurrency: 'INR',
+      productName: String(targetPlan?.name || pkgId),
+      packId: pkgId,
+      description: `Upgraded subscription to ${targetPlan?.name || pkgId} (${cycle})`,
+      reference: paymentRef,
+    });
+  } catch (err) {
+    console.warn('[subscription-upgrade] HQ billing ledger append failed:', err?.message || err);
+  }
+
   return {
     plan: upgradedPlan,
     hqEmail: updated.email,

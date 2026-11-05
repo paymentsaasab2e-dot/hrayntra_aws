@@ -10,6 +10,7 @@ import {
   HQ_TOOLBAR_ROW_CLASS,
 } from '@/components/hq/HqModulePageLayout';
 import { HqPrimaryButton, HqSecondaryButton } from '@/components/hq/hqUi';
+import { HqFreeJobPacksPanel } from '@/components/hq/HqFreeJobPacksPanel';
 import {
   apiHqListFreeJobTenants,
   apiHqSetFreeJobTenantQuota,
@@ -138,9 +139,13 @@ export default function HqFreeJobsPage() {
   return (
     <HqModulePageLayout
       title="Free Jobs"
-      subtitle="Landing Free Jobs / try-free tenants. Raise monthly publish limits so they can post more jobs."
+      subtitle="Create Razorpay upgrade packs, then manage Free Jobs tenants and manual quota overrides."
       icon={<Briefcase className="h-5 w-5" />}
     >
+      <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <HqFreeJobPacksPanel />
+      </div>
+
       <div className={HQ_TOOLBAR_ROW_CLASS}>
         <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
           <span className="rounded-full bg-emerald-50 px-2.5 py-1 font-semibold text-emerald-800">

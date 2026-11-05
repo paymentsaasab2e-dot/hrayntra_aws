@@ -499,7 +499,9 @@ async function purchasePack(
         balanceAfter: newBalance,
         packageId: pack.id,
         reference,
-        description: `Purchased ${pack.name} pack (${pack.tokens} tokens for ${pack.priceLabel})`,
+        description: `Purchased ${pack.name} pack (${pack.tokens} tokens · ${pack.priceLabel || ''}${
+          razorpayPaymentId ? ` · Razorpay ${razorpayPaymentId}` : ''
+        })`.trim(),
       },
     });
   } catch (err) {

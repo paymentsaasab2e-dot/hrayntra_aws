@@ -33,6 +33,7 @@ import {
 
 type BillingTab = 'candidate' | 'employer';
 type EmployerView = 'transactions' | 'cycles' | 'purchases';
+type CandidateView = 'transactions' | 'purchases';
 type DrawerState = {
   kind: 'candidate' | 'employer';
   entityKey: string;
@@ -107,6 +108,8 @@ function TypePill({ type }: { type: string }) {
     COIN_PURCHASE: 'bg-amber-50 text-amber-700 ring-amber-200',
     COIN_SPEND: 'bg-orange-50 text-orange-700 ring-orange-200',
     LANDING_PURCHASE: 'bg-fuchsia-50 text-fuchsia-700 ring-fuchsia-200',
+    FREE_JOB_PACK: 'bg-teal-50 text-teal-700 ring-teal-200',
+    JOB_POSTING_PREMIUM: 'bg-cyan-50 text-cyan-700 ring-cyan-200',
   };
   return (
     <span
@@ -123,6 +126,7 @@ function formatTxAmount(row: { amount: number; direction: string; unit: string }
   const prefix = row.direction === 'debit' ? '−' : '+';
   const value = Number(row.amount) || 0;
   if (row.unit === 'INR') return `${prefix}₹${value}`;
+  if (row.unit === 'USD') return `${prefix}$${value}`;
   return `${prefix}${value}`;
 }
 
@@ -202,6 +206,7 @@ function filterPurchaseRequests(rows: HqBillingPurchaseRequestRow[], needle: str
 export default function HqBillingPage() {
   const [tab, setTab] = useState<BillingTab>('employer');
   const [employerView, setEmployerView] = useState<EmployerView>('transactions');
+  const [candidateView, setCandidateView] = useState<CandidateView>('transactions');
   const [data, setData] = useState<HqBillingPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -228,10 +233,13 @@ export default function HqBillingPage() {
 
   const needle = search.trim().toLowerCase();
 
-  const candidateTransactions = useMemo(
-    () => filterCandidateTransactions(data?.candidate?.transactions || [], needle),
-    [data, needle],
-  );
+  const candidateTransactions = useMemo(() => {
+    const rows = filterCandidateTransactions(data?.candidate?.transactions || [], needle);
+    if (candidateView === 'purchases') {
+      return rows.filter((row) => String(row.type || '').toUpperCase() === 'PURCHASE');
+    }
+    return rows;
+  }, [data, needle, candidateView]);
   const employerTransactions = useMemo(
     () => filterEmployerTransactions(data?.employer?.transactions || [], needle),
     [data, needle],
@@ -266,7 +274,7 @@ export default function HqBillingPage() {
   return (
     <HqModulePageLayout
       title="Billing"
-      subtitle="Every Phase 1 & Phase 2 transaction — click a row to see full purchase & spend history."
+      subtitle="Two ledgers: Candidate / Employee (Phase 1) and Employer (Phase 2). Who bought what, amount, and when."
       icon={<CreditCard className="h-5 w-5" />}
       actions={
         <HqSecondaryButton onClick={() => void load()} disabled={loading}>
@@ -287,19 +295,10 @@ export default function HqBillingPage() {
       <div className="mb-5 flex flex-wrap gap-2">
         <button
           type="button"
-          onClick={() => setTab('employer')}
-          className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition ${
-            tab === 'employer'
-              ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-500/30'
-              : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-          }`}
-        >
-          <Briefcase className="h-4 w-4" />
-          Entrepreneur (Phase 2)
-        </button>
-        <button
-          type="button"
-          onClick={() => setTab('candidate')}
+          onClick={() => {
+            setTab('candidate');
+            setSearch('');
+          }}
           className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition ${
             tab === 'candidate'
               ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-500/30'
@@ -307,7 +306,22 @@ export default function HqBillingPage() {
           }`}
         >
           <UserRound className="h-4 w-4" />
-          Candidate (Phase 1)
+          Candidate / Employee (Phase 1)
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setTab('employer');
+            setSearch('');
+          }}
+          className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition ${
+            tab === 'employer'
+              ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-500/30'
+              : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+          }`}
+        >
+          <Briefcase className="h-4 w-4" />
+          Employer (Phase 2)
         </button>
       </div>
 
@@ -404,7 +418,14 @@ export default function HqBillingPage() {
                             <div className="text-[10px] font-normal uppercase text-slate-400">{row.unit}</div>
                           </td>
                           <td className="px-4 py-3 text-slate-600">{row.actorEmail || row.email || '—'}</td>
-                          <td className="px-4 py-3 text-slate-600">{row.description || '—'}</td>
+                          <td className="px-4 py-3 text-slate-600">
+                            <div className="font-medium text-slate-800">
+                              {row.productName || row.label || '—'}
+                            </div>
+                            {row.description ? (
+                              <div className="mt-0.5 text-[11px] text-slate-500">{row.description}</div>
+                            ) : null}
+                          </td>
                           <td className="px-4 py-3 font-mono text-[11px] text-slate-500">{row.reference || '—'}</td>
                           <td className="px-4 py-3 text-slate-600">{formatDateTime(row.occurredAt)}</td>
                         </tr>
@@ -534,7 +555,7 @@ export default function HqBillingPage() {
 
           <p className="mt-3 flex items-center gap-2 text-xs text-slate-500">
             <Building2 className="h-3.5 w-3.5" />
-            Phase 2 coin purchases & spends are logged from now on. Subscriptions and landing requests are included.
+            Employer ledger: AI coins, Free Jobs packs, plan upgrades, subscriptions, and landing purchases.
           </p>
         </>
       ) : (
@@ -550,9 +571,26 @@ export default function HqBillingPage() {
 
           <div className={HQ_TABLE_CARD_CLASS}>
             <div className={HQ_TOOLBAR_ROW_CLASS}>
-              <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-                <Coins className="h-4 w-4 text-amber-500" />
-                All candidate transactions
+              <div className="flex min-w-max items-center gap-1 overflow-x-auto">
+                {(
+                  [
+                    { id: 'transactions' as const, label: 'All transactions' },
+                    { id: 'purchases' as const, label: 'Purchases only' },
+                  ] as const
+                ).map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setCandidateView(item.id)}
+                    className={`rounded-lg px-3 py-1.5 text-xs font-semibold capitalize transition ${
+                      candidateView === item.id
+                        ? 'bg-indigo-600 text-white'
+                        : 'text-slate-500 hover:bg-indigo-50/60 hover:text-slate-800'
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
               </div>
               <div className="relative min-w-[220px] flex-1 sm:max-w-xs">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-indigo-400" />
@@ -560,7 +598,7 @@ export default function HqBillingPage() {
                   type="search"
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Search candidates, type, transaction ID…"
+                  placeholder="Search candidates, pack, payment ID…"
                   className="h-9 w-full rounded-xl border border-indigo-100/90 bg-white/95 py-2 pl-10 pr-3 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/25"
                 />
               </div>
@@ -629,7 +667,7 @@ export default function HqBillingPage() {
 
           <p className="mt-3 flex items-center gap-2 text-xs text-slate-500">
             <Building2 className="h-3.5 w-3.5" />
-            Phase 1 candidate purchases, spends, and grants from the job portal token ledger. Click any row for full history.
+            Candidate / employee token packs (Razorpay), spends, and grants from Phase 1. Click a row for full history.
           </p>
         </>
       )}

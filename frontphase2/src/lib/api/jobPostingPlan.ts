@@ -19,12 +19,24 @@ export type JobPostingQuotaSnapshot = {
   };
 };
 
+export type FreeJobPackOffer = {
+  id: string;
+  name: string;
+  description?: string;
+  monthlyLimit: number;
+  durationDays: number;
+  priceUsd: number;
+  priceLabel: string;
+  popular?: boolean;
+};
+
 export type JobPostingPremiumOffer = {
   name: string;
   description: string;
   monthly: { billingCycle: string; amountPaise: number; limit: number };
   yearly: { billingCycle: string; amountPaise: number; limit: number };
   freeLimit: number;
+  packs?: FreeJobPackOffer[];
 };
 
 export const JOB_POSTING_QUOTA_ERROR_CODE = 'JOB_POSTING_QUOTA_EXCEEDED';
@@ -46,14 +58,16 @@ export function readQuotaFromError(error: unknown): JobPostingQuotaSnapshot | nu
 }
 
 export async function apiGetJobPostingPlan() {
-  return apiFetch<{ snapshot: JobPostingQuotaSnapshot; offer: JobPostingPremiumOffer }>(
-    '/job-posting-plan',
-    { auth: true },
-  );
+  return apiFetch<{
+    snapshot: JobPostingQuotaSnapshot;
+    offer: JobPostingPremiumOffer;
+    packs?: FreeJobPackOffer[];
+  }>('/job-posting-plan', { auth: true });
 }
 
 export async function apiCreateJobPostingPremiumOrder(body: {
-  billingCycle: 'monthly' | 'annual';
+  billingCycle?: 'monthly' | 'annual';
+  packId?: string;
 }) {
   return apiFetch<SubscriptionPaymentOrder>('/job-posting-plan/payment-order', {
     method: 'POST',
@@ -63,7 +77,8 @@ export async function apiCreateJobPostingPremiumOrder(body: {
 }
 
 export async function apiActivateJobPostingPremium(body: {
-  billingCycle: 'monthly' | 'annual';
+  billingCycle?: 'monthly' | 'annual';
+  packId?: string;
   paymentReference?: string;
   razorpayOrderId?: string;
   razorpayPaymentId?: string;

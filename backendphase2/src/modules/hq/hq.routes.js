@@ -53,6 +53,8 @@ router.post('/provision-tenant', authMiddleware, hqController.provisionTenant);
 router.get('/tenants', authMiddleware, hqController.listTenants);
 router.get('/free-job-tenants', authMiddleware, hqController.listFreeJobTenants);
 router.put('/free-job-tenants/quota', authMiddleware, hqController.setTenantJobPostingQuota);
+router.get('/free-job-packs', authMiddleware, hqController.listFreeJobPacks);
+router.put('/free-job-packs', authMiddleware, hqController.saveFreeJobPacks);
 router.post('/tenants/impersonate', authMiddleware, hqController.createTenantImpersonationAccess);
 router.put('/tenants/plan', authMiddleware, hqController.assignPlan);
 router.put('/tenants/coins', authMiddleware, hqController.setTenantCoins);

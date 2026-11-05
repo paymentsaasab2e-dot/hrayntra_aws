@@ -79,6 +79,24 @@ export const hqController = {
     }
   },
 
+  async listFreeJobPacks(req, res) {
+    try {
+      const result = await hqService.listFreeJobPacks(req.user);
+      sendResponse(res, 200, 'OK', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async saveFreeJobPacks(req, res) {
+    try {
+      const result = await hqService.saveFreeJobPacks(req.body, req.user);
+      sendResponse(res, 200, 'Free Jobs packs saved', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
   async createTenantImpersonationAccess(req, res) {
     try {
       const result = await hqService.createTenantImpersonationAccess(req.body, req.user);

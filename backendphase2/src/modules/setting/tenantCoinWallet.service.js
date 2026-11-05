@@ -297,6 +297,7 @@ export async function purchaseCoinPack(
 
   try {
     const keys = tenantKeyFromUser(user);
+    const moneyUsd = Number(pack.priceUsd ?? pack.price ?? 0) || null;
     await appendTenantBillingTransaction({
       ...keys,
       type: 'COIN_PURCHASE',
@@ -304,7 +305,12 @@ export async function purchaseCoinPack(
       balanceAfter: result.coins,
       unit: 'coins',
       packId: pack.id,
-      description: `Purchased ${pack.name} (${pack.coins} AI coins)`,
+      productName: pack.name,
+      moneyAmount: moneyUsd,
+      moneyCurrency: moneyUsd != null ? 'USD' : null,
+      description: `Purchased ${pack.name} (${pack.coins} AI coins${
+        moneyUsd != null ? ` · $${moneyUsd}` : ''
+      })`,
       reference,
     });
   } catch {

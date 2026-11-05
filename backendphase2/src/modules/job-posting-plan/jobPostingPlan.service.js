@@ -8,6 +8,7 @@ import {
   verifyRazorpayPaymentSignature,
   assertRazorpayPaymentCaptured,
 } from '../payment/razorpay.service.js';
+import { getRazorpayConfig } from '../payment/razorpay.config.js';
 import { buildUpiPayUri } from '../payment/upi.utils.js';
 import { getActiveTenantDbName } from '../../config/prisma.js';
 import {
@@ -19,6 +20,37 @@ import {
   JOB_POSTING_USAGE_SETTING_KEY,
   QUOTA_ERROR_CODE,
 } from './jobPostingPlan.constants.js';
+
+function packAmountPaise(pack) {
+  const config = getRazorpayConfig();
+  const usd =
+    Number.parseFloat(String(pack?.priceUsd ?? pack?.price ?? '').replace(/,/g, '')) || null;
+  if (usd == null || !Number.isFinite(usd) || usd <= 0) {
+    throw new Error('Free Jobs pack price is not configured');
+  }
+  return Math.max(100, Math.round(usd * config.usdToInrRate * 100));
+}
+
+export async function listFreeJobPacksAsync() {
+  try {
+    const { hqFreeJobPacksService } = await import('../hq/hq-free-job-packs.service.js');
+    return hqFreeJobPacksService.listPacks({ includeInactive: false });
+  } catch (err) {
+    console.warn('[job-posting-plan] HQ free-job packs unavailable:', err?.message || err);
+    return [];
+  }
+}
+
+export async function getFreeJobPackAsync(packId) {
+  try {
+    const { hqFreeJobPacksService } = await import('../hq/hq-free-job-packs.service.js');
+    const pack = await hqFreeJobPacksService.getPack(packId);
+    if (pack) return pack;
+  } catch (err) {
+    console.warn('[job-posting-plan] HQ free-job pack lookup failed:', err?.message || err);
+  }
+  return null;
+}
 
 function calendarMonthKey(date = new Date()) {
   const d = date instanceof Date ? date : new Date(date);
@@ -234,12 +266,53 @@ export function getPremiumOffer() {
   };
 }
 
-export async function createPremiumPaymentOrder({ billingCycle = 'monthly', userEmail } = {}) {
-  const cycle = billingCycle === 'annual' ? 'annual' : 'monthly';
-  const amountPaise = cycle === 'annual' ? PREMIUM_YEARLY_PRICE_PAISE : PREMIUM_MONTHLY_PRICE_PAISE;
+export async function getPremiumOfferWithPacks() {
+  const packs = await listFreeJobPacksAsync();
+  return {
+    ...getPremiumOffer(),
+    packs,
+  };
+}
+
+export async function createPremiumPaymentOrder({
+  billingCycle = 'monthly',
+  packId,
+  userEmail,
+} = {}) {
   const publicConfig = getRazorpayPublicConfig();
   const tenantDbName = String(getActiveTenantDbName() || '').trim();
-  const description = `HRYantra Premium job posting (${cycle})`;
+
+  const pack = packId ? await getFreeJobPackAsync(packId) : null;
+  if (packId && !pack) {
+    throw new Error('Unknown Free Jobs pack');
+  }
+
+  let amountPaise;
+  let cycle;
+  let packageId;
+  let packageName;
+  let description;
+  let monthlyLimit;
+  let durationDays;
+
+  if (pack) {
+    amountPaise = packAmountPaise(pack);
+    cycle = 'pack';
+    packageId = pack.id;
+    packageName = pack.name;
+    monthlyLimit = pack.monthlyLimit;
+    durationDays = pack.durationDays;
+    description = `Free Jobs upgrade: ${pack.name} (${pack.monthlyLimit} posts / mo · ${pack.durationDays}d)`;
+  } else {
+    cycle = billingCycle === 'annual' ? 'annual' : 'monthly';
+    amountPaise = cycle === 'annual' ? PREMIUM_YEARLY_PRICE_PAISE : PREMIUM_MONTHLY_PRICE_PAISE;
+    packageId = 'job-posting-premium';
+    packageName = 'Premium Job Posting';
+    monthlyLimit = PREMIUM_MONTHLY_PUBLISH_LIMIT;
+    durationDays = cycle === 'annual' ? 365 : 30;
+    description = `HRYantra Premium job posting (${cycle})`;
+  }
+
   const amountInr = (amountPaise / 100).toFixed(2);
 
   if (!publicConfig.enabled) {
@@ -260,8 +333,11 @@ export async function createPremiumPaymentOrder({ billingCycle = 'monthly', user
       currency: publicConfig.currency || 'INR',
       merchantName: publicConfig.merchantName,
       merchantUpi: publicConfig.merchantUpi,
-      packageId: 'job-posting-premium',
-      packageName: 'Premium Job Posting',
+      packageId,
+      packageName,
+      packId: pack?.id || null,
+      monthlyLimit,
+      durationDays,
       billingCycle: cycle,
       description,
       keyId: publicConfig.keyId || null,
@@ -272,10 +348,11 @@ export async function createPremiumPaymentOrder({ billingCycle = 'monthly', user
 
   const order = await createRazorpayOrder({
     amountPaise,
-    receipt: `jpp_${Date.now()}`,
+    receipt: `jpp_${Date.now()}`.slice(0, 40),
     notes: {
       product: 'job_posting_premium',
       billingCycle: cycle,
+      ...(pack ? { packId: pack.id, monthlyLimit: String(pack.monthlyLimit) } : {}),
       tenantDbName,
       payerEmail: String(userEmail || '').trim(),
     },
@@ -290,8 +367,11 @@ export async function createPremiumPaymentOrder({ billingCycle = 'monthly', user
     currency: order.currency || 'INR',
     merchantName: publicConfig.merchantName,
     merchantUpi: publicConfig.merchantUpi,
-    packageId: 'job-posting-premium',
-    packageName: 'Premium Job Posting',
+    packageId,
+    packageName,
+    packId: pack?.id || null,
+    monthlyLimit,
+    durationDays,
     billingCycle: cycle,
     description,
     keyId: publicConfig.keyId,
@@ -301,17 +381,33 @@ export async function createPremiumPaymentOrder({ billingCycle = 'monthly', user
 
 export async function activatePremium({
   billingCycle = 'monthly',
+  packId,
   razorpayOrderId,
   razorpayPaymentId,
   razorpaySignature,
   paymentReference,
   activatedBy,
 } = {}) {
-  const cycle = billingCycle === 'annual' ? 'annual' : 'monthly';
   const publicConfig = getRazorpayPublicConfig();
+  const pack = packId ? await getFreeJobPackAsync(packId) : null;
+  if (packId && !pack) {
+    throw new Error('Unknown Free Jobs pack');
+  }
 
-  const expectedAmountPaise =
-    cycle === 'annual' ? PREMIUM_YEARLY_PRICE_PAISE : PREMIUM_MONTHLY_PRICE_PAISE;
+  const cycle = pack ? 'pack' : billingCycle === 'annual' ? 'annual' : 'monthly';
+  const expectedAmountPaise = pack
+    ? packAmountPaise(pack)
+    : cycle === 'annual'
+      ? PREMIUM_YEARLY_PRICE_PAISE
+      : PREMIUM_MONTHLY_PRICE_PAISE;
+  const monthlyLimit = pack
+    ? Math.max(1, Number(pack.monthlyLimit) || PREMIUM_MONTHLY_PUBLISH_LIMIT)
+    : PREMIUM_MONTHLY_PUBLISH_LIMIT;
+  const durationDays = pack
+    ? Math.max(1, Number(pack.durationDays) || 30)
+    : cycle === 'annual'
+      ? 365
+      : 30;
 
   if (publicConfig.enabled) {
     if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature) {
@@ -330,6 +426,7 @@ export async function activatePremium({
       expectedNotes: {
         product: 'job_posting_premium',
         billingCycle: cycle,
+        ...(pack ? { packId: pack.id } : {}),
         ...(tenantDbName ? { tenantDbName } : {}),
       },
     });
@@ -339,13 +436,14 @@ export async function activatePremium({
 
   const now = new Date();
   const until = new Date(now);
-  if (cycle === 'annual') until.setUTCFullYear(until.getUTCFullYear() + 1);
-  else until.setUTCMonth(until.getUTCMonth() + 1);
+  until.setUTCDate(until.getUTCDate() + durationDays);
 
   const plan = {
     tier: 'premium',
-    monthlyLimit: PREMIUM_MONTHLY_PUBLISH_LIMIT,
+    monthlyLimit,
     billingCycle: cycle,
+    packId: pack?.id || null,
+    packName: pack?.name || null,
     activatedAt: now.toISOString(),
     premiumUntil: until.toISOString(),
     lastPaymentReference:
@@ -354,7 +452,43 @@ export async function activatePremium({
   };
   await saveJobPostingPlan(plan);
   const snapshot = await getJobPostingQuotaSnapshot();
-  return { plan, snapshot };
+
+  try {
+    const { appendTenantBillingTransaction } = await import('../hq/hq-billing-ledger.service.js');
+    const { headquartersAuthService } = await import('../auth/headquarters-auth.service.js');
+    const tenantDbName = String(getActiveTenantDbName() || '').trim();
+    let tenantEmail = '';
+    if (tenantDbName) {
+      const tenants = await headquartersAuthService.listTenants().catch(() => []);
+      const match = (tenants || []).find(
+        (t) => String(t.tenantDbName || '').trim() === tenantDbName,
+      );
+      tenantEmail = String(match?.email || '').trim().toLowerCase();
+    }
+    const moneyInr = expectedAmountPaise / 100;
+    await appendTenantBillingTransaction({
+      tenantDbName,
+      tenantEmail,
+      actorEmail: String(activatedBy || tenantEmail || '').trim().toLowerCase(),
+      type: pack ? 'FREE_JOB_PACK' : 'JOB_POSTING_PREMIUM',
+      amount: monthlyLimit,
+      balanceAfter: snapshot.remaining,
+      unit: 'INR',
+      moneyAmount: moneyInr,
+      moneyCurrency: 'INR',
+      productName: pack?.name || 'Premium Job Posting',
+      packId: pack?.id || 'job-posting-premium',
+      description: pack
+        ? `Purchased Free Jobs pack “${pack.name}” — ${monthlyLimit} posts / mo for ${durationDays} days (₹${moneyInr.toFixed(2)})`
+        : `Activated Premium job posting (${cycle}) — ${monthlyLimit} posts / mo (₹${moneyInr.toFixed(2)})`,
+      reference:
+        paymentReference || razorpayPaymentId || razorpayOrderId || `jobprem_${Date.now()}`,
+    });
+  } catch (err) {
+    console.warn('[job-posting-plan] HQ billing ledger append failed:', err?.message || err);
+  }
+
+  return { plan, snapshot, pack: pack || null };
 }
 
 export async function ensureFreePlanIfMissing() {

@@ -1235,6 +1235,18 @@ export const hqService = {
     return hqAiCoinPacksService.savePacks(data, reqUser);
   },
 
+  async listFreeJobPacks(reqUser) {
+    assertPlatformProvisioner(reqUser);
+    const { hqFreeJobPacksService } = await import('./hq-free-job-packs.service.js');
+    return { packs: await hqFreeJobPacksService.listPacks({ includeInactive: true }) };
+  },
+
+  async saveFreeJobPacks(data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    const { hqFreeJobPacksService } = await import('./hq-free-job-packs.service.js');
+    return hqFreeJobPacksService.savePacks(data, reqUser);
+  },
+
   async getPhase1TokenConfig(reqUser) {
     assertPlatformProvisioner(reqUser);
     const { hqPhase1TokensService } = await import('./hq-phase1-tokens.service.js');

@@ -22,6 +22,10 @@ function toIso(value) {
   return d.toISOString();
 }
 
+/**
+ * Append a Phase 2 / employer billing event for HQ Billing → Employer tab.
+ * Best-effort: returns null if HQ Mongo is unavailable.
+ */
 export async function appendTenantBillingTransaction(entry) {
   const collection = await getCollection();
   if (!collection) return null;
@@ -32,7 +36,13 @@ export async function appendTenantBillingTransaction(entry) {
     type: String(entry.type || 'COIN_SPEND').trim().toUpperCase(),
     amount: Math.max(0, Math.floor(Number(entry.amount) || 0)),
     balanceAfter: Math.max(0, Math.floor(Number(entry.balanceAfter) || 0)),
-    unit: entry.unit === 'INR' ? 'INR' : 'coins',
+    unit: entry.unit === 'INR' || entry.unit === 'USD' ? entry.unit : entry.unit || 'coins',
+    moneyAmount:
+      entry.moneyAmount != null && Number.isFinite(Number(entry.moneyAmount))
+        ? Number(entry.moneyAmount)
+        : null,
+    moneyCurrency: String(entry.moneyCurrency || '').trim().toUpperCase() || null,
+    productName: String(entry.productName || '').trim(),
     reference: String(entry.reference || '').trim(),
     description: String(entry.description || '').trim(),
     featureId: String(entry.featureId || '').trim(),
@@ -44,6 +54,27 @@ export async function appendTenantBillingTransaction(entry) {
   if (!doc.tenantDbName && !doc.tenantEmail) return null;
   const result = await collection.insertOne(doc);
   return { id: String(result.insertedId), ...doc, createdAt: toIso(doc.createdAt) };
+}
+
+function mapLedgerRow(row) {
+  return {
+    id: String(row._id),
+    tenantDbName: row.tenantDbName || '',
+    tenantEmail: row.tenantEmail || '',
+    type: row.type || 'COIN_SPEND',
+    amount: Number(row.amount) || 0,
+    balanceAfter: Number(row.balanceAfter) || 0,
+    unit: row.unit || 'coins',
+    moneyAmount: row.moneyAmount != null ? Number(row.moneyAmount) : null,
+    moneyCurrency: row.moneyCurrency || null,
+    productName: row.productName || '',
+    reference: row.reference || '',
+    description: row.description || '',
+    featureId: row.featureId || '',
+    packId: row.packId || '',
+    actorEmail: row.actorEmail || '',
+    occurredAt: toIso(row.createdAt),
+  };
 }
 
 export async function listTenantBillingTransactions({ tenantDbName, tenantEmail, limit = 500 } = {}) {
@@ -63,21 +94,7 @@ export async function listTenantBillingTransactions({ tenantDbName, tenantEmail,
     .limit(Math.min(Math.max(Number(limit) || 500, 1), 1000))
     .toArray();
 
-  return rows.map((row) => ({
-    id: String(row._id),
-    tenantDbName: row.tenantDbName || '',
-    tenantEmail: row.tenantEmail || '',
-    type: row.type || 'COIN_SPEND',
-    amount: Number(row.amount) || 0,
-    balanceAfter: Number(row.balanceAfter) || 0,
-    unit: row.unit || 'coins',
-    reference: row.reference || '',
-    description: row.description || '',
-    featureId: row.featureId || '',
-    packId: row.packId || '',
-    actorEmail: row.actorEmail || '',
-    occurredAt: toIso(row.createdAt),
-  }));
+  return rows.map(mapLedgerRow);
 }
 
 export async function listAllTenantBillingTransactions({ limit = 500 } = {}) {
@@ -90,19 +107,5 @@ export async function listAllTenantBillingTransactions({ limit = 500 } = {}) {
     .limit(Math.min(Math.max(Number(limit) || 500, 1), 1000))
     .toArray();
 
-  return rows.map((row) => ({
-    id: String(row._id),
-    tenantDbName: row.tenantDbName || '',
-    tenantEmail: row.tenantEmail || '',
-    type: row.type || 'COIN_SPEND',
-    amount: Number(row.amount) || 0,
-    balanceAfter: Number(row.balanceAfter) || 0,
-    unit: row.unit || 'coins',
-    reference: row.reference || '',
-    description: row.description || '',
-    featureId: row.featureId || '',
-    packId: row.packId || '',
-    actorEmail: row.actorEmail || '',
-    occurredAt: toIso(row.createdAt),
-  }));
+  return rows.map(mapLedgerRow);
 }

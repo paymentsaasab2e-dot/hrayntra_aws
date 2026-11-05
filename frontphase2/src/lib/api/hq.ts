@@ -1,7 +1,7 @@
 /* hq API */
 import { apiFetch, apiFetchFormData } from './core';
 import { dedupeCompanyNamedPayload } from '../companyNameKey';
-import type { CreateClientData, CreateLeadData, HqAccountSupportLookup, HqAiCoinPack, HqAiFeature, HqAnalyticsPayload, HqBillingCandidateLedgerPayload, HqBillingEmployerLedgerPayload, HqBillingPayload, HqCandidateBehaviorAnalysis, HqCompanyApiRow, HqCompanyStats, HqCourseCertificate, HqCourseEnrollmentResult, HqCoursePayload, HqCourseRow, HqCourseStats, HqCustomReportRow, HqDemoRequestApiRow, HqDemoStats, HqHelpTicket, HqHelpTicketMessage, HqHelpTicketStats, HqHelpTicketStatus, HqKycInterviewerRow, HqLeadApiRow, HqLeadStats, HqLeadStorageInfo, HqPermissionRow, HqPortalCandidateRow, HqPortalJobRow, HqPortalStats, HqPortalStorageInfo, HqPushJobsToFeedsResult, HqRoleRow, HqSubscriptionPackage, HqSupportTicket, HqSupportTicketMessage, HqSupportTicketPriority, HqSupportTicketStats, HqSupportTicketStatus, HqSyncTenantJobsToPhase1Result, HqTeamMemberRow, HqTeamMemberStatus, HqTeamStats, HqTenantBehaviorAnalysis, HqTenantRow, HqTenantSubscriptionPlan, SubscriptionPaymentOrder } from './types';
+import type { CreateClientData, CreateLeadData, HqAccountSupportLookup, HqAiCoinPack, HqFreeJobPack, HqAiFeature, HqAnalyticsPayload, HqBillingCandidateLedgerPayload, HqBillingEmployerLedgerPayload, HqBillingPayload, HqCandidateBehaviorAnalysis, HqCompanyApiRow, HqCompanyStats, HqCourseCertificate, HqCourseEnrollmentResult, HqCoursePayload, HqCourseRow, HqCourseStats, HqCustomReportRow, HqDemoRequestApiRow, HqDemoStats, HqHelpTicket, HqHelpTicketMessage, HqHelpTicketStats, HqHelpTicketStatus, HqKycInterviewerRow, HqLeadApiRow, HqLeadStats, HqLeadStorageInfo, HqPermissionRow, HqPortalCandidateRow, HqPortalJobRow, HqPortalStats, HqPortalStorageInfo, HqPushJobsToFeedsResult, HqRoleRow, HqSubscriptionPackage, HqSupportTicket, HqSupportTicketMessage, HqSupportTicketPriority, HqSupportTicketStats, HqSupportTicketStatus, HqSyncTenantJobsToPhase1Result, HqTeamMemberRow, HqTeamMemberStatus, HqTeamStats, HqTenantBehaviorAnalysis, HqTenantRow, HqTenantSubscriptionPlan, SubscriptionPaymentOrder } from './types';
 
 
 export type HqProvisionTenantBody = {
@@ -197,6 +197,18 @@ export async function apiHqSetFreeJobTenantQuota(body: {
     tenantDbName: string;
     jobPostingQuota: HqFreeJobTenantQuota;
   }>('/hq/free-job-tenants/quota', {
+    method: 'PUT',
+    auth: true,
+    body,
+  });
+}
+
+export async function apiHqListFreeJobPacks() {
+  return apiFetch<{ packs: HqFreeJobPack[] }>('/hq/free-job-packs', { auth: true });
+}
+
+export async function apiHqSaveFreeJobPacks(body: { packs: HqFreeJobPack[] }) {
+  return apiFetch<{ packs: HqFreeJobPack[] }>('/hq/free-job-packs', {
     method: 'PUT',
     auth: true,
     body,

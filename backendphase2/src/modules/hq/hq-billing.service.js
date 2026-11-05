@@ -132,11 +132,11 @@ function mapCandidateTransaction(row, candidateMap, packMap) {
     type,
     label:
       type === 'PURCHASE'
-        ? 'Coin purchase'
+        ? 'Token pack purchase'
         : type === 'SPEND'
-          ? 'Coin spend'
+          ? 'Token spend'
           : type === 'GRANT'
-            ? 'Coin grant'
+            ? 'Token grant'
             : type,
     amount,
     direction: isSpend ? 'debit' : 'credit',
@@ -147,6 +147,10 @@ function mapCandidateTransaction(row, candidateMap, packMap) {
     service: row.service || '',
     reference: row.reference || '',
     description: row.description || '',
+    productName:
+      type === 'PURCHASE'
+        ? packMap.get(packageId) || row.packageId || 'Token pack'
+        : row.service || '',
     occurredAt: toIso(row.createdAt),
   };
 }
@@ -196,6 +200,21 @@ function buildEmployerSubscriptionTransactions(tenant, packages) {
   return rows;
 }
 
+function employerTypeLabel(type) {
+  const t = String(type || '').toUpperCase();
+  const labels = {
+    COIN_PURCHASE: 'AI coin purchase',
+    COIN_SPEND: 'AI coin spend',
+    SUBSCRIPTION: 'Subscription purchase',
+    PLAN_UPGRADE: 'Plan upgrade',
+    FREE_JOB_PACK: 'Free Jobs pack',
+    JOB_POSTING_PREMIUM: 'Job posting premium',
+    LANDING_PURCHASE: 'Landing purchase',
+    HQ_TOPUP: 'HQ coin top-up',
+  };
+  return labels[t] || t.replace(/_/g, ' ').toLowerCase();
+}
+
 function mapEmployerLedgerTransaction(row, tenantByDb, tenantByEmail) {
   const tenant =
     tenantByDb.get(row.tenantDbName) ||
@@ -203,6 +222,15 @@ function mapEmployerLedgerTransaction(row, tenantByDb, tenantByEmail) {
     null;
   const type = String(row.type || '').toUpperCase();
   const isSpend = type === 'COIN_SPEND';
+  const moneyAmount = row.moneyAmount != null ? Number(row.moneyAmount) : null;
+  const displayAmount =
+    moneyAmount != null && Number.isFinite(moneyAmount)
+      ? moneyAmount
+      : Number(row.amount) || 0;
+  const displayUnit =
+    moneyAmount != null && row.moneyCurrency
+      ? row.moneyCurrency
+      : row.unit || 'coins';
 
   return {
     id: row.id,
@@ -211,16 +239,12 @@ function mapEmployerLedgerTransaction(row, tenantByDb, tenantByEmail) {
     email: row.tenantEmail || tenant?.email || '',
     tenantDbName: row.tenantDbName || tenant?.tenantDbName || '',
     type,
-    label:
-      type === 'COIN_PURCHASE'
-        ? 'AI coin purchase'
-        : type === 'COIN_SPEND'
-          ? 'AI coin spend'
-          : type.replace(/_/g, ' ').toLowerCase(),
-    amount: Number(row.amount) || 0,
+    label: employerTypeLabel(type),
+    amount: displayAmount,
     direction: isSpend ? 'debit' : 'credit',
-    unit: row.unit || 'coins',
+    unit: displayUnit,
     balanceAfter: Number(row.balanceAfter) || 0,
+    productName: row.productName || '',
     reference: row.reference || '',
     description: row.description || '',
     featureId: row.featureId || '',
@@ -240,9 +264,17 @@ function summarizeLedger(transactions) {
   for (const row of transactions) {
     const type = String(row.type || '').toUpperCase();
     const amount = Number(row.amount) || 0;
-    if (type === 'PURCHASE' || type === 'COIN_PURCHASE' || type === 'SUBSCRIPTION' || type === 'PLAN_UPGRADE') {
+    if (
+      type === 'PURCHASE' ||
+      type === 'COIN_PURCHASE' ||
+      type === 'SUBSCRIPTION' ||
+      type === 'PLAN_UPGRADE' ||
+      type === 'FREE_JOB_PACK' ||
+      type === 'JOB_POSTING_PREMIUM' ||
+      type === 'LANDING_PURCHASE'
+    ) {
       purchases += 1;
-      if (row.unit !== 'INR') coinsIn += amount;
+      if (row.unit !== 'INR' && row.unit !== 'USD') coinsIn += amount;
     } else if (type === 'SPEND' || type === 'COIN_SPEND') {
       spends += 1;
       coinsOut += amount;
