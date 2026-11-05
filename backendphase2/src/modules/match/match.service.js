@@ -683,6 +683,7 @@ export const matchService = {
 
     const shouldRunAiPipeline = String(source) === 'ai' && jobId && pipelineRequested;
     const shouldRunAppliedPipeline = String(source) === 'applied' && jobId && pipelineRequested;
+    let aiDiscoveryPool = null;
 
     if (shouldRunAiPipeline || shouldRunAppliedPipeline) {
       const pipelineMode = shouldRunAppliedPipeline ? 'applied' : 'ai';
@@ -710,7 +711,8 @@ export const matchService = {
             materializeCandidate: ensureCandidateMaterializedForMatch,
           });
         } else {
-          const pool = await loadMatchPipelineCandidatePool(req, String(jobId));
+          aiDiscoveryPool = await loadMatchPipelineCandidatePool(req, String(jobId));
+          const pool = aiDiscoveryPool;
           if (pool.commonIncluded || pool.portalIncluded) {
             const tombstoneNote =
               pool.phase1TombstoneReincluded > 0
@@ -832,8 +834,11 @@ export const matchService = {
       match.__pipelineStageName = pipelineStageByCandidateId.get(match.candidateId) || null;
     }
 
-    if (source === 'ai' && jobId) {
-      const pool = await loadMatchPipelineCandidatePool(req, String(jobId));
+    // Listing AI matches must not hydrate the 500-row candidatecommon/portal
+    // discovery pool. That pool is only needed when Run AI Matches is requested
+    // (already loaded above) so we can inject pending unscored rows.
+    if (source === 'ai' && jobId && aiDiscoveryPool?.candidates) {
+      const pool = aiDiscoveryPool;
       const poolById = new Map(pool.candidates.map((candidate) => [candidate.id, candidate]));
       const poolIdSet = new Set(pool.candidates.map((candidate) => candidate.id));
       matches = matches

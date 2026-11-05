@@ -533,33 +533,7 @@ export function extractPipelineJobCandidateItems(
   return sortJobCandidatesChronologically(Array.from(byId.values()));
 }
 
-/** Overlay AI-tab engine scores onto applied rows so the job drawer matches Matches accuracy. */
-function mergeAppliedRowsWithAiEngineScores(
-  appliedRows: BackendMatch[],
-  aiRows: BackendMatch[],
-): BackendMatch[] {
-  if (!aiRows.length) return appliedRows;
-  const byId = new Map<string, BackendMatch>();
-  for (const row of appliedRows) {
-    const id = row.candidateId || row.id;
-    if (!id) continue;
-    const prev = byId.get(id);
-    byId.set(id, prev ? preferAccurateMatchRow(prev, row) : row);
-  }
-  for (const row of aiRows) {
-    const id = row.candidateId || row.id;
-    if (!id || !backendMatchHasEngineScore(row)) continue;
-    const prev = byId.get(id);
-    if (!prev) {
-      byId.set(id, row);
-      continue;
-    }
-    byId.set(id, preferAccurateMatchRow(prev, row));
-  }
-  return Array.from(byId.values());
-}
-
-/** Load applied / assigned / pipeline-linked candidates and merge AI applied match scores. */
+/** Load applied / assigned / pipeline-linked candidates and their match scores. */
 export async function loadJobAppliedCandidates(
   jobId: string,
   options?: {
@@ -570,6 +544,9 @@ export async function loadJobAppliedCandidates(
     fallbackRecruiter?: string;
   },
 ): Promise<JobCandidateItem[]> {
+  // Applied GET already returns job-linked matches (including AI/manual scores).
+  // Do not also fetch source=ai: that hydrates the 500-row candidatecommon discovery
+  // pool even when this job has one applicant, and blocks the Candidates tab.
   const response = await apiGetMatches({
     jobId,
     source: 'applied',
@@ -577,17 +554,7 @@ export async function loadJobAppliedCandidates(
     ...(options?.runPipeline ? { runPipeline: '1' } : {}),
     ...(options?.runPipeline && options?.refresh ? { refresh: '1' } : {}),
   });
-  let matchRows = unwrapMatchRows(response);
-  try {
-    const aiResponse = await apiGetMatches({
-      jobId,
-      source: 'ai',
-      limit: 500,
-    });
-    matchRows = mergeAppliedRowsWithAiEngineScores(matchRows, unwrapMatchRows(aiResponse));
-  } catch {
-    // Applied scores alone are still usable if AI list fails.
-  }
+  const matchRows = unwrapMatchRows(response);
   const seed = options?.pipelineSeed ?? [];
   return mergeJobCandidatesWithAppliedMatches(seed, matchRows, options?.fallbackRecruiter ?? 'Unassigned');
 }
