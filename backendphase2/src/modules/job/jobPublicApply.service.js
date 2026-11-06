@@ -143,6 +143,38 @@ function resolveJobFormSchema(job) {
   return null;
 }
 
+function asPublicStringList(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => String(item || '').trim()).filter(Boolean);
+}
+
+/** Pull Skills bullets from recomposed JD HTML when the skills[] column is empty. */
+function extractSkillsFromDescriptionHtml(html) {
+  const source = String(html || '');
+  if (!source) return [];
+  const match = source.match(
+    /<h[1-3][^>]*>\s*(?:key\s+)?skills\s*<\/h[1-3]>([\s\S]*?)(?=<h[1-3][^>]*>|$)/i,
+  );
+  if (!match) return [];
+  const block = match[1] || '';
+  const fromLis = [...block.matchAll(/<li[^>]*>([\s\S]*?)<\/li>/gi)]
+    .map((row) =>
+      String(row[1] || '')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim(),
+    )
+    .filter(Boolean);
+  if (fromLis.length) return fromLis;
+  return String(block)
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, '\n')
+    .split(/\n|•|;/)
+    .map((line) => line.replace(/^[-*]\s*/, '').trim())
+    .filter(Boolean);
+}
+
 function isPortalFieldVisible(job, field) {
   if (field === 'companyName') {
     const visibility = job?.publicFieldVisibility;
@@ -158,7 +190,21 @@ function isPortalFieldVisible(job, field) {
   }
   const visibility = job?.publicFieldVisibility;
   if (!visibility || typeof visibility !== 'object') return true;
-  return visibility[field] !== false;
+  // Stale jobs often keep skills/candidateRequirements:false from old defaults while
+  // the CRM fields are filled. If content exists, treat as visible on the apply page.
+  if (visibility[field] === false) {
+    if (field === 'skills') {
+      const skills = asPublicStringList(job?.skills);
+      const preferred = asPublicStringList(job?.preferredSkills);
+      if (skills.length || preferred.length) return true;
+      if (extractSkillsFromDescriptionHtml(job?.description || job?.overview || '').length) return true;
+    }
+    if (field === 'candidateRequirements' && asPublicStringList(job?.candidateRequirements).length) {
+      return true;
+    }
+    return false;
+  }
+  return true;
 }
 
 function buildRecruiterProfile(user) {
@@ -224,8 +270,12 @@ function formatPublicJob(job) {
     keyResponsibilities: job.keyResponsibilities || [],
     requirements: job.requirements || [],
     candidateRequirements: job.candidateRequirements || [],
-    skills: job.skills || [],
-    preferredSkills: job.preferredSkills || [],
+    skills: (() => {
+      const fromColumn = asPublicStringList(job.skills);
+      if (fromColumn.length) return fromColumn;
+      return extractSkillsFromDescriptionHtml(job.description || job.overview || '');
+    })(),
+    preferredSkills: asPublicStringList(job.preferredSkills),
     experienceRequired: job.experienceRequired || null,
     education: job.education || null,
     benefits: job.benefits || [],

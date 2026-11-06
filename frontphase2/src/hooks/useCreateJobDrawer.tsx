@@ -1334,10 +1334,23 @@ const loadJobData = async (sourceJobId?: string) => {
         postingOrgUnitId: String((job as { orgUnitId?: string }).orgUnitId || ''),
         postingCompanyName: String((job as { postingCompanyName?: string }).postingCompanyName || ''),
         showClientNamePublicly: (job as { showClientNamePublicly?: boolean }).showClientNamePublicly !== false,
-        publicFieldVisibility: mergeClientVisibility(
-          parseJobPublicFieldVisibility((job as { publicFieldVisibility?: unknown }).publicFieldVisibility),
-          (job as { showClientNamePublicly?: boolean }).showClientNamePublicly !== false,
-        ),
+        publicFieldVisibility: (() => {
+          const visibility = mergeClientVisibility(
+            parseJobPublicFieldVisibility((job as { publicFieldVisibility?: unknown }).publicFieldVisibility),
+            (job as { showClientNamePublicly?: boolean }).showClientNamePublicly !== false,
+          );
+          const jobSkills = Array.isArray(job.skills)
+            ? job.skills.filter((skill: any): skill is string => typeof skill === 'string' && skill.trim())
+            : [];
+          // Stale jobs often keep skills:false from old defaults while Skills are filled.
+          if (jobSkills.length) visibility.skills = true;
+          const candidateReqs =
+            Array.isArray((job as { candidateRequirements?: string[] }).candidateRequirements)
+              ? (job as { candidateRequirements?: string[] }).candidateRequirements!
+              : [];
+          if (candidateReqs.length) visibility.candidateRequirements = true;
+          return visibility;
+        })(),
         contactPersonId: jobExtras.hiringManagerId || '',
         contactPersonName: jobExtras.hiringManager || '',
         numberOfOpenings: String(job.openings || 1),
