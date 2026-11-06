@@ -159,6 +159,8 @@ export function filledCustomJdSections(sections?: JobCustomJdSection[] | null): 
 }
 
 export function customJdSectionsToHtml(sections: JobCustomJdSection[]): string {
+  // Use h3 (same as Key Responsibilities / Qualifications). Job title is h2 —
+  // writing Additional JD as h2 caused backend recompose to drop these sections.
   return filledCustomJdSections(sections)
     .map((section) => {
       const title = section.title.trim() || 'Additional section';
@@ -167,14 +169,14 @@ export function customJdSectionsToHtml(sections: JobCustomJdSection[]): string {
         .map((line) => line.replace(/^[\-\u2022]\s*/, '').trim())
         .filter(Boolean);
       if (lines.length > 1) {
-        return `<h2>${escapeHtml(title)}</h2><ul>${lines
+        return `<h3>${escapeHtml(title)}</h3><ul>${lines
           .map((line) => `<li>${escapeHtml(line)}</li>`)
           .join('')}</ul>`;
       }
       if (lines.length === 1) {
-        return `<h2>${escapeHtml(title)}</h2><p>${escapeHtml(lines[0])}</p>`;
+        return `<h3>${escapeHtml(title)}</h3><p>${escapeHtml(lines[0])}</p>`;
       }
-      return `<h2>${escapeHtml(title)}</h2>`;
+      return `<h3>${escapeHtml(title)}</h3>`;
     })
     .join('');
 }

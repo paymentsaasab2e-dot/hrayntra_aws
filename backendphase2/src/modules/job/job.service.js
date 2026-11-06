@@ -511,14 +511,20 @@ const COMPOSE_KNOWN_SECTION_HEADINGS = [
 
 /**
  * Keep recruiter "Additional JD sections" when we recompose description HTML
- * from structured fields (otherwise custom h3 blocks were wiped on every save).
+ * from structured fields (otherwise custom h2/h3 blocks were wiped on every save).
+ * Frontend historically wrote Additional JD as <h2>; job title is also <h2>.
  */
-function extractAdditionalDescriptionSectionsHtml(html) {
+function extractAdditionalDescriptionSectionsHtml(html, jobTitle = '') {
   const source = String(html || '').trim();
   if (!source) return '';
   const parts = source.split(/(?=<h[1-3][^>]*>)/i);
   if (parts.length <= 1) return '';
+  const titleNorm = String(jobTitle || '')
+    .replace(/<[^>]+>/g, '')
+    .trim()
+    .toLowerCase();
   const kept = [];
+  let sawFirstHeading = false;
   for (const part of parts) {
     const headingMatch = part.match(/^<h([1-3])[^>]*>([\s\S]*?)<\/h\1>/i);
     if (!headingMatch) continue;
@@ -526,10 +532,18 @@ function extractAdditionalDescriptionSectionsHtml(html) {
       .replace(/<[^>]+>/g, '')
       .trim();
     if (!headingText) continue;
-    // Skip the job-title h2 and known structured sections — those are rebuilt above.
-    if (headingMatch[1] === '2') continue;
+    const headingNorm = headingText.toLowerCase();
+    const isFirstHeading = !sawFirstHeading;
+    sawFirstHeading = true;
+    // Skip only the leading job-title h2. Later headings can reuse the same
+    // title text as an Additional JD section and must be preserved.
+    if (isFirstHeading && titleNorm && headingNorm === titleNorm) continue;
     const isKnown = COMPOSE_KNOWN_SECTION_HEADINGS.some((pattern) => pattern.test(headingText));
-    if (!isKnown) kept.push(part);
+    if (isKnown) continue;
+    // Normalize preserved extras to h3 so apply parsing treats them as JD sections.
+    const body = part.replace(/^<h[1-3][^>]*>[\s\S]*?<\/h[1-3]>/i, '').trim();
+    if (!body) continue;
+    kept.push(`<h3>${escapeHtmlText(headingText)}</h3>${body}`);
   }
   return kept.join('').trim();
 }
@@ -554,7 +568,8 @@ function composeJobDescriptionHtml({
   const candidateReqs = asStringList(candidateRequirements);
   const benefitItems = asStringList(benefits);
   const skillItems = asStringList(skills);
-  const additionalHtml = extractAdditionalDescriptionSectionsHtml(fallbackDescription);
+  const cleanTitle = String(title || '').trim();
+  const additionalHtml = extractAdditionalDescriptionSectionsHtml(fallbackDescription, cleanTitle);
   const hasStructured =
     responsibilities.length > 0 ||
     qualifications.length > 0 ||
@@ -568,7 +583,6 @@ function composeJobDescriptionHtml({
   const listHtml = (items) =>
     `<ul>${items.map((item) => `<li>${escapeHtmlText(item)}</li>`).join('')}</ul>`;
   const parts = [];
-  const cleanTitle = String(title || '').trim();
   if (cleanTitle) parts.push(`<h2>${escapeHtmlText(cleanTitle)}</h2>`);
   const cleanOverview = String(overview || '').trim();
   if (cleanOverview) parts.push(`<p>${escapeHtmlText(cleanOverview)}</p>`);
