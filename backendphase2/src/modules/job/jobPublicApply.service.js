@@ -233,6 +233,9 @@ function formatPublicJob(job) {
     workMode: job.workMode || job.jobLocationType || null,
     openings: job.openings,
     salary: job.salary,
+    nationality: job.nationality || null,
+    languages: Array.isArray(job.languages) ? job.languages : [],
+    industryType: job.jobCategory || job.industryType || null,
     applicationFormNote: job.applicationFormNote || null,
     applicationFormLogo: job.applicationFormLogo || null,
     aboutCompany: String(job.aboutCompany || '').trim() || null,
@@ -261,6 +264,9 @@ function formatPublicJob(job) {
   if (!isPortalFieldVisible(job, 'openings')) payload.openings = null;
   if (!isPortalFieldVisible(job, 'aboutCompany')) payload.aboutCompany = null;
   if (!isPortalFieldVisible(job, 'recruiterProfile')) payload.recruiterProfile = null;
+  if (!isPortalFieldVisible(job, 'nationality')) payload.nationality = null;
+  if (!isPortalFieldVisible(job, 'languages')) payload.languages = [];
+  if (!isPortalFieldVisible(job, 'industryType')) payload.industryType = null;
 
   return payload;
 }

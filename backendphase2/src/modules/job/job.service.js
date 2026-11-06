@@ -490,9 +490,54 @@ function escapeHtmlText(value) {
     .replace(/"/g, '&quot;');
 }
 
+/** Standard JD headings rewritten from structured CRM fields (not "Additional JD sections"). */
+const COMPOSE_KNOWN_SECTION_HEADINGS = [
+  /^key responsibilities$/i,
+  /^responsibilities$/i,
+  /^role & responsibilities$/i,
+  /^preferred education/i,
+  /^preferred qualifications?$/i,
+  /^qualifications/i,
+  /^candidate requirements?$/i,
+  /^compensation(?:\s*&\s*benefits)?$/i,
+  /^benefits$/i,
+  /^skills$/i,
+  /^key skills$/i,
+  /^required skills$/i,
+  /^overview$/i,
+  /^job summary$/i,
+  /^about the role$/i,
+];
+
+/**
+ * Keep recruiter "Additional JD sections" when we recompose description HTML
+ * from structured fields (otherwise custom h3 blocks were wiped on every save).
+ */
+function extractAdditionalDescriptionSectionsHtml(html) {
+  const source = String(html || '').trim();
+  if (!source) return '';
+  const parts = source.split(/(?=<h[1-3][^>]*>)/i);
+  if (parts.length <= 1) return '';
+  const kept = [];
+  for (const part of parts) {
+    const headingMatch = part.match(/^<h([1-3])[^>]*>([\s\S]*?)<\/h\1>/i);
+    if (!headingMatch) continue;
+    const headingText = String(headingMatch[2] || '')
+      .replace(/<[^>]+>/g, '')
+      .trim();
+    if (!headingText) continue;
+    // Skip the job-title h2 and known structured sections — those are rebuilt above.
+    if (headingMatch[1] === '2') continue;
+    const isKnown = COMPOSE_KNOWN_SECTION_HEADINGS.some((pattern) => pattern.test(headingText));
+    if (!isKnown) kept.push(part);
+  }
+  return kept.join('').trim();
+}
+
 /**
  * Rebuild public JD HTML from structured CRM fields so /apply/{token} stays in sync
  * after edits. Falls back to existing description when no structured lists exist.
+ * Preserves Additional JD sections from the previous description HTML.
  */
 function composeJobDescriptionHtml({
   title,
@@ -501,17 +546,22 @@ function composeJobDescriptionHtml({
   requirements,
   candidateRequirements,
   benefits,
+  skills,
   fallbackDescription,
 } = {}) {
   const responsibilities = asStringList(keyResponsibilities);
   const qualifications = asStringList(requirements);
   const candidateReqs = asStringList(candidateRequirements);
   const benefitItems = asStringList(benefits);
+  const skillItems = asStringList(skills);
+  const additionalHtml = extractAdditionalDescriptionSectionsHtml(fallbackDescription);
   const hasStructured =
     responsibilities.length > 0 ||
     qualifications.length > 0 ||
     candidateReqs.length > 0 ||
-    benefitItems.length > 0;
+    benefitItems.length > 0 ||
+    skillItems.length > 0 ||
+    Boolean(additionalHtml);
   const fallback = String(fallbackDescription || '').trim();
   if (!hasStructured) return fallback || undefined;
 
@@ -534,6 +584,10 @@ function composeJobDescriptionHtml({
   if (benefitItems.length) {
     parts.push(`<h3>Compensation & Benefits</h3>${listHtml(benefitItems)}`);
   }
+  if (skillItems.length) {
+    parts.push(`<h3>Skills</h3>${listHtml(skillItems)}`);
+  }
+  if (additionalHtml) parts.push(additionalHtml);
   return parts.join('') || fallback || undefined;
 }
 
@@ -2333,6 +2387,7 @@ export const jobService = {
         ? data.candidateRequirements
         : currentJob.candidateRequirements;
     const nextBenefits = data.benefits !== undefined ? data.benefits : currentJob.benefits;
+    const nextSkills = data.skills !== undefined ? data.skills : currentJob.skills;
     const nextDescriptionFallback =
       data.description !== undefined ? data.description : currentJob.description;
     const composedDescription = composeJobDescriptionHtml({
@@ -2342,6 +2397,7 @@ export const jobService = {
       requirements: nextRequirements,
       candidateRequirements: nextCandidateRequirements,
       benefits: nextBenefits,
+      skills: nextSkills,
       fallbackDescription: nextDescriptionFallback,
     });
 
@@ -2353,6 +2409,7 @@ export const jobService = {
         data.requirements !== undefined ||
         data.candidateRequirements !== undefined ||
         data.benefits !== undefined ||
+        data.skills !== undefined ||
         data.overview !== undefined
           ? composedDescription
           : undefined,
