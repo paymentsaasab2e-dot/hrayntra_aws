@@ -110,6 +110,7 @@ const STAGE_TO_STATUS: Record<HqLeadStage, string> = {
   trial: 'Trial',
   contacted: 'Contacted',
   qualified: 'Qualified',
+  proposal: 'Proposal',
   converted: 'Converted',
   lost: 'Lost',
 };
