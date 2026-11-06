@@ -45,17 +45,44 @@ export async function handleRazorpayWebhookEvent(event) {
     event?.payload?.payment_link?.entity ||
     event?.payload?.order?.entity ||
     null;
+  const linkEntity = event?.payload?.payment_link?.entity || null;
+  const notes = {
+    ...(paymentEntity?.notes || {}),
+    ...(linkEntity?.notes || {}),
+  };
 
   console.log(
     `[razorpay-webhook] event=${eventName} id=${event?.payload?.payment?.entity?.id || event?.payload?.payment_link?.entity?.id || 'n/a'}`,
   );
+
+  let companyProvision = null;
+  if (
+    (eventName === 'payment_link.paid' || eventName === 'payment.captured') &&
+    String(notes.purpose || '') === 'hq_company_provision' &&
+    notes.companyId
+  ) {
+    try {
+      const { markCompanyProvisionPaidFromWebhook } = await import(
+        '../hq/hq-company-provision-payment.service.js'
+      );
+      companyProvision = await markCompanyProvisionPaidFromWebhook({
+        companyId: notes.companyId,
+        paymentId: event?.payload?.payment?.entity?.id || paymentEntity?.id || null,
+        paymentLinkId: linkEntity?.id || null,
+      });
+    } catch (err) {
+      console.warn('[razorpay-webhook] company provision paid failed:', err?.message || err);
+      companyProvision = { ok: false, reason: err?.message || 'error' };
+    }
+  }
 
   return {
     ok: true,
     event: eventName,
     paymentId: paymentEntity?.id || null,
     status: paymentEntity?.status || null,
-    notes: paymentEntity?.notes || null,
+    notes,
+    companyProvision,
   };
 }
 

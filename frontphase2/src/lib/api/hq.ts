@@ -83,6 +83,34 @@ export async function apiHqRejectCompanyProvisionDraft(companyId: string) {
   );
 }
 
+/** Generate Razorpay payment link for the Create-user package on a pending company. */
+export async function apiHqCreateCompanyPaymentLink(companyId: string) {
+  return apiFetch<{
+    company: HqCompanyApiRow;
+    payment: HqCompanyApiRow['provisionPayment'];
+    alreadyPaid?: boolean;
+  }>(`/hq/companies/${encodeURIComponent(companyId)}/payment-link`, {
+    method: 'POST',
+    auth: true,
+    body: {},
+  });
+}
+
+/** Mark company package payment as paid (clone / offline collection). */
+export async function apiHqMarkCompanyProvisionPaid(
+  companyId: string,
+  body?: { paymentReference?: string },
+) {
+  return apiFetch<{
+    company: HqCompanyApiRow;
+    payment: HqCompanyApiRow['provisionPayment'];
+  }>(`/hq/companies/${encodeURIComponent(companyId)}/mark-paid`, {
+    method: 'POST',
+    auth: true,
+    body: body || {},
+  });
+}
+
 export async function apiHqListPackages() {
   return apiFetch<{
     packages: HqSubscriptionPackage[];

@@ -8,7 +8,24 @@ import {
   assertRazorpayPaymentCaptured,
 } from '../payment/razorpay.service.js';
 import { getSubscriptionPlan } from './recruitmentMode.service.js';
-import { listUpgradeOptions } from './subscriptionUpgrade.service.js';
+import { listPurchasablePackages } from './subscriptionUpgrade.service.js';
+
+async function resolvePurchasablePackage(packageId) {
+  const pkgId = String(packageId || '').trim();
+  if (!pkgId) throw new Error('packageId is required');
+  const packages = await listPurchasablePackages();
+  const targetPkg =
+    packages.find((p) => p.id === pkgId) ||
+    packages.find(
+      (p) =>
+        String(p.slug || '').toLowerCase() === pkgId.toLowerCase() ||
+        String(p.name || '').toLowerCase() === pkgId.toLowerCase(),
+    );
+  if (!targetPkg) {
+    throw new Error('Selected package is not available for purchase');
+  }
+  return targetPkg;
+}
 
 function parseUsdAmount(value) {
   const num = Number.parseFloat(String(value || '').replace(/,/g, ''));
@@ -39,14 +56,8 @@ export async function createSubscriptionUpgradeOrder({
   billingCycle = 'monthly',
   userEmail,
 }) {
-  const pkgId = String(packageId || '').trim();
-  if (!pkgId) throw new Error('packageId is required');
-
-  const { upgradePackages } = await listUpgradeOptions();
-  const targetPkg = upgradePackages.find((p) => p.id === pkgId);
-  if (!targetPkg) {
-    throw new Error('Selected package is not available for upgrade');
-  }
+  const targetPkg = await resolvePurchasablePackage(packageId);
+  const pkgId = String(targetPkg.id || packageId).trim();
 
   const currentPlan = await getSubscriptionPlan();
   const amountPaise = resolveUpgradeAmountPaise(targetPkg, billingCycle);
@@ -55,7 +66,7 @@ export async function createSubscriptionUpgradeOrder({
 
   const publicConfig = getRazorpayPublicConfig();
   const presentationName = targetPkg.displayName || targetPkg.name;
-  const description = `Upgrade to ${presentationName} (${cycle})`;
+  const description = `Subscribe to ${presentationName} (${cycle})`;
   const amountInr = (amountPaise / 100).toFixed(2);
 
   if (!publicConfig.enabled) {
@@ -129,11 +140,9 @@ export async function verifySubscriptionUpgradePayment({
     signature: razorpaySignature,
   });
 
-  const pkgId = String(packageId || '').trim();
+  const targetPkg = await resolvePurchasablePackage(packageId);
+  const pkgId = String(targetPkg.id || packageId).trim();
   const cycle = billingCycle === 'annual' ? 'annual' : 'monthly';
-  const { upgradePackages } = await listUpgradeOptions();
-  const targetPkg = upgradePackages.find((p) => p.id === pkgId);
-  if (!targetPkg) throw new Error('Selected package is not available for upgrade');
 
   const expectedAmountPaise = resolveUpgradeAmountPaise(targetPkg, cycle);
   const tenantDbName = String(getActiveTenantDbName() || '').trim();

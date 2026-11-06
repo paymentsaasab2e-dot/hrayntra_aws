@@ -391,7 +391,11 @@ export async function apiGetSubscriptionPlan() {
     upgradeOptions?: {
       currentPlan: HqTenantSubscriptionPlan | null;
       upgradePackages: SubscriptionPlanOption[];
+      /** Full HQ catalog for Settings plan picker. */
+      availablePackages?: SubscriptionPlanOption[];
+      pendingPlan?: HqTenantSubscriptionPlan['pendingPlan'];
       canUpgrade: boolean;
+      currentPeriodActive?: boolean;
     };
   }>('/settings/org/subscription-plan', { auth: true });
 }
@@ -406,6 +410,9 @@ export async function apiUpgradeSubscriptionPlan(body: {
 }) {
   return apiFetch<{
     plan: HqTenantSubscriptionPlan;
+    pendingPlan?: HqTenantSubscriptionPlan['pendingPlan'];
+    queued?: boolean;
+    activatesAt?: string | null;
     planUsage?: {
       activeJobs: number;
       activeUsers: number;

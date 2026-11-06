@@ -48,6 +48,10 @@ import {
   type ProvisionTenantFormData,
 } from '@/components/hq/CreateTenantModal';
 import {
+  CompanyProvisionPaymentActions,
+  isCompanyProvisionPaid,
+} from '@/components/hq/CompanyProvisionPaymentActions';
+import {
   apiHqApproveCompanyTenant,
   apiHqCreateCompany,
   apiHqDeleteCompany,
@@ -296,9 +300,18 @@ export default function HqClientsPage() {
     setCreateUserOpen(true);
   };
 
+  const patchCompany = useCallback((next: HqCompanyApiRow) => {
+    setCompanies((prev) => prev.map((c) => (c.id === next.id ? { ...c, ...next } : c)));
+  }, []);
+
   const handleApproveTenant = async (companyId: string) => {
+    const company = companies.find((c) => c.id === companyId);
+    if (!isCompanyProvisionPaid(company)) {
+      toast.error('Client must pay the package first. Use Pay link / Mark paid on Company, then Approve.');
+      return;
+    }
     const ok = await requestConfirm(
-      'Approve Create user and provision this tenant? They will receive login credentials.',
+      'Payment received. Approve Create user and provision this tenant? They will receive login credentials.',
       {
         tone: 'info',
         title: 'Approve tenant',
@@ -525,7 +538,8 @@ export default function HqClientsPage() {
             onApproveTenant={
               !createDrawerOpen &&
               selectedCompanyRow?.provisionStatus === 'pending_approval' &&
-              !selectedCompanyRow?.tenantDbName
+              !selectedCompanyRow?.tenantDbName &&
+              isCompanyProvisionPaid(selectedCompanyRow)
                 ? (clientId) => void handleApproveTenant(clientId)
                 : undefined
             }
@@ -821,17 +835,26 @@ export default function HqClientsPage() {
                             <div className="inline-flex items-center justify-end gap-1">
                               {company.provisionStatus === 'pending_approval' &&
                               !company.tenantDbName ? (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    void handleApproveTenant(company.id);
-                                  }}
-                                  disabled={approveLoadingId === company.id}
-                                  className="rounded-lg border border-emerald-300 bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
-                                >
-                                  {approveLoadingId === company.id ? '…' : 'Approve'}
-                                </button>
+                                <>
+                                  <CompanyProvisionPaymentActions
+                                    company={company}
+                                    onUpdated={patchCompany}
+                                    compact
+                                  />
+                                  {isCompanyProvisionPaid(company) ? (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        void handleApproveTenant(company.id);
+                                      }}
+                                      disabled={approveLoadingId === company.id}
+                                      className="rounded-lg border border-emerald-300 bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
+                                    >
+                                      {approveLoadingId === company.id ? '…' : 'Approve'}
+                                    </button>
+                                  ) : null}
+                                </>
                               ) : null}
                               {company.provisionStatus === 'rejected' && !company.tenantDbName ? (
                                 <button

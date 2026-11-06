@@ -65,7 +65,7 @@ export function BillingSettings() {
   const [plan, setPlan] = useState<HqTenantSubscriptionPlan | null>(null);
   const [usage, setUsage] = useState<PlanUsage | null>(null);
   const [planOptions, setPlanOptions] = useState<SubscriptionPlanOption[]>([]);
-  const [upgradePackages, setUpgradePackages] = useState<HqSubscriptionPackage[]>([]);
+  const [availablePackages, setAvailablePackages] = useState<HqSubscriptionPackage[]>([]);
   const [upgradeMessage, setUpgradeMessage] = useState('');
 
   const load = useCallback(async () => {
@@ -76,14 +76,20 @@ export function BillingSettings() {
       setPlan((res.data?.plan as HqTenantSubscriptionPlan | null) ?? null);
       setUsage((res.data?.planUsage as PlanUsage | null) ?? null);
       setPlanOptions(Array.isArray(res.data?.options) ? res.data.options : []);
-      setUpgradePackages(Array.isArray(res.data?.upgradeOptions?.upgradePackages) ? res.data.upgradeOptions.upgradePackages : []);
+      const opts = res.data?.upgradeOptions;
+      const catalog = Array.isArray(opts?.availablePackages)
+        ? opts.availablePackages
+        : Array.isArray(opts?.upgradePackages)
+          ? opts.upgradePackages
+          : [];
+      setAvailablePackages(catalog as HqSubscriptionPackage[]);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to load subscription details';
       setError(message);
       setPlan(null);
       setUsage(null);
       setPlanOptions([]);
-      setUpgradePackages([]);
+      setAvailablePackages([]);
     } finally {
       setLoading(false);
     }
@@ -143,10 +149,19 @@ export function BillingSettings() {
   }, [plan, pricedPackages, billingCycle, currency]);
 
   const handleUpgrade = useCallback(
-    async (pkg: HqSubscriptionPackage, cycle: BillingCycle) => {
+    async (pkg: HqSubscriptionPackage, _cycle: BillingCycle, meta?: { queued?: boolean; activatesAt?: string | null }) => {
       setUpgradeMessage('');
       await load();
-      setUpgradeMessage(`Upgraded to ${pkg.displayName || pkg.name}. Your user and job limits have been increased.`);
+      if (meta?.queued) {
+        const when = meta.activatesAt ? formatDateDMY(meta.activatesAt) : 'after your current plan ends';
+        setUpgradeMessage(
+          `${pkg.displayName || pkg.name} is purchased and queued. You keep your current plan until then; the new plan starts on ${when}.`,
+        );
+      } else {
+        setUpgradeMessage(
+          `Plan updated to ${pkg.displayName || pkg.name}. Your subscription limits are now active.`,
+        );
+      }
     },
     [load],
   );
@@ -156,7 +171,7 @@ export function BillingSettings() {
       <SettingsPageHero
         eyebrow="Subscription"
         title="Subscription & plan"
-        description="Review your package, usage limits, and upgrade options when you need more capacity."
+        description="Review your package, usage limits, and buy any HQ plan that fits your team."
         icon={<CreditCard className="h-3.5 w-3.5 text-indigo-200" />}
         actions={
           <button
@@ -217,6 +232,15 @@ export function BillingSettings() {
                   <p className="mt-2 text-xs text-emerald-200">
                     Upgraded from {plan.upgradedFrom || 'previous plan'} on{' '}
                     {formatDateDMY(plan.upgradedAt.slice(0, 10))}
+                  </p>
+                ) : null}
+                {plan?.pendingPlan?.name ? (
+                  <p className="mt-3 rounded-lg bg-white/15 px-3 py-2 text-xs text-indigo-50">
+                    Queued next: <span className="font-semibold text-white">{plan.pendingPlan.name}</span>
+                    {plan.pendingPlan.startsAt || plan.pendingPlan.planStartDate
+                      ? ` · starts ${formatDateDMY(plan.pendingPlan.startsAt || plan.pendingPlan.planStartDate)}`
+                      : ' · starts after current plan ends'}
+                    {' '}(like a mobile recharge — current plan stays active until then)
                   </p>
                 ) : null}
               </div>
@@ -296,7 +320,7 @@ export function BillingSettings() {
 
           <PackageUpgradeSection
             currentPlan={plan}
-            upgradePackages={upgradePackages}
+            packages={availablePackages}
             billingCycle={billingCycle}
             currency={currency}
             onUpgrade={handleUpgrade}

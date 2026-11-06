@@ -484,8 +484,12 @@ export async function getSubscriptionPlan() {
       ...(v.upgradedFrom ? { upgradedFrom: String(v.upgradedFrom) } : {}),
       ...(v.lastPaymentReference ? { lastPaymentReference: String(v.lastPaymentReference) } : {}),
       ...(v.upgradedBy ? { upgradedBy: String(v.upgradedBy) } : {}),
+      ...(v.purchasedAt ? { purchasedAt: String(v.purchasedAt) } : {}),
+      ...(v.note ? { note: String(v.note) } : {}),
+      ...(v.accountKind ? { accountKind: String(v.accountKind) } : {}),
       ...(v.coins != null ? { coins: Number(v.coins) || 0 } : { coins: 0 }),
       ...(v.price ? { price: String(v.price) } : {}),
+      ...(v.pendingPlan && typeof v.pendingPlan === 'object' ? { pendingPlan: v.pendingPlan } : {}),
     };
   }
   return null;
@@ -526,8 +530,14 @@ export async function setSubscriptionPlan(plan) {
     ...(plan?.upgradedFrom ? { upgradedFrom: String(plan.upgradedFrom) } : {}),
     ...(plan?.lastPaymentReference ? { lastPaymentReference: String(plan.lastPaymentReference) } : {}),
     ...(plan?.upgradedBy ? { upgradedBy: String(plan.upgradedBy) } : {}),
+    ...(plan?.purchasedAt ? { purchasedAt: String(plan.purchasedAt) } : {}),
+    ...(plan?.note ? { note: String(plan.note) } : {}),
     ...(coins !== undefined && coins !== null ? { coins: Math.max(0, Number(coins) || 0) } : {}),
     ...(plan?.price ? { price: String(plan.price) } : {}),
+    // Include pendingPlan when present; omit key when cleared (null) so queue is removed.
+    ...(plan?.pendingPlan && typeof plan.pendingPlan === 'object'
+      ? { pendingPlan: plan.pendingPlan }
+      : {}),
   };
   await upsertOrgSettingJson(KEY_SUBSCRIPTION_PLAN, payload);
   return payload;

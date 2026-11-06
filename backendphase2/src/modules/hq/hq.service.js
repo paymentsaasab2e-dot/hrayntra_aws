@@ -470,8 +470,23 @@ export const hqService = {
     return hqCompaniesService.rejectProvisionDraft(companyId, reqUser);
   },
 
+  async createCompanyProvisionPaymentLink(companyId, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    const { createCompanyProvisionPaymentLink } = await import(
+      './hq-company-provision-payment.service.js'
+    );
+    return createCompanyProvisionPaymentLink(companyId, reqUser);
+  },
+
+  async markCompanyProvisionPaid(companyId, data, reqUser) {
+    assertPlatformProvisioner(reqUser);
+    const { markCompanyProvisionPaid } = await import('./hq-company-provision-payment.service.js');
+    return markCompanyProvisionPaid(companyId, data || {}, reqUser);
+  },
+
   /**
    * Approve a pending Create-user draft → provision tenant + allow login.
+   * Requires client package payment (Paid) first.
    */
   async approveCompanyTenant(companyId, reqUser) {
     assertPlatformProvisioner(reqUser);

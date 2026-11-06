@@ -653,13 +653,47 @@ function normalizeSubscriptionPlanForHq(value) {
       ...(value.purchasedAt ? { purchasedAt: String(value.purchasedAt) } : {}),
       ...(value.employerDemoRequestId ? { employerDemoRequestId: String(value.employerDemoRequestId) } : {}),
       ...(value.upgradedBy ? { upgradedBy: String(value.upgradedBy) } : {}),
+      ...(value.note ? { note: String(value.note) } : {}),
       ...(value.coins !== undefined && value.coins !== null
         ? { coins: Math.max(0, Number(value.coins) || 0) }
         : {}),
       ...(value.price ? { price: String(value.price) } : {}),
+      ...(value.pendingPlan && typeof value.pendingPlan === 'object'
+        ? { pendingPlan: normalizePendingPlanForHq(value.pendingPlan) }
+        : {}),
     };
   }
   return null;
+}
+
+/** Nested queued plan (starts after current planEndDate). */
+function normalizePendingPlanForHq(value) {
+  if (!value || typeof value !== 'object') return null;
+  const name = String(value.name || '').trim();
+  const id = String(value.id || '').trim();
+  if (!name && !id) return null;
+  const planStartDate = String(value.planStartDate || value.startsAt || '').trim();
+  const planEndDate = String(value.planEndDate || '').trim();
+  const startsAt = String(value.startsAt || value.planStartDate || '').trim();
+  return {
+    ...(id ? { id } : {}),
+    name: name || id,
+    billingCycle:
+      String(value.billingCycle || '').trim().toLowerCase() === 'annual' ? 'annual' : 'monthly',
+    maxUsers: value.maxUsers === undefined ? null : value.maxUsers,
+    maxJobs: value.maxJobs === undefined ? null : value.maxJobs,
+    ...(planStartDate ? { planStartDate } : {}),
+    ...(planEndDate ? { planEndDate } : {}),
+    ...(startsAt ? { startsAt } : {}),
+    ...(value.purchasedAt ? { purchasedAt: String(value.purchasedAt) } : {}),
+    ...(value.lastPaymentReference
+      ? { lastPaymentReference: String(value.lastPaymentReference) }
+      : {}),
+    ...(value.upgradedBy ? { upgradedBy: String(value.upgradedBy) } : {}),
+    ...(value.price ? { price: String(value.price) } : {}),
+    ...(value.note ? { note: String(value.note) } : {}),
+    queued: true,
+  };
 }
 
 function normalizeProductLine(value) {

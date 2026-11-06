@@ -683,7 +683,12 @@ router.get('/subscription-plan', async (req, res) => {
     } catch (err) {
       console.warn('[subscription-plan] failed to load HQ packages:', err?.message || err);
     }
-    let upgradeOptions = { currentPlan: plan, upgradePackages: [], canUpgrade: false };
+    let upgradeOptions = {
+      currentPlan: plan,
+      upgradePackages: [],
+      availablePackages: [],
+      canUpgrade: false,
+    };
     try {
       upgradeOptions = await listUpgradeOptions();
     } catch (err) {
@@ -754,10 +759,20 @@ router.post('/subscription-plan/upgrade', requireAnyPermission(['manage_settings
       upgradedBy: req.user?.email || req.user?.id,
     });
     const planUsage = await getPlanUsageSnapshot();
-    sendResponse(res, 200, 'Subscription upgraded successfully', {
-      plan: result.plan,
-      planUsage,
-    });
+    sendResponse(
+      res,
+      200,
+      result.queued
+        ? 'Plan purchased and queued — it starts after your current plan ends'
+        : 'Subscription upgraded successfully',
+      {
+        plan: result.plan,
+        pendingPlan: result.pendingPlan || null,
+        queued: Boolean(result.queued),
+        activatesAt: result.activatesAt || null,
+        planUsage,
+      },
+    );
   } catch (error) {
     sendError(res, 400, error.message || 'Failed to upgrade subscription plan', error);
   }

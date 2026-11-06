@@ -33,8 +33,11 @@ function slugify(name) {
 function formatPriceLabel(priceUsd) {
   const n = Number(priceUsd);
   if (!Number.isFinite(n)) return '$0';
+  if (n === 0) return '$0';
   if (Number.isInteger(n)) return `$${n}`;
-  return `$${n.toFixed(2)}`;
+  // Keep small amounts exact (0.005 → $0.005), not rounded to 2dp ($0.01).
+  const fixed = n.toFixed(6).replace(/\.?0+$/, '');
+  return `$${fixed}`;
 }
 
 /**

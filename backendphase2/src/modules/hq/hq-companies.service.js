@@ -263,6 +263,41 @@ function toCompanyRow(doc) {
         : null,
     provisionApprovedAt:
       doc.provisionApprovedAt instanceof Date ? doc.provisionApprovedAt.toISOString() : null,
+    provisionPayment: mapProvisionPayment(doc.provisionPayment),
+  };
+}
+
+function mapProvisionPayment(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const statusRaw = String(raw.status || 'unpaid').trim().toLowerCase();
+  const status =
+    statusRaw === 'paid' ? 'paid' : statusRaw === 'link_sent' ? 'link_sent' : 'unpaid';
+  return {
+    status,
+    packageId: raw.packageId ? String(raw.packageId) : null,
+    packageName: raw.packageName ? String(raw.packageName) : null,
+    billingCycle:
+      String(raw.billingCycle || 'monthly').toLowerCase() === 'annual' ? 'annual' : 'monthly',
+    amountUsd: raw.amountUsd != null ? Number(raw.amountUsd) : null,
+    amountPaise: raw.amountPaise != null ? Number(raw.amountPaise) : null,
+    amountInr: raw.amountInr != null ? String(raw.amountInr) : null,
+    currency: String(raw.currency || 'INR').toUpperCase(),
+    paymentLinkId: raw.paymentLinkId ? String(raw.paymentLinkId) : null,
+    paymentLinkUrl: raw.paymentLinkUrl ? String(raw.paymentLinkUrl) : null,
+    paymentReference: raw.paymentReference ? String(raw.paymentReference) : null,
+    mode: raw.mode === 'live' ? 'live' : 'clone',
+    linkSentAt: raw.linkSentAt
+      ? raw.linkSentAt instanceof Date
+        ? raw.linkSentAt.toISOString()
+        : String(raw.linkSentAt)
+      : null,
+    paidAt: raw.paidAt
+      ? raw.paidAt instanceof Date
+        ? raw.paidAt.toISOString()
+        : String(raw.paidAt)
+      : null,
+    paidByEmail: raw.paidByEmail ? String(raw.paidByEmail) : null,
+    note: raw.note ? String(raw.note) : null,
   };
 }
 
@@ -968,6 +1003,7 @@ export const hqCompaniesService = {
 
     const draft = parseProvisionDraftInput(data);
     const now = new Date();
+    // New/updated Create-user draft resets payment — sales must regenerate the link.
     await collection.updateOne(
       { _id: objectId },
       {
@@ -978,6 +1014,11 @@ export const hqCompaniesService = {
           provisionDraftSubmittedByEmail: reqUser?.email || null,
           provisionRejectedAt: null,
           provisionRejectedByEmail: null,
+          provisionPayment: {
+            status: 'unpaid',
+            packageName: draft.planName || 'Starter',
+            billingCycle: draft.billingCycle || 'monthly',
+          },
           updatedAt: now,
           updatedByEmail: reqUser?.email || null,
         },
@@ -1002,6 +1043,12 @@ export const hqCompaniesService = {
     if (normalizeProvisionStatus(existing.provisionStatus) !== 'pending_approval') {
       throw new Error('No pending Create-user request to approve');
     }
+    const payment = mapProvisionPayment(existing.provisionPayment);
+    if (payment?.status !== 'paid') {
+      throw new Error(
+        'Client payment is required before Approve. Generate the payment link on Company, wait for payment (or Mark as paid), then Approve.',
+      );
+    }
     const draft = existing.provisionDraft;
     if (!draft || typeof draft !== 'object') {
       throw new Error('Pending Create-user draft is missing');
@@ -1013,12 +1060,39 @@ export const hqCompaniesService = {
     return {
       companyId: objectId.toString(),
       company: toCompanyRow(existing),
+      payment,
       draft: {
         ...draft,
         password,
         companyId: objectId.toString(),
       },
     };
+  },
+
+  async setProvisionPayment(id, payment, reqUser) {
+    if (!ObjectId.isValid(id)) throw new Error('Invalid company id');
+    const collection = await getCollection();
+    const objectId = new ObjectId(id);
+    const existing = await collection.findOne({ _id: objectId });
+    if (!existing) throw new Error('Company not found');
+    await collection.updateOne(
+      { _id: objectId },
+      {
+        $set: {
+          provisionPayment: payment,
+          updatedAt: new Date(),
+          updatedByEmail: reqUser?.email || null,
+        },
+      },
+    );
+    const updated = await collection.findOne({ _id: objectId });
+    return { company: toCompanyRow(updated), storage: getStorageInfo() };
+  },
+
+  async getCompanyDocById(id) {
+    if (!ObjectId.isValid(id)) throw new Error('Invalid company id');
+    const collection = await getCollection();
+    return collection.findOne({ _id: new ObjectId(id) });
   },
 
   async markProvisionApproved(id, data, reqUser) {

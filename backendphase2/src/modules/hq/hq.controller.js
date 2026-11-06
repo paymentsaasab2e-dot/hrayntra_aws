@@ -52,6 +52,24 @@ export const hqController = {
     }
   },
 
+  async createCompanyProvisionPaymentLink(req, res) {
+    try {
+      const result = await hqService.createCompanyProvisionPaymentLink(req.params.id, req.user);
+      sendResponse(res, 200, 'Payment link ready', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
+  async markCompanyProvisionPaid(req, res) {
+    try {
+      const result = await hqService.markCompanyProvisionPaid(req.params.id, req.body, req.user);
+      sendResponse(res, 200, 'Payment marked as paid', result);
+    } catch (error) {
+      sendError(res, 400, error.message, error);
+    }
+  },
+
   async listTenants(req, res) {
     try {
       const result = await hqService.listTenants(req.user);

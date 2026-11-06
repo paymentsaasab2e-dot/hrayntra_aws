@@ -26,6 +26,10 @@ import {
   type ProvisionTenantFormData,
 } from '@/components/hq/CreateTenantModal';
 import {
+  CompanyProvisionPaymentActions,
+  isCompanyProvisionPaid,
+} from '@/components/hq/CompanyProvisionPaymentActions';
+import {
   HqModulePageLayout,
   HQ_TABLE_BODY_SCROLL_CLASS,
   HQ_TABLE_CARD_CLASS,
@@ -263,9 +267,18 @@ export default function HqCompanyPage() {
     setCreateTenantOpen(true);
   };
 
+  const patchCompany = useCallback((next: HqCompanyApiRow) => {
+    setCompanies((prev) => prev.map((c) => (c.id === next.id ? { ...c, ...next } : c)));
+  }, []);
+
   const handleApproveTenant = async (companyId: string) => {
+    const company = companies.find((c) => c.id === companyId);
+    if (!isCompanyProvisionPaid(company)) {
+      toast.error('Client must pay the package first. Generate payment link or Mark as paid, then Approve.');
+      return;
+    }
     const ok = await requestConfirm(
-      'Approve Create user and provision this tenant? They will receive login credentials.',
+      'Payment received. Approve Create user and provision this tenant? They will receive login credentials.',
       {
         tone: 'info',
         title: 'Approve tenant',
@@ -355,7 +368,9 @@ export default function HqCompanyPage() {
       // Linked to an HQ company → pending approval (no login until Approve).
       if (body.companyId) {
         await apiHqSaveCompanyProvisionDraft(body.companyId, body);
-        toast.success('Create user submitted for approval. Click Approve on this company to enable login.');
+        toast.success(
+          'Create user submitted. Generate payment link for the package, wait for Paid, then Approve.',
+        );
         setCreateTenantOpen(false);
         setProvisionData(emptyProvisionTenantForm());
         setLockCompanyForTenant(false);
@@ -383,7 +398,7 @@ export default function HqCompanyPage() {
   return (
     <HqModulePageLayout
       title="Companies"
-      subtitle="Lead → Client → Company → Create user (pending) → Approve → Tenant login."
+      subtitle="Lead → Client → Company → Create user → Payment link → Paid → Approve → Tenant login."
       icon={<Building2 className="h-5 w-5" />}
       actions={
         <>
@@ -441,7 +456,7 @@ export default function HqCompanyPage() {
             title="Create user"
             subtitle={
               lockCompanyForTenant || provisionData.companyId
-                ? 'Submit for approval. Login is created only after Approve on this company.'
+                ? 'Submit for approval. Next: generate payment link for the package → client pays → Approve creates login.'
                 : 'Link to an HQ company for approval, or create a workspace manually (immediate provision).'
             }
             submitLabel={
@@ -471,7 +486,8 @@ export default function HqCompanyPage() {
               onApproveTenant={
                 !createDrawerOpen &&
                 selectedCompany?.provisionStatus === 'pending_approval' &&
-                !selectedCompany?.tenantDbName
+                !selectedCompany?.tenantDbName &&
+                isCompanyProvisionPaid(selectedCompany)
                   ? (clientId) => void handleApproveTenant(clientId)
                   : undefined
               }
@@ -653,7 +669,11 @@ export default function HqCompanyPage() {
                           ) : null}
                           {company.provisionStatus === 'pending_approval' && !company.tenantDbName ? (
                             <span className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-800 ring-1 ring-amber-200">
-                              Pending approval
+                              {company.provisionPayment?.status === 'paid'
+                                ? 'Paid · ready to approve'
+                                : company.provisionPayment?.status === 'link_sent'
+                                  ? 'Awaiting payment'
+                                  : 'Pending · need payment'}
                             </span>
                           ) : null}
                           {company.provisionStatus === 'rejected' && !company.tenantDbName ? (
@@ -684,17 +704,24 @@ export default function HqCompanyPage() {
                           {company.provisionStatus === 'pending_approval' &&
                           !company.tenantDbName ? (
                             <>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  void handleApproveTenant(company.id);
-                                }}
-                                disabled={approveLoadingId === company.id}
-                                className="rounded-lg border border-emerald-300 bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
-                              >
-                                {approveLoadingId === company.id ? '…' : 'Approve'}
-                              </button>
+                              <CompanyProvisionPaymentActions
+                                company={company}
+                                onUpdated={patchCompany}
+                                compact
+                              />
+                              {isCompanyProvisionPaid(company) ? (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    void handleApproveTenant(company.id);
+                                  }}
+                                  disabled={approveLoadingId === company.id}
+                                  className="rounded-lg border border-emerald-300 bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
+                                >
+                                  {approveLoadingId === company.id ? '…' : 'Approve'}
+                                </button>
+                              ) : null}
                               <button
                                 type="button"
                                 onClick={(e) => {

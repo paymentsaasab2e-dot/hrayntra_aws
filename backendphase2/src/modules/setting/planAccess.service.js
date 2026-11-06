@@ -89,6 +89,7 @@ function mergeHqPlanMetadata(resolvedPlan, hqPlan) {
     ...(hqPlan?.isTrial && !freeJobs ? { isTrial: true } : {}),
     ...(hqPlan?.trialDays && !freeJobs ? { trialDays: Number(hqPlan.trialDays) || undefined } : {}),
     ...(hqPlan?.purchasedAt ? { purchasedAt: String(hqPlan.purchasedAt) } : {}),
+    ...(hqPlan?.note ? { note: String(hqPlan.note) } : {}),
     ...(hqPlan?.coins !== undefined && hqPlan?.coins !== null
       ? { coins: Math.max(0, Number(hqPlan.coins) || 0) }
       : {}),
@@ -97,6 +98,9 @@ function mergeHqPlanMetadata(resolvedPlan, hqPlan) {
     ...(hqPlan?.maxJobs !== undefined ? { maxJobs: hqPlan.maxJobs } : {}),
     ...(hqPlan?.monthlyJobPublishLimit !== undefined
       ? { monthlyJobPublishLimit: hqPlan.monthlyJobPublishLimit }
+      : {}),
+    ...(hqPlan?.pendingPlan && typeof hqPlan.pendingPlan === 'object'
+      ? { pendingPlan: hqPlan.pendingPlan }
       : {}),
   };
 }
@@ -208,6 +212,13 @@ export async function getEffectiveSubscriptionPlan({ assignIfMissing = true } = 
     } catch (err) {
       console.warn('[planAccess] HQ plan sync failed:', err?.message || err);
     }
+  }
+
+  try {
+    const { activatePendingSubscriptionPlanIfDue } = await import('./subscriptionUpgrade.service.js');
+    await activatePendingSubscriptionPlanIfDue();
+  } catch (err) {
+    console.warn('[planAccess] pending plan activation failed:', err?.message || err);
   }
 
   let current = await getSubscriptionPlan();

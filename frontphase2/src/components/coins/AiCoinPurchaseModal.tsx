@@ -293,7 +293,15 @@ export function AiCoinPurchaseModal({
                         </p>
                       </div>
                       <div className="text-right">
-                        <p className="text-lg font-bold text-slate-900">{pack.priceLabel}</p>
+                        <p className="text-lg font-bold text-slate-900">
+                          {(() => {
+                            const n = Number(pack.priceUsd);
+                            if (!Number.isFinite(n)) return pack.priceLabel;
+                            if (n === 0) return '$0';
+                            if (Number.isInteger(n)) return `$${n}`;
+                            return `$${n.toFixed(6).replace(/\.?0+$/, '')}`;
+                          })()}
+                        </p>
                         {selected ? (
                           <span className="mt-1 inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700">
                             <BrandPngIcon name="correct" className="h-3.5 w-3.5" />

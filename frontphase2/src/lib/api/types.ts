@@ -49,6 +49,25 @@ export interface HqSubscriptionPackage {
 
 export type SubscriptionPlanOption = HqSubscriptionPackage;
 
+/** Queued package purchased while current period is still active (mobile-recharge style). */
+export interface HqPendingSubscriptionPlan {
+  id?: string;
+  name: string;
+  billingCycle?: 'monthly' | 'annual';
+  maxUsers?: number | null;
+  maxJobs?: number | null;
+  planStartDate?: string;
+  planEndDate?: string;
+  /** Calendar day the queued plan becomes active (after current ends). */
+  startsAt?: string;
+  purchasedAt?: string;
+  lastPaymentReference?: string;
+  upgradedBy?: string;
+  price?: string;
+  note?: string;
+  queued?: boolean;
+}
+
 export interface HqTenantSubscriptionPlan {
   id?: string;
   name: string;
@@ -69,6 +88,9 @@ export interface HqTenantSubscriptionPlan {
   upgradedBy?: string;
   coins?: number;
   price?: string;
+  note?: string;
+  /** Next plan waiting to start after planEndDate. */
+  pendingPlan?: HqPendingSubscriptionPlan | null;
 }
 
 export type SubscriptionPaymentOrder = {
@@ -446,6 +468,25 @@ export type HqCompanyApiRow = {
   } | null;
   provisionDraftSubmittedAt?: string | null;
   provisionApprovedAt?: string | null;
+  /** Package payment before Approve (sales → Razorpay link → paid). */
+  provisionPayment?: {
+    status: 'unpaid' | 'link_sent' | 'paid';
+    packageId?: string | null;
+    packageName?: string | null;
+    billingCycle?: 'monthly' | 'annual';
+    amountUsd?: number | null;
+    amountPaise?: number | null;
+    amountInr?: string | null;
+    currency?: string;
+    paymentLinkId?: string | null;
+    paymentLinkUrl?: string | null;
+    paymentReference?: string | null;
+    mode?: 'live' | 'clone';
+    linkSentAt?: string | null;
+    paidAt?: string | null;
+    paidByEmail?: string | null;
+    note?: string | null;
+  } | null;
 };
 
 export type HqCompanyStats = {

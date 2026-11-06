@@ -153,6 +153,16 @@ router.post(
   hqController.rejectCompanyProvisionDraft,
 );
 router.post(
+  '/companies/:id/payment-link',
+  authMiddleware,
+  hqController.createCompanyProvisionPaymentLink,
+);
+router.post(
+  '/companies/:id/mark-paid',
+  authMiddleware,
+  hqController.markCompanyProvisionPaid,
+);
+router.post(
   '/companies/:id/logo',
   authMiddleware,
   companyLogoUpload.single('file'),

@@ -18,11 +18,20 @@ type PackDraft = {
   name: string;
   coins: string;
   priceUsd: string;
-  priceLabel: string;
   description: string;
   popular: boolean;
   active: boolean;
 };
+
+function formatPriceLabel(priceUsd: number | string) {
+  const n = Number(priceUsd);
+  if (!Number.isFinite(n)) return '$0';
+  if (Object.is(n, -0) || n === 0) return '$0';
+  if (Number.isInteger(n)) return `$${n}`;
+  // Keep small amounts exact (0.005 → $0.005), not rounded to 2dp ($0.01).
+  const fixed = n.toFixed(6).replace(/\.?0+$/, '');
+  return `$${fixed}`;
+}
 
 function toDraft(pack: HqAiCoinPack): PackDraft {
   return {
@@ -30,7 +39,6 @@ function toDraft(pack: HqAiCoinPack): PackDraft {
     name: pack.name || '',
     coins: String(pack.coins ?? ''),
     priceUsd: String(pack.priceUsd ?? ''),
-    priceLabel: pack.priceLabel || '',
     description: pack.description || '',
     popular: Boolean(pack.popular),
     active: pack.active !== false,
@@ -43,7 +51,6 @@ function emptyDraft(): PackDraft {
     name: '',
     coins: '100',
     priceUsd: '9',
-    priceLabel: '',
     description: '',
     popular: false,
     active: true,
@@ -86,6 +93,43 @@ export function HqAiCoinPacksPanel() {
 
   const dirty = useMemo(() => !draftsEqual(packs, baseline), [packs, baseline]);
 
+  const persistPacks = useCallback(async (nextPacks: PackDraft[], successMessage?: string) => {
+    if (nextPacks.length === 0) {
+      setError('Add at least one coin pack before saving');
+      return false;
+    }
+    setSaving(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const payload = nextPacks.map((p, index) => {
+        const priceUsd = Math.max(0, Number(p.priceUsd) || 0);
+        return {
+          id: p.id || undefined,
+          name: p.name.trim(),
+          coins: Math.max(0, Math.floor(Number(p.coins) || 0)),
+          priceUsd,
+          priceLabel: formatPriceLabel(priceUsd),
+          description: p.description.trim(),
+          popular: Boolean(p.popular),
+          active: p.active !== false,
+          sortOrder: index,
+        };
+      });
+      const res = await apiHqSaveAiCoinPacks({ packs: payload as HqAiCoinPack[] });
+      const list = (res.data?.packs || []).map(toDraft);
+      setPacks(list);
+      setBaseline(list);
+      setSuccess(successMessage || 'Coin packs saved. Phase 2 purchase modal will show these packs.');
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save coin packs');
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }, []);
+
   const openCreate = () => {
     setEditingIndex(null);
     setForm(emptyDraft());
@@ -104,7 +148,7 @@ export function HqAiCoinPacksPanel() {
     setEditingIndex(null);
   };
 
-  const upsertFromModal = () => {
+  const upsertFromModal = async () => {
     const name = form.name.trim();
     const coins = Math.max(0, Math.floor(Number(form.coins) || 0));
     const priceUsd = Math.max(0, Number(form.priceUsd) || 0);
@@ -122,28 +166,32 @@ export function HqAiCoinPacksPanel() {
       name,
       coins: String(coins),
       priceUsd: String(priceUsd),
-      priceLabel: form.priceLabel.trim() || (Number.isInteger(priceUsd) ? `$${priceUsd}` : `$${priceUsd.toFixed(2)}`),
       description: form.description.trim(),
     };
 
-    setPacks((prev) => {
-      let list = [...prev];
-      if (editingIndex != null) {
-        list[editingIndex] = nextRow;
-      } else {
-        list = [...list, nextRow];
-      }
-      if (nextRow.popular) {
-        list = list.map((p, i) => ({
-          ...p,
-          popular: editingIndex != null ? i === editingIndex : i === list.length - 1,
-        }));
-      }
-      return list;
-    });
-    setError(null);
-    setModalOpen(false);
-    setEditingIndex(null);
+    let list = [...packs];
+    if (editingIndex != null) {
+      list[editingIndex] = nextRow;
+    } else {
+      list = [...list, nextRow];
+    }
+    if (nextRow.popular) {
+      list = list.map((p, i) => ({
+        ...p,
+        popular: editingIndex != null ? i === editingIndex : i === list.length - 1,
+      }));
+    }
+
+    // Optimistic UI, then persist so refresh keeps the edit.
+    setPacks(list);
+    const ok = await persistPacks(
+      list,
+      editingIndex != null ? `Updated “${name}” and saved.` : `Added “${name}” and saved.`,
+    );
+    if (ok) {
+      setModalOpen(false);
+      setEditingIndex(null);
+    }
   };
 
   const removePack = async (index: number) => {
@@ -158,49 +206,29 @@ export function HqAiCoinPacksPanel() {
       },
     );
     if (!ok) return;
-    setPacks((prev) => prev.filter((_, i) => i !== index));
+    const list = packs.filter((_, i) => i !== index);
+    setPacks(list);
+    await persistPacks(list, `Removed “${pack.name}” and saved.`);
   };
 
   const setPopular = (index: number) => {
-    setPacks((prev) => prev.map((p, i) => ({ ...p, popular: i === index })));
+    const list = packs.map((p, i) => ({ ...p, popular: i === index }));
+    setPacks(list);
+    void persistPacks(list, `Marked “${packs[index]?.name || 'pack'}” as popular and saved.`);
   };
 
   const toggleActive = (index: number) => {
-    setPacks((prev) =>
-      prev.map((p, i) => (i === index ? { ...p, active: !p.active } : p))
+    const list = packs.map((p, i) => (i === index ? { ...p, active: !p.active } : p));
+    setPacks(list);
+    const nextActive = list[index]?.active !== false;
+    void persistPacks(
+      list,
+      `${list[index]?.name || 'Pack'} is now ${nextActive ? 'active' : 'hidden'} and saved.`,
     );
   };
 
   const handleSave = async () => {
-    if (packs.length === 0) {
-      setError('Add at least one coin pack before saving');
-      return;
-    }
-    setSaving(true);
-    setError(null);
-    setSuccess(null);
-    try {
-      const payload = packs.map((p, index) => ({
-        id: p.id || undefined,
-        name: p.name.trim(),
-        coins: Math.max(0, Math.floor(Number(p.coins) || 0)),
-        priceUsd: Math.max(0, Number(p.priceUsd) || 0),
-        priceLabel: p.priceLabel.trim(),
-        description: p.description.trim(),
-        popular: Boolean(p.popular),
-        active: p.active !== false,
-        sortOrder: index,
-      }));
-      const res = await apiHqSaveAiCoinPacks({ packs: payload as HqAiCoinPack[] });
-      const list = (res.data?.packs || []).map(toDraft);
-      setPacks(list);
-      setBaseline(list);
-      setSuccess('Coin packs saved. Phase 2 purchase modal will show these packs.');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save coin packs');
-    } finally {
-      setSaving(false);
-    }
+    await persistPacks(packs);
   };
 
   return (
@@ -291,7 +319,7 @@ export function HqAiCoinPacksPanel() {
                       </span>
                     </td>
                     <td className="px-3 py-3 font-semibold text-slate-800">
-                      {pack.priceLabel || `$${pack.priceUsd}`}
+                      {formatPriceLabel(pack.priceUsd)}
                     </td>
                     <td className="px-3 py-3">
                       <button
@@ -348,7 +376,7 @@ export function HqAiCoinPacksPanel() {
         )}
         {dirty ? (
           <p className="mt-3 text-xs font-medium text-amber-700">
-            Unsaved changes — click Save packs to publish to Phase 2.
+            Unsaved changes — click Save packs if a previous save failed.
           </p>
         ) : null}
       </HqPanel>
@@ -403,15 +431,6 @@ export function HqAiCoinPacksPanel() {
                 </label>
               </div>
               <label className="block text-xs font-semibold text-slate-600">
-                Price label (optional)
-                <input
-                  className={`${inputClass} mt-1`}
-                  value={form.priceLabel}
-                  onChange={(e) => setForm((f) => ({ ...f, priceLabel: e.target.value }))}
-                  placeholder="Auto from price if empty, e.g. $39"
-                />
-              </label>
-              <label className="block text-xs font-semibold text-slate-600">
                 Description
                 <textarea
                   rows={2}
@@ -447,8 +466,16 @@ export function HqAiCoinPacksPanel() {
               <HqSecondaryButton type="button" onClick={closeModal}>
                 Cancel
               </HqSecondaryButton>
-              <HqPrimaryButton type="button" onClick={upsertFromModal}>
-                {editingIndex != null ? 'Update pack' : 'Add pack'}
+              <HqPrimaryButton
+                type="button"
+                disabled={saving}
+                onClick={() => void upsertFromModal()}
+              >
+                {saving
+                  ? 'Saving…'
+                  : editingIndex != null
+                    ? 'Update pack'
+                    : 'Add pack'}
               </HqPrimaryButton>
             </div>
           </div>
