@@ -1,4 +1,51 @@
-export type HqLeadStage = 'new' | 'demo' | 'trial' | 'contacted' | 'qualified' | 'converted' | 'lost';
+export type HqLeadStage =
+  | 'new'
+  | 'contacted'
+  | 'qualified'
+  | 'demo'
+  | 'proposal'
+  | 'trial'
+  | 'converted'
+  | 'lost';
+
+/** Sales pipeline shown on HQ CRM Create Lead (order matters). */
+export const HQ_CRM_PIPELINE_STAGES: HqLeadStage[] = [
+  'new',
+  'contacted',
+  'qualified',
+  'demo',
+  'proposal',
+  'converted',
+  'lost',
+];
+
+export const HQ_CRM_COMPANY_SIZE_OPTIONS = [
+  '1-10',
+  '11-50',
+  '51-200',
+  '201-500',
+  '501-1000',
+  '1000+',
+] as const;
+
+export const HQ_CRM_TIMELINE_OPTIONS = [
+  'Immediate',
+  'This month',
+  '1-3 months',
+  '3-6 months',
+  '6+ months',
+  'Exploring',
+] as const;
+
+export const HQ_CRM_LOST_REASON_OPTIONS = [
+  'Budget',
+  'Chose competitor',
+  'No response',
+  'Timing',
+  'Not a fit',
+  'Duplicate',
+  'Other',
+] as const;
 
 export type HqLeadScore = 'Hot' | 'Warm' | 'Cold';
 
@@ -138,20 +185,22 @@ export function formatNextFollowUpDisplay(value?: string | null): string {
 
 export const HQ_LEAD_STAGE_LABELS: Record<HqLeadStage, string> = {
   new: 'New',
-  demo: 'Demo',
-  trial: 'Trial',
   contacted: 'Contacted',
   qualified: 'Qualified',
-  converted: 'Converted',
+  demo: 'Demo',
+  proposal: 'Proposal',
+  trial: 'Trial',
+  converted: 'Won',
   lost: 'Lost',
 };
 
 export const HQ_LEAD_STAGE_STYLES: Record<HqLeadStage, string> = {
   new: 'bg-sky-50 text-sky-700 ring-sky-200',
-  demo: 'bg-orange-50 text-orange-700 ring-orange-200',
-  trial: 'bg-teal-50 text-teal-700 ring-teal-200',
   contacted: 'bg-indigo-50 text-indigo-700 ring-indigo-200',
   qualified: 'bg-violet-50 text-violet-700 ring-violet-200',
+  demo: 'bg-orange-50 text-orange-700 ring-orange-200',
+  proposal: 'bg-amber-50 text-amber-800 ring-amber-200',
+  trial: 'bg-teal-50 text-teal-700 ring-teal-200',
   converted: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
   lost: 'bg-rose-50 text-rose-700 ring-rose-200',
 };
@@ -159,9 +208,11 @@ export const HQ_LEAD_STAGE_STYLES: Record<HqLeadStage, string> = {
 export const HQ_LEAD_TABS: { id: 'all' | HqLeadStage; label: string }[] = [
   { id: 'all', label: 'All Status' },
   { id: 'new', label: 'New' },
-  { id: 'demo', label: 'Demo' },
   { id: 'contacted', label: 'Contacted' },
-  { id: 'converted', label: 'Converted' },
+  { id: 'qualified', label: 'Qualified' },
+  { id: 'demo', label: 'Demo' },
+  { id: 'proposal', label: 'Proposal' },
+  { id: 'converted', label: 'Won' },
   { id: 'lost', label: 'Lost' },
 ];
 

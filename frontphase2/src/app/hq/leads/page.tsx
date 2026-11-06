@@ -28,6 +28,7 @@ import {
 import { toast } from 'sonner';
 import { requestConfirm } from '@/lib/appDialog';
 import { LeadDetailsDrawer } from '@/components/drawers/LeadDetailsDrawer';
+import { HqCrmCreateLeadDrawer } from '@/components/hq/HqCrmCreateLeadDrawer';
 import { HqCrmEmbed } from '@/components/hq/HqCrmEmbed';
 import {
   CreateTenantModal,
@@ -389,6 +390,7 @@ export default function HqLeadsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [addLeadDrawerOpen, setAddLeadDrawerOpen] = useState(false);
   const [addLeadWithAi, setAddLeadWithAi] = useState(false);
+  const [hqCrmCreateOpen, setHqCrmCreateOpen] = useState(false);
   const [createLeadMode, setCreateLeadMode] = useState<'ai' | 'manual'>('manual');
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [selectedLeadDrawerMode, setSelectedLeadDrawerMode] = useState<'view' | 'edit'>('view');
@@ -1103,10 +1105,23 @@ export default function HqLeadsPage() {
           submitLabel="Submit for approval"
         />
 
-        {(selectedLead || addLeadDrawerOpen) && (
+        <HqCrmCreateLeadDrawer
+          open={hqCrmCreateOpen}
+          onClose={() => setHqCrmCreateOpen(false)}
+          existingLeads={leads}
+          onCreated={async (lead) => {
+            await loadLeads();
+            if (lead?.id) {
+              setSelectedLeadDrawerMode('view');
+              setSelectedLeadId(lead.id);
+            }
+          }}
+        />
+
+        {(selectedLead || (addLeadDrawerOpen && addLeadWithAi)) && (
           <LeadDetailsDrawer
             lead={addLeadDrawerOpen ? null : selectedLead}
-            addLeadMode={addLeadDrawerOpen}
+            addLeadMode={Boolean(addLeadDrawerOpen && addLeadWithAi)}
             initialOpenAiChat={addLeadWithAi}
             initialMode={selectedLeadDrawerMode}
             onClose={() => {
@@ -1245,19 +1260,20 @@ export default function HqLeadsPage() {
                   onClick={() => {
                     setCreateLeadMode('manual');
                     setAddLeadWithAi(false);
+                    setAddLeadDrawerOpen(false);
                     setSelectedLeadId(null);
-                    setAddLeadDrawerOpen(true);
+                    setHqCrmCreateOpen(true);
                   }}
                   className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-all ${
                     createLeadMode === 'manual'
-                      ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-sm'
-                      : 'text-slate-500 hover:bg-white/60 hover:text-indigo-700'
+                      ? 'bg-gradient-to-r from-emerald-600 via-teal-600 to-slate-800 text-white shadow-sm'
+                      : 'text-slate-500 hover:bg-white/60 hover:text-emerald-700'
                   }`}
-                  title="Create a lead manually"
+                  title="Create an HQ CRM lead (sales pipeline form)"
                 >
                   <Plus
                     size={14}
-                    className={createLeadMode === 'manual' ? 'text-white' : 'text-indigo-500'}
+                    className={createLeadMode === 'manual' ? 'text-white' : 'text-emerald-600'}
                     strokeWidth={2.5}
                   />
                   <span>Create Manually</span>

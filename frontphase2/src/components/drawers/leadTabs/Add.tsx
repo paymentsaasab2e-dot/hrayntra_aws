@@ -21,6 +21,7 @@ import { isTeamMemberDetailLabel } from '../../../lib/teamMemberFormDetails';
 import { isLeadOccasionDetailLabel, emptyLeadOccasionForm, buildLeadOccasionContactOptions } from '../../../lib/leadOccasionDetails';
 import { isInternalLeadOtherDetailLabel } from '../../../lib/leadInternalOtherDetails';
 import { LeadOccasionFields } from '../../forms/LeadOccasionFields';
+import { HqLeadCrmBusinessFields } from '../../hq/HqLeadCrmBusinessFields';
 
 export function LeadAddTab(props: any) {
   const {
@@ -500,6 +501,23 @@ export function LeadAddTab(props: any) {
                           placeholder="e.g. 1500000"
                         />
                       </div>
+                      {addLeadHqStatusMode ? (
+                        <HqLeadCrmBusinessFields
+                          status={addLeadForm.status}
+                          values={{
+                            companySize: addLeadForm.companySize,
+                            interestedPackage: addLeadForm.interestedPackage,
+                            expectedUsers: addLeadForm.expectedUsers,
+                            expectedJobs: addLeadForm.expectedJobs,
+                            budget: addLeadForm.budget,
+                            timeline: addLeadForm.timeline,
+                            decisionMaker: addLeadForm.decisionMaker,
+                            competitor: addLeadForm.competitor,
+                            lostReason: addLeadForm.lostReason,
+                          }}
+                          onChange={(patch) => setAddLeadForm((p: any) => ({ ...p, ...patch }))}
+                        />
+                      ) : null}
                       {(() => {
                         const publicOtherDetails = Array.isArray(addLeadForm.otherDetails)
                           ? addLeadForm.otherDetails.filter(

@@ -32,8 +32,27 @@ import {
 } from '@/lib/api';
 
 type BillingTab = 'candidate' | 'employer';
-type EmployerView = 'transactions' | 'cycles' | 'purchases';
-type CandidateView = 'transactions' | 'purchases';
+type EmployerView = 'purchases' | 'spends' | 'cycles' | 'landing';
+type CandidateView = 'purchases' | 'spends';
+
+function isEmployerPurchaseType(type: string) {
+  const t = String(type || '').toUpperCase();
+  return (
+    t === 'COIN_PURCHASE' ||
+    t === 'PLAN_UPGRADE' ||
+    t === 'PLAN_QUEUED' ||
+    t === 'FREE_JOB_PACK' ||
+    t === 'JOB_POSTING_PREMIUM' ||
+    t === 'LANDING_PURCHASE' ||
+    t === 'SUBSCRIPTION' ||
+    t === 'GRANT'
+  );
+}
+
+function isEmployerSpendType(type: string) {
+  const t = String(type || '').toUpperCase();
+  return t === 'COIN_SPEND' || t === 'SPEND';
+}
 type DrawerState = {
   kind: 'candidate' | 'employer';
   entityKey: string;
@@ -204,9 +223,9 @@ function filterPurchaseRequests(rows: HqBillingPurchaseRequestRow[], needle: str
 
 
 export default function HqBillingPage() {
-  const [tab, setTab] = useState<BillingTab>('employer');
-  const [employerView, setEmployerView] = useState<EmployerView>('transactions');
-  const [candidateView, setCandidateView] = useState<CandidateView>('transactions');
+  const [tab, setTab] = useState<BillingTab>('candidate');
+  const [employerView, setEmployerView] = useState<EmployerView>('purchases');
+  const [candidateView, setCandidateView] = useState<CandidateView>('purchases');
   const [data, setData] = useState<HqBillingPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -238,12 +257,18 @@ export default function HqBillingPage() {
     if (candidateView === 'purchases') {
       return rows.filter((row) => String(row.type || '').toUpperCase() === 'PURCHASE');
     }
-    return rows;
+    return rows.filter((row) => String(row.type || '').toUpperCase() === 'SPEND');
   }, [data, needle, candidateView]);
-  const employerTransactions = useMemo(
-    () => filterEmployerTransactions(data?.employer?.transactions || [], needle),
-    [data, needle],
-  );
+  const employerTransactions = useMemo(() => {
+    const rows = filterEmployerTransactions(data?.employer?.transactions || [], needle);
+    if (employerView === 'purchases') {
+      return rows.filter((row) => isEmployerPurchaseType(row.type));
+    }
+    if (employerView === 'spends') {
+      return rows.filter((row) => isEmployerSpendType(row.type));
+    }
+    return rows;
+  }, [data, needle, employerView]);
   const tenantCycles = useMemo(
     () => filterTenantCycles(data?.employer?.tenantCycles || [], needle),
     [data, needle],
@@ -341,9 +366,10 @@ export default function HqBillingPage() {
               <div className="flex min-w-max items-center gap-1 overflow-x-auto">
                 {(
                   [
-                    { id: 'transactions' as const, label: 'All transactions' },
+                    { id: 'purchases' as const, label: 'Purchase' },
+                    { id: 'spends' as const, label: 'Spend' },
                     { id: 'cycles' as const, label: 'Tenant billing cycles' },
-                    { id: 'purchases' as const, label: 'Landing purchases' },
+                    { id: 'landing' as const, label: 'Landing purchases' },
                   ] as const
                 ).map((item) => (
                   <button
@@ -367,11 +393,13 @@ export default function HqBillingPage() {
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
                   placeholder={
-                    employerView === 'transactions'
-                      ? 'Search transactions…'
-                      : employerView === 'cycles'
-                        ? 'Search tenants…'
-                        : 'Search purchases…'
+                    employerView === 'purchases'
+                      ? 'Search purchases…'
+                      : employerView === 'spends'
+                        ? 'Search spends…'
+                        : employerView === 'cycles'
+                          ? 'Search tenants…'
+                          : 'Search landing purchases…'
                   }
                   className="h-9 w-full rounded-xl border border-indigo-100/90 bg-white/95 py-2 pl-10 pr-3 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/25"
                 />
@@ -379,7 +407,7 @@ export default function HqBillingPage() {
             </div>
 
             <div className={HQ_TABLE_BODY_SCROLL_CLASS}>
-              {employerView === 'transactions' ? (
+              {employerView === 'purchases' || employerView === 'spends' ? (
                 <table className={HQ_TABLE_CLASS}>
                   <thead>
                     <tr>
@@ -433,7 +461,13 @@ export default function HqBillingPage() {
                     ) : (
                       <tr>
                         <td colSpan={7} className="px-4 py-10 text-center text-slate-500">
-                          {loading ? 'Loading entrepreneur transactions…' : 'No entrepreneur transactions found.'}
+                          {loading
+                            ? employerView === 'spends'
+                              ? 'Loading spends…'
+                              : 'Loading purchases…'
+                            : employerView === 'spends'
+                              ? 'No spend entries found.'
+                              : 'No purchase entries found.'}
                         </td>
                       </tr>
                     )}
@@ -574,8 +608,8 @@ export default function HqBillingPage() {
               <div className="flex min-w-max items-center gap-1 overflow-x-auto">
                 {(
                   [
-                    { id: 'transactions' as const, label: 'All transactions' },
-                    { id: 'purchases' as const, label: 'Purchases only' },
+                    { id: 'purchases' as const, label: 'Purchase' },
+                    { id: 'spends' as const, label: 'Spend' },
                   ] as const
                 ).map((item) => (
                   <button
@@ -598,7 +632,11 @@ export default function HqBillingPage() {
                   type="search"
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Search candidates, pack, payment ID…"
+                  placeholder={
+                    candidateView === 'purchases'
+                      ? 'Search purchases, pack, payment ID…'
+                      : 'Search spends, service, candidate…'
+                  }
                   className="h-9 w-full rounded-xl border border-indigo-100/90 bg-white/95 py-2 pl-10 pr-3 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/25"
                 />
               </div>
@@ -656,7 +694,13 @@ export default function HqBillingPage() {
                   ) : (
                     <tr>
                       <td colSpan={7} className="px-4 py-10 text-center text-slate-500">
-                        {loading ? 'Loading candidate transactions…' : 'No candidate transactions found.'}
+                        {loading
+                          ? candidateView === 'spends'
+                            ? 'Loading spends…'
+                            : 'Loading purchases…'
+                          : candidateView === 'spends'
+                            ? 'No spend entries found.'
+                            : 'No purchase entries found.'}
                       </td>
                     </tr>
                   )}

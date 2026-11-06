@@ -31,6 +31,7 @@ import { AgreementTermsSection } from '../../agreements/AgreementTermsSection';
 import { emptyAgreementTerms } from '../../../lib/agreementTerms';
 import { AgreementDocumentUpload } from '../../documents/AgreementDocumentUpload';
 import { KycDocumentsField } from '../../documents/KycDocumentsField';
+import { HqLeadCrmBusinessFields } from '../../hq/HqLeadCrmBusinessFields';
 
 export function LeadOverviewTab(props: any) {
   const {
@@ -333,6 +334,35 @@ export function LeadOverviewTab(props: any) {
                                   </>
                                 );
                               })()}
+                              {isHqOverrideMode ? (
+                                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                  <OverviewField label="Company size" value={lead?.companySize || ''} />
+                                  <OverviewField label="Interested package" value={(lead as any)?.interestedPackage || ''} />
+                                  <OverviewField
+                                    label="Expected users"
+                                    value={
+                                      (lead as any)?.expectedUsers != null && String((lead as any).expectedUsers) !== ''
+                                        ? String((lead as any).expectedUsers)
+                                        : ''
+                                    }
+                                  />
+                                  <OverviewField
+                                    label="Expected jobs"
+                                    value={
+                                      (lead as any)?.expectedJobs != null && String((lead as any).expectedJobs) !== ''
+                                        ? String((lead as any).expectedJobs)
+                                        : ''
+                                    }
+                                  />
+                                  <OverviewField label="Budget" value={(lead as any)?.budget || ''} />
+                                  <OverviewField label="Buying timeline" value={(lead as any)?.timeline || ''} />
+                                  <OverviewField label="Decision maker" value={(lead as any)?.decisionMaker || ''} />
+                                  <OverviewField label="Competitor" value={(lead as any)?.competitor || ''} />
+                                  {String(lead?.status || '').toLowerCase() === 'lost' ? (
+                                    <OverviewField label="Lost reason" value={lead?.lostReason || ''} />
+                                  ) : null}
+                                </div>
+                              ) : null}
                               {(() => {
                                 const publicOtherDetails = Array.isArray(lead?.otherDetails)
                                   ? lead.otherDetails.filter(
@@ -738,6 +768,23 @@ export function LeadOverviewTab(props: any) {
                               placeholder="e.g. 1500000"
                             />
                           </div>
+                          {isHqOverrideMode ? (
+                            <HqLeadCrmBusinessFields
+                              status={overviewEditForm.status}
+                              values={{
+                                companySize: overviewEditForm.companySize,
+                                interestedPackage: overviewEditForm.interestedPackage,
+                                expectedUsers: overviewEditForm.expectedUsers,
+                                expectedJobs: overviewEditForm.expectedJobs,
+                                budget: overviewEditForm.budget,
+                                timeline: overviewEditForm.timeline,
+                                decisionMaker: overviewEditForm.decisionMaker,
+                                competitor: overviewEditForm.competitor,
+                                lostReason: overviewEditForm.lostReason,
+                              }}
+                              onChange={(patch) => setOverviewEditForm((p: any) => ({ ...p, ...patch }))}
+                            />
+                          ) : null}
                           <div>
                             <AddLeadFieldLabel label="Other Details" icon={FileText} iconClassName="text-rose-500" />
                             <div className="rounded-xl border border-rose-100 bg-rose-50/40 px-4 py-4 space-y-3">

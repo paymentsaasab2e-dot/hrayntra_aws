@@ -294,7 +294,7 @@ export type HqLeadApiRow = {
   score: 'Hot' | 'Warm' | 'Cold';
   users: number;
   owner: string;
-  stage: 'new' | 'demo' | 'trial' | 'contacted' | 'qualified' | 'converted' | 'lost';
+  stage: 'new' | 'contacted' | 'qualified' | 'demo' | 'proposal' | 'trial' | 'converted' | 'lost';
   updatedAt?: string | null;
   closedAt?: string | null;
   nextFollowUp: string;
@@ -361,6 +361,13 @@ export type HqLeadApiRow = {
   preferredDemoTime?: string | null;
   organizationType?: string | null;
   companySize?: string | null;
+  interestedPackage?: string | null;
+  expectedJobs?: number | null;
+  budget?: string | null;
+  timeline?: string | null;
+  decisionMaker?: string | null;
+  competitor?: string | null;
+  lostReason?: string | null;
   formFullName?: string | null;
   trialProvisioned?: boolean;
   trialDays?: number | null;

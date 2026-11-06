@@ -12,7 +12,16 @@ import { findDocByCompanyName, uniqueDocsByCompanyName } from '../../utils/compa
 
 const HQ_CRM_LEADS_COLLECTION = 'hq_crm_leads';
 const HQ_CRM_TEAM_MEMBERS_COLLECTION = 'hq_crm_team_members';
-const VALID_STAGES = ['new', 'demo', 'trial', 'contacted', 'qualified', 'converted', 'lost'];
+const VALID_STAGES = [
+  'new',
+  'contacted',
+  'qualified',
+  'demo',
+  'proposal',
+  'trial',
+  'converted',
+  'lost',
+];
 const FOLLOW_UP_TYPES = ['Call', 'Email', 'Meeting', 'WhatsApp', 'Other'];
 const HQ_PRODUCT_LINES = ['crm', 'recruitment'];
 
@@ -89,10 +98,11 @@ function normalizeStage(stage, convertedToCompanyId) {
   if (convertedToCompanyId) return 'converted';
   const legacyMap = {
     demo_scheduled: 'demo',
-    proposal_sent: 'qualified',
-    negotiation: 'qualified',
+    proposal_sent: 'proposal',
+    negotiation: 'proposal',
     closed_won: 'converted',
     closed_lost: 'lost',
+    won: 'converted',
   };
   const normalized = legacyMap[stage] || stage || 'new';
   return VALID_STAGES.includes(normalized) ? normalized : 'new';
@@ -176,6 +186,13 @@ function toLeadRow(doc) {
     preferredDemoTime: doc.preferredDemoTime || null,
     organizationType: doc.organizationType || null,
     companySize: doc.companySize || null,
+    interestedPackage: doc.interestedPackage || null,
+    expectedJobs: doc.expectedJobs ?? null,
+    budget: doc.budget || null,
+    timeline: doc.timeline || null,
+    decisionMaker: doc.decisionMaker || null,
+    competitor: doc.competitor || null,
+    lostReason: doc.lostReason || null,
     formFullName: doc.formFullName || doc.contactName || doc.contactPerson || '',
     trialProvisioned: Boolean(doc.trialProvisioned || doc.trialLoginId || doc.trialGrantedAt),
     trialDays: doc.trialDays ?? null,
@@ -482,11 +499,12 @@ function buildEmployerDemoLeadFields(demo) {
 
 const HQ_LEAD_STAGE_LABELS = {
   new: 'New',
-  demo: 'Demo',
-  trial: 'Trial',
   contacted: 'Contacted',
   qualified: 'Qualified',
-  converted: 'Converted',
+  demo: 'Demo',
+  proposal: 'Proposal',
+  trial: 'Trial',
+  converted: 'Won',
   lost: 'Lost',
 };
 
@@ -580,7 +598,8 @@ function mapPhase2StatusToStage(status) {
   if (s.includes('lost') || s.includes('reject')) return 'lost';
   if (s.includes('demo')) return 'demo';
   if (s.includes('trial')) return 'trial';
-  if (s.includes('qualif') || s.includes('propos') || s.includes('negot')) return 'qualified';
+  if (s.includes('propos') || s.includes('negot')) return 'proposal';
+  if (s.includes('qualif')) return 'qualified';
   if (s.includes('contact') || s.includes('progress') || s.includes('follow')) return 'contacted';
   return 'new';
 }
@@ -657,6 +676,22 @@ function parseLeadInput(data) {
   }
   if (!email && !phone) {
     throw new Error('Email or phone is required');
+  }
+
+  const stagePreview = isPhase2Shape
+    ? mapPhase2StatusToStage(data?.status || data?.stage)
+    : normalizeStage(String(data?.stage || 'new').trim(), null);
+  if (stagePreview === 'lost' && !String(data?.lostReason || '').trim()) {
+    throw new Error('Lost reason is required when stage is Lost');
+  }
+  if (
+    String(data?.formSchema || '') === 'hq-crm' &&
+    stagePreview !== 'lost' &&
+    stagePreview !== 'converted' &&
+    !data?.nextFollowUpAt &&
+    !data?.nextFollowUp
+  ) {
+    throw new Error('Next follow-up is required');
   }
 
   // Legacy HQ modal still sends stage + stricter commercial fields
@@ -751,7 +786,22 @@ function parseLeadInput(data) {
     followUpSchedule: data?.followUpSchedule || null,
     assignedToId: data?.assignedToId || null,
     assignedToIds: Array.isArray(data?.assignedToIds) ? data.assignedToIds : [],
-    formSchema: isPhase2Shape ? 'phase2' : 'hq-legacy',
+    companySize: String(data?.companySize || '').trim() || null,
+    interestedPackage: String(data?.interestedPackage || data?.packageName || '').trim() || null,
+    expectedJobs:
+      data?.expectedJobs != null && Number.isFinite(Number(data.expectedJobs))
+        ? Math.max(0, Math.floor(Number(data.expectedJobs)))
+        : null,
+    budget: String(data?.budget || '').trim() || null,
+    timeline: String(data?.timeline || '').trim() || null,
+    decisionMaker: String(data?.decisionMaker || '').trim() || null,
+    competitor: String(data?.competitor || '').trim() || null,
+    lostReason: String(data?.lostReason || '').trim() || null,
+    formSchema: data?.formSchema
+      ? String(data.formSchema)
+      : isPhase2Shape
+        ? 'phase2'
+        : 'hq-legacy',
     hqProductLines: parseHqProductLines(data),
     hqProductLine: (() => {
       const lines = parseHqProductLines(data);
