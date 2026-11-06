@@ -2,14 +2,24 @@
 
 import React from 'react';
 import { DrawerSectionCard } from '../drawerFormUi';
-import { Share2, Linkedin, FileText, Check, AlertCircle, Twitter, Facebook, Loader2 } from 'lucide-react';
+import { Share2, Linkedin, FileText, Check, AlertCircle, Twitter, Facebook, Loader2, Eye } from 'lucide-react';
 import { SocialAccountPicker } from '../../SocialAccountPicker';
 import { LINKEDIN_POST_MAX_LENGTH, buildCandidatePortalApplyUrlPreview } from '../../../lib/jobSocialPost';
 import { DocumentUploadButton } from '../../import/documentUploadUi';
 import { getTenantDbName } from '../../../lib/api';
 import { visibleLinkedInTemplateSectionLabels } from '../../../lib/jobLinkedInPostTemplate';
 import { LinkedInPostPreview } from '../../LinkedInPostPreview';
-import { isJobFieldPubliclyVisible, resolvePostedCompanyNameForSocial } from '../../../lib/jobPublicFieldVisibility';
+import {
+  isJobFieldPubliclyVisible,
+  resolvePostedCompanyNameForSocial,
+  JOB_PUBLIC_VISIBILITY_FIELDS,
+  JOB_PUBLIC_VISIBILITY_FIELD_LABELS,
+  mergeClientVisibility,
+  parseJobPublicFieldVisibility,
+  toggleJobPublicFieldVisibility,
+  type JobPublicVisibilityField,
+} from '../../../lib/jobPublicFieldVisibility';
+import { PublicVisibilityToggle } from '../../forms/PublicVisibilityToggle';
 import { DrawerLinkActions } from '../DrawerLinkActions';
 import { TwitterPostPreview } from '../../TwitterPostPreview';
 import { getLocalDateTimeInputMinNow, clampDateTimeLocalToMin } from '../../../utils/dateInputConstraints';
@@ -64,7 +74,49 @@ export function CreateJobPublishStep(props: any) {
     uploadingLinkedInImage,
   } = props;
 
+  const jobVisibility = mergeClientVisibility(
+    parseJobPublicFieldVisibility(formData.publicFieldVisibility),
+    formData.showClientNamePublicly !== false,
+  );
+
+  const toggleJobVisibilityField = (field: JobPublicVisibilityField) => {
+    const nextVisibility = toggleJobPublicFieldVisibility(jobVisibility, field);
+    const nextShowClient =
+      field === 'client' ? nextVisibility.client !== false : formData.showClientNamePublicly !== false;
+    if (field === 'client') nextVisibility.client = nextShowClient;
+    setFormData((prev: any) => ({
+      ...prev,
+      publicFieldVisibility: nextVisibility,
+      showClientNamePublicly: nextShowClient,
+    }));
+  };
+
   return (
+<>
+              <DrawerSectionCard
+                title="Public Visibility"
+                subtitle="Show or hide each field on the public apply page for this job. Save the job after changing."
+                icon={Eye}
+                accent="sky"
+              >
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {JOB_PUBLIC_VISIBILITY_FIELDS.map((field) => (
+                    <div
+                      key={field}
+                      className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2"
+                    >
+                      <span className="min-w-0 truncate text-xs font-medium text-slate-700">
+                        {JOB_PUBLIC_VISIBILITY_FIELD_LABELS[field]}
+                      </span>
+                      <PublicVisibilityToggle
+                        visible={jobVisibility[field] !== false}
+                        onToggle={() => toggleJobVisibilityField(field)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </DrawerSectionCard>
+
 <DrawerSectionCard
                 title="Publish & Share"
                 subtitle="LinkedIn, social channels, and job board publishing"
@@ -668,5 +720,6 @@ export function CreateJobPublishStep(props: any) {
                     </div>
                   </div>
               </DrawerSectionCard>
+</>
   );
 }
