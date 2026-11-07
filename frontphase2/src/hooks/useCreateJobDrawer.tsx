@@ -1338,7 +1338,10 @@ const loadJobData = async (sourceJobId?: string) => {
             (job as { showClientNamePublicly?: boolean }).showClientNamePublicly !== false,
           );
           const jobSkills = Array.isArray(job.skills)
-            ? job.skills.filter((skill: any): skill is string => typeof skill === 'string' && skill.trim())
+            ? job.skills.filter(
+                (skill: unknown): skill is string =>
+                  typeof skill === 'string' && Boolean(skill.trim()),
+              )
             : [];
           // Stale jobs often keep skills:false from old defaults while Skills are filled.
           if (jobSkills.length) visibility.skills = true;
