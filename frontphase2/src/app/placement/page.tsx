@@ -163,9 +163,10 @@ function PlacementsPageContent() {
   } = usePlacements(apiFilters);
 
   useEffect(() => {
-    if (createOpen || editingPlacement || resendingPlacement) {
-      void ensurePlacementFormOptions();
-    }
+    if (!(createOpen || editingPlacement || resendingPlacement)) return;
+    // Force reload when the candidate list is empty so the dropdown is not stuck blank.
+    void ensurePlacementFormOptions(candidateOptions.length === 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-run when drawer opens, not on every options length change
   }, [createOpen, editingPlacement, ensurePlacementFormOptions, resendingPlacement]);
   const { alertsByEntityId: workspaceAlertsByEntityId } = useWorkspaceEntityAlerts(
     'PLACEMENT',
