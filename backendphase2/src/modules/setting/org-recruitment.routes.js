@@ -413,7 +413,13 @@ router.get('/commission-slabs', async (req, res) => {
 
 router.put('/commission-slabs', requireAnyPermission(['manage_settings']), async (req, res) => {
   try {
-    const payload = req.body?.commissionSlabs ?? req.body ?? {};
+    const payload = { ...(req.body?.commissionSlabs ?? req.body ?? {}) };
+    // Only tenant Super Admin may flip the org-wide on/off switch.
+    // Other settings managers can edit bands/currencies but cannot enable/disable.
+    if (!isSuperAdminUser(req)) {
+      const existing = await getCommissionSlabs();
+      payload.enabled = existing.enabled;
+    }
     const commissionSlabs = await setCommissionSlabs(payload);
     sendResponse(res, 200, 'Commission slabs saved', { commissionSlabs });
   } catch (error) {

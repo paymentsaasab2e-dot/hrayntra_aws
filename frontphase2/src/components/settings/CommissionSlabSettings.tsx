@@ -34,6 +34,7 @@ function formatRange(slab: CommissionSlab, currency?: string) {
 export function CommissionSlabSettings() {
   const { hasPermission, isSuperAdmin } = usePermissions();
   const canManage = hasPermission('manage_settings') || isSuperAdmin();
+  const canToggleEnabled = isSuperAdmin();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [draft, setDraft] = useState<CommissionSlabSettings>(DEFAULT_COMMISSION_SLAB_SETTINGS);
@@ -81,7 +82,11 @@ export function CommissionSlabSettings() {
   const save = async () => {
     setSaving(true);
     try {
-      const res = await apiSetOrgCommissionSlabs(draft);
+      // Non–Super Admin saves must not flip the org on/off switch.
+      const payload = canToggleEnabled
+        ? draft
+        : { ...draft, enabled: Boolean(draft.enabled) };
+      const res = await apiSetOrgCommissionSlabs(payload);
       setDraft(res.data?.commissionSlabs || draft);
       toast.success('Commission slabs saved');
     } catch (error: any) {
@@ -94,7 +99,8 @@ export function CommissionSlabSettings() {
   if (!canManage) {
     return (
       <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-600">
-        Only the tenant super admin, or a person with organization settings permission, can create or change commission slabs.
+        Only Super Admin can turn commission slabs on or off. People with organization settings
+        permission can edit the bands once Super Admin has enabled them.
       </div>
     );
   }
@@ -119,15 +125,35 @@ export function CommissionSlabSettings() {
               to the placement fee and draft invoice.
             </p>
           </div>
-          <label className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
-            <input
-              type="checkbox"
-              checked={draft.enabled}
-              onChange={(e) => setDraft((c) => ({ ...c, enabled: e.target.checked }))}
-              className="h-4 w-4 rounded border-slate-300 text-blue-600"
-            />
-            Use slabs
-          </label>
+          <div className="flex flex-col items-end gap-1">
+            <label
+              className={`inline-flex items-center gap-2 text-sm font-semibold ${
+                canToggleEnabled ? 'text-slate-700' : 'cursor-not-allowed text-slate-400'
+              }`}
+              title={
+                canToggleEnabled
+                  ? undefined
+                  : 'Only Super Admin can turn commission slabs on or off for this tenant'
+              }
+            >
+              <input
+                type="checkbox"
+                checked={draft.enabled}
+                disabled={!canToggleEnabled}
+                onChange={(e) => {
+                  if (!canToggleEnabled) return;
+                  setDraft((c) => ({ ...c, enabled: e.target.checked }));
+                }}
+                className="h-4 w-4 rounded border-slate-300 text-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+              />
+              Use slabs
+            </label>
+            {!canToggleEnabled ? (
+              <p className="max-w-[220px] text-right text-[11px] leading-4 text-slate-500">
+                Only Super Admin can enable or disable slabs for this tenant.
+              </p>
+            ) : null}
+          </div>
         </div>
 
         <div className="mt-5 grid gap-4 sm:grid-cols-2">

@@ -617,7 +617,7 @@ export function CreatePlacementDrawer({
               onChange={(currency) => setForm((current) => ({ ...current, currency }))}
               hint={
                 commissionSlabs.enabled
-                  ? `Locked to org commission slab currency (${commissionSlabs.commissionCurrency}). Turn slabs off in Settings to choose freely.`
+                  ? `Locked to org commission slab currency (${commissionSlabs.commissionCurrency}). Ask Super Admin to turn slabs off if you need a different currency.`
                   : 'Search any world currency by code, name, or country.'
               }
             />
