@@ -40,12 +40,17 @@ export function getEmploymentTypeBadgeStyle(type?: EmploymentType | null) {
   }
 }
 
-export function formatCurrency(amount?: number | null) {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 0,
-  }).format(amount || 0);
+export function formatCurrency(amount?: number | null, currencyCode?: string | null) {
+  const currency = String(currencyCode || 'USD').trim().toUpperCase() || 'USD';
+  try {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency,
+      maximumFractionDigits: 0,
+    }).format(amount || 0);
+  } catch {
+    return `${currency} ${Number(amount || 0).toLocaleString('en-US')}`;
+  }
 }
 
 export function formatPlacementDate(date?: string | Date | null) {

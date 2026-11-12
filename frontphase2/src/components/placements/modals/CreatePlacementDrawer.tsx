@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Award, Briefcase, Calendar, IndianRupee, Loader2, Upload, User } from 'lucide-react';
+import { Award, Banknote, Briefcase, Calendar, Loader2, Upload, User } from 'lucide-react';
 import type { CreatePlacementPayload, EmploymentType, PlacementStatus } from '../../../types/placement';
 import {
   calculatePlacementFee,
@@ -9,6 +9,7 @@ import {
   PLACEMENT_STATUS_OPTIONS,
 } from '../../../utils/placements';
 import { formatCurrencyAmount } from '../../../utils/currency';
+import { resolveOrgDefaultCurrency } from '../../../lib/invoiceCurrency';
 import { CurrencySearchPicker } from '../../CurrencySearchPicker';
 import { DrawerFormShell, DrawerFormCancelButton } from '../../drawers/DrawerFormShell';
 import {
@@ -119,7 +120,7 @@ const initialState = {
   offerSalary: '',
   placementFee: '',
   commissionPercentage: '20',
-  currency: 'USD',
+  currency: resolveOrgDefaultCurrency(),
   offerDate: '',
   expectedJoiningDate: '',
   employmentType: 'PERMANENT' as EmploymentType,
@@ -242,6 +243,7 @@ export function CreatePlacementDrawer({
     if (isOpen) {
       setForm({
         ...initialState,
+        currency: resolveOrgDefaultCurrency(),
         recruiterId: currentUserId || '',
         offerDate: new Date().toISOString().slice(0, 10),
         ...(initialValues?.candidateId ? { candidateId: String(initialValues.candidateId) } : null),
@@ -252,7 +254,7 @@ export function CreatePlacementDrawer({
         ...(initialValues?.commissionPercentage !== undefined
           ? { commissionPercentage: String(initialValues.commissionPercentage) }
           : null),
-        ...(initialValues?.currency ? { currency: String(initialValues.currency) } : null),
+        ...(initialValues?.currency ? { currency: String(initialValues.currency).toUpperCase() } : null),
         ...(initialValues?.offerDate ? { offerDate: String(initialValues.offerDate).slice(0, 10) } : null),
         ...(initialValues?.expectedJoiningDate
           ? { expectedJoiningDate: String(initialValues.expectedJoiningDate).slice(0, 10) }
@@ -332,6 +334,17 @@ export function CreatePlacementDrawer({
     }
   }, [isOpen, form.recruiterId, teamMemberOptions]);
 
+  // Slabs ON → lock currency to org commission currency.
+  // Slabs OFF → keep whatever the recruiter selected.
+  useEffect(() => {
+    if (!isOpen || !commissionSlabs.enabled) return;
+    const slabCurrency = String(commissionSlabs.commissionCurrency || '').trim().toUpperCase();
+    if (!slabCurrency || slabCurrency.length !== 3) return;
+    setForm((current) =>
+      current.currency === slabCurrency ? current : { ...current, currency: slabCurrency },
+    );
+  }, [isOpen, commissionSlabs.enabled, commissionSlabs.commissionCurrency]);
+
   useEffect(() => {
     if (pctEditedManually || !commissionSlabs.enabled) return;
     const resolved = resolveCommissionPercent(commissionSlabs, {
@@ -343,14 +356,18 @@ export function CreatePlacementDrawer({
         amount: selectedJob?.salaryAmount,
       },
     });
+    const nextPct = String(resolved.percent);
+    const nextFee = String(Math.round(resolved.fee || 0));
+    const nextCcy = String(
+      resolved.commissionCurrency || commissionSlabs.commissionCurrency || '',
+    )
+      .trim()
+      .toUpperCase();
     setForm((current) => {
-      const nextPct = String(resolved.percent);
-      const nextFee = String(Math.round(resolved.fee || 0));
-      const nextCcy = resolved.commissionCurrency || current.currency;
       if (
         current.commissionPercentage === nextPct &&
         current.placementFee === nextFee &&
-        current.currency === nextCcy
+        (!nextCcy || current.currency === nextCcy)
       ) {
         return current;
       }
@@ -358,7 +375,7 @@ export function CreatePlacementDrawer({
         ...current,
         commissionPercentage: nextPct,
         placementFee: nextFee,
-        currency: nextCcy,
+        ...(nextCcy && nextCcy.length === 3 ? { currency: nextCcy } : null),
       };
     });
   }, [
@@ -588,16 +605,21 @@ export function CreatePlacementDrawer({
         </div>
       </DrawerSectionCard>
 
-      <DrawerSectionCard title="Compensation" subtitle="Salary, fee, and currency" icon={IndianRupee} accent="emerald">
+      <DrawerSectionCard title="Compensation" subtitle="Salary, fee, and currency" icon={Banknote} accent="emerald">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div>
             <DrawerFieldLabel label="Currency" />
             <CurrencySearchPicker
               compact
               preferUpward
+              disabled={commissionSlabs.enabled}
               value={form.currency}
               onChange={(currency) => setForm((current) => ({ ...current, currency }))}
-              hint="Search any world currency by code, name, or country."
+              hint={
+                commissionSlabs.enabled
+                  ? `Locked to org commission slab currency (${commissionSlabs.commissionCurrency}). Turn slabs off in Settings to choose freely.`
+                  : 'Search any world currency by code, name, or country.'
+              }
             />
           </div>
           <div>
