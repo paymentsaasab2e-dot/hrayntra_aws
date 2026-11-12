@@ -49,7 +49,8 @@ function mapCandidateRows(rows: Array<{ id?: string; firstName?: string | null; 
           .join(' ')
           .trim() || candidate.email || 'Candidate',
       email: String(candidate.email || ''),
-    }));
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
 }
 
 function mapJobRows(rows: any[]): PlacementJobOption[] {

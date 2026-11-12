@@ -5566,7 +5566,9 @@ export const candidateService = {
     }
     // Phase 1 discovery rows (no job link) appear on "All candidates" via includeCommonPool + candidatecommon merge.
     // My uses buildMineCandidatesScope: created/assigned to me, or applied/assigned to accessible jobs.
-    if (!requestedIds.length && !loadCommonPool && !mine) {
+    // Add Manual Placement must list every accessible candidate (incl. phase1 / unassigned),
+    // so skip the CRM "has job or non-phase1" gate used by the Candidates table.
+    if (!requestedIds.length && !loadCommonPool && !mine && !placementPickerMode) {
       andParts.push(buildCrmCandidatesListScopeClause());
     }
     const superAdminScope = buildSuperAdminOwnerScope(req, ['createdById', 'assignedToId']);
