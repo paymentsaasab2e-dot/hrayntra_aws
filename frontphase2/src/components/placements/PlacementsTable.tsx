@@ -537,18 +537,14 @@ export function PlacementsTable({
                     show('salary') ? (
                       <td key="salary" className={`${tdPad} ${cellText}`}>
                         {placement.salaryOffered != null
-                          ? placement.currency
-                            ? `${placement.currency} ${Number(placement.salaryOffered).toLocaleString()}`
-                            : formatCurrency(placement.salaryOffered)
+                          ? formatCurrency(placement.salaryOffered, placement.currency)
                           : '—'}
                       </td>
                     ) : null,
                     show('fee') ? (
                       <td key="fee" className={`${tdPad} ${cellText}`}>
                         {placement.placementFee != null
-                          ? placement.currency
-                            ? `${placement.currency} ${Number(placement.placementFee).toLocaleString()}`
-                            : formatCurrency(placement.placementFee)
+                          ? formatCurrency(placement.placementFee, placement.currency)
                           : '—'}
                       </td>
                     ) : null,
@@ -562,9 +558,7 @@ export function PlacementsTable({
                     show('revenue') ? (
                       <td key="revenue" className={`${tdPad} ${cellText}`}>
                         {placement.revenue != null
-                          ? placement.currency
-                            ? `${placement.currency} ${Number(placement.revenue).toLocaleString()}`
-                            : formatCurrency(placement.revenue)
+                          ? formatCurrency(placement.revenue, placement.currency)
                           : '—'}
                       </td>
                     ) : null,

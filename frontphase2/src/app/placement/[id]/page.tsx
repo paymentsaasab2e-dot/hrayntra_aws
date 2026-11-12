@@ -114,11 +114,15 @@ export default function PlacementDetailPage() {
           <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <div className="rounded-xl bg-[#F9FAFB] p-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-[#6B7280]">Offer Salary</p>
-              <p className="mt-1 text-lg font-semibold text-[#111827]">{formatCurrency(placement.salaryOffered)}</p>
+              <p className="mt-1 text-lg font-semibold text-[#111827]">
+                {formatCurrency(placement.salaryOffered, placement.currency)}
+              </p>
             </div>
             <div className="rounded-xl bg-[#F9FAFB] p-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-[#6B7280]">Placement Fee</p>
-              <p className="mt-1 text-lg font-semibold text-[#111827]">{formatCurrency(placement.placementFee)}</p>
+              <p className="mt-1 text-lg font-semibold text-[#111827]">
+                {formatCurrency(placement.placementFee, placement.currency)}
+              </p>
             </div>
             <div className="rounded-xl bg-[#F9FAFB] p-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-[#6B7280]">Offer Date</p>
@@ -150,7 +154,9 @@ export default function PlacementDetailPage() {
                 </div>
                 <div>
                   <p className="text-sm text-[#6B7280]">Revenue</p>
-                  <p className="font-medium text-[#111827]">{formatCurrency(placement.revenue)}</p>
+                  <p className="font-medium text-[#111827]">
+                    {formatCurrency(placement.revenue, placement.currency)}
+                  </p>
                 </div>
               </div>
               {placement.notes ? (
@@ -269,7 +275,11 @@ export default function PlacementDetailPage() {
                     <div key={bill.id} className="rounded-xl border border-[#E5E7EB] p-4">
                       <p className="font-medium text-[#111827]">{bill.invoiceNumber}</p>
                       <p className="mt-1 text-sm text-[#6B7280]">
-                        {bill.paymentStatus} • {formatCurrency(bill.totalAmount)}
+                        {bill.paymentStatus} •{' '}
+                        {formatCurrency(
+                          bill.totalAmount,
+                          (bill as { currency?: string | null }).currency || placement.currency,
+                        )}
                       </p>
                     </div>
                   ))

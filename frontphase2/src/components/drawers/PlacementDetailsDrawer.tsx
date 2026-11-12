@@ -16,7 +16,7 @@ import {
   Download,
   Eye,
   FileText,
-  IndianRupee,
+  Banknote,
   Undo2,
   User,
   X,
@@ -309,13 +309,13 @@ export function PlacementDetailsDrawer({
                   <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                     <MetricCard
                       label="Offer Salary"
-                      value={formatCurrency(placement.salaryOffered)}
-                      icon={IndianRupee}
+                      value={formatCurrency(placement.salaryOffered, placement.currency)}
+                      icon={Banknote}
                       accentClass="bg-gradient-to-br from-emerald-500 to-teal-600 shadow-emerald-500/20"
                     />
                     <MetricCard
                       label="Placement Fee"
-                      value={formatCurrency(placement.placementFee)}
+                      value={formatCurrency(placement.placementFee, placement.currency)}
                       icon={CreditCard}
                       accentClass="bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-600 shadow-indigo-500/25"
                     />
@@ -438,7 +438,7 @@ export function PlacementDetailsDrawer({
                           <div>
                             <DrawerFieldLabel label="Revenue" />
                             <p className="text-sm font-semibold text-slate-900">
-                              {formatCurrency(placement.revenue)}
+                              {formatCurrency(placement.revenue, placement.currency)}
                             </p>
                           </div>
                         </div>
@@ -634,7 +634,11 @@ export function PlacementDetailsDrawer({
                               >
                                 <p className="font-semibold text-slate-900">{bill.invoiceNumber}</p>
                                 <p className="mt-1 text-sm text-slate-500">
-                                  {bill.paymentStatus} • {formatCurrency(bill.totalAmount)}
+                                  {bill.paymentStatus} •{' '}
+                                  {formatCurrency(
+                                    bill.totalAmount,
+                                    (bill as { currency?: string | null }).currency || placement.currency,
+                                  )}
                                 </p>
                               </div>
                             ))

@@ -1638,6 +1638,8 @@ model Placement {
   placementFee         Float?
   feeType              FeeType         @default(FLAT)
   commissionPercentage Float           @default(20)
+  /// ISO 4217 code for offer salary / placement fee display (e.g. XAF, USD, INR).
+  currency             String          @default("USD")
   revenue              Float?
   status               PlacementStatus @default(PENDING)
   failureReason        String?

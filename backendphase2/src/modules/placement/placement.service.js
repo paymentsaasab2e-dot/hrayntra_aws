@@ -325,6 +325,16 @@ function normalizePlacementDocumentType(value) {
   return PLACEMENT_DOCUMENT_TYPES.has(normalized) ? normalized : 'OTHER';
 }
 
+function resolvePlacementCurrency(placement) {
+  const direct = String(placement?.currency || '').trim().toUpperCase();
+  if (direct && direct.length === 3) return direct;
+  const fromBillingRecord = String(placement?.billingRecords?.[0]?.currency || '')
+    .trim()
+    .toUpperCase();
+  if (fromBillingRecord && fromBillingRecord.length === 3) return fromBillingRecord;
+  return 'USD';
+}
+
 function formatPlacementListItem(placement) {
   const latestBilling = placement.billing?.[0] || null;
   // The list query already filters `documents` to documentType OFFER_LETTER
@@ -335,6 +345,7 @@ function formatPlacementListItem(placement) {
 
   return attachPlacementDerivedFields({
     ...placement,
+    currency: resolvePlacementCurrency(placement),
     paymentStatus: latestBilling?.paymentStatus || 'PENDING',
     invoiceNumber: latestBilling?.invoiceNumber || null,
     offerLetterUrl: offerLetter?.fileUrl || null,
@@ -575,7 +586,14 @@ async function fetchPlacementOrThrow(id) {
   }
 
   return attachPlacementDerivedFields(
-    attachAuditMetaToEntity(placement, ENTITY_TYPES.PLACEMENT, { useRecruiterAsCreator: true })
+    attachAuditMetaToEntity(
+      {
+        ...placement,
+        currency: resolvePlacementCurrency(placement),
+      },
+      ENTITY_TYPES.PLACEMENT,
+      { useRecruiterAsCreator: true },
+    ),
   );
 }
 
@@ -723,10 +741,18 @@ export const placementService = {
     let commissionPercentage;
     let placementFee;
     let currency;
+    // Prefer the currency the recruiter selected in the form. Slab commission
+    // currency is only a fallback when the client did not send one.
+    const requestedCurrency = String(data.currency || data.offerCurrency || '')
+      .trim()
+      .toUpperCase();
     if (slabResult.enabled && !manualCommission) {
       commissionPercentage = slabResult.percent;
       placementFee = sentFee != null && sentFee > 0 ? sentFee : Math.round(slabResult.fee);
-      currency = slabResult.commissionCurrency || String(data.currency || 'USD').trim().toUpperCase() || 'USD';
+      currency =
+        (requestedCurrency.length === 3 ? requestedCurrency : '') ||
+        String(slabResult.commissionCurrency || 'USD').trim().toUpperCase() ||
+        'USD';
     } else {
       commissionPercentage = sentCommission ?? 20;
       placementFee =
@@ -734,7 +760,10 @@ export const placementService = {
         (salaryOffered > 0 && commissionPercentage > 0
           ? Math.round((salaryOffered * commissionPercentage) / 100)
           : null);
-      currency = String(data.currency || slabResult.commissionCurrency || 'USD').trim().toUpperCase() || 'USD';
+      currency =
+        (requestedCurrency.length === 3 ? requestedCurrency : '') ||
+        String(slabResult.commissionCurrency || 'USD').trim().toUpperCase() ||
+        'USD';
     }
     if (placementFee == null || placementFee < 0) {
       throw new Error('Placement fee is required');
@@ -810,6 +839,7 @@ export const placementService = {
           placementFee,
           feeType: 'PERCENTAGE',
           commissionPercentage,
+          currency,
           revenue: placementFee,
           employmentType,
           status: initialStatus,
@@ -1038,7 +1068,7 @@ export const placementService = {
 
     // Placement was just created successfully; return it directly instead of
     // re-fetching, which was occasionally throwing "Placement not found".
-    return placementResult;
+    return { ...placementResult, currency };
   },
 
   async update(id, data, userId, req = null) {
@@ -1056,6 +1086,12 @@ export const placementService = {
     const placementFee = data.placementFee ?? data.fee;
     const commissionPercentage = data.commissionPercentage;
 
+    const nextCurrencyRaw = data.currency ?? data.offerCurrency;
+    const nextCurrency =
+      nextCurrencyRaw !== undefined && nextCurrencyRaw !== null && String(nextCurrencyRaw).trim()
+        ? String(nextCurrencyRaw).trim().toUpperCase()
+        : undefined;
+
     const updateData = {
       joiningDate: data.joiningDate ? parseDate(data.joiningDate, 'Joining date') : undefined,
       offerDate: data.offerDate ? parseDate(data.offerDate, 'Offer date') : undefined,
@@ -1066,6 +1102,7 @@ export const placementService = {
       revenue: placementFee !== undefined ? parseNumber(placementFee, 'Placement fee', { min: 0 }) : undefined,
       commissionPercentage:
         commissionPercentage !== undefined ? parseNumber(commissionPercentage, 'Commission percentage', { min: 0 }) : undefined,
+      currency: nextCurrency && nextCurrency.length === 3 ? nextCurrency : undefined,
       notes: data.notes !== undefined ? data.notes?.trim() || null : undefined,
       employmentType: data.employmentType ? normalizeEmploymentType(data.employmentType) : undefined,
       recruiterId: data.recruiterId || undefined,
@@ -1092,12 +1129,12 @@ export const placementService = {
       data: updateData,
     });
 
-      if (updateData.placementFee !== undefined) {
+      if (updateData.placementFee !== undefined || updateData.currency !== undefined) {
         const latestBilling = await tx.placementBilling.findFirst({
           where: { placementId: id, paymentStatus: 'PENDING' },
           orderBy: { createdAt: 'desc' },
         });
-        if (latestBilling) {
+        if (latestBilling && updateData.placementFee !== undefined) {
           await tx.placementBilling.update({
             where: { id: latestBilling.id },
             data: {
@@ -1115,7 +1152,8 @@ export const placementService = {
           await tx.billingRecord.update({
             where: { id: latestInvoice.id },
             data: {
-              amount: updateData.placementFee,
+              ...(updateData.placementFee !== undefined ? { amount: updateData.placementFee } : {}),
+              ...(updateData.currency !== undefined ? { currency: updateData.currency } : {}),
             },
           });
         }
