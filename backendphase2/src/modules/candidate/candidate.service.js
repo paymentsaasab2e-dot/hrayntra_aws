@@ -5505,8 +5505,11 @@ export const candidateService = {
     const canViewAllTenantJobs = canViewAllCandidates || canViewAllJobs(req);
     // Display scoping must use the full tenant job set. Using only personal myJobIds here
     // wiped Assigned Job titles on My Candidates (jobs outside the mine cap → "—").
+    // Placement picker + mine still needs tenant jobs so My scope matches the Candidates tab.
     const tenantJobIdSet =
-      pickerMode || placementPickerMode || !isTenantScopedRequest() ? null : await getTenantJobIdSet();
+      pickerMode || (!mine && placementPickerMode) || !isTenantScopedRequest()
+        ? null
+        : await getTenantJobIdSet();
     const livePortalMerge = isLivePortalListMergeEnabled();
     // View-all users: My includes applied/assigned on any tenant job (not only personally owned).
     // Recruiters without view-all: still limited to jobs they own / support.
@@ -5566,8 +5569,6 @@ export const candidateService = {
     }
     // Phase 1 discovery rows (no job link) appear on "All candidates" via includeCommonPool + candidatecommon merge.
     // My uses buildMineCandidatesScope: created/assigned to me, or applied/assigned to accessible jobs.
-    // Add Manual Placement must list every accessible candidate (incl. phase1 / unassigned),
-    // so skip the CRM "has job or non-phase1" gate used by the Candidates table.
     if (!requestedIds.length && !loadCommonPool && !mine && !placementPickerMode) {
       andParts.push(buildCrmCandidatesListScopeClause());
     }
@@ -5578,11 +5579,12 @@ export const candidateService = {
     // - applied or assigned to jobs I can access (personal jobs, or all tenant jobs when view-all)
     // Do NOT also AND with the legacy super-admin owner scope, otherwise
     // candidates applied on my jobs but not directly assigned/created get excluded.
+    // Placement picker always applies mine scope (lean path has no indexed-union branch).
     if (!requestedIds.length) {
       if (mine && req.user?.id) {
         // Indexed union first page does not use this OR. Building it still
         // prefetched job-link ids and delayed My Candidates first paint.
-        if (hasActiveMineFilters) {
+        if (hasActiveMineFilters || placementPickerMode) {
           andParts.push(
             await buildMineCandidatesScope(req.user.id, myJobIds, {
               viewAll: canViewAllTenantJobs,

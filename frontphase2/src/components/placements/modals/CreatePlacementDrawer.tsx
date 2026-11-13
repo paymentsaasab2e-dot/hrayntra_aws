@@ -21,10 +21,7 @@ import {
 import { useOrgCommissionSlabs } from '../../../lib/useOrgCommissionSlabs';
 import { resolveCommissionPercent } from '../../../lib/commissionSlabs';
 import { formatAssigneeDisplayName } from '../../../lib/assigneeDisplay';
-import {
-  fetchAllAccessibleCandidatesForPlacementPicker,
-  fetchAllAccessibleJobsForPlacementPicker,
-} from '../../../lib/myJobsListParams';
+import { fetchAllAccessibleJobsForPlacementPicker } from '../../../lib/myJobsListParams';
 
 type PlacementCandidateOption = { id: string; name: string; email: string };
 type PlacementJobOption = {
@@ -36,22 +33,6 @@ type PlacementJobOption = {
   maxSalary?: number | null;
   salaryAmount?: number | null;
 };
-
-function mapCandidateRows(rows: Array<{ id?: string; firstName?: string | null; lastName?: string | null; email?: string | null }>): PlacementCandidateOption[] {
-  return rows
-    .filter((row) => row?.id)
-    .map((candidate) => ({
-      id: String(candidate.id),
-      name:
-        [candidate.firstName, candidate.lastName]
-          .map((part) => String(part ?? '').trim())
-          .filter((part) => part && part.toLowerCase() !== 'null' && part.toLowerCase() !== 'undefined')
-          .join(' ')
-          .trim() || candidate.email || 'Candidate',
-      email: String(candidate.email || ''),
-    }))
-    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
-}
 
 function mapJobRows(rows: any[]): PlacementJobOption[] {
   return [...rows]
@@ -151,11 +132,8 @@ export function CreatePlacementDrawer({
   const [pctEditedManually, setPctEditedManually] = useState(false);
   const [candidateChoices, setCandidateChoices] = useState<PlacementCandidateOption[]>(candidates);
   const [jobChoices, setJobChoices] = useState<PlacementJobOption[]>(jobs);
-  const [searchingCandidates, setSearchingCandidates] = useState(false);
   const [searchingJobs, setSearchingJobs] = useState(false);
-  const candidateSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const jobSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const candidateSearchAbort = useRef<AbortController | null>(null);
   const jobSearchAbort = useRef<AbortController | null>(null);
   const { settings: commissionSlabs } = useOrgCommissionSlabs();
 
@@ -169,45 +147,11 @@ export function CreatePlacementDrawer({
 
   useEffect(() => {
     if (!isOpen) {
-      if (candidateSearchTimer.current) clearTimeout(candidateSearchTimer.current);
       if (jobSearchTimer.current) clearTimeout(jobSearchTimer.current);
-      candidateSearchAbort.current?.abort();
       jobSearchAbort.current?.abort();
-      setSearchingCandidates(false);
       setSearchingJobs(false);
     }
   }, [isOpen]);
-
-  const handleCandidateSearch = useCallback((query: string) => {
-    if (candidateSearchTimer.current) clearTimeout(candidateSearchTimer.current);
-    const q = query.trim();
-    if (!q) {
-      candidateSearchAbort.current?.abort();
-      setCandidateChoices(candidates);
-      setSearchingCandidates(false);
-      return;
-    }
-    candidateSearchTimer.current = setTimeout(async () => {
-      candidateSearchAbort.current?.abort();
-      const controller = new AbortController();
-      candidateSearchAbort.current = controller;
-      setSearchingCandidates(true);
-      try {
-        const rows = await fetchAllAccessibleCandidatesForPlacementPicker(controller.signal, q);
-        if (controller.signal.aborted) return;
-        const mapped = mapCandidateRows(rows);
-        const selected = candidates.find((row) => row.id === form.candidateId);
-        const merged = selected && !mapped.some((row) => row.id === selected.id)
-          ? [selected, ...mapped]
-          : mapped;
-        setCandidateChoices(merged);
-      } catch {
-        if (!controller.signal.aborted) setCandidateChoices(candidates);
-      } finally {
-        if (!controller.signal.aborted) setSearchingCandidates(false);
-      }
-    }, 220);
-  }, [candidates, form.candidateId]);
 
   const handleJobSearch = useCallback((query: string) => {
     if (jobSearchTimer.current) clearTimeout(jobSearchTimer.current);
@@ -500,10 +444,10 @@ export function CreatePlacementDrawer({
       }
     >
       <DrawerSectionCard title="Placement Details" subtitle="Candidate, job, and team" icon={User} accent="blue">
-        {optionsLoading || searchingCandidates || searchingJobs ? (
+        {optionsLoading || searchingJobs ? (
           <div className="mb-4 flex items-center gap-2 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-800">
             <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
-            {optionsLoading ? 'Loading candidates and jobs…' : 'Searching…'}
+            {optionsLoading ? 'Loading my candidates and jobs…' : 'Searching…'}
           </div>
         ) : null}
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -518,10 +462,9 @@ export function CreatePlacementDrawer({
                 value={form.candidateId}
                 preferUpward
                 searchable
-                searchPlaceholder="Search candidate…"
+                searchPlaceholder="Search my candidates…"
                 placeholder="Select candidate"
                 error={Boolean(errors.candidateId)}
-                onSearchChange={handleCandidateSearch}
                 options={[
                   { value: '', label: 'Select candidate' },
                   ...candidateChoices.map((candidate) => ({
