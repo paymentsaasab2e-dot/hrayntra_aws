@@ -30,7 +30,14 @@ export function matchesQuickSearch(haystack: unknown, query: unknown): boolean {
   if (!hay) return false;
   const phrase = tokens.join(' ');
   if (hay.includes(phrase)) return true;
-  return tokens.every((token) => hay.includes(token));
+  if (tokens.every((token) => hay.includes(token))) return true;
+  // Soft name match: "Owono Suzanne Aboui" should still hit stored "ABOUI OWONO"
+  // when most tokens match (middle names often missing from CRM records).
+  if (tokens.length >= 3) {
+    const hits = tokens.filter((token) => hay.includes(token)).length;
+    return hits >= Math.max(2, Math.ceil(tokens.length * 0.6));
+  }
+  return false;
 }
 
 /** Build a searchable string from many fields / arrays. */
