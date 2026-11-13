@@ -366,12 +366,21 @@ export function DrawerSelectDropdown({
     if (!searchable) return options;
     const q = search.trim();
     if (!q) return options;
+    const qLower = q.toLowerCase();
+    const tokens = qLower.split(/\s+/).filter(Boolean);
     return options.filter((option) => {
-      if (!option.value && !option.label) return true;
-      return matchesQuickSearch(
-        buildQuickSearchHaystack(option.label, option.value, option.searchText),
-        q,
-      );
+      // Keep the empty placeholder out of search results.
+      if (!option.value) return false;
+      const hay = buildQuickSearchHaystack(option.label, option.searchText).toLowerCase();
+      if (!hay) return false;
+      if (hay.includes(qLower)) return true;
+      if (tokens.length && tokens.every((token) => hay.includes(token))) return true;
+      // Soft name match: "Owono Suzanne Aboui" → "ABOUI OWONO"
+      if (tokens.length >= 2) {
+        const hits = tokens.filter((token) => hay.includes(token)).length;
+        if (hits >= Math.min(2, tokens.length)) return true;
+      }
+      return matchesQuickSearch(hay, q);
     });
   }, [options, search, searchable]);
 
@@ -424,13 +433,13 @@ export function DrawerSelectDropdown({
                 </label>
               </div>
             ) : null}
-            <div className="min-h-0 flex-1 overflow-auto">
+            <div className="min-h-0 flex-1 overflow-auto" key={`dropdown-results:${search}`}>
               {filteredOptions.length === 0 ? (
                 <p className="px-3 py-3 text-sm text-slate-500">No matches</p>
               ) : (
-                filteredOptions.map((option) => {
+                filteredOptions.map((option, index) => {
                   const isActive = option.value === value;
-                  const optionKey = option.value || `__empty__:${option.label}`;
+                  const optionKey = `${option.value || 'empty'}:${option.label}:${index}`;
                   return (
                     <button
                       key={optionKey}
