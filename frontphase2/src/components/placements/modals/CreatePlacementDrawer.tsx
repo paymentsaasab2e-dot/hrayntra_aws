@@ -131,6 +131,7 @@ export function CreatePlacementDrawer({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [pctEditedManually, setPctEditedManually] = useState(false);
   const [candidateChoices, setCandidateChoices] = useState<PlacementCandidateOption[]>(candidates);
+  const [candidateSearch, setCandidateSearch] = useState('');
   const [jobChoices, setJobChoices] = useState<PlacementJobOption[]>(jobs);
   const [searchingJobs, setSearchingJobs] = useState(false);
   const jobSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -150,8 +151,30 @@ export function CreatePlacementDrawer({
       if (jobSearchTimer.current) clearTimeout(jobSearchTimer.current);
       jobSearchAbort.current?.abort();
       setSearchingJobs(false);
+      setCandidateSearch('');
     }
   }, [isOpen]);
+
+  const visibleCandidateChoices = useMemo(() => {
+    const q = candidateSearch.trim().toLowerCase();
+    if (!q) return candidateChoices;
+    const tokens = q.split(/\s+/).filter(Boolean);
+    return candidateChoices.filter((candidate) => {
+      const hay = `${candidate.name || ''} ${candidate.email || ''}`.toLowerCase();
+      if (!hay.trim()) return false;
+      if (hay.includes(q)) return true;
+      if (tokens.length && tokens.every((token) => hay.includes(token))) return true;
+      if (tokens.length >= 2) {
+        const hits = tokens.filter((token) => hay.includes(token)).length;
+        if (hits >= 2) return true;
+      }
+      return false;
+    });
+  }, [candidateChoices, candidateSearch]);
+
+  const handleCandidateSearch = useCallback((query: string) => {
+    setCandidateSearch(query);
+  }, []);
 
   const handleJobSearch = useCallback((query: string) => {
     if (jobSearchTimer.current) clearTimeout(jobSearchTimer.current);
@@ -465,14 +488,23 @@ export function CreatePlacementDrawer({
                 searchPlaceholder="Search my candidates…"
                 placeholder="Select candidate"
                 error={Boolean(errors.candidateId)}
-                options={[
-                  { value: '', label: 'Select candidate' },
-                  ...candidateChoices.map((candidate) => ({
-                    value: candidate.id,
-                    label: candidate.name,
-                    searchText: `${candidate.name} ${candidate.email}`,
-                  })),
-                ]}
+                onSearchChange={handleCandidateSearch}
+                options={
+                  candidateSearch.trim()
+                    ? visibleCandidateChoices.map((candidate) => ({
+                        value: candidate.id,
+                        label: candidate.name,
+                        searchText: `${candidate.name} ${candidate.email}`,
+                      }))
+                    : [
+                        { value: '', label: 'Select candidate' },
+                        ...visibleCandidateChoices.map((candidate) => ({
+                          value: candidate.id,
+                          label: candidate.name,
+                          searchText: `${candidate.name} ${candidate.email}`,
+                        })),
+                      ]
+                }
                 onChange={(candidateId) => setForm((current) => ({ ...current, candidateId }))}
               />
             )}

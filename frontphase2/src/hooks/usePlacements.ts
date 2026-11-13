@@ -188,11 +188,19 @@ export function usePlacements(filters: PlacementFilters) {
           fetchAllAccessibleJobsForPlacementPicker(),
         ]);
 
-        const sortedCandidates = [...candidates].sort((a: any, b: any) => {
-          const nameA = [a?.firstName, a?.lastName].filter(Boolean).join(' ').trim() || a?.email || '';
-          const nameB = [b?.firstName, b?.lastName].filter(Boolean).join(' ').trim() || b?.email || '';
-          return nameA.localeCompare(nameB, undefined, { sensitivity: 'base' });
-        });
+        const seenIds = new Set<string>();
+        const sortedCandidates = [...candidates]
+          .filter((row: any) => {
+            const id = String(row?.id || '').trim();
+            if (!id || seenIds.has(id)) return false;
+            seenIds.add(id);
+            return true;
+          })
+          .sort((a: any, b: any) => {
+            const nameA = [a?.firstName, a?.lastName].filter(Boolean).join(' ').trim() || a?.email || '';
+            const nameB = [b?.firstName, b?.lastName].filter(Boolean).join(' ').trim() || b?.email || '';
+            return nameA.localeCompare(nameB, undefined, { sensitivity: 'base' });
+          });
         setCandidateOptions(sortedCandidates.map(mapCandidateOption));
 
         const sortedJobs = [...jobs].sort((a: any, b: any) =>
