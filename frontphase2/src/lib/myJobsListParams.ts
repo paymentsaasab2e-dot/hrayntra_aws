@@ -74,8 +74,8 @@ export async function fetchAllAccessibleJobsForPlacementPicker(
 }
 
 /**
- * Fast lean candidate list for Add Manual Placement (id/name/email only).
- * Pages through every accessible candidate. Search returns a focused match page.
+ * Add Manual Placement candidate list = exact My candidates (`mine=true`) for this tenant user.
+ * Lean id/name/email pages only. Search is optional server-side (drawer prefers local filter).
  */
 export async function fetchAllAccessibleCandidatesForPlacementPicker(
   signal?: AbortSignal,
@@ -87,6 +87,7 @@ export async function fetchAllAccessibleCandidatesForPlacementPicker(
       {
         page: 1,
         limit: 200,
+        mine: true,
         includeCommonPool: false,
         placementPicker: true,
         search: q,
@@ -103,6 +104,7 @@ export async function fetchAllAccessibleCandidatesForPlacementPicker(
         {
           page,
           limit,
+          mine: true,
           includeCommonPool: false,
           placementPicker: true,
         },
@@ -121,7 +123,7 @@ export async function fetchAllAccessibleCandidatesForPlacementPicker(
   });
 }
 
-/** First lean page only — for progressive drawer open. */
+/** First lean My-candidates page only — for progressive drawer open. */
 export async function fetchPlacementPickerCandidatesPage(
   page: number,
   signal?: AbortSignal,
@@ -130,6 +132,7 @@ export async function fetchPlacementPickerCandidatesPage(
     {
       page,
       limit: PLACEMENT_PICKER_PAGE_LIMIT,
+      mine: true,
       includeCommonPool: false,
       placementPicker: true,
     },
