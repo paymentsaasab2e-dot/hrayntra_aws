@@ -15,6 +15,7 @@ import {
   ClipboardPaste,
   Eye,
   ExternalLink,
+  Facebook,
   FileText,
   Globe,
   Home,
@@ -32,6 +33,7 @@ import {
 import {
   apiConnectIntegration,
   apiCreateJob,
+  apiDisconnectIntegration,
   apiGenerateJobFromPrompt,
   apiGetClient,
   apiGetContacts,
@@ -62,6 +64,8 @@ import { getAllTeamMembersForAssign, teamMembersToBackendUsers } from '@/lib/api
 import { RichTextEditor } from '@/components/RichTextEditor';
 import { PreScreenAssessmentSection } from '@/components/jobs/PreScreenAssessmentSection';
 import { LinkedInPostTemplateModal } from '@/components/jobs/LinkedInPostTemplateModal';
+import { FacebookAccountsModal } from '@/components/jobs/FacebookAccountsModal';
+import { FacebookJobPostPreviewModal } from '@/components/jobs/FacebookJobPostPreviewModal';
 import { LinkedInAccountsModal } from '@/components/jobs/LinkedInAccountsModal';
 import { LinkedInJobPostPreviewModal } from '@/components/jobs/LinkedInJobPostPreviewModal';
 import {
@@ -103,7 +107,7 @@ import {
   resolvePostedCompanyNameForSocial,
   type JobPublicFieldVisibility,
 } from '@/lib/jobPublicFieldVisibility';
-import { buildCandidatePortalApplyUrlPreview, buildLinkedInJobPost, ensureApplyUrlInSocialPostText, replaceApplyUrlInSocialPostText, stripHtml } from '@/lib/jobSocialPost';
+import { buildCandidatePortalApplyUrlPreview, buildFacebookJobPost, buildLinkedInJobPost, ensureApplyUrlInSocialPostText, replaceApplyUrlInSocialPostText, stripHtml } from '@/lib/jobSocialPost';
 import { loadJobVisibilityUserDefaults, visibilityDefaultsForNewJob, jobVisibilityDefaultsEqual } from '@/lib/jobVisibilityUserDefaults';
 import { startAsyncLoad } from '@/lib/asyncLoadGuard';
 import {
@@ -201,7 +205,6 @@ const EXTERNAL_COMING_SOON_PLATFORM_IDS = new Set([
 
 const SOCIAL_COMING_SOON_PLATFORM_IDS = new Set([
   'x_twitter',
-  'facebook',
   'instagram',
 ]);
 
@@ -338,7 +341,9 @@ type JobAiWizardOauthDraft = {
   mode: 'ai' | 'manual';
   preScreenAssessments: JobPreScreenAssessmentLink[];
   selectedLinkedInTargets?: string[];
+  selectedFacebookTargets?: string[];
   showLinkedInAccountsModal?: boolean;
+  showFacebookAccountsModal?: boolean;
 };
 
 function normalizeWizardStep(step: unknown): WizardStep {
@@ -717,12 +722,19 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
     () => readDrawerQuery('linkedinAccounts') === '1',
   );
   const [showLinkedInPostPreviewModal, setShowLinkedInPostPreviewModal] = useState(false);
+  const [showFacebookAccountsModal, setShowFacebookAccountsModal] = useState(false);
+  const [showFacebookPostPreviewModal, setShowFacebookPostPreviewModal] = useState(false);
   const [linkedInPostText, setLinkedInPostText] = useState('');
   const [linkedInPostTextTouched, setLinkedInPostTextTouched] = useState(false);
+  const [facebookPostText, setFacebookPostText] = useState('');
+  const [facebookPostTextTouched, setFacebookPostTextTouched] = useState(false);
   const [linkedinAccounts, setLinkedinAccounts] = useState<SocialPublishingAccount[]>([]);
   const [selectedLinkedInTargets, setSelectedLinkedInTargets] = useState<string[]>([]);
   const [disconnectingLinkedInId, setDisconnectingLinkedInId] = useState<string | null>(null);
+  const [disconnectingFacebookId, setDisconnectingFacebookId] = useState<string | null>(null);
   const [linkedinAccountsLoading, setLinkedinAccountsLoading] = useState(false);
+  const [facebookAccounts, setFacebookAccounts] = useState<SocialPublishingAccount[]>([]);
+  const [selectedFacebookTargets, setSelectedFacebookTargets] = useState<string[]>([]);
 
   useBindDrawerQuery(isOpen, {
     [DRAWER_QUERY.jobAiStep]: step,
@@ -756,12 +768,19 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
     setLinkedInPostSections(null);
     setShowLinkedInAccountsModal(false);
     setShowLinkedInPostPreviewModal(false);
+    setShowFacebookAccountsModal(false);
+    setShowFacebookPostPreviewModal(false);
     setLinkedInPostText('');
     setLinkedInPostTextTouched(false);
+    setFacebookPostText('');
+    setFacebookPostTextTouched(false);
     setLinkedinAccounts([]);
     setSelectedLinkedInTargets([]);
     setDisconnectingLinkedInId(null);
+    setDisconnectingFacebookId(null);
     setLinkedinAccountsLoading(false);
+    setFacebookAccounts([]);
+    setSelectedFacebookTargets([]);
     setJdGenerating(false);
     setJdError('');
     setJdPromptText('');
@@ -879,10 +898,9 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
               (response.data?.linkedin?.accounts || []).some((account) => account.connected !== false),
           ),
           x_twitter: Boolean(response.data?.twitter?.connected),
-          facebook: Boolean(response.data?.facebook?.connected),
+          facebook: false,
           instagram: false,
         };
-        setSocialConnections(nextConnections);
 
         const nextAccounts = mapLinkedInAccounts(response.data?.linkedin?.accounts || []);
         const connectedKeys = nextAccounts
@@ -893,6 +911,22 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
           const kept = prev.filter((key) => connectedKeys.includes(key));
           return kept.length > 0 ? kept : connectedKeys;
         });
+        const nextFacebookAccounts = mapLinkedInAccounts(response.data?.facebook?.accounts || []);
+        setFacebookAccounts(nextFacebookAccounts);
+        const facebookPageKeys = nextFacebookAccounts
+          .filter(
+            (account) =>
+              account.connected !== false &&
+              (account.type === 'page' || account.key.startsWith('page:')),
+          )
+          .map((account) => account.key);
+        setSelectedFacebookTargets((prev) => {
+          const kept = prev.filter((key) => facebookPageKeys.includes(key));
+          return kept.length > 0 ? kept : facebookPageKeys;
+        });
+        // Ready to publish only when at least one Page is linked.
+        nextConnections.facebook = facebookPageKeys.length > 0;
+        setSocialConnections(nextConnections);
 
         setSelectedDistributionPlatforms((prev) => {
           const next = { ...prev };
@@ -909,10 +943,14 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
       } else {
         setSocialConnections(EMPTY_SOCIAL_CONNECTIONS);
         setLinkedinAccounts([]);
+        setFacebookAccounts([]);
+        setSelectedFacebookTargets([]);
       }
     } catch {
       setSocialConnections(EMPTY_SOCIAL_CONNECTIONS);
       setLinkedinAccounts([]);
+      setFacebookAccounts([]);
+      setSelectedFacebookTargets([]);
     } finally {
       setLinkedinAccountsLoading(false);
     }
@@ -976,6 +1014,8 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
 
     const params = new URLSearchParams(window.location.search);
     const linkedinParam = params.get('linkedin');
+    const integrationConnected = String(params.get('integration_connected') || '').toLowerCase();
+    const integrationError = String(params.get('integration_error') || '').toLowerCase();
     const reopenWizard = sessionStorage.getItem('reopen_job_ai_wizard') === '1';
     const reopenAccounts =
       sessionStorage.getItem('reopen_linkedin_accounts') === '1' ||
@@ -983,7 +1023,11 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
     const isOauthReturn =
       reopenWizard ||
       linkedinParam === 'connected' ||
-      linkedinParam === 'error';
+      linkedinParam === 'error' ||
+      integrationConnected === 'facebook' ||
+      integrationConnected === 'twitter' ||
+      integrationError === 'facebook' ||
+      integrationError === 'twitter';
 
     if (isOauthReturn) {
       sessionStorage.removeItem('reopen_job_ai_wizard');
@@ -1005,6 +1049,9 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
         if (Array.isArray(saved.selectedLinkedInTargets)) {
           setSelectedLinkedInTargets(saved.selectedLinkedInTargets);
         }
+        if (Array.isArray(saved.selectedFacebookTargets)) {
+          setSelectedFacebookTargets(saved.selectedFacebookTargets);
+        }
         if (saved.step) setStep(normalizeWizardStep(saved.step));
       } else {
         setStep('review');
@@ -1016,6 +1063,20 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
       setShowLinkedInAccountsModal(
         Boolean(saved?.showLinkedInAccountsModal) || reopenAccounts || linkedinParam === 'connected',
       );
+      const reopenFacebookAccounts =
+        sessionStorage.getItem('reopen_facebook_accounts') === '1' ||
+        Boolean(saved?.showFacebookAccountsModal) ||
+        integrationConnected === 'facebook';
+      sessionStorage.removeItem('reopen_facebook_accounts');
+      setShowFacebookAccountsModal(reopenFacebookAccounts);
+      if (integrationError === 'facebook') {
+        setError(
+          'Facebook connect failed. In Meta Developer Console open HRyantraPost (App ID 1171042371930199): switch App Mode to Live, or keep Development and add the Facebook account you use as Admin/Developer/Tester. Also confirm Valid OAuth Redirect URI includes http://localhost:5001/api/v1/auth/facebook/callback.',
+        );
+      } else if (integrationConnected === 'facebook') {
+        setError('');
+        void loadSocialConnections();
+      }
       markWizardDirty();
       return;
     }
@@ -1546,6 +1607,11 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
     void loadSocialConnections();
   }, [loadSocialConnections]);
 
+  const openFacebookAccountsModal = useCallback(() => {
+    setShowFacebookAccountsModal(true);
+    void loadSocialConnections();
+  }, [loadSocialConnections]);
+
   const previewApplyUrl = useMemo(
     () => buildCandidatePortalApplyUrlPreview(getTenantDbName()),
     [],
@@ -1598,10 +1664,24 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
     [linkedInPostInputBase, previewApplyUrl],
   );
 
+  const generatedFacebookPost = useMemo(
+    () =>
+      buildFacebookJobPost({
+        ...linkedInPostInputBase,
+        applyUrl: previewApplyUrl,
+      }),
+    [linkedInPostInputBase, previewApplyUrl],
+  );
+
   useEffect(() => {
     if (linkedInPostTextTouched) return;
     setLinkedInPostText(generatedLinkedInPost);
   }, [generatedLinkedInPost, linkedInPostTextTouched]);
+
+  useEffect(() => {
+    if (facebookPostTextTouched) return;
+    setFacebookPostText(generatedFacebookPost);
+  }, [facebookPostTextTouched, generatedFacebookPost]);
 
   const selectedLinkedInPreviewAccount = useMemo(
     () =>
@@ -1610,6 +1690,17 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
       null,
     [linkedinAccounts, selectedLinkedInTargets],
   );
+
+  const selectedFacebookPreviewAccount = useMemo(() => {
+    const pages = facebookAccounts.filter(
+      (account) =>
+        account.connected !== false &&
+        (account.type === 'page' || account.key.startsWith('page:')),
+    );
+    return (
+      pages.find((account) => selectedFacebookTargets.includes(account.key)) || pages[0] || null
+    );
+  }, [facebookAccounts, selectedFacebookTargets]);
 
   const linkedInPostingToLabel = useMemo(() => {
     const selected = linkedinAccounts.filter((account) =>
@@ -1623,12 +1714,29 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
       .join(', ');
   }, [linkedinAccounts, selectedLinkedInTargets]);
 
+  const facebookPostingToLabel = useMemo(() => {
+    const selected = facebookAccounts.filter(
+      (account) =>
+        selectedFacebookTargets.includes(account.key) &&
+        (account.type === 'page' || account.key.startsWith('page:')),
+    );
+    if (!selected.length) return '';
+    return selected.map((account) => `${account.name} (Page)`).join(', ');
+  }, [facebookAccounts, selectedFacebookTargets]);
+
   const openLinkedInPostPreview = useCallback(() => {
     if (!linkedInPostTextTouched) {
       setLinkedInPostText(generatedLinkedInPost);
     }
     setShowLinkedInPostPreviewModal(true);
   }, [generatedLinkedInPost, linkedInPostTextTouched]);
+
+  const openFacebookPostPreview = useCallback(() => {
+    if (!facebookPostTextTouched) {
+      setFacebookPostText(generatedFacebookPost);
+    }
+    setShowFacebookPostPreviewModal(true);
+  }, [facebookPostTextTouched, generatedFacebookPost]);
 
   const handleDisconnectLinkedInAccount = useCallback(
     async (accountId: string) => {
@@ -1645,6 +1753,47 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
     },
     [linkedIn, loadSocialConnections],
   );
+
+  const handleDisconnectFacebookAccount = useCallback(
+    async (accountId: string) => {
+      setDisconnectingFacebookId(accountId);
+      setError('');
+      try {
+        await apiDisconnectIntegration('facebook', accountId);
+        await loadSocialConnections();
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : 'Could not disconnect Facebook account.');
+      } finally {
+        setDisconnectingFacebookId(null);
+      }
+    },
+    [loadSocialConnections],
+  );
+
+  const handleFacebookAccountsDone = useCallback(() => {
+    markWizardDirty();
+    const pageKeys = facebookAccounts
+      .filter(
+        (account) =>
+          account.connected !== false &&
+          (account.type === 'page' || account.key.startsWith('page:')) &&
+          selectedFacebookTargets.includes(account.key),
+      )
+      .map((account) => account.key);
+    if (pageKeys.length > 0) {
+      setSelectedDistributionPlatforms((prev) => ({
+        ...prev,
+        facebook: true,
+      }));
+      setSocialConnections((prev) => ({ ...prev, facebook: true }));
+    } else {
+      setSelectedDistributionPlatforms((prev) => {
+        const next = { ...prev };
+        delete next.facebook;
+        return next;
+      });
+    }
+  }, [facebookAccounts, markWizardDirty, selectedFacebookTargets]);
 
   const handleLinkedInAccountsDone = useCallback(() => {
     markWizardDirty();
@@ -1697,6 +1846,38 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
       }
       return;
     }
+    if (platformId === 'facebook') {
+      const currentlySelected = Boolean(selectedDistributionPlatforms.facebook);
+      if (currentlySelected) {
+        markWizardDirty();
+        setSelectedDistributionPlatforms((prev) => {
+          const next = { ...prev };
+          delete next.facebook;
+          return next;
+        });
+        return;
+      }
+      const pageKeys = facebookAccounts
+        .filter(
+          (account) =>
+            account.connected !== false &&
+            (account.type === 'page' || account.key.startsWith('page:')),
+        )
+        .map((account) => account.key);
+      if (!isSocialPlatformConnected('facebook') || pageKeys.length === 0) {
+        openFacebookAccountsModal();
+        return;
+      }
+      markWizardDirty();
+      setSelectedDistributionPlatforms((prev) => ({
+        ...prev,
+        facebook: true,
+      }));
+      if (selectedFacebookTargets.length === 0) {
+        setSelectedFacebookTargets(pageKeys);
+      }
+      return;
+    }
     if (activeDistributionTab === 'social_media' && !isSocialPlatformConnected(platformId)) {
       return;
     }
@@ -1729,13 +1910,18 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
         mode,
         preScreenAssessments,
         selectedLinkedInTargets,
+        selectedFacebookTargets,
         showLinkedInAccountsModal: platformId === 'linkedin' ? true : showLinkedInAccountsModal,
+        showFacebookAccountsModal: platformId === 'facebook' ? true : showFacebookAccountsModal,
       });
       patchDrawerQuery({ linkedinAccounts: platformId === 'linkedin' ? '1' : null });
       sessionStorage.setItem('reopen_job_ai_wizard', '1');
       sessionStorage.setItem('reopen_job_ai_wizard_mode', mode);
       if (platformId === 'linkedin') {
         sessionStorage.setItem('reopen_linkedin_accounts', '1');
+      }
+      if (platformId === 'facebook') {
+        sessionStorage.setItem('reopen_facebook_accounts', '1');
       }
       sessionStorage.removeItem('reopen_create_job_drawer');
 
@@ -1949,56 +2135,114 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
         Boolean(selectedDistributionPlatforms.linkedin) &&
         (selectedLinkedInTargets.length > 0 ||
           linkedinAccounts.some((account) => account.connected !== false));
+      const facebookPageKeys = facebookAccounts
+        .filter(
+          (account) =>
+            account.connected !== false &&
+            (account.type === 'page' || account.key.startsWith('page:')),
+        )
+        .map((account) => account.key);
+      const shouldPostFacebook =
+        Boolean(distributionChannels.social_media) &&
+        Boolean(selectedDistributionPlatforms.facebook) &&
+        (selectedFacebookTargets.length > 0 || facebookPageKeys.length > 0);
 
-      if (shouldPostLinkedIn && createdJob?.id) {
-        const linkedInTargets =
-          selectedLinkedInTargets.length > 0
-            ? selectedLinkedInTargets
-            : linkedinAccounts
-                .filter((account) => account.connected !== false && account.key.startsWith('personal:'))
-                .map((account) => account.key);
+      const needsSocialPublish =
+        (shouldPostLinkedIn || shouldPostFacebook) && Boolean(createdJob?.id);
 
-        if (linkedInTargets.length === 0) {
-          setError(
-            'Job created, but LinkedIn was skipped because no LinkedIn account was selected. Connect/select LinkedIn and post again from Create Job.',
-          );
-          onJobCreated?.();
-          return;
-        } else {
-          let applyUrl = '';
-          try {
-            const linkRes = await apiGetJobApplyLink(createdJob.id);
-            applyUrl = String(linkRes.data?.applyUrl || '').trim();
-          } catch {
-            applyUrl = '';
+      if (needsSocialPublish && createdJob?.id) {
+        let applyUrl = '';
+        try {
+          const linkRes = await apiGetJobApplyLink(createdJob.id);
+          applyUrl = String(linkRes.data?.applyUrl || '').trim();
+        } catch {
+          applyUrl = '';
+        }
+
+        const companyName = resolvePostedCompanyNameForSocial({
+          postingCompanyName: draft.postingCompanyName,
+          clientCompanyName: draft.clientName,
+          showClientNamePublicly: draft.showClientNamePublicly,
+        });
+        const locationLine =
+          locationParts.join(', ') || draft.locationQuery.trim() || '';
+        const plainDescription = stripHtml(descriptionHtml || draft.jobDescriptionHtml || '')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 500);
+        const previewApplyUrl = buildCandidatePortalApplyUrlPreview(getTenantDbName());
+        const socialPostBase = {
+          ...linkedInPostInputBase,
+          jobDescriptionHtml: descriptionHtml || draft.jobDescriptionHtml,
+          applyUrl,
+        };
+
+        const platforms: { linkedin?: boolean; facebook?: boolean } = {};
+        let resolvedLinkedInPostText: string | undefined;
+        let linkedInTargets: string[] = [];
+        let resolvedFacebookPostText: string | undefined;
+        let facebookTargets: string[] = [];
+
+        if (shouldPostLinkedIn) {
+          linkedInTargets =
+            selectedLinkedInTargets.length > 0
+              ? selectedLinkedInTargets
+              : linkedinAccounts
+                  .filter(
+                    (account) =>
+                      account.connected !== false && account.key.startsWith('personal:'),
+                  )
+                  .map((account) => account.key);
+
+          if (linkedInTargets.length === 0) {
+            setError(
+              'Job created, but LinkedIn was skipped because no LinkedIn account was selected. Connect/select LinkedIn and post again from Create Job.',
+            );
+            onJobCreated?.();
+            return;
           }
 
-          const companyName = resolvePostedCompanyNameForSocial({
-            postingCompanyName: draft.postingCompanyName,
-            clientCompanyName: draft.clientName,
-            showClientNamePublicly: draft.showClientNamePublicly,
-          });
-          const locationLine =
-            locationParts.join(', ') || draft.locationQuery.trim() || '';
-          const plainDescription = stripHtml(descriptionHtml || draft.jobDescriptionHtml || '')
-            .replace(/\s+/g, ' ')
-            .trim()
-            .slice(0, 500);
-          const linkedinPostText = ensureApplyUrlInSocialPostText(
+          platforms.linkedin = true;
+          resolvedLinkedInPostText = ensureApplyUrlInSocialPostText(
             linkedInPostTextTouched && linkedInPostText.trim()
               ? replaceApplyUrlInSocialPostText(
                   linkedInPostText,
                   applyUrl,
-                  buildCandidatePortalApplyUrlPreview(getTenantDbName()),
+                  previewApplyUrl,
                 )
-              : buildLinkedInJobPost({
-                  ...linkedInPostInputBase,
-                  jobDescriptionHtml: descriptionHtml || draft.jobDescriptionHtml,
-                  applyUrl,
-                }),
+              : buildLinkedInJobPost(socialPostBase),
             applyUrl,
           );
+        }
 
+        if (shouldPostFacebook) {
+          facebookTargets =
+            selectedFacebookTargets.length > 0
+              ? selectedFacebookTargets
+              : facebookPageKeys;
+
+          if (facebookTargets.length === 0) {
+            setError(
+              'Job created, but Facebook was skipped because no Facebook Page was connected. Log in to Facebook and grant a Page, then post again.',
+            );
+            onJobCreated?.();
+            return;
+          }
+
+          platforms.facebook = true;
+          resolvedFacebookPostText = ensureApplyUrlInSocialPostText(
+            facebookPostTextTouched && facebookPostText.trim()
+              ? replaceApplyUrlInSocialPostText(
+                  facebookPostText,
+                  applyUrl,
+                  previewApplyUrl,
+                )
+              : buildFacebookJobPost(socialPostBase),
+            applyUrl,
+          );
+        }
+
+        if (Object.keys(platforms).length > 0) {
           const socialResult = await apiPublishSocialJob({
             jobId: createdJob.id,
             title: draft.jobTitle.trim(),
@@ -2007,21 +2251,44 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
             description: plainDescription || undefined,
             applyUrl: applyUrl || '',
             location: locationLine || undefined,
-            platforms: { linkedin: true },
-            linkedinPostText,
-            linkedinTargets: linkedInTargets,
+            platforms,
+            linkedinPostText: resolvedLinkedInPostText,
+            linkedinTargets: linkedInTargets.length ? linkedInTargets : undefined,
+            facebookPostText: resolvedFacebookPostText,
+            facebookTargets: facebookTargets.length ? facebookTargets : undefined,
           });
 
-          const linkedInResult = (socialResult as { data?: { linkedin?: { success?: boolean; error?: string } } })
-            ?.data?.linkedin;
-          if (!linkedInResult?.success) {
-            setError(
-              `Job created, but LinkedIn posting failed${
-                linkedInResult?.error ? `: ${linkedInResult.error}` : '.'
-              } Reconnect LinkedIn or post again from Create Job.`,
-            );
-            onJobCreated?.();
-            return;
+          const payload = socialResult as {
+            data?: {
+              linkedin?: { success?: boolean; error?: string };
+              facebook?: { success?: boolean; error?: string };
+            };
+          };
+
+          if (platforms.linkedin) {
+            const linkedInResult = payload?.data?.linkedin;
+            if (!linkedInResult?.success) {
+              setError(
+                `Job created, but LinkedIn posting failed${
+                  linkedInResult?.error ? `: ${linkedInResult.error}` : '.'
+                } Reconnect LinkedIn or post again from Create Job.`,
+              );
+              onJobCreated?.();
+              return;
+            }
+          }
+
+          if (platforms.facebook) {
+            const facebookResult = payload?.data?.facebook;
+            if (!facebookResult?.success) {
+              setError(
+                `Job created, but Facebook posting failed${
+                  facebookResult?.error ? `: ${facebookResult.error}` : '.'
+                } Reconnect Facebook (with a Page) or post again from Create Job.`,
+              );
+              onJobCreated?.();
+              return;
+            }
           }
         }
       }
@@ -2814,18 +3081,20 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                       const PlatformIcon =
                         platform.id === 'linkedin'
                           ? Linkedin
-                          : platform.id === 'x_twitter'
-                            ? Share2
-                            : platform.id === 'adzuna' ||
-                                platform.id === 'careerjet' ||
-                                platform.id === 'indeed' ||
-                                platform.id === 'naukri' ||
-                                platform.id === 'glassdoor' ||
-                                platform.id === 'monster'
-                              ? Globe
-                              : platform.id.includes('hryantra')
-                                ? Sparkles
-                                : Building2;
+                          : platform.id === 'facebook'
+                            ? Facebook
+                            : platform.id === 'x_twitter'
+                              ? Share2
+                              : platform.id === 'adzuna' ||
+                                  platform.id === 'careerjet' ||
+                                  platform.id === 'indeed' ||
+                                  platform.id === 'naukri' ||
+                                  platform.id === 'glassdoor' ||
+                                  platform.id === 'monster'
+                                ? Globe
+                                : platform.id.includes('hryantra')
+                                  ? Sparkles
+                                  : Building2;
 
                       if (comingSoon) {
                         return (
@@ -2870,7 +3139,9 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                               <p className="text-[0.7rem] text-slate-500">
                                 {platform.id === 'instagram'
                                   ? 'Coming soon'
-                                  : 'Sign in to publish here'}
+                                  : platform.id === 'facebook'
+                                    ? 'Log in to connect your Facebook Page'
+                                    : 'Sign in to publish here'}
                               </p>
                             </div>
                             {platform.id === 'instagram' ? (
@@ -2883,6 +3154,10 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                                 onClick={() => {
                                   if (platform.id === 'linkedin') {
                                     openLinkedInAccountsModal();
+                                    return;
+                                  }
+                                  if (platform.id === 'facebook') {
+                                    openFacebookAccountsModal();
                                     return;
                                   }
                                   void handleConnectSocialPlatform(platform.id);
@@ -2902,7 +3177,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                         );
                       }
 
-                      return platform.id === 'linkedin' ? (
+                      return platform.id === 'linkedin' || platform.id === 'facebook' ? (
                         <div
                           key={platform.id}
                           className={`flex items-center gap-2 rounded-xl border px-3 py-3 transition ${
@@ -2913,7 +3188,7 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                         >
                           <button
                             type="button"
-                            onClick={() => toggleDistributionPlatform('linkedin')}
+                            onClick={() => toggleDistributionPlatform(platform.id)}
                             className="flex min-w-0 flex-1 items-center gap-3 text-left"
                             aria-pressed={selected}
                           >
@@ -2924,15 +3199,23 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                                   : 'bg-slate-100 text-slate-600'
                               }`}
                             >
-                              <Linkedin className="h-4 w-4" />
+                              {platform.id === 'facebook' ? (
+                                <Facebook className="h-4 w-4" />
+                              ) : (
+                                <Linkedin className="h-4 w-4" />
+                              )}
                             </span>
                             <span className="min-w-0 flex-1">
                               <span className="block text-sm font-medium text-slate-800">
-                                LinkedIn
+                                {platform.label}
                               </span>
                               <span className="block text-[0.7rem] text-slate-500">
                                 {selected
-                                  ? 'Will post on LinkedIn'
+                                  ? platform.id === 'facebook'
+                                    ? facebookPostingToLabel
+                                      ? `Will post to ${facebookPostingToLabel}`
+                                      : 'Will post on Facebook Page(s)'
+                                    : 'Will post on LinkedIn'
                                   : 'Not selected — click to post'}
                               </span>
                             </span>
@@ -2946,20 +3229,40 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
                               {selected ? <Check className="h-3 w-3" /> : null}
                             </span>
                           </button>
-          <button
+                          <button
                             type="button"
-                            onClick={() => openLinkedInPostPreview()}
+                            onClick={() => {
+                              if (platform.id === 'facebook') {
+                                openFacebookPostPreview();
+                                return;
+                              }
+                              openLinkedInPostPreview();
+                            }}
                             className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-[#2098C8]/40 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-[#176F96] hover:bg-[#E8F6FC]"
-                            title="View how this job will look on LinkedIn"
+                            title={
+                              platform.id === 'facebook'
+                                ? 'View how this job will look on Facebook'
+                                : 'View how this job will look on LinkedIn'
+                            }
                           >
                             <Eye className="h-3.5 w-3.5" />
                             View
                           </button>
                           <button
                             type="button"
-                            onClick={() => openLinkedInAccountsModal()}
+                            onClick={() => {
+                              if (platform.id === 'linkedin') {
+                                openLinkedInAccountsModal();
+                                return;
+                              }
+                              openFacebookAccountsModal();
+                            }}
                             className="shrink-0 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
-                            title="Manage LinkedIn accounts"
+                            title={
+                              platform.id === 'facebook'
+                                ? 'Manage Facebook Pages'
+                                : 'Manage LinkedIn accounts'
+                            }
                           >
                             Accounts
                           </button>
@@ -3236,6 +3539,23 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
         onDone={handleLinkedInAccountsDone}
       />
 
+      <FacebookAccountsModal
+        isOpen={showFacebookAccountsModal}
+        onClose={() => setShowFacebookAccountsModal(false)}
+        accounts={facebookAccounts}
+        selectedKeys={selectedFacebookTargets}
+        onSelectionChange={(keys) => {
+          markWizardDirty();
+          setSelectedFacebookTargets(keys);
+        }}
+        onConnect={() => void handleConnectSocialPlatform('facebook')}
+        onDisconnect={(accountId) => void handleDisconnectFacebookAccount(accountId)}
+        connecting={connectingPlatformId === 'facebook'}
+        disconnectingId={disconnectingFacebookId}
+        loading={linkedinAccountsLoading}
+        onDone={handleFacebookAccountsDone}
+      />
+
       <LinkedInJobPostPreviewModal
         isOpen={showLinkedInPostPreviewModal}
         onClose={() => setShowLinkedInPostPreviewModal(false)}
@@ -3274,6 +3594,33 @@ export function JobAiCreateWizard({ isOpen, onClose, onJobCreated, mode = 'ai' }
         postingTo={linkedInPostingToLabel}
         templateName={selectedLinkedInTemplateName}
         visibleSectionLabels={visibleLinkedInTemplateSectionLabels(linkedInPostSections)}
+      />
+
+      <FacebookJobPostPreviewModal
+        isOpen={showFacebookPostPreviewModal}
+        onClose={() => setShowFacebookPostPreviewModal(false)}
+        postText={facebookPostText}
+        onChangePostText={(value) => {
+          markWizardDirty();
+          setFacebookPostTextTouched(true);
+          setFacebookPostText(value);
+        }}
+        generatedPostText={generatedFacebookPost}
+        onRegenerate={() => {
+          markWizardDirty();
+          setFacebookPostTextTouched(false);
+          setFacebookPostText(generatedFacebookPost);
+        }}
+        pageName={selectedFacebookPreviewAccount?.name || 'Facebook Page'}
+        postingTo={facebookPostingToLabel}
+        jobTitle={draft.jobTitle}
+        company={resolvePostedCompanyNameForSocial({
+          postingCompanyName: draft.postingCompanyName,
+          clientCompanyName: draft.clientName,
+          showClientNamePublicly: draft.showClientNamePublicly,
+        })}
+        applyUrl={previewApplyUrl}
+        location={[draft.city, draft.state, draft.country].filter(Boolean).join(', ') || draft.locationQuery}
       />
 
       <LinkedInPostTemplateModal

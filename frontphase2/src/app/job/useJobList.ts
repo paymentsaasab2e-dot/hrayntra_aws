@@ -1586,11 +1586,13 @@ export function useJobList() {
     if (integrationConnected === 'twitter') {
       toast.success('X account connected successfully.');
     } else if (integrationConnected === 'facebook') {
-      toast.success('Facebook account connected successfully.');
+      toast.success('Facebook connected. If no Page appears, reconnect and grant Page access.');
     } else if (integrationError === 'twitter') {
       toast.error('Failed to connect X account. Please try again.');
     } else if (integrationError === 'facebook') {
-      toast.error('Failed to connect Facebook account. Please try again.');
+      toast.error(
+        'Facebook connect failed. In Meta Developer Console, set HRyantraPost to Live (or add your Facebook user as Admin/Tester), then try Log in again.',
+      );
     }
 
     stripOauthCallbackQuery();

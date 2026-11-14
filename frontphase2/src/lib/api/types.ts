@@ -4479,6 +4479,7 @@ export interface SocialPublishData {
   facebookPostText?: string;
   linkedinTargets?: string[];
   twitterTargets?: string[];
+  facebookTargets?: string[];
   /** Public image URL attached to the LinkedIn share (JPG/PNG/GIF). */
   linkedinImageUrl?: string;
 }

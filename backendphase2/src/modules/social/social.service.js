@@ -1,5 +1,6 @@
 import { linkedinService } from '../linkedin/linkedin.service.js';
 import { twitterService } from '../twitter/twitter.service.js';
+import { facebookService } from '../facebook/facebook.service.js';
 import { dbLogger } from '../../utils/db-logger.js';
 
 export const socialService = {
@@ -88,11 +89,38 @@ export const socialService = {
     }
 
     if (platforms.facebook) {
-      results.facebook = {
-        success: true,
-        url: 'https://facebook.com/placeholder',
-        message: 'Post simulated (Requires Facebook App setup)',
-      };
+      try {
+        results.facebook = await facebookService.postJob(
+          userId,
+          {
+            jobTitle: jobData.title,
+            title: jobData.title,
+            company: companyName || undefined,
+            companyName: companyName || undefined,
+            description: jobData.description,
+            applyUrl: jobData.applyUrl,
+            location: jobData.location,
+            facebookPostText: jobData.facebookPostText,
+            postText: jobData.facebookPostText,
+          },
+          Array.isArray(jobData.facebookTargets) && jobData.facebookTargets.length
+            ? jobData.facebookTargets
+            : null,
+        );
+      } catch (error) {
+        results.facebook = { success: false, error: error.message };
+        console.error('[social] Facebook job publish failed', { jobId, error: error.message });
+      }
+    }
+
+    if (results.facebook?.success) {
+      console.log('[social] Job posted to Facebook successfully', {
+        jobId,
+        jobTitle: jobTitle || undefined,
+        url: results.facebook.url,
+        postId: results.facebook.postId,
+        accountsPosted: results.facebook.results?.filter((entry) => entry.success).length || 1,
+      });
     }
 
     dbLogger.logUpdate('JOB_SOCIAL_PUBLISH', jobId, results);
