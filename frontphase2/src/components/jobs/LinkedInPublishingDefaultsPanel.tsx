@@ -20,7 +20,7 @@ const SOCIAL_PLATFORMS: Array<{
 }> = [
   { id: 'linkedin', label: 'LinkedIn', live: true },
   { id: 'x_twitter', label: 'X (Twitter)', live: false },
-  { id: 'facebook', label: 'Facebook', live: false },
+  { id: 'facebook', label: 'Facebook', live: true },
   { id: 'instagram', label: 'Instagram', live: false },
 ];
 

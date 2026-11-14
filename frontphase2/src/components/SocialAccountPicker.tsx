@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Check, Linkedin, Loader2, Plus, Trash2, Twitter } from 'lucide-react';
+import { Check, Facebook, Linkedin, Loader2, Plus, Trash2, Twitter } from 'lucide-react';
 import { requestConfirm } from '../lib/appDialog';
 
 export type SocialAccountOption = {
@@ -18,8 +18,10 @@ export type SocialAccountOption = {
   isOwn?: boolean;
 };
 
+type SocialProvider = 'linkedin' | 'twitter' | 'facebook';
+
 type SocialAccountPickerProps = {
-  provider: 'linkedin' | 'twitter';
+  provider: SocialProvider;
   accounts: SocialAccountOption[];
   selectedKeys: string[];
   onSelectionChange: (keys: string[]) => void;
@@ -30,7 +32,7 @@ type SocialAccountPickerProps = {
   loading?: boolean;
 };
 
-function accountLabel(account: SocialAccountOption, provider: 'linkedin' | 'twitter') {
+function accountLabel(account: SocialAccountOption, provider: SocialProvider) {
   if (provider === 'twitter' && account.name) {
     return account.name.startsWith('@') ? account.name : `@${account.name}`;
   }
@@ -40,6 +42,12 @@ function accountLabel(account: SocialAccountOption, provider: 'linkedin' | 'twit
   return account.name;
 }
 
+function providerAccent(provider: SocialProvider) {
+  if (provider === 'linkedin') return 'bg-[#0077b5]';
+  if (provider === 'facebook') return 'bg-[#1877F2]';
+  return 'bg-slate-900';
+}
+
 function SocialAccountAvatar({
   picture,
   name,
@@ -47,7 +55,7 @@ function SocialAccountAvatar({
 }: {
   picture?: string | null;
   name: string;
-  provider: 'linkedin' | 'twitter';
+  provider: SocialProvider;
 }) {
   const src = String(picture || '').trim();
   const [failed, setFailed] = React.useState(false);
@@ -59,13 +67,13 @@ function SocialAccountAvatar({
   if (!showImage) {
     return (
       <div
-        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
-          provider === 'linkedin' ? 'bg-[#0077b5]' : 'bg-slate-900'
-        }`}
+        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${providerAccent(provider)}`}
         aria-hidden
       >
         {provider === 'linkedin' ? (
           <Linkedin size={16} className="text-white" />
+        ) : provider === 'facebook' ? (
+          <Facebook size={16} className="text-white" />
         ) : (
           <Twitter size={16} className="text-white" />
         )}
@@ -105,7 +113,8 @@ export function SocialAccountPicker({
     onSelectionChange([...selectedKeys, key]);
   };
 
-  const providerLabel = provider === 'linkedin' ? 'LinkedIn' : 'X';
+  const providerLabel =
+    provider === 'linkedin' ? 'LinkedIn' : provider === 'facebook' ? 'Facebook' : 'X';
 
   if (loading) {
     return (
@@ -121,7 +130,9 @@ export function SocialAccountPicker({
       {connectedAccounts.length > 0 ? (
         <div className="space-y-2">
           <p className="text-xs font-medium text-slate-600 uppercase tracking-wide">
-            Select {providerLabel} accounts to publish
+            {provider === 'facebook'
+              ? 'Select Facebook Pages to publish'
+              : `Select ${providerLabel} accounts to publish`}
           </p>
           <div className="space-y-2">
             {connectedAccounts.map((account) => {
@@ -150,9 +161,13 @@ export function SocialAccountPicker({
                       <span className="text-sm font-medium text-slate-900 truncate">
                         {account.type === 'page' ? account.name : accountLabel(account, provider)}
                       </span>
-                      {account.type === 'page' ? (
+                      {account.type === 'page' || String(account.key || '').startsWith('page:') ? (
                         <span className="inline-flex items-center px-2 py-0.5 bg-sky-100 text-sky-800 rounded text-[10px] font-semibold uppercase tracking-wide shrink-0">
-                          Company Page
+                          {provider === 'facebook' ? 'Page' : 'Company Page'}
+                        </span>
+                      ) : provider === 'facebook' ? (
+                        <span className="inline-flex items-center px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-semibold uppercase tracking-wide shrink-0">
+                          Personal
                         </span>
                       ) : null}
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs font-medium shrink-0">
@@ -216,6 +231,18 @@ export function SocialAccountPicker({
         </p>
       ) : null}
 
+      {provider === 'facebook' &&
+      connectedAccounts.length > 0 &&
+      !connectedAccounts.some(
+        (account) => account.type === 'page' || String(account.key || '').startsWith('page:'),
+      ) ? (
+        <p className="text-[11px] text-slate-500">
+          No Facebook Pages yet. Click{' '}
+          <span className="font-medium text-slate-700">Connect Facebook</span> and grant access to a
+          Page you manage.
+        </p>
+      ) : null}
+
       <button
         type="button"
         onClick={onConnect}
@@ -223,7 +250,9 @@ export function SocialAccountPicker({
         className={`w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
           provider === 'linkedin'
             ? 'bg-[#0077b5] text-white hover:bg-[#006399]'
-            : 'bg-slate-900 text-white hover:bg-slate-800'
+            : provider === 'facebook'
+              ? 'bg-[#1877F2] text-white hover:bg-[#166FE5]'
+              : 'bg-slate-900 text-white hover:bg-slate-800'
         }`}
       >
         {connecting ? (
@@ -234,7 +263,13 @@ export function SocialAccountPicker({
         ) : (
           <>
             <Plus size={16} />
-            {connectedAccounts.length > 0 ? `Add another ${providerLabel} account` : `Connect ${providerLabel} account`}
+            {provider === 'facebook'
+              ? connectedAccounts.length > 0
+                ? 'Connect / refresh Facebook Pages'
+                : 'Connect Facebook'
+              : connectedAccounts.length > 0
+                ? `Add another ${providerLabel} account`
+                : `Connect ${providerLabel} account`}
           </>
         )}
       </button>

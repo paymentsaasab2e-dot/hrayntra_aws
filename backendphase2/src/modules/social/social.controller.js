@@ -27,6 +27,7 @@ export const socialController = {
         facebookPostText,
         linkedinTargets,
         twitterTargets,
+        facebookTargets,
         showClientNamePublicly,
         linkedinImageUrl,
         imageUrl,
@@ -95,6 +96,7 @@ export const socialController = {
         facebookPostText,
         linkedinTargets: Array.isArray(linkedinTargets) ? linkedinTargets : [],
         twitterTargets: Array.isArray(twitterTargets) ? twitterTargets : [],
+        facebookTargets: Array.isArray(facebookTargets) ? facebookTargets : [],
         linkedinImageUrl: linkedinImageUrl || imageUrl || '',
         imageUrl: linkedinImageUrl || imageUrl || '',
       };

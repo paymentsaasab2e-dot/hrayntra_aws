@@ -2820,6 +2820,9 @@ const handleSaveJob = async () => {
             facebookPostText: resolvedFacebookPostText,
             linkedinTargets: linkedInTargetsForPublish,
             twitterTargets: selectedTwitterTargets,
+            facebookTargets: formData.facebookPageId
+              ? [String(formData.facebookPageId)]
+              : undefined,
             linkedinImageUrl: linkedInImageUrl.trim() || undefined,
           });
 
@@ -2846,7 +2849,18 @@ const handleSaveJob = async () => {
               void requestWarning(`Job saved, but X posting failed: ${twitterResult.error}`);
             }
           }
-          if (platformsToPublish.facebook) socialPosts.push('Facebook');
+          if (platformsToPublish.facebook) {
+            const facebookResult = (result as any).data?.facebook;
+            if (facebookResult?.success) {
+              socialPosts.push('Facebook');
+            } else if (facebookResult?.error) {
+              void requestWarning(`Job saved, but Facebook posting failed: ${facebookResult.error}`);
+            } else {
+              void requestWarning(
+                'Job saved, but Facebook posting failed. Reconnect Facebook (with a Page) and try again.',
+              );
+            }
+          }
         } catch (error: any) {
           console.error('Social publishing failed:', error);
           void requestWarning(
