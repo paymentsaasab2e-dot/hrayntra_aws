@@ -2865,3 +2865,407 @@ model OrgDataTransfer {
   @@index([revertedAt])
   @@map("org_data_transfers")
 }
+
+// ── PHASE 3 PEOPLECORE (HRMS Lite) ──
+// Additive Mongo collections. Created on first write — do not prisma db push to live.
+// Phase 3 stores people + CTC structure only. Payslips are Phase 4 PayFlow.
+
+model PeopleCoreSettings {
+  id                     String   @id @default(auto()) @map("_id") @db.ObjectId
+  singletonKey           String   @unique @default("default")
+  /// ISO 3166-1 alpha-2, e.g. CM, IN. Null until HQ/tenant picks a country pack.
+  legalEmployerCountry   String?
+  defaultLegalEmployerId String?  @db.ObjectId
+  /// unavailable | export | calculate — copied from the country pack, overridable later.
+  payrollCapability      String   @default("unavailable")
+  hrEnabled              Boolean  @default(true)
+  hrmsModuleEnabled      Boolean  @default(true)
+  payrollModuleEnabled   Boolean  @default(false)
+  mfaRequiredForPayroll  Boolean  @default(true)
+  timezone               String?
+  currency               String?
+  locale                 String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  @@map("peoplecore_settings")
+}
+
+model LegalEmployer {
+  id                 String    @id @default(auto()) @map("_id") @db.ObjectId
+  name               String
+  country            String
+  identifiers        Json?
+  payrollCapability  String
+  timezone           String?
+  currency           String?
+  locale             String?
+  isDeleted          Boolean?  @default(false)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([country])
+  @@index([isDeleted])
+  @@map("legal_employers")
+}
+
+model PeopleLocation {
+  id                 String    @id @default(auto()) @map("_id") @db.ObjectId
+  legalEmployerId    String    @db.ObjectId
+  name               String
+  timezone           String?
+  latitude           Float?
+  longitude          Float?
+  geofenceRadiusM    Int       @default(100)
+  orgUnitId          String?   @db.ObjectId
+  isDeleted          Boolean?  @default(false)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([legalEmployerId])
+  @@index([isDeleted])
+  @@map("people_locations")
+}
+
+model HolidayCalendar {
+  id                 String   @id @default(auto()) @map("_id") @db.ObjectId
+  legalEmployerId    String   @db.ObjectId
+  locationId         String?  @db.ObjectId
+  year               Int
+  holidays           Json
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([legalEmployerId, year])
+  @@map("holiday_calendars")
+}
+
+model LeaveType {
+  id                 String    @id @default(auto()) @map("_id") @db.ObjectId
+  legalEmployerId    String    @db.ObjectId
+  country            String
+  code               String
+  name               String
+  paid               Boolean   @default(true)
+  isDeleted          Boolean?  @default(false)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([legalEmployerId])
+  @@map("leave_types")
+}
+
+/// Tenant employee master. Same personId as Candidate when hired from recruitment.
+/// No Candidate relation on purpose — hire handoff must survive a deleted/purged candidate row.
+model Employee {
+  id                          String    @id @default(auto()) @map("_id") @db.ObjectId
+  personId                    String?
+  candidateId                 String?   @db.ObjectId
+  firstName                   String?
+  lastName                    String?
+  legalName                   String?
+  email                       String?
+  phone                       String?
+  dateOfBirth                 DateTime?
+  gender                      String?
+  legalEmployerCountry        String
+  legalEmployerId             String?   @db.ObjectId
+  engagementType              String    @default("EMPLOYEE")
+  status                      String    @default("PREBOARDING")
+  employmentStartDate         DateTime?
+  employmentEndDate           DateTime?
+  lastWorkingDate             DateTime?
+  lastPresentDate             DateTime?
+  designation                 String?
+  departmentId                String?   @db.ObjectId
+  orgUnitId                   String?   @db.ObjectId
+  reportingManagerEmployeeId  String?   @db.ObjectId
+  workLocation                String?
+  workLocationId              String?   @db.ObjectId
+  emergencyContact            Json?
+  bank                        Json?
+  nominees                    Json?
+  doNotRehire                 Boolean?  @default(false)
+  accessCutAt                 DateTime?
+  /// CTC structure only — never a payslip.
+  compensation                Json?
+  /// Country-pack identity fields (NIU/CNPS vs PAN/PF/ESI). Never mix packs.
+  countryFields               Json?
+  hiredFromCandidateAt        DateTime?
+  isDeleted                   Boolean?  @default(false)
+  createdAt                   DateTime  @default(now())
+  updatedAt                   DateTime  @updatedAt
+
+  @@index([personId])
+  @@index([candidateId])
+  @@index([email])
+  @@index([legalEmployerCountry])
+  @@index([legalEmployerId])
+  @@index([workLocationId])
+  @@index([status])
+  @@index([engagementType])
+  @@index([orgUnitId])
+  @@index([isDeleted])
+  @@map("employees")
+}
+
+model OnboardingTask {
+  id              String    @id @default(auto()) @map("_id") @db.ObjectId
+  employeeId      String    @db.ObjectId
+  legalEmployerId String?   @db.ObjectId
+  code            String
+  label           String
+  status          String    @default("PENDING")
+  dueDate         DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([employeeId])
+  @@map("onboarding_tasks")
+}
+
+model EmployeeDocument {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  employeeId  String   @db.ObjectId
+  category    String
+  fileName    String
+  fileUrl     String?
+  createdAt   DateTime @default(now())
+
+  @@index([employeeId])
+  @@map("employee_documents")
+}
+
+model AttendancePunch {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  employeeId      String   @db.ObjectId
+  locationId      String?  @db.ObjectId
+  punchedAtUtc    DateTime
+  timezone        String
+  localWorkDate   String
+  source          String   @default("WEB")
+  latitude        Float?
+  longitude       Float?
+  outsideGeofence Boolean  @default(false)
+  proxyByUserId   String?  @db.ObjectId
+  overtimeMinutes Int?     @default(0)
+  notes           String?
+  createdAt       DateTime @default(now())
+
+  @@index([employeeId, localWorkDate])
+  @@map("attendance_punches")
+}
+
+model AttendancePeriod {
+  id              String    @id @default(auto()) @map("_id") @db.ObjectId
+  legalEmployerId String    @db.ObjectId
+  year            Int
+  month           Int
+  locked          Boolean   @default(false)
+  lockedAt        DateTime?
+  lockedById      String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([legalEmployerId, year, month])
+  @@map("attendance_periods")
+}
+
+model LeaveBalance {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  employeeId   String   @db.ObjectId
+  leaveTypeId  String   @db.ObjectId
+  year         Int
+  opening      Float    @default(0)
+  credited     Float    @default(0)
+  taken        Float    @default(0)
+  updatedAt    DateTime @updatedAt
+
+  @@index([employeeId, year])
+  @@map("leave_balances")
+}
+
+model LeaveRequest {
+  id              String    @id @default(auto()) @map("_id") @db.ObjectId
+  employeeId      String    @db.ObjectId
+  leaveTypeId     String    @db.ObjectId
+  startDate       DateTime
+  endDate         DateTime
+  days            Float
+  status          String    @default("PENDING")
+  approverId      String?
+  remark          String?
+  delegatedToId   String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([employeeId])
+  @@index([status])
+  @@map("leave_requests")
+}
+
+model ExitCase {
+  id              String    @id @default(auto()) @map("_id") @db.ObjectId
+  employeeId      String    @db.ObjectId
+  kind            String    @default("RESIGNATION")
+  status          String    @default("OPEN")
+  noticeDays      Int?
+  lastWorkingDate DateTime?
+  lastPresentDate DateTime?
+  settlementDate  DateTime?
+  clearance       Json?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([employeeId])
+  @@index([status])
+  @@map("exit_cases")
+}
+
+model AssetItem {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  serial       String
+  name         String
+  status       String   @default("AVAILABLE")
+  recoveryValue Float?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([serial])
+  @@index([status])
+  @@map("asset_items")
+}
+
+model AssetAssignment {
+  id           String    @id @default(auto()) @map("_id") @db.ObjectId
+  assetId      String    @db.ObjectId
+  employeeId   String    @db.ObjectId
+  assignedAt   DateTime  @default(now())
+  returnedAt   DateTime?
+  condition    String?
+  createdAt    DateTime  @default(now())
+
+  @@index([employeeId])
+  @@index([assetId])
+  @@map("asset_assignments")
+}
+
+model FnFWorksheet {
+  id                 String   @id @default(auto()) @map("_id") @db.ObjectId
+  exitCaseId         String   @db.ObjectId
+  employeeId         String   @db.ObjectId
+  leaveEncashmentDays Float?
+  noticeRecoveryDays Float?
+  assetRecoveryAmount Float?
+  notes              String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([exitCaseId])
+  @@map("fnf_worksheets")
+}
+
+model PeopleLetter {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  employeeId      String   @db.ObjectId
+  letterType      String
+  language        String?
+  body            String
+  serial          String?
+  blockedReason   String?
+  createdAt       DateTime @default(now())
+
+  @@index([employeeId])
+  @@map("people_letters")
+}
+
+model PeopleApproval {
+  id              String    @id @default(auto()) @map("_id") @db.ObjectId
+  kind            String
+  subjectId       String
+  employeeId      String?   @db.ObjectId
+  status          String    @default("PENDING")
+  assignedToId    String?
+  delegatedToId   String?
+  remark          String?
+  payload         Json?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([status])
+  @@index([kind])
+  @@map("people_approvals")
+}
+
+model HrPolicy {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  country     String?
+  title       String
+  version     Int      @default(1)
+  body        String
+  published   Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([country])
+  @@map("hr_policies")
+}
+
+model HrPolicyAck {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  policyId    String   @db.ObjectId
+  employeeId  String   @db.ObjectId
+  version     Int
+  acceptedAt  DateTime @default(now())
+
+  @@index([employeeId])
+  @@index([policyId])
+  @@map("hr_policy_acks")
+}
+
+model PayrollRun {
+  id              String    @id @default(auto()) @map("_id") @db.ObjectId
+  legalEmployerId String    @db.ObjectId
+  country         String
+  year            Int
+  month           Int
+  status          String    @default("PREPARE")
+  capability      String
+  totals          Json?
+  lockedAt        DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([legalEmployerId, year, month])
+  @@map("payroll_runs")
+}
+
+model PayrollException {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  payrollRunId String   @db.ObjectId
+  employeeId   String?  @db.ObjectId
+  code         String
+  message      String
+  severity     String   @default("WARN")
+  createdAt    DateTime @default(now())
+
+  @@index([payrollRunId])
+  @@map("payroll_exceptions")
+}
+
+model Payslip {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  payrollRunId String   @db.ObjectId
+  employeeId   String   @db.ObjectId
+  currency     String
+  gross        Float
+  net          Float?
+  lines        Json
+  exportOnly   Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  @@index([payrollRunId])
+  @@index([employeeId])
+  @@map("payslips")
+}

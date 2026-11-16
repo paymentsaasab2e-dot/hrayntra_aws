@@ -90,6 +90,7 @@ import publicLandingRoutes from './modules/public/public.routes.js';
 import publicTenantJobsRoutes from './modules/public/tenant-jobs.routes.js';
 import jobPostingPlanRoutes from './modules/job-posting-plan/jobPostingPlan.routes.js';
 import razorpayWebhookRoutes from './modules/payment/razorpay.webhook.routes.js';
+import peoplecoreRoutes from './modules/peoplecore/peoplecore.routes.js';
 
 const app = express();
 
@@ -364,6 +365,7 @@ app.use('/api/v1/ai', aiRoutes);
 app.use('/api/v1/brain', brainRoutes);
 app.use('/api/v1/dashboard', dashboardRoutes);
 app.use('/api/v1/org-units', orgRoutes);
+app.use('/api/v1', peoplecoreRoutes);
 // (portalSyncRoutes is mounted near the top — before any
 // router-level-auth `/api/v1` handlers — see comment above.)
 // Removing re-mounts from here as they are now at the top

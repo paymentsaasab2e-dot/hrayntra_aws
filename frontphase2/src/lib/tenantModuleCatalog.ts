@@ -24,6 +24,7 @@ import {
   UserPlus,
   UserRound,
   Users,
+  UsersRound,
   Zap,
 } from 'lucide-react';
 
@@ -44,6 +45,9 @@ export const ALL_TENANT_MODULES: TenantModuleDef[] = [
   { id: 'crm_dashboard', label: 'CRM Dashboard', icon: LayoutDashboard, lines: ['crm'] },
   { id: 'jobs', label: 'Jobs', icon: Briefcase, lines: ['recruitment'] },
   { id: 'candidates', label: 'Candidates', icon: UserRound, lines: ['recruitment'] },
+  { id: 'peoplecore', label: 'People', icon: UsersRound, lines: ['recruitment'] },
+  { id: 'hrms', label: 'HRMS', icon: UsersRound, lines: ['recruitment'] },
+  { id: 'payroll', label: 'Payroll', icon: CreditCard, lines: ['recruitment'] },
   { id: 'interviews', label: 'Interviews', icon: Calendar, lines: ['recruitment'] },
   { id: 'placements', label: 'Placements', icon: Award, lines: ['recruitment'] },
   { id: 'command_center', label: 'Command Center', icon: LayoutDashboard, lines: ['recruitment'] },
@@ -85,6 +89,8 @@ export function allModulesForHqPicker(): TenantModuleDef[] {
 /**
  * Map Phase 2 route prefixes → HQ tenant module ids.
  * Used by sidenav (already) and route guards so disabled tabs cannot be opened via URL.
+ * /people is intentionally omitted during Phase 3 build-out so existing recruitment
+ * tenants (who already have `candidates`) can open PeopleCore without an HQ re-save.
  */
 export const ROUTE_HQ_MODULE_MAP: Array<{ prefix: string; moduleId: string }> = [
   { prefix: '/leads', moduleId: 'leads' },

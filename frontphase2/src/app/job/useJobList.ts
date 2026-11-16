@@ -1756,9 +1756,11 @@ export function useJobList() {
       } catch (err: any) {
         if (gate.isAbortError(err) || !gate.isCurrent(requestId)) return;
         if (!silent) {
-          setError(err?.message || 'Failed to load jobs from API.');
-          setJobs([]);
-          setTotalEntries(0);
+          setError(err?.message || 'Failed to load jobs from API. Showing the last list.');
+          if (!hasVisibleJobsRef.current) {
+            setJobs([]);
+            setTotalEntries(0);
+          }
         } else {
           console.warn('[jobs] background refresh failed:', err);
         }

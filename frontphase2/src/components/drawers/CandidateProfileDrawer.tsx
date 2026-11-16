@@ -51,7 +51,7 @@ import { extractAuditMeta } from '../../utils/auditMeta';
 
 import { orEmpty } from '../../lib/asyncLoadGuard';
 
-import { Briefcase, Calendar, ExternalLink, FileText, GitBranch, Loader2, MapPin, MessageSquare, MessageSquareText, Phone, SquarePen, Tag, Video, X, Activity, Paperclip, Building2 } from 'lucide-react';
+import { Briefcase, Calendar, ExternalLink, FileText, GitBranch, Loader2, MapPin, MessageSquare, MessageSquareText, Phone, SquarePen, Tag, Video, X, Activity, Paperclip, Building2, UserPlus } from 'lucide-react';
 
 import { ImageWithFallback, initialsFromDisplayName } from '../ImageWithFallback';
 
@@ -59,7 +59,7 @@ import { useFiles } from '../../hooks/useFiles';
 
 import { DocumentUploadButton } from '../import/documentUploadUi';
 
-import { apiUploadCandidateAvatar } from '../../lib/api';
+import { apiGetPeopleCoreSettings, apiHireEmployeeFromCandidate, apiUploadCandidateAvatar } from '../../lib/api';
 
 import { toast } from 'sonner';
 
@@ -1079,6 +1079,36 @@ export function CandidateProfileDrawer({
                     >
                       <Calendar size={16} />
                     </button>
+                    {['hired', 'offered', 'offer'].includes(String((candidate as { stage?: string } | null)?.stage || '').toLowerCase()) ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const id = String((candidate as { id?: string } | null)?.id || '');
+                          if (!id) return;
+                          void apiGetPeopleCoreSettings()
+                            .then((settings) =>
+                              apiHireEmployeeFromCandidate(id, {
+                                legalEmployerId: settings.data?.defaultLegalEmployerId || undefined,
+                              }),
+                            )
+                            .then((res) => {
+                              toast.success(
+                                res.data?.alreadyHired
+                                  ? 'Already on the employee master'
+                                  : 'Hired as employee — same personId. Finish onboarding, then Day-1 join.',
+                              );
+                            })
+                            .catch((error: { message?: string }) => {
+                              toast.error(error?.message || 'Hire as employee failed');
+                            });
+                        }}
+                        title="Hire as employee"
+                        aria-label="Hire as employee"
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-teal-200 bg-teal-50 text-teal-800 shadow-sm transition hover:bg-teal-100"
+                      >
+                        <UserPlus size={16} />
+                      </button>
+                    ) : null}
                     {latestClientReview?.reviewUrl ? (
                       <button
                         type="button"

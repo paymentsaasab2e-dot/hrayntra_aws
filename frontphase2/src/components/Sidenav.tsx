@@ -5,7 +5,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { usePermissions } from '../hooks/usePermissions';
 import { MODULE_ACCESS_MAP } from '../lib/rbac/moduleAccess';
 import { matchesQuickSearch, buildQuickSearchHaystack } from '../lib/quickSearch';
-import { crmNavItems, recruitmentNavItems } from '../lib/navConfig';
+import { crmNavItems, peopleNavItems, recruitmentNavItems } from '../lib/navConfig';
 import { useUser } from '../hooks/useUser';
 import { NavItem, NavGroupFlyout } from './sidenavParts/NavItems';
 
@@ -50,7 +50,8 @@ import {
   Target,
   Users, 
   Briefcase, 
-  UserRound, 
+  UserRound,
+  UsersRound, 
   GitBranch, 
   Zap, 
   Award, 
@@ -553,6 +554,10 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
     canViewMatches ||
     canViewRecruitmentClients ||
     canViewBilling;
+  // PeopleCore: full tenants with Candidates. Free Jobs workspace never sees HR.
+  const canViewPeopleNav = mounted && canViewCandidates && !freeJobsFlatNav;
+  const isPeopleRouteActive =
+    (pathname || '') === '/people' || (pathname || '').startsWith('/people/');
   const isRecruitmentClientsRoute =
     pathname === '/client' && searchParams.get('scope') === 'recruitment';
   const isRecruitmentRouteActive =
@@ -912,6 +917,19 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
                 canViewPlacements,
                 canViewBilling,
               })}
+            />
+          )}
+
+          {mounted && canViewPeopleNav && (
+            <NavGroupFlyout
+              icon={UsersRound}
+              label="People"
+              collapsed={navCollapsed}
+              accent="teal"
+              active={isPeopleRouteActive}
+              onNavigate={handleNavigate}
+              expandInline={mobileNavOpen}
+              items={peopleNavItems({ canViewEmployees: canViewPeopleNav })}
             />
           )}
 

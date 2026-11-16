@@ -1707,7 +1707,7 @@ async function pdfPass4OcrTesseract(filePath) {
     let worker;
     try {
       worker = await createWorker('eng');
-      const maxPages = Math.min(8, Math.max(1, Number(env.CV_PARSE_OCR_MAX_PAGES) || 2));
+      const maxPages = Math.min(4, Math.max(1, Number(env.CV_PARSE_OCR_MAX_PAGES) || 1));
       const screenshot = await parser.getScreenshot({
         first: maxPages,
         scale: 1.5,
@@ -2396,7 +2396,7 @@ async function extractStructuredResumeDataWithOpenAI(cleanedText, file, options 
     };
   }
 
-  const maxChars = Number(env.CV_PARSE_TEXT_MAX_CHARS) || 12000;
+  const maxChars = Number(env.CV_PARSE_TEXT_MAX_CHARS) || 8000;
   const capped = cleanedText.slice(0, maxChars);
   const prompt = compactPrompt
     ? `Extract structured candidate data from this resume for ATS import.

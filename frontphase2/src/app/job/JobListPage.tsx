@@ -1145,9 +1145,12 @@ export function JobListPage() {
   }, [refreshJobPostingQuota]);
 
   const openCreateJob = (mode: 'ai' | 'manual') => {
-    if (jobPostingQuota && !jobPostingQuota.canPublish) {
+    if (jobPostingQuota && !jobPostingQuota.canPublish && mode !== 'ai') {
       setPremiumModalOpen(true);
       return;
+    }
+    if (mode === 'ai' && jobPostingQuota && !jobPostingQuota.canPublish) {
+      toast.message('Publish quota is used up. You can still draft with AI. Publishing stays blocked until the quota resets.');
     }
     if (mode === 'ai' && jobAiGate.locked) {
       void jobAiGate.confirmAndUnlock();

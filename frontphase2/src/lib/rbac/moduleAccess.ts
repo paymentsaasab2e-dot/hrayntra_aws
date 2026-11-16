@@ -15,6 +15,12 @@ export const MODULE_ACCESS_MAP: Record<string, string[]> = {
     'view_all_candidates', 'view_assigned_candidates', 'add_candidate', 'edit_candidate',
     'delete_candidate', 'move_pipeline', 'submit_candidate',
   ],
+  // Phase 3 PeopleCore reuses candidate perms until a dedicated people_* catalog ships.
+  People: [
+    'candidates_create', 'candidates_read', 'candidates_update', 'candidates_delete',
+    'view_all_candidates', 'view_assigned_candidates', 'add_candidate', 'edit_candidate',
+    'delete_candidate',
+  ],
   Interviews: ['interviews_create', 'interviews_read', 'interviews_update', 'interviews_delete', 'interviews_feedback'],
   Placements: ['placements_create', 'placements_read', 'placements_update', 'placements_delete'],
   Contacts: ['contacts_create', 'contacts_read', 'contacts_update', 'contacts_delete'],
@@ -68,6 +74,7 @@ export const ROUTE_PERMISSION_GUARDS: Record<string, string[]> = {
   '/client': [...MODULE_ACCESS_MAP.Clients, ...MODULE_ACCESS_MAP.RecruitmentClients],
   '/job': MODULE_ACCESS_MAP.Jobs,
   '/candidate': MODULE_ACCESS_MAP.Candidates,
+  '/people': MODULE_ACCESS_MAP.People,
   '/interviews': MODULE_ACCESS_MAP.Interviews,
   '/placement': MODULE_ACCESS_MAP.Placements,
   '/placements': MODULE_ACCESS_MAP.Placements,
