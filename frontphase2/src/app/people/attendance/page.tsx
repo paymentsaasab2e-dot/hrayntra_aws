@@ -32,6 +32,7 @@ export default function AttendancePage() {
   const [punches, setPunches] = useState<any[]>([]);
   const [muster, setMuster] = useState<any>(null);
   const [otHours, setOtHours] = useState('');
+  const [regDate, setRegDate] = useState(() => new Date().toISOString().slice(0, 10));
   const now = new Date();
 
   const load = async () => {
