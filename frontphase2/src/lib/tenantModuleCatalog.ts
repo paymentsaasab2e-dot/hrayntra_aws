@@ -165,9 +165,12 @@ export function getHqModuleIdForPath(
 ): string | null {
   const raw = String(pathname || '');
   const path = raw.split('?')[0];
-  const query = String(
-    (search ?? (raw.includes('?') ? raw.slice(raw.indexOf('?')) : '')) || '',
-  );
+  let query = '';
+  if (search != null && String(search).length > 0) {
+    query = String(search);
+  } else if (raw.includes('?')) {
+    query = raw.slice(raw.indexOf('?'));
+  }
   if (!path) return null;
 
   if (path === '/client' || path.startsWith('/client/')) {
