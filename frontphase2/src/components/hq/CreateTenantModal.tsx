@@ -435,7 +435,7 @@ export function ProvisionTenantFormFields({
             }`}
           >
             <p className="text-sm font-bold text-slate-900">CRM</p>
-            <p className="mt-0.5 text-[11px] text-slate-500">Leads, clients, CRM dashboard…</p>
+            <p className="mt-0.5 text-[11px] text-slate-500">Leads, CRM Clients, CRM dashboard…</p>
           </button>
           <button
             type="button"
@@ -447,7 +447,7 @@ export function ProvisionTenantFormFields({
             }`}
           >
             <p className="text-sm font-bold text-slate-900">Recruitment</p>
-            <p className="mt-0.5 text-[11px] text-slate-500">Jobs, candidates, placements…</p>
+            <p className="mt-0.5 text-[11px] text-slate-500">Recruitment Clients, jobs, candidates…</p>
           </button>
           <button
             type="button"

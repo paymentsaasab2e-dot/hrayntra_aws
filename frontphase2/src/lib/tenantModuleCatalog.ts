@@ -41,8 +41,9 @@ export type TenantModuleDef = {
 /** Full catalog HQ can enable / disable for any tenant (including after create). */
 export const ALL_TENANT_MODULES: TenantModuleDef[] = [
   { id: 'leads', label: 'Leads', icon: Target, lines: ['crm'] },
-  { id: 'clients', label: 'Clients', icon: Users, lines: ['crm', 'recruitment'] },
+  { id: 'clients', label: 'CRM Clients', icon: Users, lines: ['crm'] },
   { id: 'crm_dashboard', label: 'CRM Dashboard', icon: LayoutDashboard, lines: ['crm'] },
+  { id: 'recruitment_clients', label: 'Recruitment Clients', icon: Users, lines: ['recruitment'] },
   { id: 'jobs', label: 'Jobs', icon: Briefcase, lines: ['recruitment'] },
   { id: 'candidates', label: 'Candidates', icon: UserRound, lines: ['recruitment'] },
   { id: 'peoplecore', label: 'People', icon: UsersRound, lines: ['recruitment'] },
@@ -124,9 +125,55 @@ export const ROUTE_HQ_MODULE_MAP: Array<{ prefix: string; moduleId: string }> = 
   { prefix: '/tenant-behave', moduleId: 'settings' },
 ];
 
-export function getHqModuleIdForPath(pathname: string | null | undefined): string | null {
-  const path = String(pathname || '').split('?')[0];
+const CRM_SURFACE_MODULE_IDS = new Set(['leads', 'crm_dashboard']);
+const RECRUITMENT_SURFACE_MODULE_IDS = new Set([
+  'recruitment_clients',
+  'jobs',
+  'candidates',
+  'command_center',
+  'pipeline',
+  'matches',
+  'interviews',
+  'placements',
+  'inbox',
+  'contacts',
+  'peoplecore',
+  'hrms',
+  'payroll',
+]);
+
+/** Expand legacy shared `clients` into CRM vs Recruitment client module ids. */
+export function expandLegacyClientModules(modules: string[]): string[] {
+  const list = [...new Set((modules || []).map((m) => String(m || '').trim()).filter(Boolean))];
+  if (!list.includes('clients') || list.includes('recruitment_clients')) return list;
+
+  const hasCrm = list.some((id) => CRM_SURFACE_MODULE_IDS.has(id));
+  const hasRecruitment = list.some((id) => RECRUITMENT_SURFACE_MODULE_IDS.has(id));
+
+  if (hasRecruitment && !hasCrm) {
+    return list.map((id) => (id === 'clients' ? 'recruitment_clients' : id));
+  }
+  if (hasRecruitment && hasCrm) {
+    return [...list, 'recruitment_clients'];
+  }
+  return list;
+}
+
+export function getHqModuleIdForPath(
+  pathname: string | null | undefined,
+  search?: string | null,
+): string | null {
+  const raw = String(pathname || '');
+  const path = raw.split('?')[0];
+  const query = String(search ?? (raw.includes('?') ? raw.slice(raw.indexOf('?')) : '') || '');
   if (!path) return null;
+
+  if (path === '/client' || path.startsWith('/client/')) {
+    const params = new URLSearchParams(query.startsWith('?') ? query.slice(1) : query);
+    if (params.get('scope') === 'recruitment') return 'recruitment_clients';
+    return 'clients';
+  }
+
   const hit = ROUTE_HQ_MODULE_MAP.find(
     (row) => path === row.prefix || path.startsWith(`${row.prefix}/`),
   );

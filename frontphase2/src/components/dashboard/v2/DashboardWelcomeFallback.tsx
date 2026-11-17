@@ -34,7 +34,8 @@ const WORKSPACE_LINKS: Array<{ route: string; label: string; permissions: string
 ];
 
 function linkAllowedByHqModules(route: string): boolean {
-  const moduleId = getHqModuleIdForPath(route.split('?')[0]);
+  const [path, query = ''] = String(route || '').split('?');
+  const moduleId = getHqModuleIdForPath(path, query ? `?${query}` : '');
   if (!moduleId) return true;
   return isOrgModuleEnabled(moduleId);
 }
