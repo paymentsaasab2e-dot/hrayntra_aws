@@ -472,7 +472,7 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
     (showAll || hasAnyPermission(['clients_read', 'clients_create', 'clients_update', 'clients_delete']));
   const canViewRecruitmentClients =
     mounted &&
-    isOrgModuleEnabled('clients') &&
+    isOrgModuleEnabled('recruitment_clients') &&
     (showAll || hasAnyPermission(MODULE_ACCESS_MAP.RecruitmentClients));
   const isCrmClientsRoute =
     (pathname === '/client' || (pathname || '').startsWith('/client/')) &&

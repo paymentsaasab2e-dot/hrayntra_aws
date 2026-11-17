@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { AccessDenied } from './AccessDenied';
 import { usePermissions } from '../hooks/usePermissions';
 import { isOrgModuleEnabled, ORG_RECRUITMENT_CACHE_EVENT } from '../lib/api';
@@ -39,6 +39,7 @@ export default function PermissionRouteGuard({
   const [mounted, setMounted] = useState(false);
   const [modulesTick, setModulesTick] = useState(0);
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { hasAnyPermission } = usePermissions();
 
   useEffect(() => {
@@ -55,7 +56,8 @@ export default function PermissionRouteGuard({
     };
   }, []);
 
-  if (!anyPermissions?.length && hqModuleId == null && !getHqModuleIdForPath(pathname)) {
+  const search = searchParams?.toString() ? `?${searchParams.toString()}` : '';
+  if (!anyPermissions?.length && hqModuleId == null && !getHqModuleIdForPath(pathname, search)) {
     return <>{children}</>;
   }
 
@@ -64,7 +66,7 @@ export default function PermissionRouteGuard({
     return <PermissionGuardShell />;
   }
 
-  const resolvedModuleId = hqModuleId ?? getHqModuleIdForPath(pathname);
+  const resolvedModuleId = hqModuleId ?? getHqModuleIdForPath(pathname, search);
   // modulesTick forces re-check after HQ updates tenant tabs
   void modulesTick;
   if (resolvedModuleId && !isOrgModuleEnabled(resolvedModuleId)) {

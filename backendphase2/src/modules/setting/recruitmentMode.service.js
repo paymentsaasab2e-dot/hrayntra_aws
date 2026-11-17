@@ -245,9 +245,43 @@ function normalizeProductLine(raw) {
   return String(raw || '').trim().toLowerCase() === 'recruitment' ? 'recruitment' : 'crm';
 }
 
+const CRM_SURFACE_MODULE_IDS = new Set(['leads', 'crm_dashboard']);
+const RECRUITMENT_SURFACE_MODULE_IDS = new Set([
+  'recruitment_clients',
+  'jobs',
+  'candidates',
+  'command_center',
+  'pipeline',
+  'matches',
+  'interviews',
+  'placements',
+  'inbox',
+  'contacts',
+  'peoplecore',
+  'hrms',
+  'payroll',
+]);
+
+/** Split legacy shared `clients` into CRM vs Recruitment client tabs. */
+function expandLegacyClientModules(modules) {
+  const list = [...new Set((modules || []).map((m) => String(m || '').trim()).filter(Boolean))];
+  if (!list.includes('clients') || list.includes('recruitment_clients')) return list;
+
+  const hasCrm = list.some((id) => CRM_SURFACE_MODULE_IDS.has(id));
+  const hasRecruitment = list.some((id) => RECRUITMENT_SURFACE_MODULE_IDS.has(id));
+
+  if (hasRecruitment && !hasCrm) {
+    return list.map((id) => (id === 'clients' ? 'recruitment_clients' : id));
+  }
+  if (hasRecruitment && hasCrm) {
+    return [...list, 'recruitment_clients'];
+  }
+  return list;
+}
+
 function normalizeEnabledModules(value) {
   if (!Array.isArray(value)) return [];
-  return [...new Set(value.map((m) => String(m || '').trim()).filter(Boolean))];
+  return expandLegacyClientModules(value.map((m) => String(m || '').trim()).filter(Boolean));
 }
 
 /**

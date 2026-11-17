@@ -360,7 +360,7 @@ function recruitmentModulesEnabled() {
     isOrgModuleEnabled('placements') ||
     isOrgModuleEnabled('pipeline') ||
     isOrgModuleEnabled('matches') ||
-    isOrgModuleEnabled('clients')
+    isOrgModuleEnabled('recruitment_clients')
   );
 }
 

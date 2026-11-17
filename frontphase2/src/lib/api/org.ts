@@ -4,6 +4,7 @@ import {
   cacheCandidateEditFieldVisibility,
   normalizeCandidateEditFieldVisibility,
 } from '../candidateEditFieldVisibility';
+import { expandLegacyClientModules } from '../tenantModuleCatalog';
 import { ORG_SUMMARY_CLIENT_TTL_MS, TENANT_COINS_CLIENT_TTL_MS, apiFetch, getAccessToken, getOrgSummaryInflight, setOrgSummaryInflight, getOrgSummaryLastAt, setOrgSummaryLastAt, getTenantCoinsCache, setTenantCoinsCache, getTenantCoinsInflight, setTenantCoinsInflight } from './core';
 import type { BillingSettingsSnapshot, CreatePlacementInvoicePayload } from '../../types/recruitmentInvoice';
 import type { AiCoinPack, HqAiFeature, HqTenantSubscriptionPlan, OrgPlanUsageCache, SubscriptionPaymentOrder, SubscriptionPlanOption } from './types';
@@ -60,9 +61,10 @@ export function getCachedOrgEnabledModules(): string[] {
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed)
+    const list = Array.isArray(parsed)
       ? parsed.map((m) => String(m || '').trim()).filter(Boolean)
       : [];
+    return expandLegacyClientModules(list);
   } catch {
     return [];
   }
@@ -174,9 +176,11 @@ export function applyOrgRecruitmentSummaryPayload(
     (Object.prototype.hasOwnProperty.call(payload, 'modulesRestricted') ||
       Object.prototype.hasOwnProperty.call(payload, 'enabledModules'))
   ) {
-    const modules = Array.isArray(payload.enabledModules)
-      ? payload.enabledModules.map((m) => String(m || '').trim()).filter(Boolean)
-      : [];
+    const modules = expandLegacyClientModules(
+      Array.isArray(payload.enabledModules)
+        ? payload.enabledModules.map((m) => String(m || '').trim()).filter(Boolean)
+        : [],
+    );
     const restricted =
       payload.modulesRestricted === true ||
       modules.length > 0;

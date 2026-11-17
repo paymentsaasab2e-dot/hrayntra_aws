@@ -13,6 +13,7 @@ function ClientPermissionGuard({ children }: { children: ReactNode }) {
   const recruitment = searchParams.get('scope') === 'recruitment';
   return (
     <PermissionRouteGuard
+      hqModuleId={recruitment ? 'recruitment_clients' : 'clients'}
       anyPermissions={
         recruitment ? MODULE_ACCESS_MAP.RecruitmentClients : MODULE_ACCESS_MAP.Clients
       }
