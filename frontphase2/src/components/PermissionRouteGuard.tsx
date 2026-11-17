@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { usePathname, useSearchParams } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import { AccessDenied } from './AccessDenied';
 import { usePermissions } from '../hooks/usePermissions';
 import { isOrgModuleEnabled, ORG_RECRUITMENT_CACHE_EVENT } from '../lib/api';
@@ -39,7 +39,6 @@ export default function PermissionRouteGuard({
   const [mounted, setMounted] = useState(false);
   const [modulesTick, setModulesTick] = useState(0);
   const pathname = usePathname();
-  const searchParams = useSearchParams();
   const { hasAnyPermission } = usePermissions();
 
   useEffect(() => {
@@ -56,14 +55,15 @@ export default function PermissionRouteGuard({
     };
   }, []);
 
-  const search = searchParams?.toString() ? `?${searchParams.toString()}` : '';
-  if (!anyPermissions?.length && hqModuleId == null && !getHqModuleIdForPath(pathname, search)) {
-    return <>{children}</>;
-  }
-
   // Permissions / HQ modules are read from localStorage — must not branch during SSR.
   if (!mounted) {
     return <PermissionGuardShell />;
+  }
+
+  // Prefer window search after mount (avoids Next useSearchParams Suspense bailout on prerender).
+  const search = typeof window !== 'undefined' ? window.location.search || '' : '';
+  if (!anyPermissions?.length && hqModuleId == null && !getHqModuleIdForPath(pathname, search)) {
+    return <>{children}</>;
   }
 
   const resolvedModuleId = hqModuleId ?? getHqModuleIdForPath(pathname, search);
