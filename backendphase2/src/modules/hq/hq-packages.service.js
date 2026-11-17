@@ -3,6 +3,7 @@ import { env } from '../../config/env.js';
 import {
   DEFAULT_HQ_PACKAGES,
   enrichPackageDoc,
+  getDefaultPackageTemplate,
   resolveBillingCycle,
   resolvePackageSlug,
   toAssignablePlan,
@@ -62,17 +63,41 @@ function toPackageRow(doc) {
   };
 }
 
+/** Ensure every built-in package exists (even if the collection already has other rows). */
 async function seedDefaultPackagesIfEmpty(collection) {
-  const count = await collection.countDocuments({});
-  if (count > 0) return;
   const now = new Date();
-  await collection.insertMany(
-    DEFAULT_HQ_PACKAGES.map((pkg) => ({
-      ...pkg,
-      createdAt: now,
-      updatedAt: now,
-    }))
-  );
+  const count = await collection.countDocuments({});
+  if (count === 0) {
+    await collection.insertMany(
+      DEFAULT_HQ_PACKAGES.map((pkg) => ({
+        ...pkg,
+        createdAt: now,
+        updatedAt: now,
+      })),
+    );
+    return;
+  }
+
+  for (const pkg of DEFAULT_HQ_PACKAGES) {
+    const existing = await collection.findOne({
+      $or: [
+        { slug: pkg.slug },
+        { name: new RegExp(`^${String(pkg.name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+      ],
+    });
+    if (existing) continue;
+    await collection.updateOne(
+      { slug: pkg.slug },
+      {
+        $setOnInsert: {
+          ...pkg,
+          createdAt: now,
+          updatedAt: now,
+        },
+      },
+      { upsert: true },
+    );
+  }
 }
 
 function parseFeatures(value) {
@@ -150,7 +175,19 @@ export const hqPackagesService = {
   },
 
   async resolvePlanInput(raw, billingCycle, planStartDate) {
-    const packages = await this.listPackages();
+    let packages = [];
+    try {
+      packages = await this.listPackages();
+    } catch (err) {
+      console.warn(
+        '[hq-packages] listPackages failed; falling back to DEFAULT_HQ_PACKAGES:',
+        err?.message || err,
+      );
+      packages = DEFAULT_HQ_PACKAGES.map((pkg, index) => ({
+        ...pkg,
+        id: pkg.slug || `default-${index}`,
+      }));
+    }
     if (!raw) return null;
 
     const cycle = resolveBillingCycle(
@@ -192,6 +229,21 @@ export const hqPackagesService = {
         endDate,
       );
 
+    const fromDefaultTemplate = (slugOrName, overrides = {}) => {
+      const template = getDefaultPackageTemplate(slugOrName, slugOrName);
+      if (!template) return null;
+      return toAssignablePlan(
+        {
+          ...template,
+          id: template.slug,
+          ...overrides,
+        },
+        cycle,
+        startDate,
+        endDate,
+      );
+    };
+
     if (typeof raw === 'string') {
       const s = raw.trim();
       const key = resolvePackageSlug(s, s);
@@ -203,15 +255,18 @@ export const hqPackagesService = {
           p.id === s ||
           p.slug === slugify(s) ||
           p.slug === key ||
-          p.name.toLowerCase() === s.toLowerCase() ||
-          p.name.toLowerCase() === key
+          String(p.name || '').toLowerCase() === s.toLowerCase() ||
+          String(p.name || '').toLowerCase() === key ||
+          String(p.displayName || '').toLowerCase() === s.toLowerCase() ||
+          String(p.displayName || '').toLowerCase() === key
       );
-      return found ? toAssignablePlan(found, cycle, startDate, endDate) : null;
+      if (found) return toAssignablePlan(found, cycle, startDate, endDate);
+      return fromDefaultTemplate(s);
     }
 
     const id = String(raw.id || '').trim();
     const name = String(raw.name || '').trim();
-    const key = resolvePackageSlug(id, name);
+    const key = resolvePackageSlug(id || name, name || id);
     if (key === 'custom' || name.toLowerCase() === 'custom' || id.toLowerCase() === 'custom') {
       return buildCustomPlan(raw);
     }
@@ -219,10 +274,13 @@ export const hqPackagesService = {
       packages.find(
         (p) =>
           (id && p.id === id) ||
-          (name && p.name.toLowerCase() === name.toLowerCase()) ||
-          (key && (p.slug === key || p.name.toLowerCase() === key))
+          (name && String(p.name || '').toLowerCase() === name.toLowerCase()) ||
+          (key && (p.slug === key || String(p.name || '').toLowerCase() === key)) ||
+          (name && String(p.displayName || '').toLowerCase() === name.toLowerCase()) ||
+          (key && String(p.displayName || '').toLowerCase() === key)
       ) || null;
-    return found ? toAssignablePlan(found, cycle, startDate, endDate) : null;
+    if (found) return toAssignablePlan(found, cycle, startDate, endDate);
+    return fromDefaultTemplate(name || id || key, raw);
   },
 
   async createPackage(data) {
