@@ -48,6 +48,22 @@ export const DEFAULT_HQ_PACKAGES = [
     annualMaxJobs: null,
     isSystem: true,
   },
+  {
+    slug: 'custom',
+    name: 'Custom',
+    displayName: 'CUSTOM',
+    description: 'HQ-negotiated plan with custom price and limits.',
+    price: '',
+    yearlyPrice: '',
+    pricePeriod: 'per month',
+    features: [],
+    isPopular: false,
+    maxUsers: null,
+    maxJobs: null,
+    annualMaxUsers: null,
+    annualMaxJobs: null,
+    isSystem: true,
+  },
 ];
 
 const SLUG_ALIASES = {
@@ -196,6 +212,7 @@ export const PACKAGE_TIER_ORDER = {
   starter: 1,
   professional: 2,
   enterprise: 3,
+  custom: 4,
 };
 
 export function getPackageTierRank(slugOrName) {

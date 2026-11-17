@@ -160,9 +160,44 @@ export const hqPackagesService = {
       planStartDate ?? (typeof raw === 'object' ? raw?.planStartDate : undefined);
     const endDate = typeof raw === 'object' ? raw?.planEndDate : undefined;
 
+    const buildCustomPlan = (source = {}) =>
+      toAssignablePlan(
+        {
+          id: 'custom',
+          slug: 'custom',
+          name: 'Custom',
+          price: source.price ?? '',
+          yearlyPrice: source.yearlyPrice ?? '',
+          maxUsers:
+            source.maxUsers === undefined || source.maxUsers === ''
+              ? null
+              : source.maxUsers,
+          maxJobs:
+            source.maxJobs === undefined || source.maxJobs === ''
+              ? null
+              : source.maxJobs,
+          annualMaxUsers:
+            source.annualMaxUsers === undefined || source.annualMaxUsers === ''
+              ? null
+              : source.annualMaxUsers,
+          annualMaxJobs:
+            source.annualMaxJobs === undefined || source.annualMaxJobs === ''
+              ? null
+              : source.annualMaxJobs,
+          monthlyJobPublishLimit: source.monthlyJobPublishLimit,
+          coins: source.coins,
+        },
+        cycle,
+        startDate,
+        endDate,
+      );
+
     if (typeof raw === 'string') {
       const s = raw.trim();
       const key = resolvePackageSlug(s, s);
+      if (key === 'custom' || s.toLowerCase() === 'custom') {
+        return buildCustomPlan();
+      }
       const found = packages.find(
         (p) =>
           p.id === s ||
@@ -177,6 +212,9 @@ export const hqPackagesService = {
     const id = String(raw.id || '').trim();
     const name = String(raw.name || '').trim();
     const key = resolvePackageSlug(id, name);
+    if (key === 'custom' || name.toLowerCase() === 'custom' || id.toLowerCase() === 'custom') {
+      return buildCustomPlan(raw);
+    }
     const found =
       packages.find(
         (p) =>
