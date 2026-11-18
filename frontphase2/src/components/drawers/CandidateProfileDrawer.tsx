@@ -658,6 +658,15 @@ export function CandidateProfileDrawer({
     setEditError('');
   }, [candidate, showEditModal, isSavingEdit]);
 
+  // Profile hydrate can flip a list stub into Phase 1 after Edit was already opened.
+  // Seed missing edit state once so Save Candidate is not left permanently disabled.
+  useEffect(() => {
+    if (!candidate || !showEditModal || isSavingEdit) return;
+    if (!isPhase1PortalCandidate(candidate)) return;
+    setPhase1EditSnapshot((prev) => prev ?? initPhase1EditSnapshotFromProfile(candidate));
+    setEditForm((prev) => prev ?? buildCandidateEditForm(candidate));
+  }, [candidate, showEditModal, isSavingEdit]);
+
   useEffect(() => {
     if (!candidate || !editModalOpenToken || loadingCandidateProfile) return;
     if (lastEditModalOpenTokenRef.current === editModalOpenToken) return;
@@ -703,32 +712,41 @@ export function CandidateProfileDrawer({
 
   const handleEditSave = async () => {
     if (!candidate || !onUpdateCandidate) return;
-    const isPhase1Edit = isPhase1PortalCandidate(candidate) && phase1EditSnapshot;
-    if (!isPhase1Edit && !editForm) return;
+    const phase1SnapshotForSave =
+      phase1EditSnapshot ||
+      (!editForm && isPhase1PortalCandidate(candidate)
+        ? initPhase1EditSnapshotFromProfile(candidate)
+        : null);
+    const isPhase1Edit = Boolean(phase1SnapshotForSave);
+    const formForSave = editForm || (!isPhase1Edit ? buildCandidateEditForm(candidate) : null);
+    if (!isPhase1Edit && !formForSave) {
+      setEditError('Candidate edit form is not ready yet. Please try again.');
+      return;
+    }
 
     try {
       setIsSavingEdit(true);
       setEditError('');
-      if (!isPhase1Edit && editForm) {
-        validateEditFormStructured(editForm);
+      if (!isPhase1Edit && formForSave) {
+        validateEditFormStructured(formForSave);
       }
 
       let payload = isPhase1Edit
-        ? buildUpdatePayloadFromPhase1EditSnapshot(candidate, phase1EditSnapshot)
-        : buildUpdatePayloadFromEditForm(editForm!, candidate.extraData);
+        ? buildUpdatePayloadFromPhase1EditSnapshot(candidate, phase1SnapshotForSave!)
+        : buildUpdatePayloadFromEditForm(formForSave!, candidate.extraData);
 
-      if (isPhase1Edit && editForm) {
+      if (isPhase1Edit && formForSave) {
         payload = applyHiringFieldsFromEditForm(
           payload,
-          editForm,
+          formForSave,
           candidate.assignedJobId,
           (candidate.assignedJobs || []).map((row) => String(row?.id || '').trim()).filter(Boolean),
         );
-      } else if (editForm) {
-        const nextIds = Array.isArray(editForm.assignedJobIds)
-          ? editForm.assignedJobIds.map((id) => String(id || '').trim()).filter(Boolean)
-          : String(editForm.assignedJobId || '').trim()
-            ? [String(editForm.assignedJobId).trim()]
+      } else if (formForSave) {
+        const nextIds = Array.isArray(formForSave.assignedJobIds)
+          ? formForSave.assignedJobIds.map((id) => String(id || '').trim()).filter(Boolean)
+          : String(formForSave.assignedJobId || '').trim()
+            ? [String(formForSave.assignedJobId).trim()]
             : [];
         const prevIds = (candidate.assignedJobs || [])
           .map((row) => String(row?.id || '').trim())
@@ -739,7 +757,7 @@ export function CandidateProfileDrawer({
         const addedJobs = nextIds.filter((id) => !prevSet.has(id));
         if (addedJobs.length > 0) {
           const previousStage = String(candidate.stage || '').trim().toLowerCase();
-          const formStage = String(editForm.stage || payload.stage || '').trim();
+          const formStage = String(formForSave.stage || payload.stage || '').trim();
           const formStageLower = formStage.toLowerCase();
           // Edit form often re-sends the old stage with a job change — reset to Applied.
           if (!formStage || formStageLower === 'new' || formStageLower === previousStage) {
@@ -786,7 +804,9 @@ export function CandidateProfileDrawer({
       }
       setToastMessage('Candidate updated successfully.');
     } catch (error: any) {
-      setEditError(error?.message || 'Unable to update candidate right now.');
+      const message = error?.message || 'Unable to update candidate right now.';
+      setEditError(message);
+      toast.error(message);
     } finally {
       setIsSavingEdit(false);
     }
@@ -837,10 +857,7 @@ export function CandidateProfileDrawer({
       <button
         type="button"
         onClick={() => void handleEditSave()}
-        disabled={
-          isSavingEdit ||
-          (isPhase1PortalCandidate(candidate) ? !phase1EditSnapshot : !editForm)
-        }
+        disabled={isSavingEdit || (!editForm && !phase1EditSnapshot)}
         className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-70"
       >
         <SquarePen size={16} />
