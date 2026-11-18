@@ -7,7 +7,7 @@ import { integrationService } from './integration.service.js';
 async function readReturnUrlFromState(provider, state) {
   if (!state) return '';
 
-  if (provider === 'twitter') {
+  if (provider === 'twitter' || provider === 'zoom') {
     const stored = await peekOAuthPkce(String(state));
     if (stored?.returnUrl) return String(stored.returnUrl);
   }
