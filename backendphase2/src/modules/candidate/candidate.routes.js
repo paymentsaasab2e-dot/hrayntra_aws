@@ -30,7 +30,7 @@ router.patch('/:id/interviews/:interviewId', requireAnyPermission(['interviews_u
 router.post('/bulk-action', requireAnyPermission(['candidates_update', 'edit_candidate', 'delete_candidate', 'move_pipeline', 'submit_candidate']), candidateController.bulkAction);
 router.get('/:id', requireAnyPermission(['candidates_read', 'view_all_candidates', 'view_assigned_candidates']), candidateController.getById);
 router.post('/', requireAnyPermission(['candidates_create', 'add_candidate']), candidateController.create);
-router.patch('/:id', requireAnyPermission(['candidates_update', 'edit_candidate']), candidateController.update);
+router.patch('/:id', requireAnyPermission(['candidates_update', 'edit_candidate', 'move_pipeline', 'submit_candidate']), candidateController.update);
 router.delete('/:id', requireAnyPermission(['candidates_delete', 'delete_candidate']), candidateController.delete);
 
 export default router;
