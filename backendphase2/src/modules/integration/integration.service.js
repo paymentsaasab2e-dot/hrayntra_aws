@@ -68,7 +68,16 @@ const PROVIDERS = {
   zoom: {
     label: 'Zoom',
     family: 'zoom',
-    scopes: ['meeting:write', 'meeting:read', 'user:read'],
+    // Zoom Marketplace now uses granular scopes (classic meeting:write / user:read are invalid).
+    scopes:
+      Array.isArray(env.ZOOM_OAUTH_SCOPES) && env.ZOOM_OAUTH_SCOPES.length
+        ? env.ZOOM_OAUTH_SCOPES
+        : [
+            'meeting:write:meeting',
+            'meeting:read:meeting',
+            'user:read:user',
+            'user:read:email',
+          ],
   },
   twitter: {
     label: 'Twitter/X',
@@ -118,6 +127,10 @@ function getCallbackUrl(provider) {
 
   if (provider === 'facebook') {
     return env.FACEBOOK_REDIRECT_URI || `${env.BACKEND_PUBLIC_URL}/api/v1/auth/facebook/callback`;
+  }
+
+  if (provider === 'zoom') {
+    return env.ZOOM_REDIRECT_URI || `${env.BACKEND_PUBLIC_URL}/api/v1/auth/zoom/callback`;
   }
 
   return `${env.BACKEND_PUBLIC_URL}/api/v1/auth/${provider}/callback`;
@@ -494,14 +507,27 @@ export const integrationService = {
     }
 
     if (config.family === 'zoom') {
-      const state = createOAuthState(statePayload);
+      // Short opaque state (JWT state can break Zoom consent → marketplace.zoom.us/error).
+      // Scopes come from Marketplace app config — do not pass `scope` in the URL.
+      const stateId = crypto.randomBytes(24).toString('base64url');
+      await storeOAuthPkce(stateId, {
+        userId,
+        tenantDbName,
+        returnUrl,
+        provider: 'zoom',
+      });
       const params = new URLSearchParams({
         response_type: 'code',
         client_id: env.ZOOM_CLIENT_ID,
         redirect_uri: callbackUrl,
-        state,
+        state: stateId,
       });
-      return `https://zoom.us/oauth/authorize?${params.toString()}`;
+      const authorizeUrl = `https://zoom.us/oauth/authorize?${params.toString()}`;
+      console.log('[integration] Zoom OAuth authorize URL ready', {
+        redirect_uri: callbackUrl,
+        state_length: stateId.length,
+      });
+      return authorizeUrl;
     }
 
     if (config.family === 'twitter') {
@@ -574,6 +600,17 @@ export const integrationService = {
         userId: String(stored.userId),
         tenantDbName: String(stored.tenantDbName || ''),
         extraScopes: [String(stored.codeVerifier)],
+        returnUrl: String(stored.returnUrl || ''),
+      };
+    } else if (provider === 'zoom') {
+      const stored = await consumeOAuthPkce(state);
+      if (!stored?.userId) {
+        throw new Error('Invalid or expired Zoom OAuth state');
+      }
+      parsedState = {
+        userId: String(stored.userId),
+        tenantDbName: String(stored.tenantDbName || ''),
+        extraScopes: [],
         returnUrl: String(stored.returnUrl || ''),
       };
     } else {
@@ -662,7 +699,11 @@ export const integrationService = {
           redirect_uri: callbackUrl,
         }),
       });
-      if (!response.ok) throw new Error('Zoom OAuth failed');
+      if (!response.ok) {
+        const errorBody = await response.text().catch(() => '');
+        console.error('[integration] Zoom token exchange failed:', response.status, errorBody);
+        throw new Error(`Zoom OAuth failed (${response.status})`);
+      }
       tokens = await response.json();
       profile = await fetchZoomProfile(tokens.access_token);
     }
