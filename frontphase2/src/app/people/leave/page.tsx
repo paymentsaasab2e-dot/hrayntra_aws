@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { Cloud } from 'lucide-react';
+import { ChevronDown, Cloud } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   apiApplyLeave,
@@ -34,6 +34,7 @@ export default function LeavePage() {
   const [endDate, setEndDate] = useState('');
 
   const load = async () => {
+    // Keep the current rows visible until the refreshed list arrives.
     const [emp, er, list] = await Promise.all([
       apiGetEmployees({ limit: 50 }),
       apiListLegalEmployers(),
@@ -79,7 +80,7 @@ export default function LeavePage() {
           <input className={fieldClass} type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
           <button
             type="button"
-            className={PH2_HEADER_PILL_PRIMARY}
+            className={`${PH2_HEADER_PILL_PRIMARY} !w-auto !px-4`}
             onClick={async () => {
               try {
                 await apiApplyLeave({ employeeId, leaveTypeId, startDate, endDate });
@@ -90,24 +91,30 @@ export default function LeavePage() {
               }
             }}
           >
-            Apply
+            Request leave
           </button>
         </PeopleFormRow>
         <ul className="mt-3 text-sm">
           {rows.map((row) => (
-            <li key={row.id} className="flex items-center justify-between py-2">
+            <li key={row.id} className="flex items-center justify-between gap-2 py-2">
               <span>
                 {String(row.startDate).slice(0, 10)} → {String(row.endDate).slice(0, 10)} · {row.days}d · {row.status}
               </span>
               {row.status === 'PENDING' ? (
-                <span className="flex gap-2">
-                  <button type="button" className={PH2_HEADER_PILL} onClick={() => void apiDecideLeave(row.id, 'APPROVED').then(load)}>
-                    Approve
-                  </button>
-                  <button type="button" className={PH2_HEADER_PILL} onClick={() => void apiDecideLeave(row.id, 'REJECTED').then(load)}>
-                    Reject
-                  </button>
-                </span>
+                <details className="group shrink-0">
+                  <summary className={`${PH2_HEADER_PILL} !w-auto cursor-pointer list-none !px-3 [&::-webkit-details-marker]:hidden`}>
+                    More
+                    <ChevronDown aria-hidden="true" className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />
+                  </summary>
+                  <div className="mt-2 flex gap-2">
+                    <button type="button" className={`${PH2_HEADER_PILL} !w-auto !px-3`} onClick={() => void apiDecideLeave(row.id, 'APPROVED').then(load)}>
+                      Approve
+                    </button>
+                    <button type="button" className={`${PH2_HEADER_PILL} !w-auto !px-3`} onClick={() => void apiDecideLeave(row.id, 'REJECTED').then(load)}>
+                      Reject
+                    </button>
+                  </div>
+                </details>
               ) : null}
             </li>
           ))}
