@@ -15,14 +15,9 @@ function signUploadSubPath(subPath) {
 /**
  * Resolve backendphase2 internal API base URL for portal sync / employer provisioning.
  * In production, never call localhost — default to api2.hryantra.com when env is missing.
- *
- * Env values may accidentally be comma-joined (e.g. Docker internal + public):
- *   PHASE2_INTERNAL_API_URL=https://backendphase2:5001,https://test-api2.hryantra.com
- * Those must be split and scored — never passed whole into `new URL` / `fetch`.
  */
 
 const PRODUCTION_PHASE2_API_ORIGIN = 'https://api2.hryantra.com';
-const TESTING_PHASE2_API_ORIGIN = 'https://test-api2.hryantra.com';
 const { getPhase2PortalSyncSecretOrEmpty } = require('../config/secrets');
 
 function stripTrailingSlashes(value) {
@@ -38,30 +33,6 @@ function isLoopbackHost(url) {
   }
 }
 
-function isValidAbsoluteHttpUrl(value) {
-  try {
-    const parsed = new URL(value);
-    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
-  } catch {
-    return false;
-  }
-}
-
-/** Docker/k8s service hostnames have no public DNS (e.g. backendphase2). */
-function isDockerInternalHost(url) {
-  try {
-    const host = new URL(url).hostname.toLowerCase();
-    if (!host || host.includes(':')) return true;
-    if (isLoopbackHost(url)) return true;
-    // Single-label host → compose service name
-    if (!host.includes('.')) return true;
-    if (host.endsWith('.local') || host.endsWith('.internal') || host.endsWith('.svc')) return true;
-    return false;
-  } catch {
-    return true;
-  }
-}
-
 function normalizePhase2ApiOrigin(raw) {
   let base = stripTrailingSlashes(raw);
   if (!base) return '';
@@ -70,79 +41,26 @@ function normalizePhase2ApiOrigin(raw) {
   return stripTrailingSlashes(base);
 }
 
-/**
- * Split accidental multi-value env strings into individual origin candidates.
- * Supports comma / semicolon / whitespace separators.
- */
-function expandOriginCandidates(raw) {
-  return String(raw || '')
-    .split(/[,;\s]+/)
-    .map((part) => normalizePhase2ApiOrigin(part))
-    .filter(Boolean)
-    .filter(isValidAbsoluteHttpUrl);
-}
-
-function isTestingRuntime() {
-  const markers = [
-    process.env.APP_ENV,
-    process.env.DEPLOY_ENV,
-    process.env.HRAYNTRA_ENV,
-    process.env.NODE_ENV,
-    process.env.PHASE2_INTERNAL_API_URL,
-    process.env.PHASE2_API_URL,
-    process.env.PHASE2_BASE_URL,
-  ]
-    .map((v) => String(v || '').toLowerCase())
-    .join(' ');
-  return (
-    markers.includes('test-api2') ||
-    markers.includes('testing') ||
-    markers.includes('staging') ||
-    process.env.APP_ENV === 'test' ||
-    process.env.DEPLOY_ENV === 'test'
-  );
-}
-
-function scoreOriginCandidate(url, { isProd }) {
-  if (!isValidAbsoluteHttpUrl(url)) return -1000;
-  if (isProd && isLoopbackHost(url)) return -1000;
-
-  let score = 0;
-  try {
-    const host = new URL(url).hostname.toLowerCase();
-    if (host === 'test-api2.hryantra.com') score += 50;
-    else if (host === 'api2.hryantra.com') score += 40;
-    else if (host.endsWith('.hryantra.com')) score += 30;
-    else if (!isDockerInternalHost(url)) score += 20;
-    else score += 5; // docker-internal still usable when both services share a network
-    if (url.startsWith('https://') && !isDockerInternalHost(url)) score += 5;
-  } catch {
-    return -1000;
-  }
-  return score;
-}
-
-function pickBestOrigin(candidates, { isProd }) {
-  const ranked = [...candidates]
-    .map((url) => ({ url, score: scoreOriginCandidate(url, { isProd }) }))
-    .filter((row) => row.score > -1000)
-    .sort((a, b) => b.score - a.score);
-  return ranked[0]?.url || '';
-}
-
 function resolvePhase2InternalApiOrigin() {
   const candidates = [
     process.env.PHASE2_INTERNAL_API_URL,
     process.env.PHASE2_API_URL,
     process.env.PHASE2_BASE_URL,
-  ].flatMap(expandOriginCandidates);
+  ]
+    .map(normalizePhase2ApiOrigin)
+    .filter(Boolean);
 
   const isProd = process.env.NODE_ENV === 'production';
-  const best = pickBestOrigin(candidates, { isProd });
-  if (best) return best;
+
+  for (const candidate of candidates) {
+    if (isProd && isLoopbackHost(candidate)) {
+      continue;
+    }
+    return candidate;
+  }
 
   if (isProd) {
-    return isTestingRuntime() ? TESTING_PHASE2_API_ORIGIN : PRODUCTION_PHASE2_API_ORIGIN;
+    return PRODUCTION_PHASE2_API_ORIGIN;
   }
 
   return candidates[0] || 'http://127.0.0.1:5001';
@@ -233,18 +151,6 @@ async function postPhase2Internal(path, body) {
     };
   }
 
-  if (!isValidAbsoluteHttpUrl(url)) {
-    return {
-      ok: false,
-      status: 0,
-      data: {
-        message: `Invalid Phase 2 API URL after resolving PHASE2_INTERNAL_API_URL (got: ${url}). Use a single origin such as https://test-api2.hryantra.com`,
-      },
-      url,
-      networkError: true,
-    };
-  }
-
   const headers = { 'Content-Type': 'application/json' };
   if (secret) {
     headers['x-phase2-portal-sync-secret'] = secret;
@@ -271,7 +177,6 @@ async function postPhase2Internal(path, body) {
 
 module.exports = {
   PRODUCTION_PHASE2_API_ORIGIN,
-  TESTING_PHASE2_API_ORIGIN,
   resolvePhase2InternalApiOrigin,
   resolvePhase2UploadUrl,
   resolvePhase2PortalSyncSecret,
@@ -280,6 +185,4 @@ module.exports = {
   toPublicUploadsApiUrl,
   isLoopbackHost,
   normalizePhase2ApiOrigin,
-  expandOriginCandidates,
-  pickBestOrigin,
 };

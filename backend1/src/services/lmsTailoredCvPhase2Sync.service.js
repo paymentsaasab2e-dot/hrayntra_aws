@@ -1,10 +1,14 @@
 const { prisma } = require('../lib/prisma');
 const { mapLmsDraftToRecruiterCvFields } = require('./lmsTailoredCvMapper.service');
 const { getPhase2PortalSyncSecretOrEmpty } = require('../config/secrets');
-const { resolvePhase2InternalApiOrigin } = require('../utils/phase2InternalApi.util');
 
 function getPhase2BaseUrl() {
-  return resolvePhase2InternalApiOrigin();
+  return (
+    process.env.PHASE2_INTERNAL_API_URL ||
+    process.env.PHASE2_API_URL ||
+    process.env.PHASE2_BASE_URL ||
+    'http://localhost:5001'
+  );
 }
 
 function getPhase2SyncSecret() {
