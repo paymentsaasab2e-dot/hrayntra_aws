@@ -26,8 +26,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { createPortal } from 'react-dom';
-import { AiCoinLockBadge, useAiCoinGate } from '../../components/coins/AiCoinGate';
-import { TokenCoinIcon } from '../../components/coins/TokenCoinIcon';
+import { useAiCoinGate } from '../../components/coins/AiCoinGate';
 import { downloadCsv } from '../../utils/csv';
 import { ExportColumnsModal } from '../../components/export/ExportColumnsModal';
 import { buildJobsCsvColumns, JOBS_EXPORT_COLUMNS } from '../../lib/export/jobsExportColumns';
@@ -65,6 +64,7 @@ import type { JobForDrawer, JobCandidateItem } from '../../components/drawers/Jo
 
 import { PageErrorBoundary } from '../../components/PageErrorBoundary';
 import { JobPublishQuotaMeter } from '../../components/jobs/JobPublishQuotaMeter';
+import { HeaderMore } from '../../components/HeaderMore';
 
 import {
   SmartSearchActiveKeywordsBar,
@@ -1184,87 +1184,65 @@ export function JobListPage() {
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <JobPublishQuotaMeter />
-
-            <ShowSummaryCardsButton
-              open={showSummaryCards}
-              onToggle={() => setShowSummaryCards((open) => !open)}
-            />
-                  <button
-                    type="button"
-              onClick={() => void reloadMyJobsAndMetrics()}
-              className={PH2_HEADER_PILL_ICON}
-              title="Refresh jobs"
-                  >
-              <RefreshCcw size={16} strokeWidth={2.25} className="shrink-0" />
-                  </button>
-            {canDeleteJob ? (
-                  <button
-                    type="button"
-                onClick={() => setRecycleBinDrawerOpen(true)}
-                className={PH2_HEADER_PILL_ICON}
-                title="Deleted jobs"
-                  >
-                <Inbox size={17} strokeWidth={2.25} />
-                  </button>
-            ) : null}
-                <button
-                  type="button"
-                  onClick={() => void openExportModal()}
-              className={PH2_HEADER_PILL}
-                  title="Export visible jobs to CSV"
-                >
-              <Download size={16} className="text-indigo-500" strokeWidth={2.25} />
-              <span className="hidden sm:inline">Export</span>
-                </button>
             {canCreateJob ? (
-              <div
-                role="group"
-                aria-label="Create job"
-                className="inline-flex h-9 overflow-hidden rounded-full shadow-[0_8px_18px_-8px_rgba(91,82,224,0.45)]"
+              <button
+                type="button"
+                onClick={() => openCreateJob('manual')}
+                className="inline-flex h-9 items-center gap-1.5 rounded-full bg-[#5B52E0] px-4 text-xs font-semibold text-white hover:bg-[#4F46D8]"
               >
+                <Plus size={14} className="text-white" strokeWidth={2.5} />
+                Create job
+              </button>
+            ) : null}
+            <HeaderMore>
+              <ShowSummaryCardsButton
+                open={showSummaryCards}
+                onToggle={() => setShowSummaryCards((open) => !open)}
+              />
+              <button
+                type="button"
+                onClick={() => void reloadMyJobsAndMetrics()}
+                className={PH2_HEADER_PILL_ICON}
+                title="Refresh jobs"
+              >
+                <RefreshCcw size={16} strokeWidth={2.25} className="shrink-0" />
+              </button>
+              {canDeleteJob ? (
                 <button
                   type="button"
-                  aria-pressed={createJobMode === 'ai'}
+                  onClick={() => setRecycleBinDrawerOpen(true)}
+                  className={PH2_HEADER_PILL_ICON}
+                  title="Deleted jobs"
+                >
+                  <Inbox size={17} strokeWidth={2.25} />
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => void openExportModal()}
+                className={PH2_HEADER_PILL}
+                title="Export visible jobs to CSV"
+              >
+                <Download size={16} className="text-indigo-500" strokeWidth={2.25} />
+                <span>Export</span>
+              </button>
+              {canCreateJob ? (
+                <button
+                  type="button"
                   onClick={() => openCreateJob('ai')}
-                  className={`inline-flex items-center gap-1.5 px-3.5 text-xs font-semibold transition-colors ${
-                    jobAiGate.locked
-                      ? 'bg-amber-50 text-amber-800 hover:bg-amber-100'
-                      : 'bg-[#EDE9FE] text-[#5B52E0] hover:bg-[#E4DFFC]'
-                  }`}
+                  className={`${PH2_HEADER_PILL} ${jobAiGate.locked ? 'text-amber-800' : ''}`}
                   title={
                     jobAiGate.locked
                       ? `Locked — needs ${jobAiGate.cost} coins (you have ${jobAiGate.coins})`
                       : `Create a job with AI (${jobAiGate.cost} coins when you generate)`
                   }
                 >
-                  {jobAiGate.locked ? (
-                    <Lock size={14} className="text-amber-600" strokeWidth={2.25} />
-                  ) : (
-                    <Sparkles size={14} className="text-[#7C73ED]" strokeWidth={2.25} />
-                  )}
-                  <span className="hidden sm:inline">Create with AI</span>
-                  {jobAiGate.locked ? (
-                    <AiCoinLockBadge featureId="ai.job_from_prompt" />
-                  ) : jobAiGate.cost > 0 ? (
-                    <span className="inline-flex items-center gap-0.5 text-[11px] font-bold text-[#5B52E0]">
-                      <TokenCoinIcon className="h-3.5 w-3.5" />
-                      {jobAiGate.cost}
-                    </span>
-                  ) : null}
+                  {jobAiGate.locked ? <Lock size={14} /> : <Sparkles size={14} />}
+                  <span>Create with AI</span>
                 </button>
-                <button
-                  type="button"
-                  aria-pressed={createJobMode === 'manual'}
-                  onClick={() => openCreateJob('manual')}
-                  className="inline-flex items-center gap-1.5 bg-[#5B52E0] px-3.5 text-xs font-semibold text-white transition-colors hover:bg-[#4F46D8]"
-                  title="Create a job manually"
-                >
-                  <Plus size={14} className="text-white" strokeWidth={2.5} />
-                  <span className="hidden sm:inline">Create Manually</span>
-                </button>
-              </div>
-            ) : null}
-              </div>
+              ) : null}
+            </HeaderMore>
+          </div>
         }
       >
         <div className="mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col overflow-hidden">

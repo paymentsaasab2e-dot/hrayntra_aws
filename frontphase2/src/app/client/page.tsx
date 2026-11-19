@@ -23,7 +23,8 @@ import {
   Sparkles,
   Lock,
 } from 'lucide-react';
-import { AiCoinLockBadge, useAiCoinGate } from '../../components/coins/AiCoinGate';
+import { useAiCoinGate } from '../../components/coins/AiCoinGate';
+import { HeaderMore } from '../../components/HeaderMore';
 import { downloadCsv } from '../../utils/csv';
 import { formatDateDMY } from '../../utils/dateDisplay';
 import { extractAuditMeta } from '../../utils/auditMeta';
@@ -245,8 +246,8 @@ const EmptyState = ({
     </h3>
     <p className="text-slate-500 max-w-sm mb-8 text-sm">
       {isRecruitmentScope
-        ? 'Add a recruitment client or import from CSV. Jobs are created under these accounts.'
-        : 'Start building your agency pipeline by adding your first CRM client or importing them from a CSV file.'}
+        ? 'Click Add client. Jobs are created under these accounts.'
+        : 'Click Add client. The same company record is used when you are ready to hire.'}
     </p>
     <div className="flex flex-wrap items-center justify-center gap-3">
       {onCreateClick ? (
@@ -1267,6 +1268,22 @@ export default function App() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {canCreateClient ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setCreateClientMode('manual');
+                  setAddClientWithAi(false);
+                  setSelectedClientId(null);
+                  setShowAddClientDrawer(true);
+                }}
+                className="inline-flex h-9 items-center gap-1.5 rounded-full bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-4 text-xs font-semibold text-white"
+              >
+                <Plus size={14} className="text-white" strokeWidth={2.5} />
+                Add client
+              </button>
+            ) : null}
+            <HeaderMore>
             <ShowSummaryCardsButton
               open={showSummaryCards}
               onToggle={() => setShowSummaryCards((open) => !open)}
@@ -1275,7 +1292,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setRecycleBinDrawerOpen(true)}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-indigo-200/80 bg-white text-indigo-700 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.2)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98]"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-indigo-200/80 bg-white text-indigo-700"
                 title="Deleted clients"
               >
                 <Inbox size={17} strokeWidth={2.25} />
@@ -1285,7 +1302,7 @@ export default function App() {
               type="button"
               onClick={handleRefresh}
               disabled={loading}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-indigo-200/80 bg-white text-indigo-700 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.2)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98] disabled:opacity-50"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-indigo-200/80 bg-white text-indigo-700 disabled:opacity-50"
               title="Refresh"
             >
               <RefreshCcw size={16} strokeWidth={2.25} className={loading ? 'animate-spin' : ''} />
@@ -1293,31 +1310,25 @@ export default function App() {
             <button
               type="button"
               onClick={() => void openExportModal()}
-              className="bg-white hover:bg-indigo-50/90 text-indigo-900 px-3 py-2 rounded-lg font-semibold text-xs flex items-center gap-1.5 transition-all shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] border border-indigo-200/70 hover:border-indigo-300 hover:shadow-[0_6px_20px_-4px_rgba(99,102,241,0.35)] active:scale-[0.98]"
+              className="bg-white text-indigo-900 px-3 py-2 rounded-lg font-semibold text-xs flex items-center gap-1.5 border border-indigo-200/70"
               title="Choose columns and export visible clients to CSV"
             >
               <Download size={16} className="text-indigo-600" strokeWidth={2.25} />
-              <span className="hidden sm:inline">Export</span>
+              <span>Export</span>
             </button>
             {canCreateClient ? (
             <button
               type="button"
               onClick={() => setShowImportDrawer(true)}
-              className="bg-white hover:bg-indigo-50/90 text-indigo-900 px-3 py-2 rounded-lg font-semibold text-xs flex items-center gap-1.5 transition-all shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] border border-indigo-200/70 hover:border-indigo-300 hover:shadow-[0_6px_20px_-4px_rgba(99,102,241,0.35)] active:scale-[0.98]"
+              className="bg-white text-indigo-900 px-3 py-2 rounded-lg font-semibold text-xs flex items-center gap-1.5 border border-indigo-200/70"
             >
               <Upload size={16} className="text-indigo-600" strokeWidth={2.25} />
-              <span className="hidden sm:inline">Import</span>
+              <span>Import</span>
             </button>
             ) : null}
             {canCreateClient ? (
-            <div
-              role="group"
-              aria-label="Create client"
-              className="inline-flex items-center rounded-lg border border-slate-200/90 bg-slate-100/90 p-0.5 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.18)]"
-            >
               <button
                 type="button"
-                aria-pressed={createClientMode === 'ai'}
                 onClick={() => {
                   if (clientAiGate.locked) {
                     void clientAiGate.confirmAndUnlock();
@@ -1328,52 +1339,13 @@ export default function App() {
                   setSelectedClientId(null);
                   setShowAddClientDrawer(true);
                 }}
-                className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-all ${
-                  clientAiGate.locked
-                    ? 'text-amber-800 hover:bg-amber-50'
-                    : createClientMode === 'ai'
-                      ? 'bg-white text-violet-800 shadow-sm ring-1 ring-violet-200/70'
-                      : 'text-slate-500 hover:bg-white/60 hover:text-violet-700'
-                }`}
-                title={
-                  clientAiGate.locked
-                    ? `Locked — needs ${clientAiGate.cost} coins (you have ${clientAiGate.coins})`
-                    : `Create a client with AI (${clientAiGate.cost} coins per chat message)`
-                }
+                className="bg-white text-indigo-900 px-3 py-2 rounded-lg font-semibold text-xs flex items-center gap-1.5 border border-indigo-200/70"
               >
-                {clientAiGate.locked ? (
-                  <Lock size={14} className="text-amber-600" strokeWidth={2.25} />
-                ) : (
-                  <Sparkles size={14} className="text-violet-600" strokeWidth={2.25} />
-                )}
-                <span className="hidden sm:inline">Create with AI</span>
-                <AiCoinLockBadge featureId="ai.client_chat" />
+                {clientAiGate.locked ? <Lock size={14} /> : <Sparkles size={14} className="text-violet-600" />}
+                <span>Create with AI</span>
               </button>
-              <button
-                type="button"
-                aria-pressed={createClientMode === 'manual'}
-                onClick={() => {
-                  setCreateClientMode('manual');
-                  setAddClientWithAi(false);
-                  setSelectedClientId(null);
-                  setShowAddClientDrawer(true);
-                }}
-                className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-all ${
-                  createClientMode === 'manual'
-                    ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-sm'
-                    : 'text-slate-500 hover:bg-white/60 hover:text-indigo-700'
-                }`}
-                title="Create a client manually"
-              >
-                <Plus
-                  size={14}
-                  className={createClientMode === 'manual' ? 'text-white' : 'text-indigo-500'}
-                  strokeWidth={2.5}
-                />
-                <span className="hidden sm:inline">Create Manually</span>
-              </button>
-            </div>
             ) : null}
+            </HeaderMore>
           </div>
         </header>
 

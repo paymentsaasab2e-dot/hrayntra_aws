@@ -25,7 +25,8 @@ import {
   Sparkles,
   Lock,
 } from 'lucide-react';
-import { AiCoinLockBadge, useAiCoinGate } from '../../components/coins/AiCoinGate';
+import { HeaderMore } from '../../components/HeaderMore';
+import { useAiCoinGate } from '../../components/coins/AiCoinGate';
 import {
   buildLeadSearchHaystack,
   buildLeadsListApiParams,
@@ -1975,6 +1976,21 @@ export default function RecruitmentAgencyDashboard() {
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+            {canCreateLead ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setCreateLeadMode('manual');
+                  setAddLeadWithAi(false);
+                  setAddLeadDrawerOpen(true);
+                }}
+                className={`${LEADS_HEADER_PILL_PRIMARY} !w-auto !px-4`}
+              >
+                <Plus size={14} className="text-white" strokeWidth={2.5} />
+                <span>Create lead</span>
+              </button>
+            ) : null}
+            <HeaderMore>
             <ShowSummaryCardsButton
               open={showSummaryCards}
               onToggle={() => setShowSummaryCards((open) => !open)}
@@ -2008,82 +2024,39 @@ export default function RecruitmentAgencyDashboard() {
               </button>
             )}
             {isAuthenticated === false && (
-              <a
-                href="/login"
-                className="text-sm text-slate-600 hover:text-blue-600 font-medium px-3 py-2 rounded-full hover:bg-white/80 transition-colors"
-              >
+              <a href="/login" className="px-3 py-2 text-sm font-medium text-slate-600">
                 Log in
               </a>
             )}
-            <button
-              type="button"
-              onClick={openExportModal}
-              className={LEADS_HEADER_PILL}
-              title="Export"
-            >
+            <button type="button" onClick={openExportModal} className={`${LEADS_HEADER_PILL} !w-auto !px-3`} title="Export">
               <Download size={16} className="text-indigo-500" strokeWidth={2.25} />
-              <span className={LEADS_BTN_LABEL}>Export</span>
+              <span>Export</span>
             </button>
             {canCreateLead && (
-              <button
-                type="button"
-                onClick={() => setImportDrawerOpen(true)}
-                className={LEADS_HEADER_PILL}
-                title="Import"
-              >
+              <button type="button" onClick={() => setImportDrawerOpen(true)} className={`${LEADS_HEADER_PILL} !w-auto !px-3`} title="Import">
                 <Upload size={16} className="text-indigo-500" strokeWidth={2.25} />
-                <span className={LEADS_BTN_LABEL}>Import</span>
+                <span>Import</span>
               </button>
             )}
             {canCreateLead && (
-              <>
-                <button
-                  type="button"
-                  aria-pressed={createLeadMode === 'ai'}
-                  onClick={() => {
-                    if (leadAiGate.locked) {
-                      void leadAiGate.confirmAndUnlock();
-                      return;
-                    }
-                    setCreateLeadMode('ai');
-                    setAddLeadWithAi(true);
-                    setAddLeadDrawerOpen(true);
-                  }}
-                  className={`${leadAiGate.locked ? LEADS_HEADER_PILL : LEADS_HEADER_PILL_AI} ${
-                    leadAiGate.locked ? 'text-amber-800' : ''
-                  }`}
-                  title={
-                    leadAiGate.locked
-                      ? `Locked — needs ${leadAiGate.cost} coins (you have ${leadAiGate.coins})`
-                      : `Create a lead with AI (${leadAiGate.cost} coins per chat message)`
+              <button
+                type="button"
+                onClick={() => {
+                  if (leadAiGate.locked) {
+                    void leadAiGate.confirmAndUnlock();
+                    return;
                   }
-                >
-                  {leadAiGate.locked ? (
-                    <Lock size={14} className="text-amber-600" strokeWidth={2.25} />
-                  ) : (
-                    <Sparkles size={14} className="text-violet-500" strokeWidth={2.25} />
-                  )}
-                  <span className={LEADS_BTN_LABEL}>Create with AI</span>
-                  <span className="hidden sm:inline-flex">
-                    <AiCoinLockBadge featureId="ai.lead_chat" />
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  aria-pressed={createLeadMode === 'manual'}
-                  onClick={() => {
-                    setCreateLeadMode('manual');
-                    setAddLeadWithAi(false);
-                    setAddLeadDrawerOpen(true);
-                  }}
-                  className={LEADS_HEADER_PILL_PRIMARY}
-                  title="Create a lead manually"
-                >
-                  <Plus size={14} className="text-white" strokeWidth={2.5} />
-                  <span className={LEADS_BTN_LABEL}>Create Manually</span>
-                </button>
-              </>
+                  setCreateLeadMode('ai');
+                  setAddLeadWithAi(true);
+                  setAddLeadDrawerOpen(true);
+                }}
+                className={`${LEADS_HEADER_PILL} !w-auto !px-3`}
+              >
+                {leadAiGate.locked ? <Lock size={14} /> : <Sparkles size={14} className="text-violet-500" />}
+                <span>Create with AI</span>
+              </button>
             )}
+            </HeaderMore>
           </div>
         </header>
 

@@ -25,6 +25,8 @@ router.post('/location/resolve', requireCoins('ai.location_resolve'), aiControll
 router.get('/location/reverse', aiController.reverseGeocodeLocation);
 router.post('/smart-search/parse', requireCoins('ai.smart_search'), aiController.parseSmartSearch);
 router.post('/assistant-chat', requireCoins('ai.assistant_chat'), aiController.assistantChat);
+router.post('/known-command', aiController.knownCommand);
+router.post('/known-command/undo', aiController.undoKnownCommand);
 router.post('/undo', aiController.executeUndo);
 router.get('/assistant-history/:pageKey', aiController.getAssistantHistory);
 router.put('/assistant-history/:pageKey', aiController.saveAssistantHistory);

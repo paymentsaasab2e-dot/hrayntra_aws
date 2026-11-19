@@ -12,6 +12,7 @@ import { pipelineService } from '../pipeline/pipeline.service.js';
 import { taskService } from '../task/task.service.js';
 import { placementService } from '../placement/placement.service.js';
 import { undoService } from './undo.service.js';
+import { executeKnownPeopleCommand } from './ariaKnownCommands.js';
 
 const MAX_ROWS = 80;
 const DEFAULT_ROWS = 28;
@@ -1397,6 +1398,33 @@ export async function executeAssistantActionTool(user, rawArgs) {
           null
         );
         return { ok: true, action: actionType, entity: 'Placement', data: result };
+      }
+      case 'punch_attendance':
+      case 'decide_leave':
+      case 'lock_attendance_month':
+      case 'run_payroll': {
+        const parsed =
+          actionType === 'punch_attendance'
+            ? { kind: 'punch', name: String(payload.employeeName || payload.name || '').trim() }
+            : actionType === 'decide_leave'
+              ? {
+                  kind: 'leave',
+                  decision: String(payload.decision || payload.status || 'APPROVED').toUpperCase() === 'REJECTED'
+                    ? 'REJECTED'
+                    : 'APPROVED',
+                }
+              : actionType === 'lock_attendance_month'
+                ? { kind: 'lock' }
+                : { kind: 'payroll' };
+        const result = await executeKnownPeopleCommand(user, parsed);
+        return {
+          ok: Boolean(result.ok),
+          action: actionType,
+          entity: 'People',
+          data: result,
+          undoPayload: result.undoPayload || null,
+          error: result.ok ? undefined : result.summary,
+        };
       }
       default:
         return { ok: false, error: `Unsupported action_type: ${actionType}` };

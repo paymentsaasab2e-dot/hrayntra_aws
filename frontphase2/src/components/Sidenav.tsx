@@ -7,6 +7,8 @@ import { MODULE_ACCESS_MAP } from '../lib/rbac/moduleAccess';
 import { matchesQuickSearch, buildQuickSearchHaystack } from '../lib/quickSearch';
 import { crmNavItems, peopleNavItems, recruitmentNavItems } from '../lib/navConfig';
 import { AskAriaBar } from './AskAriaBar';
+import { TodayStrip } from './TodayStrip';
+import { JobPublishQuotaMeter } from './jobs/JobPublishQuotaMeter';
 import { useUser } from '../hooks/useUser';
 import { NavItem, NavGroupFlyout } from './sidenavParts/NavItems';
 
@@ -851,23 +853,8 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
             />
           )}
 
-          {/* Free Jobs — flat tabs (no Recruitment group): Dashboard, Jobs, Candidates */}
           {mounted && freeJobsFlatNav && canViewRecruitmentNav ? (
             <>
-              {canViewRecruitmentDashboard ? (
-                <NavItem
-                  icon={LayoutDashboard}
-                  label="Dashboard"
-                  href="/recruitment"
-                  collapsed={navCollapsed}
-                  onNavigate={handleNavigate}
-                  accent="indigo"
-                  active={
-                    (pathname || '') === '/recruitment' ||
-                    (pathname || '').startsWith('/recruitment/')
-                  }
-                />
-              ) : null}
               {canViewJobs ? (
                 <NavItem
                   icon={Briefcase}
@@ -892,6 +879,11 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
                     (pathname || '').startsWith('/candidate/')
                   }
                 />
+              ) : null}
+              {!navCollapsed ? (
+                <div className="px-2 pb-1">
+                  <JobPublishQuotaMeter className="!h-8 !w-full !justify-start !border-white/15 !bg-white/10 !text-sky-100" />
+                </div>
               ) : null}
             </>
           ) : null}
@@ -934,6 +926,18 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
             />
           )}
 
+          <SuiteFrame fold={Boolean(mounted && freeJobsFlatNav)}>
+          {mounted && freeJobsFlatNav && canViewRecruitmentDashboard ? (
+            <NavItem
+              icon={LayoutDashboard}
+              label="Dashboard"
+              href="/recruitment"
+              collapsed={navCollapsed}
+              onNavigate={handleNavigate}
+              accent="indigo"
+              active={(pathname || '') === '/recruitment' || (pathname || '').startsWith('/recruitment/')}
+            />
+          ) : null}
           <Divider />
 
           {(mounted && isOrgModuleEnabled('tasks_activities') && (showAll || hasAnyPermission(MODULE_ACCESS_MAP.Tasks))) && (
@@ -1028,6 +1032,7 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
           {mounted && isOrgModuleEnabled('settings') && (
             <NavItem icon={Settings} label="Settings" href="/setting" collapsed={navCollapsed} onNavigate={handleNavigate} accent="slate" />
           )}
+          </SuiteFrame>
           
         </div>
 
@@ -1152,6 +1157,7 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
         <PageErrorBoundary key={pathname || 'page'}>
           <div className="px-3 pt-3 sm:px-5">
             <AskAriaBar />
+            <TodayStrip />
           </div>
           {children || (
             <div className="p-6">
@@ -1169,6 +1175,19 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
         onClose={() => setNotificationDrawerOpen(false)}
       />
     </div>
+  );
+}
+
+function SuiteFrame({ fold, children }: { fold: boolean; children: React.ReactNode }) {
+  if (!fold) return <>{children}</>;
+  return (
+    <details className="group mx-2 my-1">
+      <summary className="flex cursor-pointer list-none items-center gap-2 rounded-lg px-2 py-2 text-xs font-semibold text-slate-200 [&::-webkit-details-marker]:hidden">
+        More
+        <ChevronDown aria-hidden="true" className="ml-auto h-3.5 w-3.5 transition-transform group-open:rotate-180" />
+      </summary>
+      {children}
+    </details>
   );
 }
 

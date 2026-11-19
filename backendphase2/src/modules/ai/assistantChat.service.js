@@ -70,7 +70,7 @@ const EXECUTE_RECRUITMENT_ACTION_TOOL = {
   function: {
     name: 'execute_recruitment_action',
     description:
-      'Execute safe write actions in the ATS such as create/update lead, client, job, candidate updates, pipeline stage moves, interview scheduling, tasks, and placements. DELETE operations are forbidden.',
+      'Execute safe write actions in the ATS and People: create/update lead, client, job, candidate updates, pipeline stage moves, interview scheduling, tasks, placements, punch attendance, approve or reject leave, lock the attendance month, and run payroll. DELETE operations are forbidden.',
     parameters: {
       type: 'object',
       properties: {
@@ -93,6 +93,10 @@ const EXECUTE_RECRUITMENT_ACTION_TOOL = {
             'create_placement',
             'update_placement',
             'mark_placement_joined',
+            'punch_attendance',
+            'decide_leave',
+            'lock_attendance_month',
+            'run_payroll',
           ],
         },
         record_id: {

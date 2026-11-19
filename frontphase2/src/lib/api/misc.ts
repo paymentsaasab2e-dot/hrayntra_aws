@@ -1589,6 +1589,27 @@ export async function apiBrainHealth() {
   return apiFetch<Record<string, unknown>>('/brain/health', { auth: true });
 }
 
+export async function apiUndoKnownAriaCommand(actionId: string) {
+  return apiFetch<{ ok: boolean; summary: string }>('/ai/known-command/undo', {
+    method: 'POST',
+    body: { actionId },
+    auth: true,
+  });
+}
+
+export async function apiRunKnownAriaCommand(text: string) {
+  return apiFetch<{
+    matched: boolean;
+    ok?: boolean;
+    summary?: string;
+    undoPayload?: { available: boolean; actionId: string; expiresAt: string; label: string } | null;
+  }>('/ai/known-command', {
+    method: 'POST',
+    body: { text },
+    auth: true,
+  });
+}
+
 export async function apiExecuteUndo(actionId: string) {
   return apiFetch<{
     success: boolean;

@@ -16,6 +16,8 @@ import { taskService } from '../task/task.service.js';
 import { placementService } from '../placement/placement.service.js';
 import { interviewService } from '../../services/interview.service.js';
 import { undoService } from './undo.service.js';
+import { executeKnownPeopleCommand, matchKnownPeopleCommand, undoKnownPeopleCommand } from './ariaKnownCommands.js';
+import { spendTenantCoins } from '../setting/tenantCoinWallet.service.js';
 import * as locationResolveService from '../../services/locationResolve.service.js';
 import { parseSmartSearchPrompt } from '../../services/smartSearch.service.js';
 import {
@@ -1235,6 +1237,42 @@ export const aiController = {
         return sendError(res, 503, 'AI smart search is not configured (missing API key)');
       }
       return sendError(res, 500, error.message || 'Failed to parse smart search prompt', error);
+    }
+  },
+
+  async knownCommand(req, res) {
+    try {
+      const parsed = matchKnownPeopleCommand(req.body?.text);
+      if (!parsed) return sendResponse(res, 200, 'OK', { matched: false });
+      if (!req.user?.isHqTeamMember) {
+        await spendTenantCoins('ai.assistant_chat', {
+          user: req.user,
+          meta: { path: '/ai/known-command' },
+        });
+      }
+      const result = await executeKnownPeopleCommand(req.user, parsed);
+      return sendResponse(res, 200, 'OK', { matched: true, ...result });
+    } catch (error) {
+      if (error.code === 'INSUFFICIENT_COINS' || error.status === 402) {
+        return res.status(402).json({
+          success: false,
+          message: error.message || 'Insufficient AI coins',
+          data: { code: 'INSUFFICIENT_COINS' },
+        });
+      }
+      console.error('[knownCommand]', error);
+      return sendError(res, 500, error.message || 'Command failed', error);
+    }
+  },
+
+  async undoKnownCommand(req, res) {
+    try {
+      const result = await undoKnownPeopleCommand(req.user, req.body?.actionId);
+      if (!result.ok) return sendError(res, 400, result.summary);
+      return sendResponse(res, 200, result.summary, result);
+    } catch (error) {
+      console.error('[undoKnownCommand]', error);
+      return sendError(res, 500, error.message || 'Undo failed', error);
     }
   },
 

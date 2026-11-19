@@ -138,7 +138,8 @@ import {
 import { effectiveCandidateSearchQuery } from '../../lib/candidateSearchGate';
 import { useWorkspaceEntityAlerts } from '../../hooks/useWorkspaceEntityAlerts';
 import { TableSkeleton } from '../../components/ui/Skeleton';
-import { AiCoinLockBadge, useAiCoinGate } from '../../components/coins/AiCoinGate';
+import { useAiCoinGate } from '../../components/coins/AiCoinGate';
+import { HeaderMore } from '../../components/HeaderMore';
 import {
   PH2_CLEAR_FILTER_CLASS,
   PH2_TABLE_BODY_SCROLL_CLASS,
@@ -464,13 +465,27 @@ export function CandidateListPage() {
               </div>
             </div>
             <div className="flex flex-nowrap items-center gap-1.5">
+              {canCreateCandidate ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCreateCandidateMode('manual');
+                    openCandidateDrawer('manual');
+                  }}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-full bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 px-4 text-xs font-semibold text-white"
+                >
+                  <Plus size={14} className="text-white" strokeWidth={2.5} />
+                  Add candidate
+                </button>
+              ) : null}
+              <HeaderMore>
               <button
                 type="button"
                 onClick={() => {
                   void loadCandidates();
                 }}
                 disabled={loading || tableLoading}
-                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-indigo-200/80 bg-white text-indigo-700 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.2)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98] disabled:opacity-50"
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-indigo-200/80 bg-white text-indigo-700"
                 title="Refresh"
               >
                 <RefreshCcw
@@ -483,7 +498,7 @@ export function CandidateListPage() {
                 <button
                   type="button"
                   onClick={() => setRecycleBinModuleOpen(true)}
-                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-indigo-200/80 bg-white text-indigo-700 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.2)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98]"
+                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-indigo-200/80 bg-white text-indigo-700"
                   title="Deleted candidates"
                 >
                   <Inbox size={17} strokeWidth={2.25} />
@@ -494,7 +509,7 @@ export function CandidateListPage() {
                   <button
                     type="button"
                     onClick={() => openCandidateDrawer('csv')}
-                    className="flex items-center gap-1.5 rounded-lg border border-indigo-200/70 bg-white px-3 py-2 text-xs font-semibold text-indigo-900 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98]"
+                    className="flex items-center gap-1.5 rounded-lg border border-indigo-200/70 bg-white px-3 py-2 text-xs font-semibold text-indigo-900"
                   >
                     <FileSpreadsheet size={16} className="text-indigo-600" strokeWidth={2.25} />
                     <span>Bulk CSV</span>
@@ -502,7 +517,7 @@ export function CandidateListPage() {
                   <button
                     type="button"
                     onClick={() => openCandidateDrawer('bulkResume')}
-                    className="flex items-center gap-1.5 rounded-lg border border-indigo-200/70 bg-white px-3 py-2 text-xs font-semibold text-indigo-900 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98]"
+                    className="flex items-center gap-1.5 rounded-lg border border-indigo-200/70 bg-white px-3 py-2 text-xs font-semibold text-indigo-900"
                   >
                     <FileText size={16} className="text-indigo-600" strokeWidth={2.25} />
                     <span>Bulk CV</span>
@@ -510,79 +525,39 @@ export function CandidateListPage() {
                   <button
                     type="button"
                     onClick={() => setFailedResumesDrawerOpen(true)}
-                    className={`relative flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold shadow-[0_4px_14px_-4px_rgba(99,102,241,0.2)] transition-all active:scale-[0.98] ${
-                      failedBulkResumeCount > 0
-                        ? 'border-rose-200 bg-rose-50 text-rose-800 hover:border-rose-300 hover:bg-rose-100'
-                        : 'border-indigo-200/70 bg-white text-indigo-900 hover:border-indigo-300 hover:bg-indigo-50/90'
-                    }`}
+                    className="relative flex items-center gap-1.5 rounded-lg border border-indigo-200/70 bg-white px-3 py-2 text-xs font-semibold text-indigo-900"
                   >
-                    <AlertCircle
-                      size={16}
-                      className={failedBulkResumeCount > 0 ? 'text-rose-600' : 'text-indigo-600'}
-                      strokeWidth={2.25}
-                    />
+                    <AlertCircle size={16} className="text-indigo-600" strokeWidth={2.25} />
                     <span>Failed resumes</span>
-                    {failedBulkResumeCount > 0 ? (
-                      <span className="ml-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-600 px-1 text-[9px] font-bold text-white">
-                        {failedBulkResumeCount > 99 ? '99+' : failedBulkResumeCount}
-                      </span>
-                    ) : null}
                   </button>
                   <button
                     type="button"
                     onClick={handleRepairBadNames}
-                    className="flex items-center gap-1.5 rounded-lg border border-indigo-200/70 bg-white px-3 py-2 text-xs font-semibold text-indigo-900 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98]"
+                    className="flex items-center gap-1.5 rounded-lg border border-indigo-200/70 bg-white px-3 py-2 text-xs font-semibold text-indigo-900"
                     title="Auto-fix names taken from CV filenames / titles"
                   >
                     <Sparkles size={16} className="text-indigo-600" strokeWidth={2.25} />
                     <span>Fix names</span>
                   </button>
-                </>
-              ) : null}
-              <button
-                type="button"
-                onClick={() => void openExportModal()}
-                className="flex items-center gap-1.5 rounded-lg border border-indigo-200/70 bg-white px-3 py-2 text-xs font-semibold text-indigo-900 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 hover:shadow-[0_6px_20px_-4px_rgba(99,102,241,0.35)] active:scale-[0.98]"
-                title="Export candidates to CSV"
-              >
-                <Download size={16} className="text-indigo-600" strokeWidth={2.25} />
-                <span className="hidden sm:inline">Export</span>
-              </button>
-              {canCreateCandidate ? (
-                <button
-                  type="button"
-                  onClick={() => openCandidateDrawer('resume')}
-                  className="flex items-center gap-1.5 rounded-lg border border-indigo-200/70 bg-white px-3 py-2 text-xs font-semibold text-indigo-900 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98]"
-                >
-                  <Upload size={16} className="text-indigo-600" strokeWidth={2.25} />
-                  <span>Upload</span>
-                </button>
-              ) : null}
-              {canCreateCandidate ? (
-                <button
-                  type="button"
-                  onClick={() => setTokensDrawerOpen(true)}
-                  className="flex items-center gap-1.5 rounded-lg border border-indigo-200/70 bg-white px-3 py-2 text-xs font-semibold text-indigo-900 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.25)] transition-all hover:border-indigo-300 hover:bg-indigo-50/90 active:scale-[0.98]"
-                  title="CV parse token usage (last bulk upload)"
-                >
-                  <Coins size={16} className="text-indigo-600" strokeWidth={2.25} />
-                  <span>Tokens</span>
-                  {bulkCvTokenResumeCount > 0 ? (
-                    <span className="ml-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-indigo-600 px-1 text-[9px] font-bold text-white">
-                      {bulkCvTokenResumeCount > 99 ? '99+' : bulkCvTokenResumeCount}
-                    </span>
-                  ) : null}
-                </button>
-              ) : null}
-              {canCreateCandidate ? (
-                <div
-                  role="group"
-                  aria-label="Create candidate"
-                  className="inline-flex items-center rounded-lg border border-slate-200/90 bg-slate-100/90 p-0.5 shadow-[0_4px_14px_-4px_rgba(99,102,241,0.18)]"
-                >
                   <button
                     type="button"
-                    aria-pressed={createCandidateMode === 'ai'}
+                    onClick={() => openCandidateDrawer('resume')}
+                    className="flex items-center gap-1.5 rounded-lg border border-indigo-200/70 bg-white px-3 py-2 text-xs font-semibold text-indigo-900"
+                  >
+                    <Upload size={16} className="text-indigo-600" strokeWidth={2.25} />
+                    <span>Upload</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTokensDrawerOpen(true)}
+                    className="flex items-center gap-1.5 rounded-lg border border-indigo-200/70 bg-white px-3 py-2 text-xs font-semibold text-indigo-900"
+                    title="CV parse token usage (last bulk upload)"
+                  >
+                    <Coins size={16} className="text-indigo-600" strokeWidth={2.25} />
+                    <span>Tokens</span>
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => {
                       if (candidateAiGate.locked) {
                         void candidateAiGate.confirmAndUnlock();
@@ -591,50 +566,23 @@ export function CandidateListPage() {
                       setCreateCandidateMode('ai');
                       openCandidateDrawer('manual');
                     }}
-                    className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-all ${
-                      candidateAiGate.locked
-                        ? 'text-amber-800 hover:bg-amber-50'
-                        : createCandidateMode === 'ai'
-                          ? 'bg-white text-violet-800 shadow-sm ring-1 ring-violet-200/70'
-                          : 'text-slate-500 hover:bg-white/60 hover:text-violet-700'
-                    }`}
-                    title={
-                      candidateAiGate.locked
-                        ? `Locked — needs ${candidateAiGate.cost} coins (you have ${candidateAiGate.coins})`
-                        : `Create a candidate with AI (${candidateAiGate.cost} coins per chat message)`
-                    }
+                    className="flex items-center gap-1.5 rounded-lg border border-indigo-200/70 bg-white px-3 py-2 text-xs font-semibold text-indigo-900"
                   >
-                    {candidateAiGate.locked ? (
-                      <Lock size={14} className="text-amber-600" strokeWidth={2.25} />
-                    ) : (
-                      <Sparkles size={14} className="text-violet-600" strokeWidth={2.25} />
-                    )}
-                    <span className="hidden sm:inline">Create with AI</span>
-                    <AiCoinLockBadge featureId="ai.candidate_chat" />
+                    {candidateAiGate.locked ? <Lock size={14} /> : <Sparkles size={14} className="text-violet-600" />}
+                    <span>Create with AI</span>
                   </button>
-                  <button
-                    type="button"
-                    aria-pressed={createCandidateMode === 'manual'}
-                    onClick={() => {
-                      setCreateCandidateMode('manual');
-                      openCandidateDrawer('manual');
-                    }}
-                    className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-all ${
-                      createCandidateMode === 'manual'
-                        ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 text-white shadow-sm'
-                        : 'text-slate-500 hover:bg-white/60 hover:text-indigo-700'
-                    }`}
-                    title="Create a candidate manually"
-                  >
-                    <Plus
-                      size={14}
-                      className={createCandidateMode === 'manual' ? 'text-white' : 'text-indigo-500'}
-                      strokeWidth={2.5}
-                    />
-                    <span className="hidden sm:inline">Create Manually</span>
-                  </button>
-                </div>
+                </>
               ) : null}
+              <button
+                type="button"
+                onClick={() => void openExportModal()}
+                className="flex items-center gap-1.5 rounded-lg border border-indigo-200/70 bg-white px-3 py-2 text-xs font-semibold text-indigo-900"
+                title="Export candidates to CSV"
+              >
+                <Download size={16} className="text-indigo-600" strokeWidth={2.25} />
+                <span>Export</span>
+              </button>
+              </HeaderMore>
             </div>
           </header>
 
