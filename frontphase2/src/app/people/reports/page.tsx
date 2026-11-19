@@ -30,7 +30,7 @@ export default function PeopleReportsPage() {
           setMuster((await apiMuster(id, now.getFullYear(), now.getMonth() + 1)).data);
         }
       } catch {
-        setHome((current) => current ?? {});
+        setHome((current: any) => current ?? {});
       } finally {
         setHomeReady(true);
       }
