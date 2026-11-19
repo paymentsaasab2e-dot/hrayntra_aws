@@ -1,0 +1,101 @@
+export declare function splitDisplayName(displayName: string, email: string): {
+    firstName: string;
+    lastName: string;
+};
+export declare function nextEmployeeCode(): Promise<string>;
+export declare function ensureOnboardingPipeline(input: {
+    name: string;
+    role: string;
+    department: string;
+    email: string;
+    employeeId?: string | null;
+    userId?: string | null;
+    loginCreated?: boolean;
+}): Promise<{
+    id: string;
+    name: string;
+    status: string;
+    createdAt: Date;
+    updatedAt: Date;
+    email: string | null;
+    role: string;
+    tenantId: string | null;
+    employeeId: string | null;
+    userId: string | null;
+    phone: string | null;
+    department: string;
+    country: string | null;
+    region: string | null;
+    city: string | null;
+    locality: string | null;
+    source: import(".prisma/client").$Enums.OnboardingSource;
+    progress: number;
+    joinDate: string;
+    tasks: {
+        label: string;
+        done: boolean;
+    }[];
+}>;
+export declare function provisionEmployeeForUser(input: {
+    userId: string;
+    email: string;
+    displayName: string;
+    role: string;
+    department?: string;
+    designation?: string;
+    employeeCode?: string;
+    locationId?: string;
+    orgUnitId?: string;
+    tenantId?: string | null;
+}): Promise<{
+    id: string;
+    status: import(".prisma/client").$Enums.EmployeeStatus;
+    createdAt: Date;
+    updatedAt: Date;
+    email: string;
+    tenantId: string | null;
+    orgUnitId: string | null;
+    employeeId: string;
+    firstName: string;
+    lastName: string;
+    userId: string | null;
+    phone: string | null;
+    designation: string;
+    department: string;
+    joiningDate: Date;
+    locationId: string | null;
+    reportsToUserId: string | null;
+    totalLeaves: number;
+    probationEndDate: Date | null;
+}>;
+export declare function provisionOnboardingForEmployeeOnly(input: {
+    name: string;
+    role: string;
+    department: string;
+    email: string;
+    employeeId: string;
+}): Promise<{
+    id: string;
+    name: string;
+    status: string;
+    createdAt: Date;
+    updatedAt: Date;
+    email: string | null;
+    role: string;
+    tenantId: string | null;
+    employeeId: string | null;
+    userId: string | null;
+    phone: string | null;
+    department: string;
+    country: string | null;
+    region: string | null;
+    city: string | null;
+    locality: string | null;
+    source: import(".prisma/client").$Enums.OnboardingSource;
+    progress: number;
+    joinDate: string;
+    tasks: {
+        label: string;
+        done: boolean;
+    }[];
+}>;

@@ -1,0 +1,20 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const auth_1 = require("../../shared/middleware/auth");
+const compensation_controller_1 = require("./compensation.controller");
+const router = (0, express_1.Router)();
+router.use(auth_1.authMiddleware);
+router.get('/profiles', compensation_controller_1.CompensationController.listProfiles);
+router.get('/profiles/match', compensation_controller_1.CompensationController.matchProfile);
+router.get('/profiles/:id', compensation_controller_1.CompensationController.getProfile);
+router.post('/profiles', (0, auth_1.authorize)(['ADMIN', 'HR']), compensation_controller_1.CompensationController.createProfile);
+router.put('/profiles/:id', (0, auth_1.authorize)(['ADMIN', 'HR']), compensation_controller_1.CompensationController.updateProfile);
+router.delete('/profiles/:id', (0, auth_1.authorize)(['ADMIN', 'HR']), compensation_controller_1.CompensationController.deleteProfile);
+router.post('/calculate', compensation_controller_1.CompensationController.calculate);
+router.get('/employee/:employeeId', compensation_controller_1.CompensationController.getEmployeeCompensation);
+router.put('/employee/:employeeId', (0, auth_1.authorize)(['ADMIN', 'HR']), compensation_controller_1.CompensationController.upsertEmployeeCompensation);
+router.get('/onboarding/:onboardingId', compensation_controller_1.CompensationController.getOnboardingCompensation);
+router.put('/onboarding/:onboardingId', (0, auth_1.authorize)(['ADMIN', 'HR']), compensation_controller_1.CompensationController.upsertOnboardingCompensation);
+exports.default = router;
+//# sourceMappingURL=compensation.routes.js.map

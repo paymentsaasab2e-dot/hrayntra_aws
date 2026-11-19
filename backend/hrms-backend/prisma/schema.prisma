@@ -1,0 +1,1434 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  PLATFORM_OWNER
+  ADMIN
+  HR
+  MANAGER
+  EMPLOYEE
+}
+
+enum UserAccountStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum EmployeeStatus {
+  ACTIVE
+  INACTIVE
+  TERMINATED
+  ON_LEAVE
+}
+
+model User {
+  id          String            @id @default(auto()) @map("_id") @db.ObjectId
+  email       String            @unique
+  password    String
+  role        Role              @default(EMPLOYEE)
+  displayName String?
+  permissions Json?
+  status      UserAccountStatus @default(ACTIVE)
+  tenantId    String?           @db.ObjectId
+  tenant      Tenant?           @relation(fields: [tenantId], references: [id])
+  orgUnitId   String?           @db.ObjectId
+  orgUnit     OrgUnit?          @relation(fields: [orgUnitId], references: [id])
+  employees   Employee[]
+  delegatedApprovals  ApprovalDelegation[] @relation("Delegator")
+  receivedDelegations ApprovalDelegation[] @relation("Delegatee")
+  complianceAcceptances ComplianceAcceptance[]
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+}
+
+model Employee {
+  id              String         @id @default(auto()) @map("_id") @db.ObjectId
+  employeeId      String         @unique // Custom ID like EMP001
+  firstName       String
+  lastName        String
+  userId          String?        @db.ObjectId
+  user            User?          @relation(fields: [userId], references: [id])
+  email           String         @unique
+  phone           String?
+  designation     String
+  department      String
+  joiningDate     DateTime
+  dateOfBirth     DateTime?
+  avatar          String?
+  status          EmployeeStatus @default(ACTIVE)
+  
+  // Attendance and Leave relations
+  attendance         Attendance[]
+  leaves             Leave[]
+  tasks              Task[]
+  assetAllocations   AssetAllocation[]
+  documents          Document[]
+  performanceReviews PerformanceReview[]
+  
+  // New fields
+  locationId      String?        @db.ObjectId
+  location        WorkLocation?  @relation(fields: [locationId], references: [id])
+  orgUnitId       String?        @db.ObjectId
+  orgUnit         OrgUnit?       @relation(fields: [orgUnitId], references: [id])
+  tenantId        String?        @db.ObjectId
+  tenant          Tenant?        @relation(fields: [tenantId], references: [id])
+  reportsToUserId String?        @db.ObjectId
+  totalLeaves     Int            @default(12)
+  probationEndDate DateTime?
+  separationRequests SeparationRequest[]
+  compensation    EmployeeCompensation?
+  fieldVisitAssignments FieldVisitAssignment[]
+  fieldVisitPings       FieldVisitLocationPing[]
+  changeRequests        EmployeeChangeRequest[]
+  employmentHistory     EmploymentHistory[]
+  customFields          Json?          // Dynamic attributes e.g. { blood_group: "O+", seat_number: "2A" }
+  emergencyContacts     EmployeeEmergencyContact[]
+  dependents            EmployeeDependent[]
+  nominees              EmployeeNominee[]
+  leaveAccrualLedgers   LeaveAccrualLedger[]
+  leaveEncashmentRequests LeaveEncashmentRequest[]
+  lopReversalAdjustments  LopReversalAdjustment[]
+  complianceAcceptances ComplianceAcceptance[]
+  trainingAssignments   TrainingAssignment[]
+  incrementRecommendations EmployeeIncrementRecommendation[]
+  talentAssessments       TalentAssessment[]
+  employeeSkills          EmployeeSkill[]
+  incumbentSuccessionPlans SuccessionPlan[]               @relation("Incumbent")
+  successionCandidateProfiles SuccessionCandidate[]       @relation("SuccessorCandidate")
+  gender          String?        // MALE, FEMALE, OTHER (for statutory maternity/paternity validation)
+  
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+}
+
+model WorkLocation {
+  id           String     @id @default(auto()) @map("_id") @db.ObjectId
+  name         String
+  address      String?
+  lat          Float
+  lng          Float
+  radiusMeters Int        @default(100)
+  isActive     Boolean    @default(true)
+  usage        LocationUsage @default(BOTH)
+  tenantId     String?    @db.ObjectId
+  tenant       Tenant?    @relation(fields: [tenantId], references: [id])
+  orgUnitId    String?    @db.ObjectId
+  orgUnit      OrgUnit?   @relation(fields: [orgUnitId], references: [id])
+  employees    Employee[]
+  fieldVisitAssignments FieldVisitAssignment[]
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+}
+
+enum LocationUsage {
+  ATTENDANCE
+  VISITS
+  BOTH
+}
+
+enum OrgUnitStatus {
+  ACTIVE
+  PENDING_HQ_APPROVAL
+}
+
+enum ApprovalRequestType {
+  USER_ONBOARDING
+  LEAVE
+  ORG_SETTINGS
+  EXIT
+  EMPLOYEE_CHANGE
+}
+
+enum PolicyDocumentStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum PolicyCategory {
+  LEAVE_ATTENDANCE
+}
+
+enum SeparationStatus {
+  DRAFT
+  SUBMITTED
+  MANAGER_APPROVED
+  ACCEPTED
+  IN_NOTICE
+  CLEARANCE_PENDING
+  COMPLETED
+  REJECTED
+  WITHDRAWN
+}
+
+enum SeparationExitType {
+  RESIGNATION
+  TERMINATION
+  RETIREMENT
+}
+
+enum ApprovalRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum TenantStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum TenantPackageKey {
+  STARTER
+  PROFESSIONAL
+  ENTERPRISE
+}
+
+model Tenant {
+  id               String                 @id @default(auto()) @map("_id") @db.ObjectId
+  name             String
+  slug             String                 @unique
+  status           TenantStatus           @default(ACTIVE)
+  packageKey       TenantPackageKey       @default(STARTER)
+  maxUsers         Int                    @default(25)
+  packagePermissions Json?
+  provisionedAdminUserId    String?  @db.ObjectId
+  provisionedAdminEmail     String?
+  provisionedAdminPassword  String?
+  /// When true, Operations → Users table shows an extra Location column
+  showUsersLocationColumn Boolean @default(false)
+  hierarchyLevels  TenantHierarchyLevel[]
+  approvalLevels   TenantApprovalLevel[]
+  orgUnits         OrgUnit[]
+  users            User[]
+  employees        Employee[]
+  workLocations    WorkLocation[]
+  holidays         Holiday[]
+  assets           Asset[]
+  documents        Document[]
+  projects         Project[]
+  tasks            Task[]
+  approvalRequests ApprovalRequest[]
+  policyDocuments  PolicyDocument[]
+  separationRequests SeparationRequest[]
+  payrollComplianceProfiles PayrollComplianceProfile[]
+  employeeCompensations EmployeeCompensation[]
+  onboardingHires OnboardingHire[]
+  employeeChangeRequests EmployeeChangeRequest[]
+  employmentHistories    EmploymentHistory[]
+  customFieldDefinitions CustomFieldDefinition[]
+  emergencyContacts      EmployeeEmergencyContact[]
+  dependents             EmployeeDependent[]
+  nominees               EmployeeNominee[]
+  celebrationWishes      CelebrationWish[]
+  hrTemplates            HrTemplate[]
+  leaveAccrualPlans      LeaveAccrualPlan[]
+  leaveAccrualLedgers    LeaveAccrualLedger[]
+  leaveEncashmentRequests LeaveEncashmentRequest[]
+  approvalDelegations    ApprovalDelegation[]
+  attendanceImportBatches AttendanceImportBatch[]
+  lopReversalAdjustments LopReversalAdjustment[]
+  complianceDocuments    ComplianceDocument[]
+  complianceAcceptances  ComplianceAcceptance[]
+  trainingCourses        TrainingCourse[]
+  trainingAssignments    TrainingAssignment[]
+  compensationCycles     CompensationCycle[]
+  departmentBudgetPools  DepartmentBudgetPool[]
+  talentAssessments      TalentAssessment[]
+  skillDefinitions       SkillDefinition[]
+  successionPlans        SuccessionPlan[]
+  headcountPlans         HeadcountPlan[]
+  jobRequisitions        JobRequisition[]
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+}
+
+model TenantHierarchyLevel {
+  id          String  @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId    String  @db.ObjectId
+  tenant      Tenant  @relation(fields: [tenantId], references: [id])
+  levelOrder  Int
+  code        String
+  displayName String
+  isLeaf      Boolean @default(false)
+}
+
+model TenantApprovalLevel {
+  id          String @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId    String @db.ObjectId
+  tenant      Tenant @relation(fields: [tenantId], references: [id])
+  level       Int
+  displayName String
+}
+
+model OrgUnit {
+  id              String         @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId        String         @db.ObjectId
+  tenant          Tenant         @relation(fields: [tenantId], references: [id])
+  parentId        String?        @db.ObjectId
+  parent          OrgUnit?       @relation("OrgTree", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  children        OrgUnit[]      @relation("OrgTree")
+  levelOrder      Int
+  name            String
+  path            String
+  isLeaf          Boolean        @default(false)
+  status          OrgUnitStatus  @default(ACTIVE)
+  createdByUserId String?        @db.ObjectId
+  employees       Employee[]
+  users           User[]
+  workLocations   WorkLocation[]
+  approvalRequests ApprovalRequest[]
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+}
+
+model ApprovalRequest {
+  id           String                @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId     String                @db.ObjectId
+  tenant       Tenant                @relation(fields: [tenantId], references: [id])
+  type         ApprovalRequestType
+  status       ApprovalRequestStatus @default(PENDING)
+  currentLevel Int                   @default(1)
+  maxLevel     Int                   @default(1)
+  payload      Json
+  requesterId  String?               @db.ObjectId
+  orgUnitId    String?               @db.ObjectId
+  orgUnit      OrgUnit?              @relation(fields: [orgUnitId], references: [id])
+  referenceId  String?
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+}
+
+enum AttendancePunchStatus {
+  ACCEPTED
+  REJECTED
+}
+
+model Attendance {
+  id              String                @id @default(auto()) @map("_id") @db.ObjectId
+  employeeId      String                @db.ObjectId
+  employee        Employee              @relation(fields: [employeeId], references: [id])
+  date            DateTime
+  checkInTime     DateTime
+  checkOutTime    DateTime?
+  status          AttendanceStatus      @default(PRESENT)
+  lat             Float?
+  lng             Float?
+  distanceMeters  Float?
+  punchStatus     AttendancePunchStatus @default(ACCEPTED)
+  isActive        Boolean               @default(true)
+  rejectionReason String?
+  punchMode       String?
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+  HALFDAY
+}
+
+model Leave {
+  id          String      @id @default(auto()) @map("_id") @db.ObjectId
+  employeeId  String      @db.ObjectId
+  employee    Employee    @relation(fields: [employeeId], references: [id])
+  type        LeaveType
+  startDate   DateTime
+  endDate     DateTime
+  reason      String
+  status      LeaveStatus @default(PENDING)
+  appliedAt   DateTime    @default(now())
+  processedBy String?     @db.ObjectId
+  processedAt DateTime?
+  adminRemark String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+}
+
+enum LeaveType {
+  CASUAL
+  SICK
+  EARNED
+  MATERNITY
+  PATERNITY
+  LOSS_OF_PAY
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model Holiday {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  name        String
+  date        DateTime
+  type        String?  // e.g. Public Holiday
+  description String?
+  isActive    Boolean  @default(true)
+  tenantId    String?  @db.ObjectId
+  tenant      Tenant?  @relation(fields: [tenantId], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([tenantId, date])
+}
+
+model Project {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  name          String
+  description   String?
+  projectHeadId String?  @db.ObjectId
+  status        String   @default("ACTIVE")
+  tenantId      String?  @db.ObjectId
+  tenant        Tenant?  @relation(fields: [tenantId], references: [id])
+  tasks         Task[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([tenantId, name])
+}
+
+enum TaskPriority {
+  LOW
+  LESS_URGENT
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TaskScheduleType {
+  NONE
+  SPECIFIC_DATE
+  DAY_OF_WEEK
+}
+
+model Task {
+  id                String           @id @default(auto()) @map("_id") @db.ObjectId
+  title             String
+  description       String?
+  remarks           String?
+  assignedTo        String           @db.ObjectId
+  employee          Employee         @relation(fields: [assignedTo], references: [id])
+  assigneeIds       String[]         @db.ObjectId
+  projectId         String?          @db.ObjectId
+  project           Project?         @relation(fields: [projectId], references: [id])
+  projectHeadId     String?          @db.ObjectId
+  assignedBy        String?          @db.ObjectId
+  isSelfTask        Boolean          @default(false)
+  dueDate           DateTime?
+  status            TaskStatus       @default(TODO)
+  priority          TaskPriority     @default(MEDIUM)
+  workDonePercent   Int              @default(0)
+  extraDescriptions Json?
+  reminderDates     Json?
+  reminderWeekdays  Json?
+  scheduleType      TaskScheduleType @default(NONE)
+  scheduledDate     DateTime?
+  scheduledWeekday  String?
+  tags              Json?
+  completedAt       DateTime?
+  approvalStatus    String?
+  tenantId          String?          @db.ObjectId
+  tenant            Tenant?          @relation(fields: [tenantId], references: [id])
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+}
+
+model Asset {
+  id            String            @id @default(auto()) @map("_id") @db.ObjectId
+  name          String
+  type          String
+  serialNumber  String
+  brand         String
+  model         String
+  status        String            @default("Available")
+  condition     String            @default("New")
+  purchasedOn   String
+  warrantyUntil String?
+  notes         String?
+  tenantId      String?           @db.ObjectId
+  tenant        Tenant?           @relation(fields: [tenantId], references: [id])
+  allocations   AssetAllocation[]
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  @@unique([tenantId, serialNumber])
+}
+
+model AssetAllocation {
+  id                String    @id @default(auto()) @map("_id") @db.ObjectId
+  assetId           String    @db.ObjectId
+  asset             Asset     @relation(fields: [assetId], references: [id])
+  employeeId        String    @db.ObjectId
+  employee          Employee  @relation(fields: [employeeId], references: [id])
+  issuedOn          String
+  expectedReturn    String?
+  returnedOn        String?
+  conditionOnIssue  String
+  conditionOnReturn String?
+  issuedBy          String
+  notes             String?
+  status            String    @default("Active")
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+}
+
+model Document {
+  id         String    @id @default(auto()) @map("_id") @db.ObjectId
+  name       String
+  type       String
+  category   String
+  employeeId String?   @db.ObjectId
+  employee   Employee? @relation(fields: [employeeId], references: [id])
+  uploadedBy String
+  uploadedAt DateTime  @default(now())
+  size       String
+  url        String
+  status     String    @default("Active")
+  tags       String[]
+  tenantId   String?   @db.ObjectId
+  tenant     Tenant?   @relation(fields: [tenantId], references: [id])
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}
+
+model PerformanceReview {
+  id                String             @id @default(auto()) @map("_id") @db.ObjectId
+  employeeId        String             @db.ObjectId
+  employee          Employee           @relation(fields: [employeeId], references: [id])
+  cycle             String
+  cycleType         String
+  metrics           Metrics
+  insights          Insights
+  selfAssessment    SelfAssessment?
+  managerAssessment ManagerAssessment?
+  status            String             @default("Pending Self Review")
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+}
+
+type Metrics {
+  taskScore       Float
+  attendanceScore Float
+  leaveScore      Float
+  managerScore    Float
+  finalScore      Float
+  category        String
+  breakdown       Json?
+}
+
+type Insights {
+  strengths       String[]
+  weaknesses      String[]
+  recommendations String[]
+}
+
+type SelfAssessment {
+  submittedAt String
+  rating      Float
+  comments    String
+}
+
+type ManagerAssessment {
+  submittedAt String
+  managerId   String
+  rating      Float
+  feedback    String
+}
+
+enum OnboardingSource {
+  MANUAL
+  BULK_IMPORT
+  EXTERNAL_ATS
+}
+
+enum SalaryAnchorType {
+  ANNUAL_CTC
+  MONTHLY_CTC
+  MONTHLY_GROSS
+}
+
+enum SalaryComponentSection {
+  EARNING
+  DEDUCTION
+  EMPLOYER_CONTRIBUTION
+}
+
+enum SalaryCalcType {
+  PERCENT_OF_ANCHOR
+  PERCENT_OF_COMPONENT
+  PERCENT_OF_GROSS
+  FIXED
+  BALANCE_OF_GROSS
+}
+
+type SalaryComponentRule {
+  code     String
+  name     String
+  section  SalaryComponentSection
+  calcType SalaryCalcType
+  value    Float
+  baseRef  String?
+  cap      Float?
+  order    Int
+}
+
+model PayrollComplianceProfile {
+  id           String                @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId     String                @db.ObjectId
+  tenant       Tenant                @relation(fields: [tenantId], references: [id])
+  name         String
+  country      String
+  region       String?
+  city         String?
+  locality     String?
+  currencyCode String                @default("INR")
+  anchorType   SalaryAnchorType      @default(ANNUAL_CTC)
+  components   SalaryComponentRule[]
+  documentUrl  String?
+  isDefault    Boolean               @default(false)
+  compensations EmployeeCompensation[]
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+}
+
+model EmployeeCompensation {
+  id                  String                  @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId            String                  @db.ObjectId
+  tenant              Tenant                  @relation(fields: [tenantId], references: [id])
+  employeeId          String?                 @unique @db.ObjectId
+  employee            Employee?               @relation(fields: [employeeId], references: [id])
+  onboardingHireId    String?                 @unique @db.ObjectId
+  onboardingHire      OnboardingHire?         @relation(fields: [onboardingHireId], references: [id])
+  complianceProfileId String                  @db.ObjectId
+  complianceProfile   PayrollComplianceProfile @relation(fields: [complianceProfileId], references: [id])
+  anchorType          SalaryAnchorType
+  anchorValue         Float
+  currencyCode        String                  @default("INR")
+  componentOverrides  Json?
+  computedSnapshot    Json
+  effectiveFrom       DateTime                @default(now())
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+}
+
+model OnboardingHire {
+  id         String           @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId   String?          @db.ObjectId
+  tenant     Tenant?          @relation(fields: [tenantId], references: [id])
+  name       String
+  role       String
+  department String
+  email      String?
+  phone      String?
+  country    String?
+  region     String?
+  city       String?
+  locality   String?
+  source     OnboardingSource @default(MANUAL)
+  employeeId String?          @db.ObjectId
+  userId     String?          @db.ObjectId
+  progress   Int              @default(0)
+  joinDate   String
+  status     String           @default("Pending")
+  tasks      OnboardingTask[]
+  compensation EmployeeCompensation?
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+}
+
+type OnboardingTask {
+  label String
+  done  Boolean @default(false)
+}
+
+model PolicyDocument {
+  id              String               @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId        String               @db.ObjectId
+  tenant          Tenant               @relation(fields: [tenantId], references: [id])
+  title           String
+  category        PolicyCategory       @default(LEAVE_ATTENDANCE)
+  fileName        String?
+  fileUrl         String?
+  mimeType        String?
+  fileSize        Int?
+  extractedText   String?
+  draftRules      Json?
+  status          PolicyDocumentStatus @default(DRAFT)
+  uploadedByUserId String?             @db.ObjectId
+  versions        PolicyVersion[]
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+}
+
+model PolicyVersion {
+  id               String         @id @default(auto()) @map("_id") @db.ObjectId
+  policyDocumentId String         @db.ObjectId
+  policyDocument   PolicyDocument @relation(fields: [policyDocumentId], references: [id])
+  tenantId         String         @db.ObjectId
+  version          Int
+  effectiveFrom    DateTime       @default(now())
+  publishedAt      DateTime?
+  publishedByUserId String?       @db.ObjectId
+  rules            Json
+  isActive         Boolean        @default(false)
+  acknowledgments  PolicyAcknowledgment[]
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+}
+
+model PolicyAcknowledgment {
+  id              String        @id @default(auto()) @map("_id") @db.ObjectId
+  policyVersionId String        @db.ObjectId
+  policyVersion   PolicyVersion @relation(fields: [policyVersionId], references: [id])
+  userId          String        @db.ObjectId
+  acknowledgedAt  DateTime      @default(now())
+}
+
+model SeparationRequest {
+  id                   String             @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId             String             @db.ObjectId
+  tenant               Tenant             @relation(fields: [tenantId], references: [id])
+  employeeId           String             @db.ObjectId
+  employee             Employee           @relation(fields: [employeeId], references: [id])
+  requesterUserId      String?            @db.ObjectId
+  orgUnitId            String?            @db.ObjectId
+  exitType             SeparationExitType @default(RESIGNATION)
+  reason               String
+  resignationLetterUrl String?
+  submittedAt          DateTime?
+  requestedLWD         DateTime
+  approvedLWD          DateTime?
+  noticePeriodDays     Int
+  noticeShortfallDays  Int?
+  buyoutApproved       Boolean            @default(false)
+  status               SeparationStatus   @default(DRAFT)
+  managerRemark        String?
+  hrRemark             String?
+  checklist            Json?
+  completedAt          DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+}
+
+enum FieldVisitStatus {
+  PENDING
+  VERIFIED
+  MISSED
+  SKIPPED
+}
+
+model FieldVisitAssignment {
+  id             String           @id @default(auto()) @map("_id") @db.ObjectId
+  dateKey        String
+  employeeId     String           @db.ObjectId
+  employee       Employee         @relation(fields: [employeeId], references: [id])
+  locationId     String           @db.ObjectId
+  location       WorkLocation     @relation(fields: [locationId], references: [id])
+  sequence       Int              @default(0)
+  plannedTime    String?
+  status         FieldVisitStatus @default(PENDING)
+  verifiedAt     DateTime?
+  verifyLat      Float?
+  verifyLng      Float?
+  distanceMeters Float?
+  notes          String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+}
+
+model FieldVisitLocationPing {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  employeeId String   @db.ObjectId
+  employee   Employee @relation(fields: [employeeId], references: [id])
+  lat        Float
+  lng        Float
+  recordedAt DateTime @default(now())
+}
+
+enum ChangeRequestCategory {
+  PERSONAL_INFO
+  JOB_ROLE
+  BANK_DETAILS
+  STATUTORY
+  CUSTOM_FIELDS
+  BENEFICIARIES
+}
+
+enum EmploymentChangeType {
+  INITIAL_HIRE
+  PROMOTION
+  TRANSFER
+  REPORTING_CHANGE
+  CONFIRMATION
+  REVISION
+}
+
+model EmployeeChangeRequest {
+  id                  String                 @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId            String                 @db.ObjectId
+  tenant              Tenant                 @relation(fields: [tenantId], references: [id])
+  employeeId          String                 @db.ObjectId
+  employee            Employee               @relation(fields: [employeeId], references: [id])
+  requestedByUserId   String                 @db.ObjectId
+  category            ChangeRequestCategory  @default(JOB_ROLE)
+  effectiveDate       DateTime               @default(now())
+  reason              String
+  changes             Json                   // Map of { fieldName: { oldValue: any, newValue: any } }
+  status              ApprovalRequestStatus  @default(PENDING)
+  reviewedByUserId    String?                @db.ObjectId
+  reviewedAt          DateTime?
+  reviewRemark        String?
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+}
+
+model EmploymentHistory {
+  id              String               @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId        String               @db.ObjectId
+  tenant          Tenant               @relation(fields: [tenantId], references: [id])
+  employeeId      String               @db.ObjectId
+  employee        Employee             @relation(fields: [employeeId], references: [id])
+  changeType      EmploymentChangeType @default(INITIAL_HIRE)
+  effectiveDate   DateTime             @default(now())
+  endDate         DateTime?
+  designation     String
+  department      String
+  orgUnitId       String?              @db.ObjectId
+  orgUnitName     String?
+  locationId      String?              @db.ObjectId
+  locationName    String?
+  reportsToUserId String?              @db.ObjectId
+  reportsToName   String?
+  remarks         String?
+  changeRequestId String?              @db.ObjectId
+  recordedBy      String?              @db.ObjectId
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+}
+
+enum CustomFieldType {
+  TEXT
+  NUMBER
+  DATE
+  SELECT
+  BOOLEAN
+  TEXTAREA
+}
+
+enum CustomFieldSection {
+  PERSONAL
+  WORK_DETAILS
+  COMPLIANCE_KYC
+  OTHER
+}
+
+model CustomFieldDefinition {
+  id           String              @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId     String              @db.ObjectId
+  tenant       Tenant              @relation(fields: [tenantId], references: [id])
+  key          String              // unique per tenant e.g. "blood_group", "seat_number"
+  label        String              // Display label e.g. "Blood Group"
+  type         CustomFieldType     @default(TEXT)
+  section      CustomFieldSection  @default(PERSONAL)
+  options      String[]            // For SELECT type e.g. ["A+", "B+", "O+", "AB+", "A-", "B-", "O-", "AB-"]
+  required     Boolean             @default(false)
+  placeholder  String?
+  description  String?
+  isActive     Boolean             @default(true)
+  order        Int                 @default(0)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  @@unique([tenantId, key])
+}
+
+enum FamilyRelationship {
+  SPOUSE
+  FATHER
+  MOTHER
+  SON
+  DAUGHTER
+  BROTHER
+  SISTER
+  GUARDIAN
+  OTHER
+}
+
+enum NomineeBenefitScheme {
+  PF_EPF           // Employee Provident Fund (Form 2 Part A)
+  PF_EPS           // Employee Pension Scheme (Form 2 Part B)
+  GRATUITY         // Payment of Gratuity Act, 1972 (Form F)
+  INSURANCE_GTLI   // Group Term Life Insurance
+  INSURANCE_GPA    // Group Personal Accident
+  GENERAL          // Default / Company beneficiary
+}
+
+enum DependentGender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+model EmployeeEmergencyContact {
+  id              String             @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId        String             @db.ObjectId
+  tenant          Tenant             @relation(fields: [tenantId], references: [id])
+  employeeId      String             @db.ObjectId
+  employee        Employee           @relation(fields: [employeeId], references: [id])
+  
+  name            String
+  relationship    FamilyRelationship @default(OTHER)
+  primaryPhone    String
+  secondaryPhone  String?
+  email           String?
+  address         String?
+  isPrimary       Boolean            @default(false)
+
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+}
+
+model EmployeeDependent {
+  id                 String             @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId           String             @db.ObjectId
+  tenant             Tenant             @relation(fields: [tenantId], references: [id])
+  employeeId         String             @db.ObjectId
+  employee           Employee           @relation(fields: [employeeId], references: [id])
+
+  fullName           String
+  relationship       FamilyRelationship
+  gender             DependentGender    @default(OTHER)
+  dateOfBirth        DateTime
+  isCoveredUnderGmc  Boolean            @default(true)  // Group Medical Cover (Mediclaim)
+  nationalIdNumber   String?            // Aadhaar / ID for insurance claims
+  preExistingDisease String?            // For mediclaim underwriting notes
+  isDisabled         Boolean            @default(false) // Income Tax exemption / special coverage
+
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+}
+
+model EmployeeNominee {
+  id                 String               @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId           String               @db.ObjectId
+  tenant             Tenant               @relation(fields: [tenantId], references: [id])
+  employeeId         String               @db.ObjectId
+  employee           Employee             @relation(fields: [employeeId], references: [id])
+
+  name               String
+  relationship       FamilyRelationship
+  dateOfBirth        DateTime
+  scheme             NomineeBenefitScheme @default(GRATUITY)
+  sharePercentage    Float                // e.g. 50.0, 100.0 (Sum must equal 100% per scheme)
+  address            String?
+  nationalIdNumber   String?              // Aadhaar / PAN
+
+  // Minor Guardian Rules (Mandatory if Age < 18)
+  isMinor            Boolean              @default(false)
+  guardianName       String?
+  guardianRelation   String?
+  guardianAge        Int?
+  guardianAddress    String?
+
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+}
+
+model CelebrationWish {
+  id               String   @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId         String?  @db.ObjectId
+  tenant           Tenant?  @relation(fields: [tenantId], references: [id])
+  senderUserId     String?  @db.ObjectId
+  senderName       String
+  targetEmployeeId String   @db.ObjectId
+  targetName       String
+  type             String   // BIRTHDAY | ANNIVERSARY | WELCOME
+  message          String
+  createdAt        DateTime @default(now())
+}
+
+enum HrTemplateType {
+  SALARY
+  LEAVE_PLAN
+  HOLIDAY_CALENDAR
+  SHIFT
+  CHECKLIST
+}
+
+enum AccrualFrequency {
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+
+enum AccrualTransactionType {
+  SCHEDULED_ACCRUAL
+  PRORATA_JOINER_CREDIT
+  LEAVE_DEBIT
+  CARRY_FORWARD
+  LAPSE
+  ENCASHMENT
+  MANUAL_ADJUSTMENT
+  OPENING_BALANCE
+  LOP_REVERSAL
+}
+
+model HrTemplate {
+  id          String         @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId    String         @db.ObjectId
+  tenant      Tenant         @relation(fields: [tenantId], references: [id])
+  type        HrTemplateType
+  name        String
+  code        String
+  description String?
+  isDefault   Boolean        @default(false)
+  isActive    Boolean        @default(true)
+  config      Json
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@unique([tenantId, type, code])
+}
+
+model LeaveAccrualPlan {
+  id                  String           @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId            String           @db.ObjectId
+  tenant              Tenant           @relation(fields: [tenantId], references: [id])
+  name                String
+  code                String
+  frequency           AccrualFrequency @default(MONTHLY)
+  annualCasual        Float            @default(6.0)
+  annualSick          Float            @default(6.0)
+  annualEarned        Float            @default(6.0)
+  carryForwardLimit   Float            @default(15.0)
+  lapseUnusedCasual   Boolean          @default(true)
+  lapseUnusedSick     Boolean          @default(true)
+  enableEncashment    Boolean          @default(true)
+  maxEncashmentDays   Float            @default(10.0)
+  minBalanceRetention Float            @default(15.0)
+  isDefault           Boolean          @default(false)
+  targetLocationIds   String[]         @default([])
+  targetGrades        String[]         @default([])
+  targetDepartments   String[]         @default([])
+  enableProRata       Boolean          @default(true)
+  proRataRounding     String           @default("HALF_DAY")
+  isActive            Boolean          @default(true)
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  @@unique([tenantId, code])
+}
+
+model LeaveAccrualLedger {
+  id              String                 @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId        String                 @db.ObjectId
+  tenant          Tenant                 @relation(fields: [tenantId], references: [id])
+  employeeId      String                 @db.ObjectId
+  employee        Employee               @relation(fields: [employeeId], references: [id])
+  leaveType       LeaveType
+  transactionType AccrualTransactionType
+  amount          Float
+  openingBalance  Float
+  closingBalance  Float
+  effectiveDate   DateTime
+  description     String
+  batchId         String?
+  triggeredBy     String?
+  createdAt       DateTime               @default(now())
+
+  @@index([employeeId, leaveType, effectiveDate])
+}
+
+model LeaveEncashmentRequest {
+  id               String    @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId         String    @db.ObjectId
+  tenant           Tenant    @relation(fields: [tenantId], references: [id])
+  employeeId       String    @db.ObjectId
+  employee         Employee  @relation(fields: [employeeId], references: [id])
+  daysToEncash     Float
+  perDayRate       Float?
+  totalAmount      Float?
+  status           String    @default("PENDING")
+  approvedByUserId String?   @db.ObjectId
+  processedAt      DateTime?
+  payrollMonth     String?
+  createdAt        DateTime  @default(now())
+}
+
+model ApprovalDelegation {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId    String   @db.ObjectId
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  delegatorId String   @db.ObjectId
+  delegator   User     @relation("Delegator", fields: [delegatorId], references: [id])
+  delegateeId String   @db.ObjectId
+  delegatee   User     @relation("Delegatee", fields: [delegateeId], references: [id])
+  scope       String   @default("ALL") // "ALL", "LEAVE", "ATTENDANCE", "EXIT"
+  startDate   DateTime
+  endDate     DateTime
+  reason      String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([tenantId, delegatorId, isActive])
+  @@index([tenantId, delegateeId, isActive])
+}
+
+model AttendanceImportBatch {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId     String   @db.ObjectId
+  tenant       Tenant   @relation(fields: [tenantId], references: [id])
+  fileName     String
+  uploadedBy   String?  @db.ObjectId
+  totalRows    Int
+  successCount Int
+  failureCount Int
+  errorLog     Json?
+  status       String   @default("COMPLETED") // "COMPLETED", "PARTIAL", "FAILED"
+  createdAt    DateTime @default(now())
+}
+
+model LopReversalAdjustment {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId        String   @db.ObjectId
+  tenant          Tenant   @relation(fields: [tenantId], references: [id])
+  employeeId      String   @db.ObjectId
+  employee        Employee @relation(fields: [employeeId], references: [id])
+  leaveId         String?  @db.ObjectId
+  reversedDays    Float
+  datesAffected   String[] // Array of YYYY-MM-DD
+  payrollMonth    String   // e.g. "2026-10"
+  creditedInCycle String?  // e.g. "2026-11"
+  notes           String?
+  status          String   @default("PENDING_PAYROLL") // "PENDING_PAYROLL", "REFUNDED"
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([tenantId, employeeId, status])
+}
+
+model ComplianceDocument {
+  id                String                 @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId          String                 @db.ObjectId
+  tenant            Tenant                 @relation(fields: [tenantId], references: [id])
+  type              String                 // "TOS", "PRIVACY_POLICY", "DPA", "SLA"
+  title             String
+  version           String                 // e.g. "1.0", "2.0"
+  content           String                 // Full text/markdown
+  summary           String?                // Brief summary of terms/changes
+  effectiveDate     DateTime               @default(now())
+  isMandatory       Boolean                @default(true)
+  isActive          Boolean                @default(true)
+  publishedByUserId String?                @db.ObjectId
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  acceptances       ComplianceAcceptance[]
+
+  @@unique([tenantId, type, version])
+  @@index([tenantId, type, isActive])
+}
+
+model ComplianceAcceptance {
+  id              String             @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId        String             @db.ObjectId
+  tenant          Tenant             @relation(fields: [tenantId], references: [id])
+  userId          String             @db.ObjectId
+  user            User               @relation(fields: [userId], references: [id])
+  employeeId      String?            @db.ObjectId
+  employee        Employee?          @relation(fields: [employeeId], references: [id])
+  documentId      String             @db.ObjectId
+  document        ComplianceDocument @relation(fields: [documentId], references: [id])
+  documentType    String             // "TOS", "PRIVACY_POLICY", "DPA", "SLA"
+  versionAccepted String             // "1.0", "2.0", etc.
+  acceptedAt      DateTime           @default(now())
+  ipAddress       String?
+  userAgent       String?
+  metadata        Json?
+  createdAt       DateTime           @default(now())
+
+  @@unique([tenantId, userId, documentId, versionAccepted])
+  @@index([tenantId, userId])
+  @@index([tenantId, documentId])
+}
+
+model TrainingCourse {
+  id                 String               @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId           String               @db.ObjectId
+  tenant             Tenant               @relation(fields: [tenantId], references: [id])
+  code               String               // e.g. "TRN-POSH-2026", "TRN-FIRE-SAFETY"
+  title              String
+  category           String               // "POSH", "SAFETY", "SECURITY", "COMPLIANCE", "TECHNICAL"
+  description        String?
+  durationMinutes    Int                  @default(60)
+  validityDays       Int                  @default(365) // e.g. 365 for annual POSH renewal
+  isMandatory        Boolean              @default(true)
+  targetDepartments  String[]             // empty = all departments
+  materialUrl        String?              // Link or slide deck URL
+  passScorePercent   Int                  @default(80)
+  isActive           Boolean              @default(true)
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  assignments        TrainingAssignment[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, category, isActive])
+}
+
+model TrainingAssignment {
+  id                 String         @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId           String         @db.ObjectId
+  tenant             Tenant         @relation(fields: [tenantId], references: [id])
+  courseId           String         @db.ObjectId
+  course             TrainingCourse @relation(fields: [courseId], references: [id])
+  employeeId         String         @db.ObjectId
+  employee           Employee       @relation(fields: [employeeId], references: [id])
+  assignedAt         DateTime       @default(now())
+  dueDate            DateTime
+  status             String         @default("NOT_STARTED") // "NOT_STARTED", "IN_PROGRESS", "COMPLETED", "OVERDUE", "EXPIRED"
+  completedAt        DateTime?
+  score              Float?
+  certificateUrl     String?
+  remindersSentCount Int            @default(0)
+  lastReminderAt     DateTime?
+  notes              String?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  @@unique([tenantId, courseId, employeeId])
+  @@index([tenantId, employeeId, status])
+  @@index([tenantId, dueDate, status])
+}
+
+// ─── Compensation Planning & Increment Cycles ──────────────────────────
+
+model CompensationCycle {
+  id                 String                           @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId           String                           @db.ObjectId
+  tenant             Tenant                           @relation(fields: [tenantId], references: [id])
+  name               String                           // e.g. "Annual Appraisal & Increment FY2026-27"
+  code               String                           // e.g. "INC-2026-ANNUAL"
+  fiscalYear         String                           // e.g. "2026-2027"
+  effectiveDate      DateTime                         // When hike takes effect
+  status             String                           @default("PLANNING") // "PLANNING", "IN_PROGRESS", "REVIEW", "APPROVED", "APPLIED", "CLOSED"
+  totalBudgetAmount  Float                            // Monetary increment budget pool (e.g. ₹50,00,000)
+  currency           String                           @default("INR")
+  overallHikePercent Float                            @default(10.0) // 10% average hike guideline
+  ratingMatrix       Json?                            // Matrix: rating x compaRatio -> recommended hike %
+  departmentPools    DepartmentBudgetPool[]
+  recommendations    EmployeeIncrementRecommendation[]
+  createdAt          DateTime                         @default(now())
+  updatedAt          DateTime                         @updatedAt
+
+  @@unique([tenantId, code])
+  @@index([tenantId, status])
+}
+
+model DepartmentBudgetPool {
+  id                 String            @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId           String            @db.ObjectId
+  tenant             Tenant            @relation(fields: [tenantId], references: [id])
+  cycleId            String            @db.ObjectId
+  cycle              CompensationCycle @relation(fields: [cycleId], references: [id])
+  department         String            // "Engineering", "Sales", "Human Resources", etc.
+  allocatedBudget    Float             // Department's allocated pool in currency
+  spentBudget        Float             @default(0) // Total recommended/approved hike amount
+  eligibleHeadcount  Int               @default(0)
+  averageHikePercent Float             @default(0)
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  @@unique([cycleId, department])
+  @@index([tenantId, department])
+}
+
+model EmployeeIncrementRecommendation {
+  id                    String            @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId              String            @db.ObjectId
+  cycleId               String            @db.ObjectId
+  cycle                 CompensationCycle @relation(fields: [cycleId], references: [id])
+  employeeId            String            @db.ObjectId
+  employee              Employee          @relation(fields: [employeeId], references: [id])
+  currentCtc            Float
+  gradeMidpoint         Float?            // Reference salary for Grade midpoint
+  compaRatio            Float?            // (currentCtc / gradeMidpoint) * 100
+  performanceRating     Float?            // 1.0 to 5.0
+  recommendedPercent    Float             // Recommended % hike
+  recommendedHikeAmount Float             // Recommended absolute hike in currency
+  newProposedCtc        Float             // currentCtc + recommendedHikeAmount
+  managerNotes          String?
+  status                String            @default("SUBMITTED") // "DRAFT", "SUBMITTED", "APPROVED", "REJECTED", "APPLIED"
+  hrApprovedByUserId    String?           @db.ObjectId
+  appliedAt             DateTime?
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+
+  @@unique([cycleId, employeeId])
+  @@index([tenantId, cycleId, status])
+}
+
+// ─── Succession Planning, Skill Matrix, 9-Box ─────────────────────────
+
+model TalentAssessment {
+  id               String   @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId         String   @db.ObjectId
+  tenant           Tenant   @relation(fields: [tenantId], references: [id])
+  employeeId       String   @db.ObjectId
+  employee         Employee @relation(fields: [employeeId], references: [id])
+  performanceLevel Int      // 1 (Low), 2 (Medium), 3 (High)
+  potentialLevel   Int      // 1 (Low), 2 (Medium), 3 (High)
+  nineBoxGrid      String   // "STAR", "HIGH_PERFORMER", "CORE_PLAYER", "RISING_STAR", "SOLID_PERFORMER", "EFFECTIVE", "ROUGH_DIAMOND", "INCONSISTENT", "RISK"
+  flightRisk       String   @default("LOW") // "LOW", "MEDIUM", "HIGH"
+  impactOfLoss     String   @default("MEDIUM") // "LOW", "MEDIUM", "HIGH", "CRITICAL"
+  strengths        String[]
+  developmentAreas String[]
+  assessedYear     String   @default("2026")
+  assessedByUserId String?  @db.ObjectId
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([tenantId, nineBoxGrid])
+  @@index([tenantId, employeeId])
+}
+
+model SkillDefinition {
+  id               String          @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId         String          @db.ObjectId
+  tenant           Tenant          @relation(fields: [tenantId], references: [id])
+  code             String          // "SKILL-SYS-ARCH", "SKILL-KUBERNETES", "SKILL-FIN-AUDIT"
+  name             String
+  category         String          // "TECHNICAL", "LEADERSHIP", "DOMAIN", "COMPLIANCE"
+  description      String?
+  minRequiredLevel Int             @default(3) // 1 to 5
+  isActive         Boolean         @default(true)
+  employeeSkills   EmployeeSkill[]
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@unique([tenantId, code])
+  @@index([tenantId, category, isActive])
+}
+
+model EmployeeSkill {
+  id               String          @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId         String          @db.ObjectId
+  employeeId       String          @db.ObjectId
+  employee         Employee        @relation(fields: [employeeId], references: [id])
+  skillId          String          @db.ObjectId
+  skill            SkillDefinition @relation(fields: [skillId], references: [id])
+  proficiencyLevel Int             // 1 (Beginner) to 5 (Expert)
+  verifiedByUserId String?         @db.ObjectId
+  lastEvaluatedAt  DateTime        @default(now())
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@unique([employeeId, skillId])
+  @@index([tenantId, skillId])
+}
+
+model SuccessionPlan {
+  id                  String                @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId            String                @db.ObjectId
+  tenant              Tenant                @relation(fields: [tenantId], references: [id])
+  positionTitle       String                // e.g. "VP of Engineering", "Head of Sales"
+  department          String
+  currentIncumbentId  String?               @db.ObjectId
+  currentIncumbent    Employee?             @relation("Incumbent", fields: [currentIncumbentId], references: [id])
+  criticality         String                @default("HIGH") // "CRITICAL", "HIGH", "MEDIUM"
+  targetReadinessDate DateTime?
+  status              String                @default("ACTIVE") // "ACTIVE", "ARCHIVED"
+  candidates          SuccessionCandidate[]
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+
+  @@index([tenantId, department])
+}
+
+model SuccessionCandidate {
+  id                  String         @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId            String         @db.ObjectId
+  planId              String         @db.ObjectId
+  plan                SuccessionPlan @relation(fields: [planId], references: [id])
+  candidateEmployeeId String         @db.ObjectId
+  candidateEmployee   Employee       @relation("SuccessorCandidate", fields: [candidateEmployeeId], references: [id])
+  readiness           String         // "READY_NOW", "READY_1_YEAR", "READY_2_YEARS", "EMERGENCY_BACKUP"
+  ranking             Int            @default(1) // 1 = 1st successor, 2 = 2nd successor
+  notes               String?
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+
+  @@unique([planId, candidateEmployeeId])
+  @@index([tenantId, readiness])
+}
+
+// ─── Workforce Planning (Headcount Budget vs Actual) ───────────────────
+
+model HeadcountPlan {
+  id                String   @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId          String   @db.ObjectId
+  tenant            Tenant   @relation(fields: [tenantId], references: [id])
+  fiscalYear        String   // "FY2026-27"
+  department        String   // "Engineering", "Sales", "Human Resources", etc.
+  approvedHeadcount Int      // Approved head budget count (e.g. 25)
+  budgetedCtcCap    Float?   // Total budgeted payroll cap for department
+  notes             String?
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([tenantId, fiscalYear, department])
+  @@index([tenantId, fiscalYear])
+}
+
+model JobRequisition {
+  id                         String   @id @default(auto()) @map("_id") @db.ObjectId
+  tenantId                   String   @db.ObjectId
+  tenant                     Tenant   @relation(fields: [tenantId], references: [id])
+  requisitionNumber          String   // e.g. "REQ-2026-001"
+  title                      String   // e.g. "Senior Full-Stack Engineer"
+  department                 String   // "Engineering"
+  numberOfOpenings           Int      @default(1)
+  budgetedMinCtc             Float
+  budgetedMaxCtc             Float
+  employmentType             String   @default("FULL_TIME")
+  justification              String?
+  status                     String   @default("SUBMITTED") // "DRAFT", "APPROVED", "BUDGET_EXCEPTION_REQUIRED", "REJECTED", "FILLED", "CANCELLED"
+  budgetExceeded             Boolean  @default(false)
+  currentDepartmentHeadcount Int      // Snapshot of actual active employees at requisition time
+  approvedDepartmentBudget   Int      // Snapshot of approved budget cap at requisition time
+  raisedByUserId             String?  @db.ObjectId
+  approvedByUserId           String?  @db.ObjectId
+  approvalNotes              String?
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+
+  @@unique([tenantId, requisitionNumber])
+  @@index([tenantId, department, status])
+}
+
+
+
+
+
+

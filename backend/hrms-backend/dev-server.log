@@ -1,0 +1,49 @@
+
+> hrms_backend@1.0.0 dev
+> ts-node-dev --respawn --transpile-only src/server.ts
+
+[INFO] 17:20:24 ts-node-dev ver. 2.0.0 (using ts-node ver. 10.9.2, typescript ver. 6.0.3)
+◇ injected env (0) from .env // tip: ⌘ suppress logs { quiet: true }
+Server is running on port 5000
+[INFO] 17:36:52 Restarting: D:\phase_3\hrms_backend\src\modules\attendance\attendance.service.ts has been modified
+◇ injected env (0) from .env // tip: ⌁ auth for agents [www.vestauth.com]
+Server is running on port 5000
+[INFO] 15:22:51 Restarting: D:\phase_3\hrms_backend\src\modules\performance\performance.service.ts has been modified
+◇ injected env (0) from .env // tip: ⌘ suppress logs { quiet: true }
+Server is running on port 5000
+[INFO] 15:22:56 Restarting: D:\phase_3\hrms_backend\src\modules\performance\performance.controller.ts has been modified
+◇ injected env (0) from .env // tip: ⌁ auth for agents [www.vestauth.com]
+Server is running on port 5000
+[INFO] 15:23:00 Restarting: D:\phase_3\hrms_backend\src\modules\performance\performance.routes.ts has been modified
+◇ injected env (0) from .env // tip: ⌘ suppress logs { quiet: true }
+Server is running on port 5000
+[INFO] 15:23:17 Restarting: D:\phase_3\hrms_backend\src\modules\leave\leave.controller.ts has been modified
+◇ injected env (0) from .env // tip: ⌘ enable debugging { debug: true }
+Server is running on port 5000
+[INFO] 17:54:38 Restarting: D:\phase_3\hrms_backend\src\modules\attendance\attendance.controller.ts has been modified
+◇ injected env (0) from .env // tip: ⌁ auth for agents [www.vestauth.com]
+Server is running on port 5000
+[INFO] 17:54:52 Restarting: D:\phase_3\hrms_backend\src\modules\leave\leave.controller.ts has been modified
+◇ injected env (0) from .env // tip: ⌁ auth for agents [www.vestauth.com]
+Server is running on port 5000
+[INFO] 17:55:21 Restarting: D:\phase_3\hrms_backend\src\modules\assets\asset.controller.ts has been modified
+◇ injected env (0) from .env // tip: ⌘ custom filepath { path: '/custom/path/.env' }
+Server is running on port 5000
+[INFO] 17:55:55 Restarting: D:\phase_3\hrms_backend\src\modules\performance\performance.controller.ts has been modified
+◇ injected env (0) from .env // tip: ◈ secrets for agents [www.dotenvx.com]
+Server is running on port 5000
+{"timestamp":"2026-05-22T12:27:37.761Z","level":"INFO","event":"attendance.check_in.success","employeeId":"d4","attendanceId":"6a104a93ed583d0c4fd9cc31","actorId":"6a08259b752e15d6a06ec471"}
+{"timestamp":"2026-05-22T12:27:37.875Z","level":"INFO","event":"attendance.check_in.success","employeeId":"d4","attendanceId":"6a104a93ed583d0c4fd9cc31","actorId":"6a08259b752e15d6a06ec471"}
+{"timestamp":"2026-05-22T12:27:37.940Z","level":"INFO","event":"attendance.check_in.success","employeeId":"d4","attendanceId":"6a104a93ed583d0c4fd9cc31","actorId":"6a08259b752e15d6a06ec471"}
+{"timestamp":"2026-05-22T12:27:38.089Z","level":"INFO","event":"attendance.check_in.success","employeeId":"d4","attendanceId":"6a104a93ed583d0c4fd9cc31","actorId":"6a08259b752e15d6a06ec471"}
+{"timestamp":"2026-05-22T12:27:38.274Z","level":"INFO","event":"attendance.check_in.success","employeeId":"d4","attendanceId":"6a104a93ed583d0c4fd9cc31","actorId":"6a08259b752e15d6a06ec471"}
+{"timestamp":"2026-05-22T12:27:38.293Z","level":"INFO","event":"attendance.check_in.success","employeeId":"d4","attendanceId":"6a104a93ed583d0c4fd9cc31","actorId":"6a08259b752e15d6a06ec471"}
+{"timestamp":"2026-05-22T12:27:38.375Z","level":"INFO","event":"attendance.check_in.success","employeeId":"d4","attendanceId":"6a104a93ed583d0c4fd9cc31","actorId":"6a08259b752e15d6a06ec471"}
+{"timestamp":"2026-05-22T12:27:38.598Z","level":"INFO","event":"attendance.check_in.success","employeeId":"d4","attendanceId":"6a104a93ed583d0c4fd9cc31","actorId":"6a08259b752e15d6a06ec471"}
+{"timestamp":"2026-05-22T12:27:42.422Z","level":"INFO","event":"attendance.check_in.success","employeeId":"EMP-001","attendanceId":"6a104aabed583d0c4fd9cc32","actorId":"6a08259b752e15d6a06ec471"}
+[INFO] 17:58:28 Restarting: D:\phase_3\hrms_backend\src\server.ts has been modified
+◇ injected env (0) from .env // tip: ⌘ override existing { override: true }
+{"timestamp":"2026-05-22T12:28:28.413Z","level":"INFO","event":"server.started","port":"5000","env":"development"}
+[INFO] 11:18:41 Restarting: D:\phase_3\hrms_backend\src\modules\employees\employee.service.ts has been modified
+◇ injected env (0) from .env // tip: ⌘ suppress logs { quiet: true }
+{"timestamp":"2026-05-26T05:48:42.091Z","level":"INFO","event":"server.started","port":"5000","env":"development"}

@@ -1,0 +1,21 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const performance_controller_1 = require("./performance.controller");
+const auth_1 = require("../../shared/middleware/auth");
+const org_scope_1 = require("../../shared/middleware/org-scope");
+const router = (0, express_1.Router)();
+router.use(auth_1.authMiddleware, org_scope_1.orgScopeMiddleware);
+router.get('/', performance_controller_1.PerformanceController.getAll);
+router.get('/my', performance_controller_1.PerformanceController.getMyReviews);
+router.get('/analytics', (0, auth_1.authorize)(['ADMIN', 'HR', 'MANAGER']), performance_controller_1.PerformanceController.getAnalytics);
+router.post('/compute', (0, auth_1.authorize)(['ADMIN', 'HR', 'MANAGER']), performance_controller_1.PerformanceController.compute);
+router.get('/:id', performance_controller_1.PerformanceController.getById);
+router.patch('/:id/self-review', performance_controller_1.PerformanceController.submitSelfReview);
+router.post('/', (0, auth_1.authorize)(['ADMIN', 'HR', 'MANAGER']), performance_controller_1.PerformanceController.create);
+router.put('/:id', (0, auth_1.authorize)(['ADMIN', 'HR', 'MANAGER']), performance_controller_1.PerformanceController.update);
+router.patch('/:id/manager-review', (0, auth_1.authorize)(['ADMIN', 'HR', 'MANAGER']), performance_controller_1.PerformanceController.submitManagerReview);
+router.post('/:id/refresh', (0, auth_1.authorize)(['ADMIN', 'HR', 'MANAGER']), performance_controller_1.PerformanceController.refresh);
+router.delete('/:id', (0, auth_1.authorize)(['ADMIN', 'HR']), performance_controller_1.PerformanceController.delete);
+exports.default = router;
+//# sourceMappingURL=performance.routes.js.map
