@@ -21,6 +21,7 @@ import {
 export default function OrganisationPage() {
   const [employers, setEmployers] = useState<LegalEmployer[]>([]);
   const [locations, setLocations] = useState<any[]>([]);
+  const [locationsReady, setLocationsReady] = useState(false);
   const [legalEmployerId, setLegalEmployerId] = useState('');
   const [name, setName] = useState('');
   const [radius, setRadius] = useState('100');
@@ -28,6 +29,7 @@ export default function OrganisationPage() {
   const [lng, setLng] = useState('');
 
   const load = async () => {
+    // Keep the current rows visible until the refreshed list arrives.
     try {
       const emp = await apiListLegalEmployers();
       const list = (emp.data as LegalEmployer[]) || [];
@@ -40,6 +42,8 @@ export default function OrganisationPage() {
       }
     } catch (error: any) {
       toast.error(error?.message || 'Failed to load locations');
+    } finally {
+      setLocationsReady(true);
     }
   };
 
@@ -80,7 +84,7 @@ export default function OrganisationPage() {
           <input className={fieldClass} placeholder="Radius m" value={radius} onChange={(e) => setRadius(e.target.value)} />
           <input className={fieldClass} placeholder="Lat" value={lat} onChange={(e) => setLat(e.target.value)} />
           <input className={fieldClass} placeholder="Lng" value={lng} onChange={(e) => setLng(e.target.value)} />
-          <button type="button" className={PH2_HEADER_PILL_PRIMARY} onClick={() => void create()}>
+          <button type="button" className={`${PH2_HEADER_PILL_PRIMARY} !w-auto !px-4`} onClick={() => void create()}>
             Add location
           </button>
         </PeopleFormRow>
@@ -90,6 +94,7 @@ export default function OrganisationPage() {
               {row.name} · {row.geofenceRadiusM} m · {row.timezone}
             </li>
           ))}
+          {locationsReady && locations.length === 0 ? <li className="py-2 text-slate-500">No locations yet. Add a location.</li> : null}
         </ul>
       </PeopleCard>
     </Ph2ModulePageLayout>

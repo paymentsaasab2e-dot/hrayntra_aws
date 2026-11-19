@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { ShieldCheck } from 'lucide-react';
+import { ChevronDown, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiGetEmployees, apiListHrPolicies, apiPublishHrPolicy, apiAckHrPolicy, type BackendEmployee } from '../../../lib/api';
 import { listCountryPacks } from '../../../lib/peoplecore/countryPacks';
@@ -10,6 +10,7 @@ import {
   PeopleCard,
   PeopleFormRow,
   Ph2ModulePageLayout,
+  PH2_HEADER_PILL,
   PH2_HEADER_PILL_PRIMARY,
   fieldClass,
 } from '../_components/PeopleModule';
@@ -24,6 +25,7 @@ export default function PoliciesPage() {
   const [policyId, setPolicyId] = useState('');
 
   const load = async () => {
+    // Keep the current rows visible until the refreshed list arrives.
     const [p, e] = await Promise.all([apiListHrPolicies(), apiGetEmployees({ limit: 50 })]);
     setPolicies((p.data as any[]) || []);
     setEmployees(e.data?.data || []);
@@ -49,7 +51,7 @@ export default function PoliciesPage() {
           <input className={`${fieldClass} min-w-[220px]`} placeholder="Policy body" value={body} onChange={(e) => setBody(e.target.value)} />
           <button
             type="button"
-            className={PH2_HEADER_PILL_PRIMARY}
+            className={`${PH2_HEADER_PILL_PRIMARY} !w-auto !px-4`}
             onClick={async () => {
               try {
                 await apiPublishHrPolicy({ title, body, country });
@@ -70,34 +72,40 @@ export default function PoliciesPage() {
             </li>
           ))}
         </ul>
-        <PeopleFormRow>
-          <select className={fieldClass} value={policyId} onChange={(e) => setPolicyId(e.target.value)}>
-            <option value="">Policy</option>
-            {policies.map((row) => (
-              <option key={row.id} value={row.id}>
-                {row.title} v{row.version}
-              </option>
-            ))}
-          </select>
-          <select className={fieldClass} value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}>
-            <option value="">Employee</option>
-            {employees.map((row) => (
-              <option key={row.id} value={row.id}>
-                {row.firstName} {row.lastName}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            className={PH2_HEADER_PILL_PRIMARY}
-            onClick={async () => {
-              await apiAckHrPolicy({ policyId, employeeId });
-              toast.success('Acknowledged');
-            }}
-          >
-            Acknowledge
-          </button>
-        </PeopleFormRow>
+        <details className="group mt-3">
+          <summary className={`${PH2_HEADER_PILL} !w-auto cursor-pointer list-none !px-3 [&::-webkit-details-marker]:hidden`}>
+            More
+            <ChevronDown aria-hidden="true" className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />
+          </summary>
+          <PeopleFormRow>
+            <select className={fieldClass} value={policyId} onChange={(e) => setPolicyId(e.target.value)}>
+              <option value="">Policy</option>
+              {policies.map((row) => (
+                <option key={row.id} value={row.id}>
+                  {row.title} v{row.version}
+                </option>
+              ))}
+            </select>
+            <select className={fieldClass} value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}>
+              <option value="">Employee</option>
+              {employees.map((row) => (
+                <option key={row.id} value={row.id}>
+                  {row.firstName} {row.lastName}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className={`${PH2_HEADER_PILL} !w-auto !px-3`}
+              onClick={async () => {
+                await apiAckHrPolicy({ policyId, employeeId });
+                toast.success('Acknowledged');
+              }}
+            >
+              Acknowledge
+            </button>
+          </PeopleFormRow>
+        </details>
       </PeopleCard>
     </Ph2ModulePageLayout>
   );

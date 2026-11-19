@@ -2,7 +2,7 @@
 
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { Plus, RefreshCcw, UserPlus, UsersRound } from 'lucide-react';
+import { ChevronDown, Plus, RefreshCcw, UserPlus, UsersRound } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   Ph2ModulePageLayout,
@@ -196,21 +196,33 @@ function PeoplePageContent() {
               </option>
             ))}
           </select>
-          <Link href="/people/settings" className={PH2_HEADER_PILL}>
-            Settings
-          </Link>
-          <button type="button" className={PH2_HEADER_PILL} onClick={() => void load()} title="Refresh">
-            <RefreshCcw className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Refresh</span>
-          </button>
-          <button type="button" className={PH2_HEADER_PILL} onClick={() => void openHire()}>
+          <button
+            type="button"
+            className={`${PH2_HEADER_PILL_PRIMARY} !w-auto !px-4`}
+            onClick={() => void openHire()}
+          >
             <UserPlus className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Hire from candidate</span>
+            <span>Hire from candidate</span>
           </button>
-          <button type="button" className={PH2_HEADER_PILL_PRIMARY} onClick={() => setAddOpen(true)}>
-            <Plus className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Add employee</span>
-          </button>
+          <details className="group flex shrink-0 items-center">
+            <summary className={`${PH2_HEADER_PILL} !w-auto cursor-pointer list-none !px-3 [&::-webkit-details-marker]:hidden`}>
+              More
+              <ChevronDown aria-hidden="true" className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />
+            </summary>
+            <div className="ml-1.5 flex items-center gap-1.5">
+              <button type="button" className={`${PH2_HEADER_PILL} !w-auto !px-3`} onClick={() => setAddOpen(true)}>
+                <Plus className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Add employee</span>
+              </button>
+              <button type="button" className={`${PH2_HEADER_PILL} !w-auto !px-3`} onClick={() => void load()} title="Refresh">
+                <RefreshCcw className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Refresh</span>
+              </button>
+              <Link href="/people/settings" className={`${PH2_HEADER_PILL} !w-auto !px-3`}>
+                Settings
+              </Link>
+            </div>
+          </details>
         </>
       }
     >
@@ -235,7 +247,7 @@ function PeoplePageContent() {
           />
           <span className="ml-auto text-[11px] font-medium text-slate-500">{total} people</span>
         </div>
-        {loading ? (
+        {loading && employees.length === 0 ? (
           <div className="p-8 text-sm text-slate-500">Loading employees…</div>
         ) : employees.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 px-6 py-16 text-center">

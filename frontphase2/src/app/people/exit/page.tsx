@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { LogOut } from 'lucide-react';
+import { ChevronDown, LogOut } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   apiCompleteExit,
@@ -30,6 +30,7 @@ export default function ExitPage() {
   const [recovery, setRecovery] = useState('0');
 
   const load = async () => {
+    // Keep the current rows visible until the refreshed list arrives.
     const [emp, list] = await Promise.all([apiGetEmployees({ limit: 50 }), apiListExits()]);
     setEmployees(emp.data?.data || []);
     setExits((list.data as any[]) || []);
@@ -54,7 +55,7 @@ export default function ExitPage() {
           </select>
           <button
             type="button"
-            className={PH2_HEADER_PILL_PRIMARY}
+            className={`${PH2_HEADER_PILL_PRIMARY} !w-auto !px-4`}
             onClick={async () => {
               try {
                 await apiCreateExit({ employeeId, kind: 'RESIGNATION' });
@@ -77,43 +78,49 @@ export default function ExitPage() {
               <span>
                 {row.kind} · {row.status}
               </span>
-              <span className="flex gap-2">
-                <button
-                  type="button"
-                  className={PH2_HEADER_PILL}
-                  onClick={async () => {
-                    try {
-                      await apiSaveFnf({
-                        exitCaseId: row.id,
-                        employeeId: row.employeeId,
-                        leaveEncashmentDays: Number(encash),
-                        noticeRecoveryDays: Number(notice),
-                        assetRecoveryAmount: Number(recovery),
-                      });
-                      toast.success('FnF worksheet saved (no money calculated)');
-                    } catch (error: any) {
-                      toast.error(error?.message);
-                    }
-                  }}
-                >
-                  FnF worksheet
-                </button>
-                <button
-                  type="button"
-                  className={PH2_HEADER_PILL}
-                  onClick={async () => {
-                    try {
-                      await apiCompleteExit(row.id, {});
-                      toast.success('Cleared');
-                      await load();
-                    } catch (error: any) {
-                      toast.error(error?.message);
-                    }
-                  }}
-                >
-                  Complete
-                </button>
-              </span>
+              <details className="group shrink-0">
+                <summary className={`${PH2_HEADER_PILL} !w-auto cursor-pointer list-none !px-3 [&::-webkit-details-marker]:hidden`}>
+                  More
+                  <ChevronDown aria-hidden="true" className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />
+                </summary>
+                <div className="mt-2 flex gap-2">
+                  <button
+                    type="button"
+                    className={`${PH2_HEADER_PILL} !w-auto !px-3`}
+                    onClick={async () => {
+                      try {
+                        await apiSaveFnf({
+                          exitCaseId: row.id,
+                          employeeId: row.employeeId,
+                          leaveEncashmentDays: Number(encash),
+                          noticeRecoveryDays: Number(notice),
+                          assetRecoveryAmount: Number(recovery),
+                        });
+                        toast.success('FnF worksheet saved (no money calculated)');
+                      } catch (error: any) {
+                        toast.error(error?.message);
+                      }
+                    }}
+                  >
+                    FnF worksheet
+                  </button>
+                  <button
+                    type="button"
+                    className={`${PH2_HEADER_PILL} !w-auto !px-3`}
+                    onClick={async () => {
+                      try {
+                        await apiCompleteExit(row.id, {});
+                        toast.success('Cleared');
+                        await load();
+                      } catch (error: any) {
+                        toast.error(error?.message);
+                      }
+                    }}
+                  >
+                    Complete
+                  </button>
+                </div>
+              </details>
             </li>
           ))}
         </ul>

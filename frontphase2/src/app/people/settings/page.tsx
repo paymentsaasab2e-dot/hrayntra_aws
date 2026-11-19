@@ -29,6 +29,7 @@ export default function PeopleSettingsPage() {
   const pack = getCountryPack(country);
 
   const load = async () => {
+    // Keep the current employer list visible until the refreshed data arrives.
     try {
       const [emp, sec] = await Promise.all([apiListLegalEmployers(), apiGetPeopleSecurity()]);
       setEmployers((emp.data as LegalEmployer[]) || []);
@@ -75,7 +76,7 @@ export default function PeopleSettingsPage() {
               </option>
             ))}
           </select>
-          <button type="button" className={PH2_HEADER_PILL_PRIMARY} onClick={() => void create()}>
+          <button type="button" className={`${PH2_HEADER_PILL_PRIMARY} !w-auto !px-4`} onClick={() => void create()}>
             Save
           </button>
         </PeopleFormRow>

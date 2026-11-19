@@ -7,6 +7,7 @@ import { PeopleBanner, PeopleCard, Ph2ModulePageLayout, fieldClass } from '../_c
 
 export default function PeopleReportsPage() {
   const [home, setHome] = useState<any>(null);
+  const [homeReady, setHomeReady] = useState(false);
   const [alerts, setAlerts] = useState<any[]>([]);
   const [inspector, setInspector] = useState<any>(null);
   const [muster, setMuster] = useState<any>(null);
@@ -16,16 +17,22 @@ export default function PeopleReportsPage() {
 
   useEffect(() => {
     void (async () => {
-      const [h, e, a] = await Promise.all([apiPeopleReportsHome(), apiListLegalEmployers(), apiPeopleAlerts()]);
-      setHome(h.data);
-      setAlerts(((a.data as any)?.items as any[]) || []);
-      const list = (e.data as LegalEmployer[]) || [];
-      setEmployers(list);
-      const id = list[0]?.id || '';
-      setLegalEmployerId(id);
-      if (id) {
-        setInspector((await apiInspectorPack(id)).data);
-        setMuster((await apiMuster(id, now.getFullYear(), now.getMonth() + 1)).data);
+      try {
+        const [h, e, a] = await Promise.all([apiPeopleReportsHome(), apiListLegalEmployers(), apiPeopleAlerts()]);
+        setHome(h.data ?? {});
+        setAlerts(((a.data as any)?.items as any[]) || []);
+        const list = (e.data as LegalEmployer[]) || [];
+        setEmployers(list);
+        const id = list[0]?.id || '';
+        setLegalEmployerId(id);
+        if (id) {
+          setInspector((await apiInspectorPack(id)).data);
+          setMuster((await apiMuster(id, now.getFullYear(), now.getMonth() + 1)).data);
+        }
+      } catch {
+        setHome((current) => current ?? {});
+      } finally {
+        setHomeReady(true);
       }
     })();
   }, []);
@@ -37,12 +44,18 @@ export default function PeopleReportsPage() {
         <PeopleCard>
           <h2 className="text-sm font-semibold">Home</h2>
           <ul className="mt-2 text-sm">
-            <li>Employees {home?.employees ?? '—'}</li>
-            <li>Pending leave {home?.pendingLeave ?? '—'}</li>
-            <li>Inbox {home?.pendingInbox ?? '—'}</li>
-            <li>Open exits {home?.openExits ?? '—'}</li>
-            <li>On leave {home?.onLeave ?? '—'}</li>
-            <li>Payroll blocks {home?.payrollExceptions ?? '—'}</li>
+            {!homeReady || home === null ? (
+              <li className="text-slate-500">Loading…</li>
+            ) : (
+              <>
+                <li>Employees {home.employees ?? '—'}</li>
+                <li>Pending leave {home.pendingLeave ?? '—'}</li>
+                <li>Inbox {home.pendingInbox ?? '—'}</li>
+                <li>Open exits {home.openExits ?? '—'}</li>
+                <li>On leave {home.onLeave ?? '—'}</li>
+                <li>Payroll blocks {home.payrollExceptions ?? '—'}</li>
+              </>
+            )}
           </ul>
           <ul className="mt-2 text-xs text-amber-800">
             {alerts.map((row) => (

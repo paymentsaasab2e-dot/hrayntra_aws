@@ -23,6 +23,7 @@ export default function LettersPage() {
   const pack = getCountryPack(employee?.legalEmployerCountry);
 
   const load = async () => {
+    // Keep the current rows visible until the refreshed list arrives.
     const [emp, list] = await Promise.all([apiGetEmployees({ limit: 50 }), apiListLetters()]);
     setEmployees(emp.data?.data || []);
     setLetters((list.data as any[]) || []);
@@ -55,7 +56,7 @@ export default function LettersPage() {
           </select>
           <button
             type="button"
-            className={PH2_HEADER_PILL_PRIMARY}
+            className={`${PH2_HEADER_PILL_PRIMARY} !w-auto !px-4`}
             onClick={async () => {
               try {
                 await apiIssueLetter({ employeeId, letterType });
@@ -66,7 +67,7 @@ export default function LettersPage() {
               }
             }}
           >
-            Issue
+            Issue letter
           </button>
         </PeopleFormRow>
         <ul className="mt-3 text-sm">

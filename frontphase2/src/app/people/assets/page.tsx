@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { Briefcase } from 'lucide-react';
+import { Briefcase, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   apiAssignAsset,
@@ -32,6 +32,7 @@ export default function AssetsPage() {
   const [employeeId, setEmployeeId] = useState('');
 
   const load = async () => {
+    // Keep the current rows visible until the refreshed list arrives.
     const [a, e, asg] = await Promise.all([
       apiListAssets(),
       apiGetEmployees({ limit: 50 }),
@@ -51,22 +52,6 @@ export default function AssetsPage() {
       <PeopleBanner text="Recovery value is a proposed amount. Whether payroll may deduct it is a country-pack decision in Phase 4." />
       <PeopleCard>
         <PeopleFormRow>
-          <input className={fieldClass} placeholder="Serial" value={serial} onChange={(e) => setSerial(e.target.value)} />
-          <input className={fieldClass} placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
-          <button
-            type="button"
-            className={PH2_HEADER_PILL_PRIMARY}
-            onClick={async () => {
-              await apiCreateAsset({ serial, name });
-              setSerial('');
-              setName('');
-              await load();
-            }}
-          >
-            Add
-          </button>
-        </PeopleFormRow>
-        <PeopleFormRow>
           <select className={fieldClass} value={assetId} onChange={(e) => setAssetId(e.target.value)}>
             <option value="">Asset</option>
             {assets.map((row) => (
@@ -85,7 +70,7 @@ export default function AssetsPage() {
           </select>
           <button
             type="button"
-            className={PH2_HEADER_PILL_PRIMARY}
+            className={`${PH2_HEADER_PILL_PRIMARY} !w-auto !px-4`}
             onClick={async () => {
               try {
                 await apiAssignAsset({ assetId, employeeId });
@@ -98,6 +83,28 @@ export default function AssetsPage() {
           >
             Assign
           </button>
+          <details className="group">
+            <summary className={`${PH2_HEADER_PILL} !w-auto cursor-pointer list-none !px-3 [&::-webkit-details-marker]:hidden`}>
+              More
+              <ChevronDown aria-hidden="true" className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />
+            </summary>
+            <div className="mt-2 flex w-full flex-wrap items-end gap-2">
+              <input className={fieldClass} placeholder="Serial" value={serial} onChange={(e) => setSerial(e.target.value)} />
+              <input className={fieldClass} placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
+              <button
+                type="button"
+                className={`${PH2_HEADER_PILL} !w-auto !px-3`}
+                onClick={async () => {
+                  await apiCreateAsset({ serial, name });
+                  setSerial('');
+                  setName('');
+                  await load();
+                }}
+              >
+                Add
+              </button>
+            </div>
+          </details>
         </PeopleFormRow>
         <ul className="mt-3 text-sm">
           {assignments.map((row) => (
@@ -106,21 +113,29 @@ export default function AssetsPage() {
                 {row.assetId} · {row.returnedAt ? 'Returned' : 'Allocated'} · {row.employeeId}
               </span>
               {!row.returnedAt ? (
-                <button
-                  type="button"
-                  className={PH2_HEADER_PILL}
-                  onClick={async () => {
-                    try {
-                      await apiReturnAsset(row.id, 'GOOD');
-                      toast.success('Returned');
-                      await load();
-                    } catch (error: any) {
-                      toast.error(error?.message);
-                    }
-                  }}
-                >
-                  Return
-                </button>
+                <details className="group shrink-0">
+                  <summary className={`${PH2_HEADER_PILL} !w-auto cursor-pointer list-none !px-3 [&::-webkit-details-marker]:hidden`}>
+                    More
+                    <ChevronDown aria-hidden="true" className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />
+                  </summary>
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      type="button"
+                      className={`${PH2_HEADER_PILL} !w-auto !px-3`}
+                      onClick={async () => {
+                        try {
+                          await apiReturnAsset(row.id, 'GOOD');
+                          toast.success('Returned');
+                          await load();
+                        } catch (error: any) {
+                          toast.error(error?.message);
+                        }
+                      }}
+                    >
+                      Return
+                    </button>
+                  </div>
+                </details>
               ) : null}
             </li>
           ))}

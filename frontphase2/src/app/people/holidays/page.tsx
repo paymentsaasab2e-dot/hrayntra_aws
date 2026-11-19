@@ -10,10 +10,12 @@ export default function HolidaysPage() {
   const [employers, setEmployers] = useState<LegalEmployer[]>([]);
   const [legalEmployerId, setLegalEmployerId] = useState('');
   const [holidays, setHolidays] = useState<Array<{ date: string; name: string }>>([]);
+  const [holidaysReady, setHolidaysReady] = useState(false);
   const [leaveTypes, setLeaveTypes] = useState<Array<{ id: string; code: string; name: string; country: string }>>([]);
 
   const load = async (id: string) => {
     if (!id) return;
+    // Keep the current holiday and leave-type lists visible until the refreshed data arrives.
     try {
       const [h, l] = await Promise.all([apiListHolidays(id), apiListLeaveTypes(id)]);
       const cal = h.data as { holidays?: Array<{ date: string; name: string }> };
@@ -21,6 +23,8 @@ export default function HolidaysPage() {
       setLeaveTypes((l.data as any[]) || []);
     } catch (error: any) {
       toast.error(error?.message || 'Failed to load holidays');
+    } finally {
+      setHolidaysReady(true);
     }
   };
 
@@ -61,6 +65,7 @@ export default function HolidaysPage() {
                 {row.date} · {row.name}
               </li>
             ))}
+            {holidaysReady && holidays.length === 0 ? <li className="py-1 text-slate-500">No holidays for this country yet.</li> : null}
           </ul>
         </PeopleCard>
         <PeopleCard>
