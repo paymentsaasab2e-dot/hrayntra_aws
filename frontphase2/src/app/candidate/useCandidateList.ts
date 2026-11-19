@@ -434,6 +434,7 @@ export function useCandidateList() {
     if (wantsMine || !phase1On) return 'mine';
     return 'all';
   });
+  const [discoverPool, setDiscoverPool] = useState(false);
   const [filters, setFilters] = useState({
     search: searchParams.get('search') || '',
     status: searchParams.get('status') || '',
@@ -630,12 +631,13 @@ export function useCandidateList() {
       `experience=${debouncedColumnFilters.experienceRange || ''}`,
       `stage=${stageKey || ''}`,
       `status=${!debouncedColumnFilters.stage && filters.status ? filters.status : ''}`,
-      `common=${listTab === 'all' && shouldIncludePhase1CommonPool() ? '1' : '0'}`,
+      `common=${listTab === 'all' && discoverPool && shouldIncludePhase1CommonPool() ? '1' : '0'}`,
       `smart=${(smartSearchCandidateIds || []).join(',')}`,
     ].join('&');
   }, [
     debouncedColumnFilters,
     filters.status,
+    discoverPool,
     listTab,
     smartSearchCandidateIds,
   ]);
@@ -855,8 +857,6 @@ export function useCandidateList() {
     loadCandidatesAbortRef.current?.abort();
     const abortController = new AbortController();
     loadCandidatesAbortRef.current = abortController;
-    // Cancel in-flight progressive prefetch on user-visible reloads (tab/filter/page).
-    const prefetchGen = ++candidatePrefetchGenRef.current;
     try {
       if (!silent) {
         if (isFirstLoad) {
@@ -882,7 +882,7 @@ export function useCandidateList() {
         status: !debouncedColumnFilters.stage && filters.status ? filters.status : undefined,
         // Keep All vs My scope on every batch.
         mine: activeListTab === 'mine',
-        ...(activeListTab === 'all' && shouldIncludePhase1CommonPool()
+        ...(activeListTab === 'all' && discoverPool && shouldIncludePhase1CommonPool()
           ? { includeCommonPool: true }
           : { includeCommonPool: false }),
         matchingCandidateIds: smartSearchCandidateIds,
@@ -1004,50 +1004,6 @@ export function useCandidateList() {
       const mapped = backendCandidates.map(mapBackendCandidate);
       const total = extractCandidatesPaginationTotal(payload as any, mapped.length);
       paintPage(mapped, backendCandidates, total);
-
-      if (
-        !smartSearchCandidateIds?.length &&
-        !debouncedSearch &&
-        !listFilterBits.includeCommonPool &&
-        !listFilterBits.mine
-      ) {
-        const neighbors = [activePage - 1, activePage + 1].filter((p) => p >= 1);
-        void Promise.allSettled(
-          neighbors.map((p) => {
-            const qp = buildCandidatesListApiParams({
-              page: p,
-              limit: pageSize,
-              ...listFilterBits,
-            });
-            return apiGetCandidates(qp, { signal: abortController.signal })
-              .then((warmRes) => {
-                const warmPayload = warmRes.data as
-                  | BackendCandidate[]
-                  | { data?: BackendCandidate[]; items?: BackendCandidate[]; pagination?: any }
-                  | undefined;
-                const warmBackend = extractBackendCandidatesList(warmPayload);
-                const warmMapped = warmBackend.map(mapBackendCandidate);
-                const warmTotal = extractCandidatesPaginationTotal(warmPayload as any, total);
-                if (
-                  requestId !== loadCandidatesRequestIdRef.current ||
-                  prefetchGen !== candidatePrefetchGenRef.current
-                ) {
-                  return;
-                }
-                writeCandidatesListCache({
-                  tab: activeListTab,
-                  page: p,
-                  pageSize,
-                  search: debouncedSearch || '',
-                  filterSig: candidatesFilterSig,
-                  totalEntries: warmTotal,
-                  candidates: warmMapped,
-                });
-              })
-              .catch(() => null);
-          }),
-        );
-      }
     } catch (err: any) {
       if (requestId !== loadCandidatesRequestIdRef.current) return;
       if (
@@ -1074,7 +1030,7 @@ export function useCandidateList() {
       setLoading(false);
       setTableLoading(false);
     }
-  }, [debouncedSearch, filters.status, debouncedColumnFilters, currentPage, pageSize, listTab, smartSearchCandidateIds, candidatesFilterSig]);
+  }, [debouncedSearch, filters.status, debouncedColumnFilters, currentPage, pageSize, listTab, discoverPool, smartSearchCandidateIds, candidatesFilterSig]);
 
   const handleRepairBadNames = useCallback(() => {
     setRepairNamesDrawerOpen(true);
@@ -1488,10 +1444,10 @@ export function useCandidateList() {
         queryParams.status = filters.status;
       }
       queryParams.includeCommonPool =
-        listTab === 'all' && shouldIncludePhase1CommonPool() ? true : false;
+        listTab === 'all' && discoverPool && shouldIncludePhase1CommonPool() ? true : false;
       return queryParams;
     },
-    [debouncedColumnFilters, filters.search, filters.status, listTab, phase1CommonPoolEnabled],
+    [debouncedColumnFilters, discoverPool, filters.search, filters.status, listTab, phase1CommonPoolEnabled],
   );
 
   const fetchAllCandidatesForExport = useCallback(async (): Promise<Candidate[]> => {
@@ -2552,6 +2508,8 @@ export function useCandidateList() {
     setPhase1CommonPoolEnabled,
     listTab,
     setListTab,
+    discoverPool,
+    setDiscoverPool,
     filters,
     setFilters,
     candidates,

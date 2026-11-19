@@ -55,7 +55,6 @@ export function buildClientsListApiParams(filters: {
   };
 }
 
-import { shouldIncludePhase1CommonPool } from '../phase1CommonPoolAccess';
 
 export function buildCandidatesListApiParams(filters: {
   page: number;
@@ -78,10 +77,7 @@ export function buildCandidatesListApiParams(filters: {
       page: filters.page,
       limit: filters.limit,
       ...(filters.mine ? { mine: true } : {}),
-      ...(filters.includeCommonPool === true ||
-      (filters.includeCommonPool !== false && shouldIncludePhase1CommonPool())
-        ? { includeCommonPool: true }
-        : {}),
+      ...(filters.includeCommonPool === true ? { includeCommonPool: true } : {}),
     };
   }
   const params: Record<string, string | number | boolean> = {
@@ -97,7 +93,7 @@ export function buildCandidatesListApiParams(filters: {
   if (filters.stage) params.stage = filters.stage;
   if (filters.status) params.status = filters.status;
   if (filters.mine) params.mine = true;
-  if (filters.includeCommonPool === true || (filters.includeCommonPool !== false && shouldIncludePhase1CommonPool())) {
+  if (filters.includeCommonPool === true) {
     params.includeCommonPool = true;
   }
   return params;

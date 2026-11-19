@@ -2,6 +2,7 @@
 
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
+import { ARIA_COMMAND_EVENT } from './AskAriaBar';
 import { AnimatePresence, motion } from 'motion/react';
 import { Eraser, History, X, PlusCircle, Lock } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -116,6 +117,37 @@ const PAGE_ASSISTANT_CONFIGS: AssistantPageConfig[] = [
     ],
   },
   {
+    key: 'jobs',
+    match: (pathname) => pathname === '/job' || pathname.startsWith('/job/'),
+    bubbleMessage: 'Tell me the job to create or update.',
+    drawerSubtitle: 'ARIA — Jobs',
+    chatGreeting: 'I am ARIA. Say the job you want created, published, or updated. I will ask only for what is missing, then do it.',
+    recommendations: [
+      { label: 'Create job', prompt: 'Create a job from the details I give you.', description: 'Write the job and save it.' },
+    ],
+  },
+  {
+    key: 'candidates',
+    match: (pathname) => pathname === '/candidate' || pathname.startsWith('/candidate/'),
+    bubbleMessage: 'Tell me which candidate to move.',
+    drawerSubtitle: 'ARIA — Candidates',
+    chatGreeting: 'I am ARIA. Ask me to update a candidate or move their stage. I will not invent a person who is not in your list.',
+    recommendations: [
+      { label: 'Move stage', prompt: 'Move the candidate I name to the stage I name.', description: 'Update the pipeline.' },
+    ],
+  },
+  {
+    key: 'people',
+    match: (pathname) => pathname === '/people' || pathname.startsWith('/people/'),
+    bubbleMessage: 'Tell me the people action to run.',
+    drawerSubtitle: 'ARIA — People',
+    chatGreeting: 'I am ARIA. Ask me about attendance, leave, or the month close. I will not invent an employee.',
+    recommendations: [
+      { label: 'Who is missing', prompt: 'Who is missing from attendance this month?', description: 'Read the current muster.' },
+      { label: 'Lock month', prompt: 'What has to be true before I lock this attendance month?', description: 'Explain the close.' },
+    ],
+  },
+  {
     key: 'tasks',
     match: (pathname) => pathname === '/Task&Activites' || pathname.startsWith('/Task&Activites/'),
     bubbleMessage: 'ARIA is ready for task operations',
@@ -208,6 +240,23 @@ export function FloatingBotButton() {
     setDragging(false);
     setShowPageBubble(false);
   }, [pathname]);
+
+  useEffect(() => {
+    const onCommand = (event: Event) => {
+      const text = String((event as CustomEvent<{ text?: string }>).detail?.text || '').trim();
+      if (!text) return;
+      if (assistantFabLocked) {
+        void assistantFabGate.confirmAndUnlock();
+        return;
+      }
+      setSelectedPrompt(text);
+      setSelectedPromptToken((token) => token + 1);
+      setActiveTab('chat');
+      setDrawerOpen(true);
+    };
+    window.addEventListener(ARIA_COMMAND_EVENT, onCommand);
+    return () => window.removeEventListener(ARIA_COMMAND_EVENT, onCommand);
+  }, [assistantFabGate, assistantFabLocked]);
 
   /** Roll ARIA to the left when a page drawer opens while the bot is on the right. */
   useEffect(() => {

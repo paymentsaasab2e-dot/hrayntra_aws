@@ -93,6 +93,8 @@ export default function AttendancePage() {
           >
             Punch now
           </button>
+          <details className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs">
+            <summary className="cursor-pointer font-semibold text-slate-700">More</summary>
           <button
             type="button"
             className={PH2_HEADER_PILL}
@@ -167,6 +169,7 @@ export default function AttendancePage() {
           >
             Half-day
           </button>
+          </details>
         </PeopleFormRow>
         <ul className="mt-3 text-xs">
           {punches.map((row) => (

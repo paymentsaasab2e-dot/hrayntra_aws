@@ -6,6 +6,7 @@ import { usePermissions } from '../hooks/usePermissions';
 import { MODULE_ACCESS_MAP } from '../lib/rbac/moduleAccess';
 import { matchesQuickSearch, buildQuickSearchHaystack } from '../lib/quickSearch';
 import { crmNavItems, peopleNavItems, recruitmentNavItems } from '../lib/navConfig';
+import { AskAriaBar } from './AskAriaBar';
 import { useUser } from '../hooks/useUser';
 import { NavItem, NavGroupFlyout } from './sidenavParts/NavItems';
 
@@ -1149,6 +1150,9 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
         className="ph2-main-surface min-h-screen min-w-0 max-w-full overflow-y-auto pt-[calc(3.5rem+var(--ph2-impersonation-banner-h,0px))]"
       >
         <PageErrorBoundary key={pathname || 'page'}>
+          <div className="px-3 pt-3 sm:px-5">
+            <AskAriaBar />
+          </div>
           {children || (
             <div className="p-6">
               <div className="mb-6">

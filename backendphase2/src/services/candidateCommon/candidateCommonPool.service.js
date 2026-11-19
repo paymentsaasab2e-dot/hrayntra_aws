@@ -525,8 +525,8 @@ export async function fetchCandidateCommonForCandidatesList(req, options = {}) {
   const limit = idFilter?.length
     ? Math.min(500, idFilter.length)
     : Math.min(
-        10000,
-        Math.max(1, Number(process.env.CANDIDATES_COMMON_POOL_MAX || 5000) || 5000),
+        200,
+        Math.max(1, Number(process.env.CANDIDATES_COMMON_POOL_MAX || 200) || 200),
       );
 
   const where = { isVerified: true };
@@ -684,7 +684,7 @@ export async function fetchCandidateCommonForTenant(req, jobId) {
   const rows = await commonPrisma.candidateCommon.findMany({
     where: { AND: andParts },
     orderBy: { syncedAt: 'desc' },
-    take: 5000,
+    take: 200,
   });
 
   return rows.map(mapCandidateCommonRowToCandidate).filter(Boolean);

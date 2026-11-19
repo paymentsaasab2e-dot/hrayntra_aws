@@ -5,6 +5,7 @@ import {
   getCandidateCommonPrismaClient,
 } from '../../config/prisma.js';
 import { dedupeCandidatesByPerson } from '../../lib/dedupeCandidatesByPerson.js';
+import { parseIncludeCommonPoolQuery } from './candidateListQuery.js';
 import { ID_IN_CHUNK_SIZE, matchAppliedPoolMax, matchPortalPoolMax, matchTenantPoolMax } from '../../lib/queryBounds.js';
 import { linkPersonToTenant } from '../../lib/linkPerson.js';
 import { getCandidateDetailsById } from './candidate-details.service.js';
@@ -678,12 +679,8 @@ function candidateHasListIdentity(candidate) {
   );
 }
 
-/** CRM list merges Phase 1 common pool by default; pass includeCommonPool=false to opt out. */
-function parseIncludeCommonPoolQuery(query = {}) {
-  const raw = query?.includeCommonPool;
-  if (raw === 'false' || raw === '0' || raw === false) return false;
-  return true;
-}
+/** Re-export so list callers share the opt-in discover rule. */
+export { parseIncludeCommonPoolQuery };
 
 /** Tenant HQ flag: Phase 1 (candidatecommon) on All candidates. Missing → allowed. */
 async function tenantAllowsPhase1CommonPool() {

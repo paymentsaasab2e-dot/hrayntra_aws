@@ -261,6 +261,8 @@ export function CandidateListPage() {
     setPhase1CommonPoolEnabled,
     listTab,
     setListTab,
+    discoverPool,
+    setDiscoverPool,
     filters,
     setFilters,
     candidates,
@@ -654,6 +656,20 @@ export function CandidateListPage() {
                       aria-current={listTab === 'all' ? 'page' : undefined}
                     >
                       All candidates
+                    </button>
+                  ) : null}
+                  {phase1CommonPoolEnabled && listTab === 'all' ? (
+                    <button
+                      type="button"
+                      onClick={() => setDiscoverPool((current) => !current)}
+                      className={`${CANDIDATE_TABLE_TAB_CLASS} ${
+                        discoverPool
+                          ? 'border-indigo-600 text-indigo-700'
+                          : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-800'
+                      }`}
+                      aria-pressed={discoverPool}
+                    >
+                      Discover
                     </button>
                   ) : null}
                   <button

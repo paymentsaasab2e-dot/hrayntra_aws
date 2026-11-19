@@ -65,8 +65,8 @@ function PeoplePageContent() {
   const searchRef = useRef(search);
   searchRef.current = search;
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true);
     try {
       const [settingsRes, listRes, empRes] = await Promise.all([
         apiGetPeopleCoreSettings(),
@@ -230,7 +230,7 @@ function PeoplePageContent() {
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === 'Enter') void load();
+              if (event.key === 'Enter') void load({ silent: employees.length > 0 });
             }}
           />
           <span className="ml-auto text-[11px] font-medium text-slate-500">{total} people</span>

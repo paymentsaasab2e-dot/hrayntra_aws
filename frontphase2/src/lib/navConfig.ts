@@ -11,19 +11,10 @@ import {
   Calendar,
   Award,
   CreditCard,
-  Building2,
-  CalendarDays,
-  ClipboardList,
   Clock,
   Cloud,
-  LogOut,
-  Briefcase as BriefcaseIcon,
-  FileText,
   Inbox,
-  BarChart3,
-  ShieldCheck,
   Wallet,
-  Settings,
 } from 'lucide-react';
 
 /**
@@ -190,18 +181,9 @@ export function peopleNavItems(flags: PeopleNavFlags): NavItemConfig[] {
   if (!flags.canViewEmployees) return [];
   return [
     { icon: UsersRound, label: 'Employees', href: '/people', accent: 'teal' as NavAccent },
-    { icon: Settings, label: 'Settings', href: '/people/settings', accent: 'slate' as NavAccent },
-    { icon: Building2, label: 'Organisation', href: '/people/organisation', accent: 'blue' as NavAccent },
-    { icon: CalendarDays, label: 'Holidays', href: '/people/holidays', accent: 'amber' as NavAccent },
-    { icon: ClipboardList, label: 'Onboarding', href: '/people/onboarding', accent: 'violet' as NavAccent },
     { icon: Clock, label: 'Attendance', href: '/people/attendance', accent: 'cyan' as NavAccent },
     { icon: Cloud, label: 'Leave', href: '/people/leave', accent: 'lime' as NavAccent },
-    { icon: LogOut, label: 'Exit', href: '/people/exit', accent: 'rose' as NavAccent },
-    { icon: BriefcaseIcon, label: 'Assets', href: '/people/assets', accent: 'indigo' as NavAccent },
-    { icon: FileText, label: 'Letters', href: '/people/letters', accent: 'sky' as NavAccent },
-    { icon: Inbox, label: 'Inbox', href: '/people/inbox', accent: 'fuchsia' as NavAccent },
-    { icon: BarChart3, label: 'Reports', href: '/people/reports', accent: 'pink' as NavAccent },
-    { icon: ShieldCheck, label: 'Policies', href: '/people/policies', accent: 'emerald' as NavAccent },
     { icon: Wallet, label: 'Payroll', href: '/people/payroll', accent: 'orange' as NavAccent },
+    { icon: Inbox, label: 'Inbox', href: '/people/inbox', accent: 'fuchsia' as NavAccent },
   ];
 }

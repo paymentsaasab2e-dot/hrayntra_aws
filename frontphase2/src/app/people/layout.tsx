@@ -1,6 +1,7 @@
 'use client';
 
 import { Sidenav } from '../../components/Sidenav';
+import { PeopleSectionNav } from './_components/PeopleSectionNav';
 import { PasswordResetGuard } from '../../components/PasswordResetGuard';
 import PermissionRouteGuard from '../../components/PermissionRouteGuard';
 import { MODULE_ACCESS_MAP } from '../../lib/rbac/moduleAccess';
@@ -13,7 +14,12 @@ export default function PeopleLayout({ children }: { children: React.ReactNode }
     <PasswordResetGuard>
       <div className="min-h-screen bg-slate-50 font-['Arimo',sans-serif]">
         <Sidenav avatarUrl={avatarUrl}>
-          <PermissionRouteGuard anyPermissions={MODULE_ACCESS_MAP.People}>{children}</PermissionRouteGuard>
+          <PermissionRouteGuard anyPermissions={MODULE_ACCESS_MAP.People}>
+            <div className="px-3 pt-3 sm:px-5">
+              <PeopleSectionNav />
+            </div>
+            {children}
+          </PermissionRouteGuard>
         </Sidenav>
       </div>
     </PasswordResetGuard>
