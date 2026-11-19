@@ -1,10 +1,11 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { Wallet } from 'lucide-react';
+import { ChevronDown, Wallet } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   apiApprovePayroll,
+  apiFetch,
   apiListLegalEmployers,
   apiListPayrollRuns,
   apiListPayslips,
@@ -32,17 +33,31 @@ export default function PayrollPage() {
   const [exceptions, setExceptions] = useState<any[]>([]);
   const [payslips, setPayslips] = useState<any[]>([]);
   const [paymentFile, setPaymentFile] = useState<any>(null);
+  const [periodLocked, setPeriodLocked] = useState<boolean | null>(null);
   const now = new Date();
 
   const load = async () => {
+    // Keep the current rows visible until the refreshed list arrives.
     const emp = await apiListLegalEmployers();
     const list = (emp.data as LegalEmployer[]) || [];
     setEmployers(list);
     const id = legalEmployerId || list[0]?.id || '';
     if (!legalEmployerId && id) setLegalEmployerId(id);
     if (id) {
-      const res = await apiListPayrollRuns(id);
+      const qs = new URLSearchParams({
+        legalEmployerId: id,
+        year: String(now.getFullYear()),
+        month: String(now.getMonth() + 1),
+      });
+      const [res, period] = await Promise.all([
+        apiListPayrollRuns(id),
+        apiFetch<{ locked?: boolean | null } | null>(`/attendance/periods?${qs}`, {
+          auth: true,
+          includeTenantHeader: true,
+        }).catch(() => null),
+      ]);
       setRuns((res.data as any[]) || []);
+      setPeriodLocked(period ? Boolean(period.data?.locked) : null);
     }
   };
 
@@ -88,7 +103,7 @@ export default function PayrollPage() {
           </select>
           <button
             type="button"
-            className={PH2_HEADER_PILL_PRIMARY}
+            className={`${PH2_HEADER_PILL_PRIMARY} !w-auto !px-4`}
             onClick={async () => {
               try {
                 const res = await apiRunPayroll({
@@ -105,7 +120,7 @@ export default function PayrollPage() {
               }
             }}
           >
-            Run this month
+            Run payroll
           </button>
         </PeopleFormRow>
         <ul className="mt-3 text-sm">
@@ -114,32 +129,47 @@ export default function PayrollPage() {
               <button type="button" className="text-left" onClick={() => void loadRunDetail(row.id)}>
                 {row.year}-{row.month} · {row.status} · {row.capability}
               </button>
-              <span className="flex gap-2">
-                <button
-                  type="button"
-                  className={PH2_HEADER_PILL}
-                  onClick={() =>
-                    void apiApprovePayroll(row.id)
-                      .then(load)
-                      .catch((error: any) => toast.error(error?.message))
-                  }
-                >
-                  Approve
-                </button>
-                <button
-                  type="button"
-                  className={PH2_HEADER_PILL}
-                  onClick={() =>
-                    void apiLockPayroll(row.id)
-                      .then(load)
-                      .catch((error: any) => toast.error(error?.message))
-                  }
-                >
-                  Lock
-                </button>
-              </span>
+              <details className="group shrink-0">
+                <summary className={`${PH2_HEADER_PILL} !w-auto cursor-pointer list-none !px-3 [&::-webkit-details-marker]:hidden`}>
+                  More
+                  <ChevronDown aria-hidden="true" className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />
+                </summary>
+                <div className="mt-2 flex gap-2">
+                  <button
+                    type="button"
+                    className={`${PH2_HEADER_PILL} !w-auto !px-3`}
+                    onClick={() =>
+                      void apiApprovePayroll(row.id)
+                        .then(load)
+                        .catch((error: any) => toast.error(error?.message))
+                    }
+                  >
+                    Approve
+                  </button>
+                  <button
+                    type="button"
+                    className={`${PH2_HEADER_PILL} !w-auto !px-3`}
+                    onClick={() =>
+                      void apiLockPayroll(row.id)
+                        .then(load)
+                        .catch((error: any) => toast.error(error?.message))
+                    }
+                  >
+                    Lock
+                  </button>
+                </div>
+              </details>
             </li>
           ))}
+          {runs.length === 0 ? (
+            <li className="py-2 text-slate-500">
+              {periodLocked === false
+                ? 'No locked attendance month. Lock attendance first, then run payroll.'
+                : periodLocked === null
+                  ? 'Loading…'
+                  : 'No payroll runs yet.'}
+            </li>
+          ) : null}
         </ul>
       </PeopleCard>
       {selectedRunId ? (
