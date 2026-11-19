@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { ClipboardList } from 'lucide-react';
+import { ChevronDown, ClipboardList } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   apiCompleteOnboardingTask,
@@ -20,6 +20,7 @@ export default function OnboardingPage() {
   const [tasks, setTasks] = useState<any[]>([]);
 
   const loadPeople = async () => {
+    // Keep the current rows visible until the refreshed list arrives.
     const res = await apiOnboardingQueue();
     const rows = ((res.data as BackendEmployee[]) || []) as BackendEmployee[];
     setEmployees(rows);
@@ -44,6 +45,7 @@ export default function OnboardingPage() {
   }, [employeeId]);
 
   const selected = employees.find((row) => row.id === employeeId);
+  const pendingTasks = tasks.filter((task) => task.status !== 'DONE').length;
 
   return (
     <Ph2ModulePageLayout title="Onboarding" icon={<ClipboardList className="h-5 w-5" />} subtitle="Checklist from the country pack. Day-1 join only after READY.">
@@ -63,31 +65,61 @@ export default function OnboardingPage() {
                 {task.label} · {task.status}
               </span>
               {task.status !== 'DONE' ? (
-                <button
-                  type="button"
-                  className={PH2_HEADER_PILL}
-                  onClick={async () => {
-                    try {
-                      await apiCompleteOnboardingTask(task.id);
-                      await loadTasks(employeeId);
-                      await loadPeople();
-                    } catch (error: any) {
-                      toast.error(error?.message);
-                    }
-                  }}
-                >
-                  Complete
-                </button>
+                <details className="group shrink-0">
+                  <summary className={`${PH2_HEADER_PILL} !w-auto cursor-pointer list-none !px-3 [&::-webkit-details-marker]:hidden`}>
+                    More
+                    <ChevronDown aria-hidden="true" className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />
+                  </summary>
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      type="button"
+                      className={`${PH2_HEADER_PILL} !w-auto !px-3`}
+                      onClick={async () => {
+                        try {
+                          await apiCompleteOnboardingTask(task.id);
+                          await loadTasks(employeeId);
+                          await loadPeople();
+                        } catch (error: any) {
+                          toast.error(error?.message);
+                        }
+                      }}
+                    >
+                      Complete
+                    </button>
+                  </div>
+                </details>
               ) : null}
             </li>
           ))}
         </ul>
         {employeeId ? (
-          <div className="mt-3 flex flex-wrap gap-2">
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {selected?.status === 'PREBOARDING' ? (
+              <button
+                type="button"
+                className={`${PH2_HEADER_PILL_PRIMARY} !w-auto !px-4`}
+                disabled={pendingTasks === 0}
+                onClick={async () => {
+                  try {
+                    const pending = tasks.filter((task) => task.status !== 'DONE');
+                    for (const task of pending) {
+                      await apiCompleteOnboardingTask(task.id);
+                    }
+                    toast.success('Checklist complete — marked ready');
+                    await loadTasks(employeeId);
+                    await loadPeople();
+                  } catch (error: any) {
+                    toast.error(error?.message);
+                  }
+                }}
+              >
+                Mark ready
+              </button>
+            ) : null}
             {selected?.status === 'READY' || selected?.status === 'DEFERRED' ? (
               <button
                 type="button"
-                className={PH2_HEADER_PILL_PRIMARY}
+                className={`${PH2_HEADER_PILL_PRIMARY} !w-auto !px-4`}
                 onClick={async () => {
                   try {
                     await apiJoinEmployee(employeeId);
@@ -101,34 +133,42 @@ export default function OnboardingPage() {
                 Join on Day-1
               </button>
             ) : null}
-            {selected?.status === 'PREBOARDING' || selected?.status === 'READY' ? (
-              <button
-                type="button"
-                className={PH2_HEADER_PILL}
-                onClick={async () => {
-                  try {
-                    await apiDeferEmployee(employeeId);
-                    toast.success('Deferred');
+            <details className="group shrink-0">
+              <summary className={`${PH2_HEADER_PILL} !w-auto cursor-pointer list-none !px-3 [&::-webkit-details-marker]:hidden`}>
+                More
+                <ChevronDown aria-hidden="true" className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />
+              </summary>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {selected?.status === 'PREBOARDING' || selected?.status === 'READY' ? (
+                  <button
+                    type="button"
+                    className={`${PH2_HEADER_PILL} !w-auto !px-3`}
+                    onClick={async () => {
+                      try {
+                        await apiDeferEmployee(employeeId);
+                        toast.success('Deferred');
+                        await loadPeople();
+                      } catch (error: any) {
+                        toast.error(error?.message);
+                      }
+                    }}
+                  >
+                    Defer
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="text-xs text-rose-600"
+                  onClick={async () => {
+                    await apiMarkNoShow(employeeId);
+                    toast.success('Marked no-show');
                     await loadPeople();
-                  } catch (error: any) {
-                    toast.error(error?.message);
-                  }
-                }}
-              >
-                Defer
-              </button>
-            ) : null}
-            <button
-              type="button"
-              className="text-xs text-rose-600"
-              onClick={async () => {
-                await apiMarkNoShow(employeeId);
-                toast.success('Marked no-show');
-                await loadPeople();
-              }}
-            >
-              Mark no-show
-            </button>
+                  }}
+                >
+                  Mark no-show
+                </button>
+              </div>
+            </details>
           </div>
         ) : null}
       </PeopleCard>
