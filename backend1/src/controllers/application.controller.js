@@ -7,7 +7,10 @@ const {
   resolvePublicCompanyName,
   shouldShowClientNamePublicly,
 } = require('../utils/formatPortalJob.util');
-const { resolvePhase2UploadUrl } = require('../utils/phase2InternalApi.util');
+const {
+  resolvePhase2UploadUrl,
+  resolvePhase2InternalApiOrigin,
+} = require('../utils/phase2InternalApi.util');
 
 /** True for Prisma Mongo write conflicts / transient transaction failures (case + message fallbacks). */
 function isMongoTransientWriteConflict(e) {
@@ -590,11 +593,7 @@ function interviewOutcomeNeedsPhase2Backfill(outcome = {}) {
 const PHASE2_FETCH_TIMEOUT_MS = Number(process.env.PHASE2_PORTAL_FETCH_TIMEOUT_MS || 4000);
 
 async function fetchPhase2Internal(url, body) {
-  const base =
-    process.env.PHASE2_INTERNAL_API_URL ||
-    process.env.PHASE2_API_URL ||
-    process.env.PHASE2_BASE_URL ||
-    'http://localhost:5001';
+  const base = resolvePhase2InternalApiOrigin();
   const secret =
     require('../config/secrets').getPhase2PortalSyncSecretOrEmpty();
   const controller = new AbortController();
@@ -1377,11 +1376,7 @@ async function syncApplicationToRecruiterView(candidateId, job) {
  *    backends ship a sane local default so dev environments work out of the box.
  */
 async function syncPhase2TenantAfterPortalApply(candidateId, jobId) {
-  const base =
-    process.env.PHASE2_INTERNAL_API_URL ||
-    process.env.PHASE2_API_URL ||
-    process.env.PHASE2_BASE_URL ||
-    'http://localhost:5001';
+  const base = resolvePhase2InternalApiOrigin();
   const secret =
     require('../config/secrets').getPhase2PortalSyncSecretOrEmpty();
 
@@ -1457,11 +1452,7 @@ async function syncPhase2TenantAfterPortalApply(candidateId, jobId) {
  * Mirror portal withdraw into the Phase 2 tenant DB (detach match, application, pipeline).
  */
 async function syncPhase2AfterPortalWithdraw(candidateId, jobId) {
-  const base =
-    process.env.PHASE2_INTERNAL_API_URL ||
-    process.env.PHASE2_API_URL ||
-    process.env.PHASE2_BASE_URL ||
-    'http://localhost:5001';
+  const base = resolvePhase2InternalApiOrigin();
   const secret =
     require('../config/secrets').getPhase2PortalSyncSecretOrEmpty();
 
@@ -2211,11 +2202,7 @@ async function getApplicationById(req, res) {
 }
 
 async function syncPhase2PlacementOfferResponse(candidateId, jobId, decision, remark) {
-  const base =
-    process.env.PHASE2_INTERNAL_API_URL ||
-    process.env.PHASE2_API_URL ||
-    process.env.PHASE2_BASE_URL ||
-    'http://localhost:5001';
+  const base = resolvePhase2InternalApiOrigin();
   const secret =
     require('../config/secrets').getPhase2PortalSyncSecretOrEmpty();
 
