@@ -91,7 +91,7 @@ export default function HolidaysPage() {
             {leaveTypes.map((row) => (
               <tr key={row.id} className="border-b border-slate-100">
                 <td className="py-2 pr-4 text-left font-semibold text-slate-800">{row.name}</td>
-                <td className="px-4 py-2 text-left text-slate-700">{row.paid === false ? 'Unpaid' : 'Paid'}</td>
+                <td className="px-4 py-2 text-left text-slate-700">{(row as { paid?: boolean }).paid === false ? 'Unpaid' : 'Paid'}</td>
                 <td className="py-2 pl-4 text-left text-slate-700">{row.country}</td>
               </tr>
             ))}
