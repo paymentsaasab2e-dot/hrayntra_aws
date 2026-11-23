@@ -40,6 +40,9 @@ describe('authService.login — W1 directory-first tenancy', () => {
     headquartersAuthService.findActiveSuperAdminByCredentials = async () => null;
     headquartersAuthService.findWorkspaceUserByEmail = async () => null;
     headquartersAuthService.findTenantDbNameForUser = async () => '';
+    headquartersAuthService.findTenantDbNameForUserByPassword = async () => '';
+    headquartersAuthService.upsertTenantUserDirectoryEntry = async () => {};
+    headquartersAuthService.updateWorkspacePasswordForEmail = async () => {};
 
     prisma.userCredential.findFirst = async () => null;
     prisma.userCredential.update = async () => ({});

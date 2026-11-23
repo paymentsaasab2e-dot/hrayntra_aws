@@ -1737,6 +1737,116 @@ export const hqService = {
     return getHqTenantBehaviorEngine({ tenantDbName, range, userId });
   },
 
+  /**
+   * HQ Users tab: tenant admin loginId/password + tenant team member credentials.
+   * Admin password comes from HQ workspace doc; team passwords from hqDisplayPassword
+   * (filled on generate/reset/login).
+   */
+  async getTenantUsersCredentials(reqUser, tenantDbName) {
+    assertPlatformProvisioner(reqUser);
+    const dbName = String(tenantDbName || '').trim();
+    if (!dbName) {
+      const err = new Error('tenantDbName is required');
+      err.code = 'VALIDATION';
+      throw err;
+    }
+
+    const admin =
+      (await headquartersAuthService.findTenantLoginSecretsByDbName(dbName)) || null;
+
+    let team = [];
+    try {
+      team = await runWithTenantContext(dbName, async () => {
+        const users = await prisma.user.findMany({
+          where: { isDeleted: { not: true } },
+          select: {
+            id: true,
+            name: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            role: true,
+            isActive: true,
+            status: true,
+            systemRole: { select: { roleName: true } },
+            credential: {
+              select: {
+                loginId: true,
+                hqDisplayPassword: true,
+                tempPasswordFlag: true,
+                lastLoginAt: true,
+                isLocked: true,
+                inviteSentAt: true,
+              },
+            },
+          },
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          take: 500,
+        });
+
+        return users.map((row) => {
+          const displayName =
+            String(row.name || '').trim() ||
+            [row.firstName, row.lastName].filter(Boolean).join(' ').trim() ||
+            row.email;
+          return {
+            id: row.id,
+            name: displayName,
+            email: row.email || '',
+            role: row.systemRole?.roleName || row.role || '',
+            status: row.status || (row.isActive === false ? 'INACTIVE' : 'ACTIVE'),
+            loginId: row.credential?.loginId || '',
+            password: row.credential?.hqDisplayPassword || '',
+            tempPasswordPending: Boolean(row.credential?.tempPasswordFlag),
+            isLocked: Boolean(row.credential?.isLocked),
+            lastLoginAt: row.credential?.lastLoginAt
+              ? new Date(row.credential.lastLoginAt).toISOString()
+              : null,
+            inviteSentAt: row.credential?.inviteSentAt
+              ? new Date(row.credential.inviteSentAt).toISOString()
+              : null,
+            hasCredentials: Boolean(row.credential?.loginId),
+            isTenantAdmin:
+              Boolean(admin?.email) &&
+              String(row.email || '')
+                .trim()
+                .toLowerCase() === String(admin.email).trim().toLowerCase(),
+          };
+        });
+      });
+    } catch (err) {
+      console.warn(
+        '[hq.getTenantUsersCredentials] tenant team load failed:',
+        dbName,
+        err?.message || err,
+      );
+      team = [];
+    }
+
+    // Prefer HQ-stored admin password; fall back to matching team row display password.
+    const adminFromTeam = team.find((row) => row.isTenantAdmin);
+    const adminPassword =
+      String(admin?.password || '').trim() || String(adminFromTeam?.password || '').trim();
+
+    return {
+      tenantDbName: dbName,
+      admin: admin
+        ? {
+            id: admin.id,
+            name: admin.name || admin.email,
+            email: admin.email,
+            loginId: admin.loginId || admin.email,
+            password: adminPassword,
+            organizationName: admin.organizationName || '',
+            status: admin.status || 'ACTIVE',
+          }
+        : null,
+      team,
+      note:
+        'Passwords appear after Generate/Reset credentials or after the user signs in once. Older accounts show — until then.',
+    };
+  },
+
   async getAnalytics(reqUser) {
     assertPlatformProvisioner(reqUser);
     return hqAnalyticsService.getAnalytics();

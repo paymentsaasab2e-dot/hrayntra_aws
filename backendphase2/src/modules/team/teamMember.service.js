@@ -25,9 +25,15 @@ import { assertValidReportsTo } from '../../services/assignmentRules.service.js'
  * so the user can later sign in via the plain `/login` URL (without the
  * invite-link `tenantDbName=` query param).
  */
-async function recordTenantUserDirectoryEntry({ email, loginId }) {
-  const tenantDbName = getActiveTenantDbName() || '';
-  if (!tenantDbName) return;
+async function recordTenantUserDirectoryEntry({ email, loginId, tenantDbName: explicitTenant } = {}) {
+  const tenantDbName = String(explicitTenant || getActiveTenantDbName() || '').trim();
+  if (!tenantDbName) {
+    console.warn('[teamMember] directory upsert skipped: no active tenantDbName', {
+      email: email || null,
+      loginId: loginId || null,
+    });
+    return;
+  }
   try {
     await headquartersAuthService.upsertTenantUserDirectoryEntry({
       email,
@@ -382,6 +388,7 @@ export const teamMemberService = {
           userId: user.id,
           loginId,
           hashedPassword,
+          hqDisplayPassword: tempPassword,
           tempPasswordFlag: true,
           inviteToken,
           inviteExpiresAt,
@@ -390,7 +397,11 @@ export const teamMemberService = {
         },
       });
 
-      await recordTenantUserDirectoryEntry({ email: user.email, loginId });
+      await recordTenantUserDirectoryEntry({
+        email: user.email,
+        loginId,
+        tenantDbName: getActiveTenantDbName() || '',
+      });
 
       credentialData = {
         loginId,
@@ -685,6 +696,7 @@ export const teamMemberService = {
       update: {
         loginId,
         hashedPassword,
+        hqDisplayPassword: tempPassword,
         tempPasswordFlag: true,
         inviteToken,
         inviteExpiresAt,
@@ -696,6 +708,7 @@ export const teamMemberService = {
         userId,
         loginId,
         hashedPassword,
+        hqDisplayPassword: tempPassword,
         tempPasswordFlag: true,
         inviteToken,
         inviteExpiresAt,
@@ -706,7 +719,11 @@ export const teamMemberService = {
       },
     });
 
-    await recordTenantUserDirectoryEntry({ email: user.email, loginId });
+    await recordTenantUserDirectoryEntry({
+      email: user.email,
+      loginId,
+      tenantDbName: getActiveTenantDbName() || '',
+    });
 
     // Send invite email if requested
     if (sendInvite) {
@@ -769,6 +786,7 @@ export const teamMemberService = {
       where: { userId },
       data: {
         hashedPassword,
+        hqDisplayPassword: tempPassword,
         tempPasswordFlag: true,
         inviteToken,
         inviteExpiresAt,
@@ -777,9 +795,11 @@ export const teamMemberService = {
       },
     });
 
+    const resetTenantDbName = getActiveTenantDbName() || '';
     await recordTenantUserDirectoryEntry({
       email: user.email,
       loginId: user.credential?.loginId,
+      tenantDbName: resetTenantDbName,
     });
 
     // Send password reset email (Super Admin can still complete reset if email fails)
@@ -788,7 +808,7 @@ export const teamMemberService = {
         email: user.email,
         tempPassword,
         inviteToken,
-        tenantDbName: getActiveTenantDbName() || undefined,
+        tenantDbName: resetTenantDbName || undefined,
       });
     } catch (emailError) {
       console.error('Failed to send password reset email:', emailError);
@@ -848,6 +868,7 @@ export const teamMemberService = {
       where: { userId },
       data: {
         hashedPassword,
+        hqDisplayPassword: pwd,
         tempPasswordFlag: false,
         failedAttempts: 0,
         isLocked: false,
@@ -893,6 +914,7 @@ export const teamMemberService = {
       where: { userId },
       data: {
         hashedPassword,
+        hqDisplayPassword: tempPassword,
         tempPasswordFlag: true,
         inviteToken,
         inviteExpiresAt,
@@ -902,9 +924,11 @@ export const teamMemberService = {
       },
     });
 
+    const resendTenantDbName = getActiveTenantDbName() || '';
     await recordTenantUserDirectoryEntry({
       email: user.email,
       loginId: user.credential.loginId,
+      tenantDbName: resendTenantDbName,
     });
 
     // Send invite email
@@ -915,7 +939,7 @@ export const teamMemberService = {
         tempPassword,
         roleName: user.systemRole?.roleName || 'Team Member',
         inviteToken,
-        tenantDbName: getActiveTenantDbName() || undefined,
+        tenantDbName: resendTenantDbName || undefined,
       });
     } catch (emailError) {
       console.error('Failed to send invite email:', emailError);

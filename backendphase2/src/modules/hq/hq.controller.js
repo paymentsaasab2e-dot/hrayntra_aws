@@ -804,6 +804,18 @@ export const hqController = {
     }
   },
 
+  async getTenantUsersCredentials(req, res) {
+    try {
+      const tenantDbName = String(req.params.tenantDbName || req.query.tenantDbName || '').trim();
+      if (!tenantDbName) return sendError(res, 400, 'tenantDbName is required');
+      const result = await hqService.getTenantUsersCredentials(req.user, tenantDbName);
+      sendResponse(res, 200, 'OK', result);
+    } catch (error) {
+      if (error?.code === 'VALIDATION') return sendError(res, 400, error.message);
+      sendError(res, 400, error.message, error);
+    }
+  },
+
   async getBilling(req, res) {
     try {
       const result = await hqService.getBilling(req.user);

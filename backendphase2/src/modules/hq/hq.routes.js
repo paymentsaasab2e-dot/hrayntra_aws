@@ -207,6 +207,7 @@ router.post('/kyc-interviewers/:id/verify', authMiddleware, hqController.verifyK
 router.post('/kyc-interviewers/:id/reject', authMiddleware, hqController.rejectKycInterviewer);
 router.get('/tenants/:tenantDbName/behavior', authMiddleware, hqController.getTenantBehavior);
 router.get('/tenants/:tenantDbName/behavior-engine', authMiddleware, hqController.getTenantBehaviorEngine);
+router.get('/tenants/:tenantDbName/users', authMiddleware, hqController.getTenantUsersCredentials);
 router.get('/candidates/:id/behavior', authMiddleware, hqController.getCandidateBehavior);
 router.delete('/portal/jobs/:id', authMiddleware, hqController.deletePortalJob);
 router.patch(
