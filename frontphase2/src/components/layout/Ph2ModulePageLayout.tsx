@@ -105,7 +105,7 @@ export function Ph2ModulePageLayout({
   belowScroll,
 }: Ph2ModulePageLayoutProps) {
   return (
-    <div className="ph2-page-shell flex h-[calc(100dvh-3.5rem)] w-full min-w-0 max-w-full flex-col overflow-hidden text-slate-900">
+    <div className="ph2-page-shell flex min-h-0 w-full min-w-0 max-w-full flex-1 flex-col overflow-hidden text-slate-900">
       <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <div className="hry-aurora" aria-hidden />
         <header className={PH2_PAGE_HEADER_CLASS}>
@@ -120,7 +120,7 @@ export function Ph2ModulePageLayout({
           </div>
           {actions ? <div className="flex min-w-0 shrink-0 flex-nowrap items-center gap-1.5 overflow-x-auto sm:gap-2">{actions}</div> : null}
         </header>
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden px-2 py-1.5 sm:px-3 sm:py-2 lg:px-4">
+        <div className="ph2-page-scroll flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto px-2 py-1.5 sm:px-3 sm:py-2 lg:px-4">
           {children}
         </div>
         {belowScroll}

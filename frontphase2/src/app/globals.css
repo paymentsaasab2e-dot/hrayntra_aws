@@ -416,11 +416,20 @@ html {
     max-width: 100%;
   }
 
-  /* Viewport-locked CRM list pages — only the table panel scrolls */
+  /* Viewport-locked CRM pages. The shell fills the space under the command bar and scrolls inside it. */
   .ph2-main-surface:has(.ph2-page-shell) {
+    display: flex;
+    flex-direction: column;
     height: 100dvh;
     max-height: 100dvh;
     overflow: hidden;
+  }
+
+  .ph2-main-surface:has(.ph2-page-shell) > .ph2-page-shell {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: auto !important;
+    max-height: 100%;
   }
 
   /** HQ console uses the same lock when a Phase 2–style page shell is present */
@@ -631,6 +640,7 @@ html {
 }
 
 /* CRM list tables — thin indigo scrollbars on both axes */
+.ph2-page-scroll,
 .ph2-table-body-scroll,
 .leads-table-body-scroll,
 .team-table-body-scroll {
@@ -639,8 +649,8 @@ html {
   overflow-x: auto;
   overflow-y: auto;
   scrollbar-gutter: stable;
-  scrollbar-width: thin;
-  scrollbar-color: rgb(129 140 248 / 0.5) transparent;
+  scrollbar-width: auto;
+  scrollbar-color: #475569 #e2e8f0;
   overscroll-behavior: contain;
 }
 
@@ -711,35 +721,36 @@ table tbody td .text-sm {
   }
 }
 
+.ph2-page-scroll::-webkit-scrollbar,
 .ph2-table-body-scroll::-webkit-scrollbar,
 .leads-table-body-scroll::-webkit-scrollbar,
 .team-table-body-scroll::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 14px;
+  height: 14px;
 }
 
+.ph2-page-scroll::-webkit-scrollbar-track,
 .ph2-table-body-scroll::-webkit-scrollbar-track,
 .leads-table-body-scroll::-webkit-scrollbar-track,
 .team-table-body-scroll::-webkit-scrollbar-track {
-  background: transparent;
+  background: #e2e8f0;
   border-radius: 999px;
-  margin: 2px;
 }
 
+.ph2-page-scroll::-webkit-scrollbar-thumb,
 .ph2-table-body-scroll::-webkit-scrollbar-thumb,
 .leads-table-body-scroll::-webkit-scrollbar-thumb,
 .team-table-body-scroll::-webkit-scrollbar-thumb {
-  background: rgb(165 180 252 / 0.55);
+  background: #475569;
   border-radius: 999px;
-  border: 1px solid transparent;
-  background-clip: padding-box;
+  border: 3px solid #e2e8f0;
 }
 
+.ph2-page-scroll::-webkit-scrollbar-thumb:hover,
 .ph2-table-body-scroll::-webkit-scrollbar-thumb:hover,
 .leads-table-body-scroll::-webkit-scrollbar-thumb:hover,
 .team-table-body-scroll::-webkit-scrollbar-thumb:hover {
-  background: rgb(129 140 248 / 0.75);
-  background-clip: padding-box;
+  background: #334155;
 }
 
 .ph2-table-body-scroll::-webkit-scrollbar-corner,

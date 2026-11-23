@@ -1152,10 +1152,10 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
       <motion.main
         animate={{ marginLeft: SIDEBAR_W }}
         transition={{ duration: 0.28, ease: [0.4, 0, 0.2, 1] }}
-        className="ph2-main-surface min-h-screen min-w-0 max-w-full overflow-y-auto pt-[calc(3.5rem+var(--ph2-impersonation-banner-h,0px))]"
+        className="ph2-main-surface flex h-dvh min-h-0 min-w-0 max-w-full flex-col overflow-hidden pt-[calc(3.5rem+var(--ph2-impersonation-banner-h,0px))]"
       >
         <PageErrorBoundary key={pathname || 'page'}>
-          <div className="px-3 pt-3 sm:px-5">
+          <div className="shrink-0 px-3 pt-3 sm:px-5">
             <AskAriaBar />
             <TodayStrip />
           </div>
