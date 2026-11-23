@@ -69,19 +69,28 @@ export async function sendCredentialInvite({
   accountKind,
   monthlyJobLimit,
 }) {
-  const base = env.FRONTEND_URL;
-  const tenantQ = tenantQuerySuffix(tenantDbName);
-  const defaultLoginLink = `${base}/login?token=${inviteToken}${tenantQ}`;
+  const base = String(env.FRONTEND_URL || '').replace(/\/$/, '');
+  const tenant = String(tenantDbName || '').trim();
+  const workspaceLoginLink = tenant
+    ? `${base}/login?tenantDbName=${encodeURIComponent(tenant)}`
+    : `${base}/login`;
+  const defaultLoginLink = `${workspaceLoginLink}${inviteToken ? `${tenant ? '&' : '?'}token=${encodeURIComponent(inviteToken)}` : ''}`;
   const loginLink = loginBaseUrl && String(loginBaseUrl).trim()
-    ? withTenantOnLoginUrl(String(loginBaseUrl).trim(), tenantDbName)
+    ? withTenantOnLoginUrl(String(loginBaseUrl).trim(), tenant)
     : defaultLoginLink;
-  const resetPasswordLink = `${base}/reset-password${tenantQ ? `?${tenantQ.slice(1)}` : ''}`;
+  const resetPasswordLink = `${base}/reset-password${tenant ? `?tenantDbName=${encodeURIComponent(tenant)}` : ''}`;
   const kind = String(accountKind || '').trim().toLowerCase();
   const isFreeJobsInvite = kind === 'free_jobs' || kind === 'free';
   const isTryFreeInvite = !isFreeJobsInvite && Boolean(trialDays || trialEndsAt);
   const isFinalPasswordInvite = isTryFreeInvite || isFreeJobsInvite;
   const passwordLabel = isFinalPasswordInvite ? 'Password' : 'Temporary Password';
   const jobLimit = Number(monthlyJobLimit) > 0 ? Number(monthlyJobLimit) : 10;
+  const workspaceNote = tenant
+    ? `<p style="font-size: 14px; color: #1e40af; margin: 0 0 16px 0; padding: 12px 14px; background: #eff6ff; border-radius: 6px; border: 1px solid #bfdbfe;">
+          <strong>Use your company login link</strong> below so HRyantra opens the correct workspace.
+          Do not use a generic login page without this link.
+        </p>`
+    : '';
   const trialNote = isFreeJobsInvite
     ? `<p style="font-size: 14px; color: #0f766e; margin: 0 0 16px 0;">
           This is your <strong>Free Jobs</strong> employer account — it does not expire.
@@ -128,8 +137,9 @@ export async function sendCredentialInvite({
     
     <p style="font-size: 16px; margin-bottom: 20px;">
       Your account has been created with the role of <strong>${roleName}</strong>. 
-      Please use the credentials below to log in:
+      Please use the credentials below to log in to your company workspace:
     </p>
+    ${workspaceNote}
     ${trialNote}
     
     <div style="background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 6px; padding: 20px; margin: 20px 0;">
@@ -141,11 +151,11 @@ export async function sendCredentialInvite({
     </div>
     
     <div style="text-align: center; margin: 30px 0;">
-      <a href="${loginLink}" style="display: inline-block; background: #2563eb; color: white; text-decoration: none; padding: 12px 30px; border-radius: 6px; font-weight: 600; font-size: 16px;">${isFinalPasswordInvite ? 'Sign in to HRyantra' : 'Open Login'}</a>
+      <a href="${loginLink}" style="display: inline-block; background: #2563eb; color: white; text-decoration: none; padding: 12px 30px; border-radius: 6px; font-weight: 600; font-size: 16px;">${isFinalPasswordInvite ? 'Sign in to your workspace' : 'Open company login'}</a>
     </div>
     
     <p style="font-size: 13px; color: #374151; margin: 0 0 6px 0;">
-      Login URL: <a href="${loginLink}" style="color: #2563eb; text-decoration: none;">${loginLink}</a>
+      Company login URL: <a href="${loginLink}" style="color: #2563eb; text-decoration: none; word-break: break-all;">${loginLink}</a>
     </p>
     ${resetPasswordBlock}
     
@@ -327,9 +337,15 @@ export async function sendPasswordResetEmail({
   tempPassword,
   inviteToken,
   tenantDbName,
+  loginId,
 }) {
-  const tenantQ = tenantQuerySuffix(tenantDbName);
-  const loginLink = `${env.FRONTEND_URL}/login?token=${inviteToken}${tenantQ}`;
+  const base = String(env.FRONTEND_URL || '').replace(/\/$/, '');
+  const tenant = String(tenantDbName || '').trim();
+  const loginIdValue = String(loginId || '').trim();
+  const workspaceLoginLink = tenant
+    ? `${base}/login?tenantDbName=${encodeURIComponent(tenant)}`
+    : `${base}/login`;
+  const loginLink = `${workspaceLoginLink}${inviteToken ? `${tenant ? '&' : '?'}token=${encodeURIComponent(inviteToken)}` : ''}`;
 
   const html = `
 <!DOCTYPE html>
@@ -348,17 +364,25 @@ export async function sendPasswordResetEmail({
     <p style="font-size: 16px; margin-bottom: 20px;">Hello,</p>
     
     <p style="font-size: 16px; margin-bottom: 20px;">
-      Your password has been reset. Please use the new temporary password below to log in:
+      Your password has been reset. Use the company login link below so HRyantra opens the correct workspace, then sign in with these credentials:
     </p>
+    ${tenant ? `<p style="font-size: 14px; color: #1e40af; margin: 0 0 16px 0; padding: 12px 14px; background: #eff6ff; border-radius: 6px; border: 1px solid #bfdbfe;">
+      <strong>Important:</strong> Click <em>Open company login</em> (or the company login URL). That link includes your workspace so login can match your company.
+    </p>` : ''}
     
     <div style="background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 6px; padding: 20px; margin: 20px 0;">
+      ${loginIdValue ? `<p style="margin: 0 0 10px 0; font-size: 14px; color: #6b7280;"><strong>Login ID:</strong></p>
+      <p style="margin: 0 0 20px 0; font-size: 16px; font-family: monospace; color: #111827; background: white; padding: 10px; border-radius: 4px;">${loginIdValue}</p>` : ''}
       <p style="margin: 0 0 10px 0; font-size: 14px; color: #6b7280;"><strong>New Temporary Password:</strong></p>
       <p style="margin: 0; font-size: 16px; font-family: monospace; color: #111827; background: white; padding: 10px; border-radius: 4px;">${tempPassword}</p>
     </div>
     
     <div style="text-align: center; margin: 30px 0;">
-      <a href="${loginLink}" style="display: inline-block; background: #2563eb; color: white; text-decoration: none; padding: 12px 30px; border-radius: 6px; font-weight: 600; font-size: 16px;">Login to HRYANTRA</a>
+      <a href="${loginLink}" style="display: inline-block; background: #2563eb; color: white; text-decoration: none; padding: 12px 30px; border-radius: 6px; font-weight: 600; font-size: 16px;">Open company login</a>
     </div>
+    <p style="font-size: 13px; color: #374151; margin: 0 0 16px 0;">
+      Company login URL: <a href="${loginLink}" style="color: #2563eb; text-decoration: none; word-break: break-all;">${loginLink}</a>
+    </p>
     
     <div style="background: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px; margin: 20px 0; border-radius: 4px;">
       <p style="margin: 0; font-size: 14px; color: #92400e;">

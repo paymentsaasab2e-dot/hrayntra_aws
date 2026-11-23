@@ -67,6 +67,7 @@ export default function LoginPage() {
   const [loadingMessage, setLoadingMessage] = useState('');
   const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [forgotPasswordHref, setForgotPasswordHref] = useState('/forgot-password');
+  const [workspaceFromInvite, setWorkspaceFromInvite] = useState(false);
   const [duplicateSession, setDuplicateSession] = useState<{
     identifier: string;
     password: string;
@@ -87,6 +88,7 @@ export default function LoginPage() {
     // Clear stale tenant from a previous account unless this is an invite link.
     // Stale x-tenant-db-name makes login look up the wrong DB → "Invalid email or password".
     syncTenantDbName(tenant || null);
+    setWorkspaceFromInvite(Boolean(tenant && String(tenant).trim()));
     const sessionMsg = params.get('session');
     if (sessionMsg) {
       setMessage(sessionMsg);
@@ -395,6 +397,11 @@ export default function LoginPage() {
           </div>
 
           <div className="mt-5">
+            {workspaceFromInvite && !error && (
+              <div className="mb-3 rounded-xl border border-sky-100 bg-sky-50 px-3 py-2 text-xs text-sky-800">
+                Company workspace linked from your invite. Enter your Login ID and password to continue.
+              </div>
+            )}
             {error && (
               <div className="mb-3 rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-700">
                 {error}
