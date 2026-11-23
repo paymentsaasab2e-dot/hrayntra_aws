@@ -65,13 +65,26 @@ export default function PoliciesPage() {
             Publish
           </button>
         </PeopleFormRow>
-        <ul className="mt-3 text-sm">
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <th className="py-2 pr-4 text-left">Policy</th>
+                <th className="px-4 py-2 text-right">Version</th>
+                <th className="py-2 pl-4 text-left">Country</th>
+              </tr>
+            </thead>
+            <tbody>
           {policies.map((row) => (
-            <li key={row.id} className="py-1">
-              {row.title} v{row.version} · {row.country || 'all'}
-            </li>
+            <tr key={row.id} className="border-b border-slate-100">
+              <td className="py-2 pr-4 text-left font-semibold text-slate-800">{row.title}</td>
+              <td className="px-4 py-2 text-right tabular-nums text-slate-800">{row.version}</td>
+              <td className="py-2 pl-4 text-left text-slate-700">{row.country || 'All countries'}</td>
+            </tr>
           ))}
-        </ul>
+            </tbody>
+          </table>
+        </div>
         <details className="group mt-3">
           <summary className={`${PH2_HEADER_PILL} !w-auto cursor-pointer list-none !px-3 [&::-webkit-details-marker]:hidden`}>
             More

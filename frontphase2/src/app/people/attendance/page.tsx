@@ -171,14 +171,31 @@ export default function AttendancePage() {
           </button>
           </details>
         </PeopleFormRow>
-        <ul className="mt-3 text-xs">
-          {punches.map((row) => (
-            <li key={row.id} className="py-1">
-              {row.localWorkDate} · {row.timezone} · {row.source}
-              {row.overtimeMinutes ? ` · OT ${Math.round((row.overtimeMinutes / 60) * 10) / 10}h` : ''}
-            </li>
-          ))}
-        </ul>
+        <div className="mt-4 overflow-x-auto">
+          <p className="mb-2 text-xs font-semibold text-slate-700">
+            Punches for {employees.find((row) => row.id === employeeId) ? `${employees.find((row) => row.id === employeeId)?.firstName || ''} ${employees.find((row) => row.id === employeeId)?.lastName || ''}`.trim() : 'the selected employee'}
+          </p>
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <th className="py-2 pr-4 text-left">Date</th>
+                <th className="px-4 py-2 text-left">Timezone</th>
+                <th className="px-4 py-2 text-left">How</th>
+                <th className="py-2 pl-4 text-right">Overtime hours</th>
+              </tr>
+            </thead>
+            <tbody>
+              {punches.map((row) => (
+                <tr key={row.id} className="border-b border-slate-100">
+                  <td className="py-2 pr-4 text-left text-slate-800">{row.localWorkDate}</td>
+                  <td className="px-4 py-2 text-left text-slate-700">{row.timezone}</td>
+                  <td className="px-4 py-2 text-left text-slate-700">{({ WEB: 'Web', HR_PROXY: 'Entered by HR', HALF_DAY: 'Half day' } as Record<string, string>)[row.source] || row.source}</td>
+                  <td className="py-2 pl-4 text-right tabular-nums text-slate-800">{row.overtimeMinutes ? Math.round((row.overtimeMinutes / 60) * 10) / 10 : 0}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
         <PeopleFormRow>
           <input className={fieldClass} type="date" value={regDate} onChange={(e) => setRegDate(e.target.value)} />
           <button

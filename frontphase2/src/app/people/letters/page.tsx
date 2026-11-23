@@ -11,6 +11,7 @@ import {
   PeopleFormRow,
   Ph2ModulePageLayout,
   PH2_HEADER_PILL_PRIMARY,
+  employeeDisplayName,
   fieldClass,
 } from '../_components/PeopleModule';
 
@@ -70,13 +71,38 @@ export default function LettersPage() {
             Issue letter
           </button>
         </PeopleFormRow>
-        <ul className="mt-3 text-sm">
-          {letters.map((row) => (
-            <li key={row.id} className="py-2">
-              {row.serial} · {row.letterType} · {row.language}
-            </li>
-          ))}
-        </ul>
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <th className="py-2 pr-4 text-left">Employee</th>
+                <th className="px-4 py-2 text-left">Letter</th>
+                <th className="py-2 pl-4 text-left">Number</th>
+              </tr>
+            </thead>
+            <tbody>
+              {letters.map((row) => (
+                <tr key={row.id} className="border-b border-slate-100">
+                  <td className="py-2 pr-4 text-left font-semibold text-slate-800">{employeeDisplayName(employees, row.employeeId)}</td>
+                  <td className="px-4 py-2 text-left text-slate-800">
+                    {({
+                      contrat_de_travail: 'Employment contract',
+                      avenant: 'Amendment',
+                      certificat_de_travail: 'Work certificate',
+                      offer: 'Offer',
+                      appointment: 'Appointment',
+                      relieving: 'Relieving',
+                      experience: 'Experience',
+                      employment_certificate: 'Employment certificate',
+                      exit_letter: 'Exit letter',
+                    } as Record<string, string>)[row.letterType] || row.letterType}
+                  </td>
+                  <td className="py-2 pl-4 text-left text-slate-700">{row.serial}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </PeopleCard>
     </Ph2ModulePageLayout>
   );

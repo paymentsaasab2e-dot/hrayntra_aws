@@ -59,24 +59,44 @@ export default function HolidaysPage() {
       <div className="grid gap-3 lg:grid-cols-2">
         <PeopleCard>
           <h2 className="text-sm font-semibold">Holidays</h2>
-          <ul className="mt-2 text-sm">
+          <table className="mt-2 w-full border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <th className="py-2 pr-4 text-left">Date</th>
+                <th className="py-2 pl-4 text-left">Holiday</th>
+              </tr>
+            </thead>
+            <tbody>
             {holidays.map((row) => (
-              <li key={`${row.date}-${row.name}`} className="py-1">
-                {row.date} · {row.name}
-              </li>
+              <tr key={`${row.date}-${row.name}`} className="border-b border-slate-100">
+                <td className="py-2 pr-4 text-left text-slate-800">{row.date}</td>
+                <td className="py-2 pl-4 text-left text-slate-800">{row.name}</td>
+              </tr>
             ))}
-            {holidaysReady && holidays.length === 0 ? <li className="py-1 text-slate-500">No holidays for this country yet.</li> : null}
-          </ul>
+            </tbody>
+          </table>
+          {holidaysReady && holidays.length === 0 ? <p className="py-2 text-sm text-slate-500">No holidays for this country yet.</p> : null}
         </PeopleCard>
         <PeopleCard>
           <h2 className="text-sm font-semibold">Leave types</h2>
-          <ul className="mt-2 text-sm">
+          <table className="mt-2 w-full border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <th className="py-2 pr-4 text-left">Leave</th>
+                <th className="px-4 py-2 text-left">Paid</th>
+                <th className="py-2 pl-4 text-left">Country</th>
+              </tr>
+            </thead>
+            <tbody>
             {leaveTypes.map((row) => (
-              <li key={row.id} className="py-1">
-                {row.code} · {row.name} · {row.country}
-              </li>
+              <tr key={row.id} className="border-b border-slate-100">
+                <td className="py-2 pr-4 text-left font-semibold text-slate-800">{row.name}</td>
+                <td className="px-4 py-2 text-left text-slate-700">{row.paid === false ? 'Unpaid' : 'Paid'}</td>
+                <td className="py-2 pl-4 text-left text-slate-700">{row.country}</td>
+              </tr>
             ))}
-          </ul>
+            </tbody>
+          </table>
         </PeopleCard>
       </div>
     </Ph2ModulePageLayout>

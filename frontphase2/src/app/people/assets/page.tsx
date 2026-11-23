@@ -19,6 +19,7 @@ import {
   Ph2ModulePageLayout,
   PH2_HEADER_PILL,
   PH2_HEADER_PILL_PRIMARY,
+  employeeDisplayName,
   fieldClass,
 } from '../_components/PeopleModule';
 
@@ -106,14 +107,27 @@ export default function AssetsPage() {
             </div>
           </details>
         </PeopleFormRow>
-        <ul className="mt-3 text-sm">
-          {assignments.map((row) => (
-            <li key={row.id} className="flex items-center justify-between py-2">
-              <span>
-                {row.assetId} · {row.returnedAt ? 'Returned' : 'Allocated'} · {row.employeeId}
-              </span>
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <th className="py-2 pr-4 text-left">Asset</th>
+                <th className="px-4 py-2 text-left">Employee</th>
+                <th className="px-4 py-2 text-left">Status</th>
+                <th className="py-2 pl-4 text-right" />
+              </tr>
+            </thead>
+            <tbody>
+          {assignments.map((row) => {
+            const asset = assets.find((item) => item.id === row.assetId);
+            return (
+            <tr key={row.id} className="border-b border-slate-100">
+              <td className="py-2 pr-4 text-left font-semibold text-slate-800">{asset ? `${asset.name} · ${asset.serial}` : 'Asset'}</td>
+              <td className="px-4 py-2 text-left text-slate-800">{employeeDisplayName(employees, row.employeeId)}</td>
+              <td className="px-4 py-2 text-left text-slate-700">{row.returnedAt ? 'Returned' : 'With the employee'}</td>
+              <td className="py-2 pl-4 text-right">
               {!row.returnedAt ? (
-                <details className="group shrink-0">
+                <details className="group inline-block text-left">
                   <summary className={`${PH2_HEADER_PILL} !w-auto cursor-pointer list-none !px-3 [&::-webkit-details-marker]:hidden`}>
                     More
                     <ChevronDown aria-hidden="true" className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />
@@ -137,9 +151,13 @@ export default function AssetsPage() {
                   </div>
                 </details>
               ) : null}
-            </li>
-          ))}
-        </ul>
+              </td>
+            </tr>
+            );
+          })}
+            </tbody>
+          </table>
+        </div>
       </PeopleCard>
     </Ph2ModulePageLayout>
   );

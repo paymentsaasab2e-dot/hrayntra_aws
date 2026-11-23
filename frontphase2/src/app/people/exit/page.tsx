@@ -18,7 +18,9 @@ import {
   Ph2ModulePageLayout,
   PH2_HEADER_PILL,
   PH2_HEADER_PILL_PRIMARY,
+  employeeDisplayName,
   fieldClass,
+  readableStatus,
 } from '../_components/PeopleModule';
 
 export default function ExitPage() {
@@ -72,13 +74,24 @@ export default function ExitPage() {
           <input className={fieldClass} placeholder="Notice recovery" value={notice} onChange={(e) => setNotice(e.target.value)} />
           <input className={fieldClass} placeholder="Asset recovery" value={recovery} onChange={(e) => setRecovery(e.target.value)} />
         </PeopleFormRow>
-        <ul className="mt-3 text-sm">
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <th className="py-2 pr-4 text-left">Employee</th>
+                <th className="px-4 py-2 text-left">Exit</th>
+                <th className="px-4 py-2 text-left">Status</th>
+                <th className="py-2 pl-4 text-right" />
+              </tr>
+            </thead>
+            <tbody>
           {exits.map((row) => (
-            <li key={row.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
-              <span>
-                {row.kind} · {row.status}
-              </span>
-              <details className="group shrink-0">
+            <tr key={row.id} className="border-b border-slate-100">
+              <td className="py-2 pr-4 text-left font-semibold text-slate-800">{employeeDisplayName(employees, row.employeeId)}</td>
+              <td className="px-4 py-2 text-left text-slate-800">{readableStatus(row.kind)}</td>
+              <td className="px-4 py-2 text-left text-slate-700">{readableStatus(row.status)}</td>
+              <td className="py-2 pl-4 text-right">
+              <details className="group inline-block text-left">
                 <summary className={`${PH2_HEADER_PILL} !w-auto cursor-pointer list-none !px-3 [&::-webkit-details-marker]:hidden`}>
                   More
                   <ChevronDown aria-hidden="true" className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />
@@ -121,9 +134,12 @@ export default function ExitPage() {
                   </button>
                 </div>
               </details>
-            </li>
+              </td>
+            </tr>
           ))}
-        </ul>
+            </tbody>
+          </table>
+        </div>
       </PeopleCard>
     </Ph2ModulePageLayout>
   );

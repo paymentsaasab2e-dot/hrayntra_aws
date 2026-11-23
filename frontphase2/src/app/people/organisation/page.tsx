@@ -88,14 +88,27 @@ export default function OrganisationPage() {
             Add location
           </button>
         </PeopleFormRow>
-        <ul className="mt-3 divide-y divide-slate-100 text-sm">
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <th className="py-2 pr-4 text-left">Location</th>
+                <th className="px-4 py-2 text-right">Radius (m)</th>
+                <th className="py-2 pl-4 text-left">Timezone</th>
+              </tr>
+            </thead>
+            <tbody>
           {locations.map((row) => (
-            <li key={row.id} className="py-2">
-              {row.name} · {row.geofenceRadiusM} m · {row.timezone}
-            </li>
+            <tr key={row.id} className="border-b border-slate-100">
+              <td className="py-2 pr-4 text-left font-semibold text-slate-800">{row.name}</td>
+              <td className="px-4 py-2 text-right tabular-nums text-slate-800">{row.geofenceRadiusM}</td>
+              <td className="py-2 pl-4 text-left text-slate-700">{row.timezone}</td>
+            </tr>
           ))}
-          {locationsReady && locations.length === 0 ? <li className="py-2 text-slate-500">No locations yet. Add a location.</li> : null}
-        </ul>
+            </tbody>
+          </table>
+          {locationsReady && locations.length === 0 ? <p className="py-3 text-sm text-slate-500">No locations yet. Add a location.</p> : null}
+        </div>
       </PeopleCard>
     </Ph2ModulePageLayout>
   );

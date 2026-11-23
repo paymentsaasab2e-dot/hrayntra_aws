@@ -21,6 +21,7 @@ import {
   PH2_HEADER_PILL,
   PH2_HEADER_PILL_PRIMARY,
   fieldClass,
+  readableStatus,
 } from '../_components/PeopleModule';
 
 export default function LeavePage() {
@@ -123,7 +124,7 @@ export default function LeavePage() {
                     {String(row.startDate).slice(0, 10)} to {String(row.endDate).slice(0, 10)}
                   </td>
                   <td className="px-4 py-2 text-right tabular-nums text-slate-800">{row.days}</td>
-                  <td className="px-4 py-2 text-left text-slate-700">{row.status}</td>
+                  <td className="px-4 py-2 text-left text-slate-700">{readableStatus(row.status)}</td>
                   <td className="py-2 pl-4 text-right">
                     {row.status === 'PENDING' ? (
                       <details className="group inline-block text-left">

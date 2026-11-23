@@ -3,16 +3,18 @@
 import React, { useEffect, useState } from 'react';
 import { ChevronDown, Inbox } from 'lucide-react';
 import { toast } from 'sonner';
-import { apiDecideInbox, apiDelegateInbox, apiListPeopleInbox } from '../../../lib/api';
-import { PeopleBanner, PeopleCard, PeopleFormRow, Ph2ModulePageLayout, PH2_HEADER_PILL, PH2_HEADER_PILL_PRIMARY, fieldClass } from '../_components/PeopleModule';
+import { apiDecideInbox, apiDelegateInbox, apiGetEmployees, apiListPeopleInbox, type BackendEmployee } from '../../../lib/api';
+import { PeopleBanner, PeopleCard, PeopleFormRow, Ph2ModulePageLayout, PH2_HEADER_PILL, PH2_HEADER_PILL_PRIMARY, employeeDisplayName, fieldClass, readableStatus } from '../_components/PeopleModule';
 
 export default function PeopleInboxPage() {
   const [rows, setRows] = useState<any[]>([]);
+  const [employees, setEmployees] = useState<BackendEmployee[]>([]);
   const [delegateId, setDelegateId] = useState('');
   const load = async () => {
     // Keep the current rows visible until the refreshed list arrives.
-    const res = await apiListPeopleInbox();
+    const [res, people] = await Promise.all([apiListPeopleInbox(), apiGetEmployees({ limit: 50 })]);
     setRows((res.data as any[]) || []);
+    setEmployees(people.data?.data || []);
   };
   useEffect(() => {
     void load();
@@ -55,14 +57,25 @@ export default function PeopleInboxPage() {
             onChange={(e) => setDelegateId(e.target.value)}
           />
         </PeopleFormRow>
-        <ul className="text-sm">
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <th className="py-2 pr-4 text-left">Employee</th>
+                <th className="px-4 py-2 text-left">Request</th>
+                <th className="px-4 py-2 text-left">Status</th>
+                <th className="py-2 pl-4 text-right" />
+              </tr>
+            </thead>
+            <tbody>
           {rows.map((row) => (
-            <li key={row.id} className="flex items-center justify-between py-2">
-              <span>
-                {row.kind} · {row.status} · {row.delegatedToId ? `delegated ${row.delegatedToId}` : ''}
-              </span>
+            <tr key={row.id} className="border-b border-slate-100">
+              <td className="py-2 pr-4 text-left font-semibold text-slate-800">{employeeDisplayName(employees, row.employeeId)}</td>
+              <td className="px-4 py-2 text-left text-slate-800">{({ LEAVE: 'Leave', EXIT: 'Exit', ONBOARDING: 'Onboarding', REGULARISATION: 'Attendance correction', BANK: 'Bank details', CTC: 'Pay structure' } as Record<string, string>)[row.kind] || readableStatus(row.kind)}</td>
+              <td className="px-4 py-2 text-left text-slate-700">{readableStatus(row.status)}{row.delegatedToId ? ' · delegated' : ''}</td>
+              <td className="py-2 pl-4 text-right">
               {row.status === 'PENDING' ? (
-                <details className="group shrink-0">
+                <details className="group inline-block text-left">
                   <summary className={`${PH2_HEADER_PILL} !w-auto cursor-pointer list-none !px-3 [&::-webkit-details-marker]:hidden`}>
                     More
                     <ChevronDown aria-hidden="true" className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />
@@ -118,10 +131,13 @@ export default function PeopleInboxPage() {
                   </div>
                 </details>
               ) : null}
-            </li>
+              </td>
+            </tr>
           ))}
-          {rows.length === 0 ? <li className="text-slate-500">Nothing waiting.</li> : null}
-        </ul>
+            </tbody>
+          </table>
+          {rows.length === 0 ? <p className="py-3 text-sm text-slate-500">Nothing waiting.</p> : null}
+        </div>
       </PeopleCard>
     </Ph2ModulePageLayout>
   );

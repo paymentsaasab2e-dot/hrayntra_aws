@@ -27,4 +27,18 @@ export function PeopleFormRow({ children }: { children: React.ReactNode }) {
 export const fieldClass =
   'h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-800';
 
+export function employeeDisplayName(
+  employees: { id: string; firstName?: string | null; lastName?: string | null }[],
+  id?: string | null,
+) {
+  const person = employees.find((row) => row.id === id);
+  const name = [person?.firstName, person?.lastName].filter(Boolean).join(' ');
+  return name || 'Unknown employee';
+}
+
+export function readableStatus(value?: string | null) {
+  const text = String(value || '').trim().toLowerCase().replace(/_/g, ' ');
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : '—';
+}
+
 export { Ph2ModulePageLayout, PH2_HEADER_PILL, PH2_HEADER_PILL_PRIMARY };

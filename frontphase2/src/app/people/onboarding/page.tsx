@@ -58,12 +58,23 @@ export default function OnboardingPage() {
         ))}
       </select>
       <PeopleCard>
-        <ul className="text-sm">
+        <p className="mb-2 text-sm font-semibold text-slate-800">
+          Checklist for {selected ? `${selected.firstName || ''} ${selected.lastName || ''}`.trim() : 'the selected employee'}
+        </p>
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <th className="py-2 pr-4 text-left">Task</th>
+              <th className="px-4 py-2 text-left">Status</th>
+              <th className="py-2 pl-4 text-right" />
+            </tr>
+          </thead>
+          <tbody>
           {tasks.map((task) => (
-            <li key={task.id} className="flex items-center justify-between py-2">
-              <span>
-                {task.label} · {task.status}
-              </span>
+            <tr key={task.id} className="border-b border-slate-100">
+              <td className="py-2 pr-4 text-left text-slate-800">{task.label}</td>
+              <td className="px-4 py-2 text-left text-slate-700">{task.status === 'DONE' ? 'Done' : 'Waiting'}</td>
+              <td className="py-2 pl-4 text-right">
               {task.status !== 'DONE' ? (
                 <details className="group shrink-0">
                   <summary className={`${PH2_HEADER_PILL} !w-auto cursor-pointer list-none !px-3 [&::-webkit-details-marker]:hidden`}>
@@ -89,9 +100,11 @@ export default function OnboardingPage() {
                   </div>
                 </details>
               ) : null}
-            </li>
+              </td>
+            </tr>
           ))}
-        </ul>
+          </tbody>
+        </table>
         {employeeId ? (
           <div className="mt-3 flex flex-wrap items-center gap-2">
             {selected?.status === 'PREBOARDING' ? (

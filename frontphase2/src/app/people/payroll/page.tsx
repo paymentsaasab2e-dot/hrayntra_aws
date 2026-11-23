@@ -12,7 +12,9 @@ import {
   apiPayrollPaymentFile,
   apiLockPayroll,
   apiPayrollExceptions,
+  apiGetEmployees,
   apiRunPayroll,
+  type BackendEmployee,
   type LegalEmployer,
 } from '../../../lib/api';
 import {
@@ -22,7 +24,9 @@ import {
   Ph2ModulePageLayout,
   PH2_HEADER_PILL,
   PH2_HEADER_PILL_PRIMARY,
+  employeeDisplayName,
   fieldClass,
+  readableStatus,
 } from '../_components/PeopleModule';
 
 export default function PayrollPage() {
@@ -33,12 +37,14 @@ export default function PayrollPage() {
   const [exceptions, setExceptions] = useState<any[]>([]);
   const [payslips, setPayslips] = useState<any[]>([]);
   const [paymentFile, setPaymentFile] = useState<any>(null);
+  const [employees, setEmployees] = useState<BackendEmployee[]>([]);
   const [periodLocked, setPeriodLocked] = useState<boolean | null>(null);
   const now = new Date();
 
   const load = async () => {
     // Keep the current rows visible until the refreshed list arrives.
-    const emp = await apiListLegalEmployers();
+    const [emp, people] = await Promise.all([apiListLegalEmployers(), apiGetEmployees({ limit: 50 })]);
+    setEmployees(people.data?.data || []);
     const list = (emp.data as LegalEmployer[]) || [];
     setEmployers(list);
     const id = legalEmployerId || list[0]?.id || '';
@@ -123,13 +129,28 @@ export default function PayrollPage() {
             Run payroll
           </button>
         </PeopleFormRow>
-        <ul className="mt-3 text-sm">
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <th className="py-2 pr-4 text-left">Month</th>
+                <th className="px-4 py-2 text-left">Status</th>
+                <th className="px-4 py-2 text-left">Pay file</th>
+                <th className="py-2 pl-4 text-right" />
+              </tr>
+            </thead>
+            <tbody>
           {runs.map((row) => (
-            <li key={row.id} className="flex items-center justify-between py-2">
-              <button type="button" className="text-left" onClick={() => void loadRunDetail(row.id)}>
-                {row.year}-{row.month} · {row.status} · {row.capability}
+            <tr key={row.id} className="border-b border-slate-100">
+              <td className="py-2 pr-4 text-left">
+              <button type="button" className="font-semibold text-[#3867FF]" onClick={() => void loadRunDetail(row.id)}>
+                {new Date(row.year, Number(row.month) - 1, 1).toLocaleString('en', { month: 'long', year: 'numeric' })}
               </button>
-              <details className="group shrink-0">
+              </td>
+              <td className="px-4 py-2 text-left text-slate-700">{readableStatus(row.status)}</td>
+              <td className="px-4 py-2 text-left text-slate-700">{({ export: 'Export file', calculate: 'Calculated', unavailable: 'Not certified' } as Record<string, string>)[String(row.capability || '').toLowerCase()] || readableStatus(row.capability)}</td>
+              <td className="py-2 pl-4 text-right">
+              <details className="group inline-block text-left">
                 <summary className={`${PH2_HEADER_PILL} !w-auto cursor-pointer list-none !px-3 [&::-webkit-details-marker]:hidden`}>
                   More
                   <ChevronDown aria-hidden="true" className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />
@@ -159,42 +180,65 @@ export default function PayrollPage() {
                   </button>
                 </div>
               </details>
-            </li>
+              </td>
+            </tr>
           ))}
+            </tbody>
+          </table>
           {runs.length === 0 ? (
-            <li className="py-2 text-slate-500">
+            <p className="py-3 text-sm text-slate-500">
               {periodLocked === false
                 ? 'No locked attendance month. Lock attendance first, then run payroll.'
                 : periodLocked === null
                   ? 'Loading…'
                   : 'No payroll runs yet.'}
-            </li>
+            </p>
           ) : null}
-        </ul>
+        </div>
       </PeopleCard>
       {selectedRunId ? (
         <div className="grid gap-3 lg:grid-cols-2">
           <PeopleCard>
             <h2 className="text-sm font-semibold">Exceptions</h2>
-            <ul className="mt-2 text-xs">
+            <table className="mt-2 w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <th className="py-2 pr-4 text-left">Employee</th>
+                  <th className="py-2 pl-4 text-left">Problem</th>
+                </tr>
+              </thead>
+              <tbody>
               {exceptions.map((row) => (
-                <li key={row.id} className="py-1">
-                  {row.severity} · {row.code} · {row.message}
-                </li>
+                <tr key={row.id} className="border-b border-slate-100">
+                  <td className="py-2 pr-4 text-left text-slate-800">{row.employeeId ? employeeDisplayName(employees, row.employeeId) : 'Company'}</td>
+                  <td className="py-2 pl-4 text-left text-slate-700">{row.message}</td>
+                </tr>
               ))}
-              {exceptions.length === 0 ? <li className="text-slate-500">None.</li> : null}
-            </ul>
+              </tbody>
+            </table>
+            {exceptions.length === 0 ? <p className="py-2 text-sm text-slate-500">None.</p> : null}
           </PeopleCard>
           <PeopleCard>
             <h2 className="text-sm font-semibold">Payslips / export lines</h2>
-            <ul className="mt-2 text-xs">
+            <table className="mt-2 w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <th className="py-2 pr-4 text-left">Employee</th>
+                  <th className="px-4 py-2 text-right">Gross</th>
+                  <th className="py-2 pl-4 text-right">Net</th>
+                </tr>
+              </thead>
+              <tbody>
               {payslips.map((row) => (
-                <li key={row.id} className="py-1">
-                  {row.exportOnly ? 'Export' : 'Calculated'} · {row.currency} gross {row.gross} net {row.net ?? '—'}
-                </li>
+                <tr key={row.id} className="border-b border-slate-100">
+                  <td className="py-2 pr-4 text-left font-semibold text-slate-800">{employeeDisplayName(employees, row.employeeId)}</td>
+                  <td className="px-4 py-2 text-right tabular-nums text-slate-800">{row.gross ?? '—'} {row.currency}</td>
+                  <td className="py-2 pl-4 text-right tabular-nums text-slate-800">{row.exportOnly ? 'Export only' : (row.net ?? '—')}</td>
+                </tr>
               ))}
-              {payslips.length === 0 ? <li className="text-slate-500">None yet.</li> : null}
-            </ul>
+              </tbody>
+            </table>
+            {payslips.length === 0 ? <p className="py-2 text-sm text-slate-500">None yet.</p> : null}
             {paymentFile ? (
               <p className="mt-2 text-xs text-slate-500">
                 File: {paymentFile.format} · {paymentFile.currency} · {paymentFile.rows?.length || 0} rows
