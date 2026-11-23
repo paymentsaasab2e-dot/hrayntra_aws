@@ -39,12 +39,12 @@ export async function sendInviteEmail(
   payload: InviteEmailPayload
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const { toEmail, toName, loginId, tempPassword, roleName, inviteToken, tenantDbName } = payload;
-    const tenantQ =
-      tenantDbName && String(tenantDbName).trim()
-        ? `&tenantDbName=${encodeURIComponent(String(tenantDbName).trim())}`
-        : '';
-    const loginLink = `${env.FRONTEND_URL}/login?token=${inviteToken}${tenantQ}`;
+    const { toEmail, toName, loginId, tempPassword, roleName, tenantDbName } = payload;
+    const base = String(env.FRONTEND_URL || '').replace(/\/$/, '');
+    const tenant = String(tenantDbName || '').trim();
+    const loginLink = tenant
+      ? `${base}/login?tenantDbName=${encodeURIComponent(tenant)}`
+      : `${base}/login`;
 
     const html = `
 <!DOCTYPE html>
@@ -62,8 +62,11 @@ export async function sendInviteEmail(
     
     <p style="font-size: 16px; margin-bottom: 20px;">
       Your account has been created with the role of <strong>${roleName}</strong>. 
-      Please use the credentials below to log in:
+      Use the company login link below, then enter your Login ID and temporary password:
     </p>
+    ${tenant ? `<p style="font-size: 14px; color: #1e40af; margin: 0 0 16px 0; padding: 12px 14px; background: #eff6ff; border-radius: 6px; border: 1px solid #bfdbfe;">
+      <strong>Open company login</strong> so HRyantra loads your workspace, then sign in with the credentials below.
+    </p>` : ''}
     
     <div style="background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 6px; padding: 20px; margin: 20px 0;">
       <p style="margin: 0 0 10px 0; font-size: 14px; color: #6b7280; font-weight: 600;">Login ID:</p>
@@ -74,12 +77,15 @@ export async function sendInviteEmail(
     </div>
     
     <div style="text-align: center; margin: 30px 0;">
-      <a href="${loginLink}" style="display: inline-block; background: #2563eb; color: white; text-decoration: none; padding: 14px 32px; border-radius: 6px; font-weight: 600; font-size: 16px;">Log in to portal</a>
+      <a href="${loginLink}" style="display: inline-block; background: #2563eb; color: white; text-decoration: none; padding: 14px 32px; border-radius: 6px; font-weight: 600; font-size: 16px;">Open company login</a>
     </div>
+    <p style="font-size: 13px; color: #374151; margin: 0 0 16px 0;">
+      Company login URL: <a href="${loginLink}" style="color: #2563eb; word-break: break-all;">${loginLink}</a>
+    </p>
     
     <div style="background: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px; margin: 20px 0; border-radius: 4px;">
       <p style="margin: 0; font-size: 14px; color: #92400e;">
-        <strong>Note:</strong> This link expires in 48 hours. You will be asked to set a new password on first login.
+        <strong>Note:</strong> You will be asked to set a new password on first login.
       </p>
     </div>
     

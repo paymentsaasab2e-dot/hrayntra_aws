@@ -392,15 +392,15 @@ export async function sendInviteEmail(payload) {
       };
     }
 
-    const tenantQ =
-      tenantDbName && String(tenantDbName).trim()
-        ? `&tenantDbName=${encodeURIComponent(String(tenantDbName).trim())}`
-        : '';
-    const base = env.FRONTEND_URL;
-    const loginLink = `${base}/login?token=${inviteToken}${tenantQ}`;
-    const resetPasswordLink = `${base}/reset-password`;
+    const base = String(env.FRONTEND_URL || '').replace(/\/$/, '');
+    const tenant = String(tenantDbName || '').trim();
+    // Company workspace login — user enters Login ID + temp password on /login.
+    // Do not send a /reset-password link in invite/resend emails.
+    const loginLink = tenant
+      ? `${base}/login?tenantDbName=${encodeURIComponent(tenant)}`
+      : `${base}/login`;
 
-    const { subject, html } = await renderNotificationTriggerEmail(
+    const { subject, html: rawHtml } = await renderNotificationTriggerEmail(
       'team.invite_email',
       senderUserId || null,
       {
@@ -409,9 +409,15 @@ export async function sendInviteEmail(payload) {
         tempPassword,
         roleName,
         loginLink,
-        resetPasswordLink,
+        // Keep key for older customized templates, but point it at login (never bare reset).
+        resetPasswordLink: loginLink,
       },
     );
+
+    // Strip legacy "Reset password:" lines from customized org templates.
+    const html = String(rawHtml || '')
+      .replace(/<p[^>]*>\s*Reset password:\s*<a[^>]*>.*?<\/a>\s*<\/p>/gi, '')
+      .replace(/Reset password:\s*<a[^>]*>https?:\/\/[^<]*\/reset-password[^<]*<\/a>/gi, '');
 
     const result = await sendEmail({
       senderUserId,

@@ -25,8 +25,7 @@ function sampleVarsForTrigger(triggerId) {
       loginId: 'test@example.com',
       tempPassword: 'TempPass123!',
       roleName: 'Recruiter',
-      loginLink: env.FRONTEND_URL || 'http://localhost:3001',
-      resetPasswordLink: `${env.FRONTEND_URL || 'http://localhost:3001'}/reset-password`,
+      loginLink: `${env.FRONTEND_URL || 'http://localhost:3001'}/login`,
     },
     'lead.assignment_email': {
       assigneeName: 'Test User',

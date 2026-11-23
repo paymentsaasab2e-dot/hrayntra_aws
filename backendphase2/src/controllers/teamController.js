@@ -46,9 +46,12 @@ import {
  * so the user can later sign in via the plain `/login` URL (without the
  * invite-link `tenantDbName=` query param).
  */
-async function recordTenantUserDirectoryEntry({ email, loginId }) {
-  const tenantDbName = getActiveTenantDbName() || '';
-  if (!tenantDbName) return;
+async function recordTenantUserDirectoryEntry({ email, loginId, tenantDbName: explicitTenant } = {}) {
+  const tenantDbName = String(explicitTenant || getActiveTenantDbName() || '').trim();
+  if (!tenantDbName) {
+    logger.warn({ message: 'tenant-user directory upsert skipped: no tenantDbName', email, loginId });
+    return;
+  }
   try {
     await headquartersAuthService.upsertTenantUserDirectoryEntry({
       email,
@@ -1589,10 +1592,12 @@ export async function resendMemberInvite(req, res) {
     const inviteExpiresAt = getInviteExpiry(48);
 
     // Update credential
+    const resendTenantDbName = getActiveTenantDbName() || '';
     await prisma.userCredential.update({
       where: { userId: id },
       data: {
         hashedPassword,
+        hqDisplayPassword: tempPassword,
         tempPasswordFlag: true,
         inviteToken,
         inviteExpiresAt,
@@ -1605,6 +1610,7 @@ export async function resendMemberInvite(req, res) {
     await recordTenantUserDirectoryEntry({
       email: member.email,
       loginId: member.credential.loginId,
+      tenantDbName: resendTenantDbName,
     });
 
     const toEmail = String(member.email || member.credential.loginId || '').trim();
@@ -1615,7 +1621,7 @@ export async function resendMemberInvite(req, res) {
       });
     }
 
-    // Send invite email — fail the request if delivery did not succeed
+    // Send invite email — company login link only (no /reset-password URL)
     const emailResult = await sendInviteEmail({
       toEmail,
       toName: `${member.firstName || ''} ${member.lastName || ''}`.trim() || member.name,
@@ -1624,7 +1630,7 @@ export async function resendMemberInvite(req, res) {
       roleName: member.systemRole?.roleName || 'Team Member',
       inviteToken,
       senderUserId: req.user?.id || null,
-      tenantDbName: getActiveTenantDbName() || undefined,
+      tenantDbName: resendTenantDbName || undefined,
     });
 
     if (!emailResult?.success) {

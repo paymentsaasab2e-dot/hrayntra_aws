@@ -46,18 +46,21 @@ export const NOTIFICATION_TRIGGER_DEFAULT_TEMPLATES = {
   },
   'team.invite_email': {
     subject: 'Your HRYANTRA portal login credentials',
-    variables: ['recipientName', 'loginId', 'tempPassword', 'roleName', 'loginLink', 'resetPasswordLink'],
+    variables: ['recipientName', 'loginId', 'tempPassword', 'roleName', 'loginLink'],
     bodyHtml: emailShell(
       'Team invite',
       `<h1 style="color: #2563eb; font-size: 22px; margin: 0 0 16px;">Welcome to HRYANTRA</h1>
 <p>Hello {{recipientName}},</p>
 <p>Your account has been created with the role of <strong>{{roleName}}</strong>.</p>
+<p style="font-size:14px;color:#1e40af;background:#eff6ff;border:1px solid #bfdbfe;padding:12px;border-radius:6px;">
+  <strong>Use the company login link</strong> below. Enter your Login ID and temporary password on the login screen to sign in to your workspace.
+</p>
 <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:6px;padding:16px;margin:16px 0;">
   <p style="margin:0 0 8px;"><strong>Login ID:</strong> {{loginId}}</p>
   <p style="margin:0;"><strong>Temporary password:</strong> {{tempPassword}}</p>
 </div>
-<p><a href="{{loginLink}}" style="display:inline-block;background:#2563eb;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Log in to portal</a></p>
-<p style="font-size:14px;">Reset password: <a href="{{resetPasswordLink}}">{{resetPasswordLink}}</a></p>
+<p><a href="{{loginLink}}" style="display:inline-block;background:#2563eb;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;">Open company login</a></p>
+<p style="font-size:13px;color:#374151;">Company login URL: <a href="{{loginLink}}" style="color:#2563eb;word-break:break-all;">{{loginLink}}</a></p>
 <p style="font-size:13px;color:#92400e;background:#fef3c7;padding:12px;border-radius:4px;"><strong>Note:</strong> You will be asked to set a new password on first login.</p>`,
     ),
   },
