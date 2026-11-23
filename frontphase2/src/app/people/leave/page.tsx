@@ -55,6 +55,14 @@ export default function LeavePage() {
     void load();
   }, []);
 
+  const employeeName = (id: string) => {
+    const person = employees.find((row) => row.id === id);
+    const name = [person?.firstName, person?.lastName].filter(Boolean).join(' ');
+    return name || 'Unknown employee';
+  };
+
+  const leaveName = (id: string) => types.find((row) => row.id === id)?.name || 'Leave';
+
   return (
     <Ph2ModulePageLayout title="Leave" icon={<Cloud className="h-5 w-5" />} subtitle="Apply / approve / ledger. Types come from the legal employer pack.">
       <PeopleBanner text="Do not seed CL/SL/EL onto Cameroon. Auto unpaid after cut-off is a later leave-year job; this slice stores the request and ledger." />
@@ -94,39 +102,76 @@ export default function LeavePage() {
             Request leave
           </button>
         </PeopleFormRow>
-        <ul className="mt-3 text-sm">
-          {rows.map((row) => (
-            <li key={row.id} className="flex items-center justify-between gap-2 py-2">
-              <span>
-                {String(row.startDate).slice(0, 10)} → {String(row.endDate).slice(0, 10)} · {row.days}d · {row.status}
-              </span>
-              {row.status === 'PENDING' ? (
-                <details className="group shrink-0">
-                  <summary className={`${PH2_HEADER_PILL} !w-auto cursor-pointer list-none !px-3 [&::-webkit-details-marker]:hidden`}>
-                    More
-                    <ChevronDown aria-hidden="true" className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />
-                  </summary>
-                  <div className="mt-2 flex gap-2">
-                    <button type="button" className={`${PH2_HEADER_PILL} !w-auto !px-3`} onClick={() => void apiDecideLeave(row.id, 'APPROVED').then(load)}>
-                      Approve
-                    </button>
-                    <button type="button" className={`${PH2_HEADER_PILL} !w-auto !px-3`} onClick={() => void apiDecideLeave(row.id, 'REJECTED').then(load)}>
-                      Reject
-                    </button>
-                  </div>
-                </details>
-              ) : null}
-            </li>
-          ))}
-        </ul>
-        <p className="mt-3 text-xs font-semibold">Ledger (taken)</p>
-        <ul className="text-xs">
-          {balances.map((row) => (
-            <li key={row.id} className="py-1">
-              {row.year} · taken {row.taken} · opening {row.opening}
-            </li>
-          ))}
-        </ul>
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <th className="py-2 pr-4 text-left">Employee</th>
+                <th className="px-4 py-2 text-left">Leave</th>
+                <th className="px-4 py-2 text-left">Dates</th>
+                <th className="px-4 py-2 text-right">Days</th>
+                <th className="px-4 py-2 text-left">Status</th>
+                <th className="py-2 pl-4 text-right" />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.id} className="border-b border-slate-100">
+                  <td className="py-2 pr-4 text-left font-semibold text-slate-800">{employeeName(row.employeeId)}</td>
+                  <td className="px-4 py-2 text-left text-slate-800">{leaveName(row.leaveTypeId)}</td>
+                  <td className="whitespace-nowrap px-4 py-2 text-left text-slate-700">
+                    {String(row.startDate).slice(0, 10)} to {String(row.endDate).slice(0, 10)}
+                  </td>
+                  <td className="px-4 py-2 text-right tabular-nums text-slate-800">{row.days}</td>
+                  <td className="px-4 py-2 text-left text-slate-700">{row.status}</td>
+                  <td className="py-2 pl-4 text-right">
+                    {row.status === 'PENDING' ? (
+                      <details className="group inline-block text-left">
+                        <summary className={`${PH2_HEADER_PILL} !w-auto cursor-pointer list-none !px-3 [&::-webkit-details-marker]:hidden`}>
+                          More
+                          <ChevronDown aria-hidden="true" className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />
+                        </summary>
+                        <div className="mt-2 flex justify-end gap-2">
+                          <button type="button" className={`${PH2_HEADER_PILL} !w-auto !px-3`} onClick={() => void apiDecideLeave(row.id, 'APPROVED').then(load)}>
+                            Approve
+                          </button>
+                          <button type="button" className={`${PH2_HEADER_PILL} !w-auto !px-3`} onClick={() => void apiDecideLeave(row.id, 'REJECTED').then(load)}>
+                            Reject
+                          </button>
+                        </div>
+                      </details>
+                    ) : null}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="mt-4 text-xs font-semibold">Ledger (taken)</p>
+        <div className="mt-2 overflow-x-auto">
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <th className="py-2 pr-4 text-left">Employee</th>
+                <th className="px-4 py-2 text-left">Leave</th>
+                <th className="px-4 py-2 text-right">Year</th>
+                <th className="px-4 py-2 text-right">Taken</th>
+                <th className="py-2 pl-4 text-right">Opening</th>
+              </tr>
+            </thead>
+            <tbody>
+              {balances.map((row) => (
+                <tr key={row.id} className="border-b border-slate-100">
+                  <td className="py-2 pr-4 text-left text-slate-800">{employeeName(row.employeeId)}</td>
+                  <td className="px-4 py-2 text-left text-slate-800">{leaveName(row.leaveTypeId)}</td>
+                  <td className="px-4 py-2 text-right tabular-nums text-slate-700">{row.year}</td>
+                  <td className="px-4 py-2 text-right tabular-nums text-slate-800">{row.taken}</td>
+                  <td className="py-2 pl-4 text-right tabular-nums text-slate-700">{row.opening}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </PeopleCard>
     </Ph2ModulePageLayout>
   );
