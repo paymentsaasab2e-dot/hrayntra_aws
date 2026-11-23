@@ -806,6 +806,7 @@ export const teamMemberService = {
     try {
       await sendPasswordResetEmail({
         email: user.email,
+        loginId: user.credential?.loginId,
         tempPassword,
         inviteToken,
         tenantDbName: resetTenantDbName || undefined,
