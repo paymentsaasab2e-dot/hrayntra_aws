@@ -78,7 +78,6 @@ export async function sendCredentialInvite({
   const loginLink = loginBaseUrl && String(loginBaseUrl).trim()
     ? withTenantOnLoginUrl(String(loginBaseUrl).trim(), tenant)
     : defaultLoginLink;
-  const resetPasswordLink = `${base}/reset-password${tenant ? `?tenantDbName=${encodeURIComponent(tenant)}` : ''}`;
   const kind = String(accountKind || '').trim().toLowerCase();
   const isFreeJobsInvite = kind === 'free_jobs' || kind === 'free';
   const isTryFreeInvite = !isFreeJobsInvite && Boolean(trialDays || trialEndsAt);
@@ -88,7 +87,7 @@ export async function sendCredentialInvite({
   const workspaceNote = tenant
     ? `<p style="font-size: 14px; color: #1e40af; margin: 0 0 16px 0; padding: 12px 14px; background: #eff6ff; border-radius: 6px; border: 1px solid #bfdbfe;">
           <strong>Use your company login link</strong> below so HRyantra opens the correct workspace.
-          Do not use a generic login page without this link.
+          Enter your Login ID and password on the login screen — do not use a reset-password link for first sign-in.
         </p>`
     : '';
   const trialNote = isFreeJobsInvite
@@ -105,14 +104,12 @@ export async function sendCredentialInvite({
           Sign in to HRyantra with the credentials below. This password is your final login password.
         </p>`
       : '';
+  // Invite/resend: company login only. No /reset-password URL in the email.
   const resetPasswordBlock = isFinalPasswordInvite
     ? `<p style="font-size: 14px; color: #6b7280; margin-top: 24px;">
         You can change your password later from your account settings if you wish.
       </p>`
-    : `<p style="font-size: 13px; color: #374151; margin: 0 0 20px 0;">
-        Reset Password URL: <a href="${resetPasswordLink}" style="color: #2563eb; text-decoration: none;">${resetPasswordLink}</a>
-      </p>
-      <div style="background: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px; margin: 20px 0; border-radius: 4px;">
+    : `<div style="background: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px; margin: 20px 0; border-radius: 4px;">
         <p style="margin: 0; font-size: 14px; color: #92400e;">
           <strong>Important:</strong> You will be required to set a new password on your first login.
           Please keep this temporary password secure until you change it.
