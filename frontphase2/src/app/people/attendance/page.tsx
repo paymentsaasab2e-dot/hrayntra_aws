@@ -66,7 +66,7 @@ export default function AttendancePage() {
 
   return (
     <Ph2ModulePageLayout title="Attendance" icon={<Clock className="h-5 w-5" />} subtitle="UTC punch, local work date, and overtime hours for the monthly close.">
-      <PeopleBanner text="Lock the month before payroll. Muster: P present, A absent, L paid leave, U unpaid, H holiday, W weekend. Overtime hours are added on the punch and shown on the muster." />
+      <PeopleBanner text="Lock the month before payroll. Present, Absent, and Paid leave count weekdays only. Weekends are left out. Absent includes unpaid leave. Overtime hours are added on the punch." />
       <PeopleCard>
         <PeopleFormRow>
           <select className={fieldClass} value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}>
@@ -229,26 +229,26 @@ export default function AttendancePage() {
       </PeopleCard>
       {muster?.rows?.length ? (
         <PeopleCard>
-          <h2 className="mb-2 text-sm font-semibold">Muster {muster.year}-{String(muster.month).padStart(2, '0')}</h2>
-          <div className="overflow-x-auto text-[11px]">
-            <table className="min-w-full">
+          <h2 className="mb-3 text-sm font-semibold">Muster {muster.year}-{String(muster.month).padStart(2, '0')}</h2>
+          <div className="overflow-x-auto">
+            <table className="w-auto border-collapse text-sm">
               <thead>
-                <tr>
-                  <th className="px-1 text-left">Name</th>
-                  <th className="px-1">P</th>
-                  <th className="px-1">A/U</th>
-                  <th className="px-1">L</th>
-                  <th className="px-1">OT h</th>
+                <tr className="border-b border-slate-200 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <th className="py-2 pr-8 text-left">Name</th>
+                  <th className="px-4 py-2 text-right">Present</th>
+                  <th className="px-4 py-2 text-right">Absent</th>
+                  <th className="px-4 py-2 text-right">Paid leave</th>
+                  <th className="py-2 pl-4 text-right">Overtime hours</th>
                 </tr>
               </thead>
               <tbody>
                 {muster.rows.map((row: any) => (
-                  <tr key={row.employeeId}>
-                    <td className="px-1 py-1">{row.name}</td>
-                    <td className="px-1">{row.present}</td>
-                    <td className="px-1">{row.absent}</td>
-                    <td className="px-1">{row.leave}</td>
-                    <td className="px-1">{row.overtimeHours || 0}</td>
+                  <tr key={row.employeeId} className="border-b border-slate-100">
+                    <td className="py-2 pr-8 text-left text-slate-800">{row.name}</td>
+                    <td className="px-4 py-2 text-right tabular-nums text-slate-800">{row.present}</td>
+                    <td className="px-4 py-2 text-right tabular-nums text-slate-800">{row.absent}</td>
+                    <td className="px-4 py-2 text-right tabular-nums text-slate-800">{row.leave}</td>
+                    <td className="py-2 pl-4 text-right tabular-nums text-slate-800">{row.overtimeHours || 0}</td>
                   </tr>
                 ))}
               </tbody>
