@@ -21,6 +21,7 @@ import {
   Eye,
   EyeOff,
   RefreshCw,
+  Users,
 } from 'lucide-react';
 import { DrawerLinkActions } from '../drawers/DrawerLinkActions';
 import {
@@ -29,8 +30,10 @@ import {
   apiHqUpdateTenantOrganizationName,
   apiHqIssueTenantJobsApiKey,
   apiHqRevokeTenantJobsApiKey,
+  apiHqGetTenantUsersCredentials,
   type HqSubscriptionPackage,
   type HqTenantRow,
+  type HqTenantUsersCredentials,
 } from '@/lib/api';
 import {
   ALL_TENANT_MODULES,
@@ -54,7 +57,7 @@ import { HqPrimaryButton, HqSecondaryButton, HQ_SELECT_CLASS } from './hqUi';
 import { requestConfirm, requestSuccess } from '@/lib/appDialog';
 import { HqTenantBehaviorAnalyticsPanel } from './HqTenantBehaviorDrawer';
 
-type DetailTab = 'overview' | 'pricing' | 'analytics' | 'tabs' | 'status';
+type DetailTab = 'overview' | 'users' | 'pricing' | 'analytics' | 'tabs' | 'status';
 
 const DETAIL_TABS: Array<{
   id: DetailTab;
@@ -62,6 +65,7 @@ const DETAIL_TABS: Array<{
   icon: AppIcon;
 }> = [
   { id: 'overview', label: 'Overview', icon: Building2 },
+  { id: 'users', label: 'Users', icon: Users },
   { id: 'pricing', label: 'Pricing', icon: CreditCard },
   { id: 'analytics', label: 'Analytics', icon: Activity },
   { id: 'tabs', label: 'Tabs', icon: LayoutGrid },
@@ -147,6 +151,10 @@ export function HqTenantDetailDrawer({
   const [jobsApiBusy, setJobsApiBusy] = useState(false);
   const [jobsApiError, setJobsApiError] = useState('');
   const [jobsApiKeyVisible, setJobsApiKeyVisible] = useState(false);
+  const [usersPayload, setUsersPayload] = useState<HqTenantUsersCredentials | null>(null);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [usersError, setUsersError] = useState('');
+  const [revealedPasswords, setRevealedPasswords] = useState<Record<string, boolean>>({});
 
   const packagesWithPricing = useMemo(
     () => subscriptionPackagesWithPricing(planOptions),
@@ -181,12 +189,47 @@ export function HqTenantDetailDrawer({
     setCompanyNameDraft(String(tenant.organizationName || '').trim());
     setSavingCompanyName(false);
     setCompanyNameError('');
+    setUsersPayload(null);
+    setUsersError('');
+    setUsersLoading(false);
+    setRevealedPasswords({});
   }, [open, tenant]);
 
   useEffect(() => {
     setJobsApiKeyVisible(false);
     setJobsApiError('');
   }, [tenant?.email]);
+
+  useEffect(() => {
+    if (!open || !tenant || activeTab !== 'users') return;
+    const dbName = String(tenant.tenantDbName || '').trim();
+    if (!dbName || tenant.isLandingSignupOnly) {
+      setUsersPayload(null);
+      setUsersError('');
+      setUsersLoading(false);
+      return;
+    }
+    let cancelled = false;
+    const load = async () => {
+      setUsersLoading(true);
+      setUsersError('');
+      try {
+        const res = await apiHqGetTenantUsersCredentials(dbName);
+        if (cancelled) return;
+        setUsersPayload(res.data || null);
+      } catch (err) {
+        if (cancelled) return;
+        setUsersPayload(null);
+        setUsersError(err instanceof Error ? err.message : 'Failed to load users');
+      } finally {
+        if (!cancelled) setUsersLoading(false);
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, tenant, activeTab]);
 
   useEffect(() => {
     if (!open) return;
@@ -343,6 +386,26 @@ export function HqTenantDetailDrawer({
     } catch {
       setJobsApiError(`Could not copy ${label.toLowerCase()}.`);
     }
+  };
+
+  const refreshUsers = async () => {
+    const dbName = String(tenant.tenantDbName || '').trim();
+    if (!dbName || tenant.isLandingSignupOnly) return;
+    setUsersLoading(true);
+    setUsersError('');
+    try {
+      const res = await apiHqGetTenantUsersCredentials(dbName);
+      setUsersPayload(res.data || null);
+      setRevealedPasswords({});
+    } catch (err) {
+      setUsersError(err instanceof Error ? err.message : 'Failed to load users');
+    } finally {
+      setUsersLoading(false);
+    }
+  };
+
+  const togglePasswordReveal = (key: string) => {
+    setRevealedPasswords((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
   const drawerTree = (
@@ -622,6 +685,212 @@ export function HqTenantDetailDrawer({
                         the tenant DB is ready.
                       </div>
                     ) : null}
+                  </div>
+                ) : null}
+
+                {activeTab === 'users' ? (
+                  <div className="space-y-4">
+                    {tenant.isLandingSignupOnly || !tenant.tenantDbName ? (
+                      <div className="rounded-xl border border-dashed border-amber-200 bg-amber-50/60 px-4 py-6 text-sm text-amber-800">
+                        Login IDs and passwords are available after this tenant is fully provisioned and
+                        has a database.
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-slate-900">Tenant &amp; team logins</p>
+                            <p className="mt-1 text-xs leading-relaxed text-slate-500">
+                              {usersPayload?.note ||
+                                'Passwords appear after Generate/Reset credentials or after the user signs in once.'}
+                            </p>
+                          </div>
+                          <HqSecondaryButton
+                            type="button"
+                            disabled={usersLoading}
+                            onClick={() => void refreshUsers()}
+                          >
+                            <RefreshCw className={`h-3.5 w-3.5 ${usersLoading ? 'animate-spin' : ''}`} />
+                            Refresh
+                          </HqSecondaryButton>
+                        </div>
+
+                        {usersLoading && !usersPayload ? (
+                          <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/70 px-4 py-6 text-sm text-slate-600">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Loading credentials…
+                          </div>
+                        ) : null}
+
+                        {usersError ? (
+                          <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                            {usersError}
+                          </div>
+                        ) : null}
+
+                        {usersPayload?.admin ? (
+                          <div className="rounded-2xl border border-indigo-200/80 bg-gradient-to-br from-indigo-50/80 via-white to-sky-50/40 p-4">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <KeyRound className="h-4 w-4 text-indigo-600" />
+                              <p className="text-sm font-semibold text-slate-900">Tenant admin</p>
+                              <span className="inline-flex rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-indigo-700 ring-1 ring-indigo-100">
+                                {usersPayload.admin.status || 'ACTIVE'}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-xs text-slate-500">
+                              {usersPayload.admin.name}
+                              {usersPayload.admin.email ? ` · ${usersPayload.admin.email}` : ''}
+                            </p>
+                            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                              <CredentialField
+                                label="Login ID"
+                                value={usersPayload.admin.loginId}
+                                revealed
+                                onCopy={() =>
+                                  void copyText(usersPayload.admin!.loginId, 'Login ID')
+                                }
+                              />
+                              <CredentialField
+                                label="Password"
+                                value={usersPayload.admin.password}
+                                revealed={Boolean(revealedPasswords.admin)}
+                                secret
+                                emptyHint="—"
+                                onToggleReveal={() => togglePasswordReveal('admin')}
+                                onCopy={() =>
+                                  void copyText(usersPayload.admin!.password, 'Password')
+                                }
+                              />
+                            </div>
+                          </div>
+                        ) : usersPayload && !usersLoading ? (
+                          <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-4 py-4 text-sm text-slate-600">
+                            No tenant admin credentials found for this database.
+                          </div>
+                        ) : null}
+
+                        <div className="rounded-2xl border border-slate-200 bg-white">
+                          <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
+                            <div className="flex items-center gap-2">
+                              <Users className="h-4 w-4 text-slate-500" />
+                              <p className="text-sm font-semibold text-slate-900">Team members</p>
+                            </div>
+                            <span className="text-xs font-medium text-slate-500">
+                              {usersPayload?.team?.length ?? 0} users
+                            </span>
+                          </div>
+                          {!usersPayload?.team?.length && !usersLoading ? (
+                            <p className="px-4 py-6 text-sm text-slate-500">
+                              No team members in this tenant yet.
+                            </p>
+                          ) : (
+                            <div className="overflow-x-auto">
+                              <table className="min-w-full text-left text-sm">
+                                <thead className="bg-slate-50/80 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                                  <tr>
+                                    <th className="px-4 py-2.5">Name</th>
+                                    <th className="px-4 py-2.5">Role</th>
+                                    <th className="px-4 py-2.5">Login ID</th>
+                                    <th className="px-4 py-2.5">Password</th>
+                                    <th className="px-4 py-2.5">Status</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {(usersPayload?.team || []).map((row) => {
+                                    const passKey = `team:${row.id}`;
+                                    const revealed = Boolean(revealedPasswords[passKey]);
+                                    return (
+                                      <tr
+                                        key={row.id}
+                                        className="border-t border-slate-100 align-top"
+                                      >
+                                        <td className="px-4 py-3">
+                                          <p className="font-medium text-slate-900">{row.name || '—'}</p>
+                                          <p className="text-xs text-slate-500">{row.email || '—'}</p>
+                                          {row.isTenantAdmin ? (
+                                            <span className="mt-1 inline-flex rounded-full bg-indigo-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-indigo-700 ring-1 ring-indigo-100">
+                                              Admin
+                                            </span>
+                                          ) : null}
+                                        </td>
+                                        <td className="px-4 py-3 text-slate-600">{row.role || '—'}</td>
+                                        <td className="px-4 py-3">
+                                          <div className="flex items-center gap-1.5">
+                                            <span className="font-mono text-xs text-slate-700">
+                                              {row.loginId || '—'}
+                                            </span>
+                                            {row.loginId ? (
+                                              <button
+                                                type="button"
+                                                onClick={() => void copyText(row.loginId, 'Login ID')}
+                                                className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+                                                title="Copy login ID"
+                                              >
+                                                <Copy className="h-3 w-3" />
+                                              </button>
+                                            ) : null}
+                                          </div>
+                                        </td>
+                                        <td className="px-4 py-3">
+                                          <div className="flex items-center gap-1.5">
+                                            <span className="font-mono text-xs text-slate-700">
+                                              {row.password
+                                                ? revealed
+                                                  ? row.password
+                                                  : '••••••••'
+                                                : '—'}
+                                            </span>
+                                            {row.password ? (
+                                              <>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => togglePasswordReveal(passKey)}
+                                                  className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+                                                  title={revealed ? 'Hide password' : 'Show password'}
+                                                >
+                                                  {revealed ? (
+                                                    <EyeOff className="h-3 w-3" />
+                                                  ) : (
+                                                    <Eye className="h-3 w-3" />
+                                                  )}
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={() =>
+                                                    void copyText(row.password, 'Password')
+                                                  }
+                                                  className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+                                                  title="Copy password"
+                                                >
+                                                  <Copy className="h-3 w-3" />
+                                                </button>
+                                              </>
+                                            ) : null}
+                                          </div>
+                                        </td>
+                                        <td className="px-4 py-3">
+                                          <span className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                                            {row.status || '—'}
+                                          </span>
+                                          {row.isLocked ? (
+                                            <p className="text-[10px] font-semibold text-rose-600">
+                                              Locked
+                                            </p>
+                                          ) : null}
+                                          {row.tempPasswordPending ? (
+                                            <p className="text-[10px] text-amber-600">Temp password</p>
+                                          ) : null}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    )}
                   </div>
                 ) : null}
 
@@ -1068,6 +1337,62 @@ function InfoCard({
       <p className={`mt-1 text-sm font-semibold text-slate-900 ${mono ? 'font-mono text-xs' : ''}`}>
         {value}
       </p>
+    </div>
+  );
+}
+
+function CredentialField({
+  label,
+  value,
+  revealed,
+  secret,
+  emptyHint = '—',
+  onToggleReveal,
+  onCopy,
+}: {
+  label: string;
+  value: string;
+  revealed: boolean;
+  secret?: boolean;
+  emptyHint?: string;
+  onToggleReveal?: () => void;
+  onCopy: () => void;
+}) {
+  const hasValue = Boolean(String(value || '').trim());
+  const display = !hasValue
+    ? emptyHint
+    : secret && !revealed
+      ? '••••••••'
+      : value;
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white px-3 py-2.5">
+      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{label}</p>
+      <div className="mt-1.5 flex items-center gap-1.5">
+        <span className="min-w-0 flex-1 truncate font-mono text-xs font-semibold text-slate-900">
+          {display}
+        </span>
+        {hasValue && secret && onToggleReveal ? (
+          <button
+            type="button"
+            onClick={onToggleReveal}
+            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+            title={revealed ? 'Hide' : 'Show'}
+          >
+            {revealed ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+          </button>
+        ) : null}
+        {hasValue ? (
+          <button
+            type="button"
+            onClick={onCopy}
+            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+            title={`Copy ${label.toLowerCase()}`}
+          >
+            <Copy className="h-3.5 w-3.5" />
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }

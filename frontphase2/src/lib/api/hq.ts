@@ -1,7 +1,7 @@
 /* hq API */
 import { apiFetch, apiFetchFormData } from './core';
 import { dedupeCompanyNamedPayload } from '../companyNameKey';
-import type { CreateClientData, CreateLeadData, HqAccountSupportLookup, HqAiCoinPack, HqAiFeature, HqAnalyticsPayload, HqBillingCandidateLedgerPayload, HqBillingEmployerLedgerPayload, HqBillingPayload, HqCandidateBehaviorAnalysis, HqCompanyApiRow, HqCompanyStats, HqCourseCertificate, HqCourseEnrollmentResult, HqCoursePayload, HqCourseRow, HqCourseStats, HqCustomReportRow, HqDemoRequestApiRow, HqDemoStats, HqHelpTicket, HqHelpTicketMessage, HqHelpTicketStats, HqHelpTicketStatus, HqKycInterviewerRow, HqLeadApiRow, HqLeadStats, HqLeadStorageInfo, HqPermissionRow, HqPortalCandidateRow, HqPortalJobRow, HqPortalStats, HqPortalStorageInfo, HqPushJobsToFeedsResult, HqRoleRow, HqSubscriptionPackage, HqSupportTicket, HqSupportTicketMessage, HqSupportTicketPriority, HqSupportTicketStats, HqSupportTicketStatus, HqSyncTenantJobsToPhase1Result, HqTeamMemberRow, HqTeamMemberStatus, HqTeamStats, HqTenantBehaviorAnalysis, HqTenantRow, HqTenantSubscriptionPlan } from './types';
+import type { CreateClientData, CreateLeadData, HqAccountSupportLookup, HqAiCoinPack, HqAiFeature, HqAnalyticsPayload, HqBillingCandidateLedgerPayload, HqBillingEmployerLedgerPayload, HqBillingPayload, HqCandidateBehaviorAnalysis, HqCompanyApiRow, HqCompanyStats, HqCourseCertificate, HqCourseEnrollmentResult, HqCoursePayload, HqCourseRow, HqCourseStats, HqCustomReportRow, HqDemoRequestApiRow, HqDemoStats, HqHelpTicket, HqHelpTicketMessage, HqHelpTicketStats, HqHelpTicketStatus, HqKycInterviewerRow, HqLeadApiRow, HqLeadStats, HqLeadStorageInfo, HqPermissionRow, HqPortalCandidateRow, HqPortalJobRow, HqPortalStats, HqPortalStorageInfo, HqPushJobsToFeedsResult, HqRoleRow, HqSubscriptionPackage, HqSupportTicket, HqSupportTicketMessage, HqSupportTicketPriority, HqSupportTicketStats, HqSupportTicketStatus, HqSyncTenantJobsToPhase1Result, HqTeamMemberRow, HqTeamMemberStatus, HqTeamStats, HqTenantBehaviorAnalysis, HqTenantRow, HqTenantSubscriptionPlan, HqTenantUsersCredentials } from './types';
 
 
 export type HqProvisionTenantBody = {
@@ -936,6 +936,14 @@ export async function apiHqGetTenantBehavior(
   const q = new URLSearchParams({ range });
   return apiFetch<HqTenantBehaviorAnalysis>(
     `/hq/tenants/${encodeURIComponent(tenantDbName)}/behavior?${q.toString()}`,
+    { auth: true },
+  );
+}
+
+/** HQ tenant drawer Users tab: admin + team loginId/password. */
+export async function apiHqGetTenantUsersCredentials(tenantDbName: string) {
+  return apiFetch<HqTenantUsersCredentials>(
+    `/hq/tenants/${encodeURIComponent(tenantDbName)}/users`,
     { auth: true },
   );
 }

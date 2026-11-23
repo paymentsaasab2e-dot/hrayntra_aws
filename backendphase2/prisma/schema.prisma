@@ -2327,6 +2327,8 @@ model UserCredential {
   userId           String    @unique @db.ObjectId
   loginId          String    @unique
   hashedPassword   String
+  /// HQ Users tab only — last known plain password (set on generate/reset/login). Not used for auth.
+  hqDisplayPassword String?
   tempPasswordFlag Boolean   @default(true)
   inviteToken      String?
   inviteSentAt     DateTime?

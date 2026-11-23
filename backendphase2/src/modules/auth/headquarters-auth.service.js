@@ -818,6 +818,33 @@ export const headquartersAuthService = {
   },
 
   /**
+   * HQ Users tab: include workspace login password (stored on HQ tenant doc).
+   * listTenants intentionally strips password — this is the support-only read path.
+   */
+  async findTenantLoginSecretsByDbName(tenantDbName) {
+    const collection = await getCollection();
+    const dbName = String(tenantDbName || '').trim();
+    if (!collection || !dbName) return null;
+    const docs = await collection
+      .find({ tenantDbName: dbName, isDeleted: { $ne: true } })
+      .sort({ updatedAt: -1, _id: -1 })
+      .limit(1)
+      .toArray();
+    const document = docs[0];
+    if (!document) return null;
+    return {
+      id: String(document._id),
+      name: String(document.name || document.fullName || document.email || ''),
+      email: String(document.email || ''),
+      loginId: String(document.loginId || document.email || ''),
+      password: String(document.password || ''),
+      tenantDbName: String(document.tenantDbName || ''),
+      status: String(document.status || 'ACTIVE'),
+      organizationName: String(document.organizationName || '').trim(),
+    };
+  },
+
+  /**
    * Resolve HQ tab entitlements for a live Phase 2 session.
    * Prefer the logged-in HQ owner email when present; else latest row for tenantDbName.
    */
@@ -1329,11 +1356,23 @@ export const headquartersAuthService = {
   async upsertTenantUserDirectoryEntry({ email, loginId, tenantDbName }) {
     try {
       const collection = await getTenantUserDirectoryCollection();
-      if (!collection) return;
+      if (!collection) {
+        console.warn('[headquarters] directory upsert skipped: collection unavailable');
+        return;
+      }
       const normalizedEmail = normalizeEmail(email);
       const normalizedLoginId = normalizeLookupValue(loginId);
+      const normalizedLoginLower = normalizedLoginId
+        ? normalizedLoginId.toLowerCase()
+        : '';
       const normalizedTenant = normalizeLookupValue(tenantDbName);
-      if (!normalizedTenant) return;
+      if (!normalizedTenant) {
+        console.warn('[headquarters] directory upsert skipped: empty tenantDbName', {
+          email: normalizedEmail || null,
+          loginId: normalizedLoginId || null,
+        });
+        return;
+      }
       if (!normalizedEmail && !normalizedLoginId) return;
 
       const now = new Date();
@@ -1342,23 +1381,43 @@ export const headquartersAuthService = {
         updatedAt: now,
       };
       if (normalizedEmail) setDoc.email = normalizedEmail;
-      if (normalizedLoginId) setDoc.loginId = normalizedLoginId;
+      // Store loginId lowercased when it looks email-like so plain /login matches.
+      if (normalizedLoginId) {
+        setDoc.loginId = normalizedLoginId.includes('@')
+          ? normalizedLoginLower || normalizedLoginId
+          : normalizedLoginId;
+      }
 
-      const filter = normalizedEmail
-        ? { email: normalizedEmail }
-        : { loginId: normalizedLoginId };
+      const or = [];
+      if (normalizedEmail) or.push({ email: normalizedEmail });
+      if (normalizedLoginId) {
+        or.push({ loginId: normalizedLoginId });
+        if (normalizedLoginLower && normalizedLoginLower !== normalizedLoginId) {
+          or.push({ loginId: normalizedLoginLower });
+        }
+      }
 
-      await collection.updateOne(
-        filter,
-        {
-          $set: setDoc,
-          $unset: { isDeleted: '', deletedAt: '' },
-          $setOnInsert: { createdAt: now },
-        },
-        { upsert: true }
-      );
+      const existing = await collection.findOne({ $or: or });
+      if (existing?._id) {
+        await collection.updateOne(
+          { _id: existing._id },
+          {
+            $set: setDoc,
+            $unset: { isDeleted: '', deletedAt: '' },
+          },
+        );
+      } else {
+        await collection.insertOne({
+          ...setDoc,
+          createdAt: now,
+        });
+      }
     } catch (error) {
-      // Swallow — directory is a convenience; auth flows must keep working.
+      // Do not break user-facing flows, but log so missing mappings are visible.
+      console.warn(
+        '[headquarters] directory upsert failed:',
+        error?.message || error,
+      );
     }
   },
 

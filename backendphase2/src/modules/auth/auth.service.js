@@ -22,6 +22,7 @@ import {
   resolvePlatformTenantDbName,
   buildHqTeamMemberAuthPayload,
 } from '../hq/hq-team-platform-auth.service.js';
+import { setHqDisplayPassword } from '../../utils/hqDisplayPassword.util.js';
 
 async function resolveActiveHqTeamMemberForLogin({ email, loginId, loginIdOrEmail }) {
   if (email) {
@@ -479,13 +480,36 @@ export const authService = {
     }
 
     // Directory-first tenancy: resolve the authoritative tenant from HQ before
-    // any DB lookup. Never fall back to the default / active tenant DB when the
-    // directory has no mapping — that produced "user does not exist" against the
-    // wrong database.
+    // any DB lookup. When the directory has no row (common for team members after
+    // generate/resend if upsert failed), heal via password-verified tenant scan.
+    // Invite-link `x-tenant-db-name` may already be active — allow credential
+    // lookup there when directory is empty (do not fail closed blindly).
     const activeTenantDbName = String(getActiveTenantDbName() || '').trim();
     let resolvedTenantDbName = '';
     if (loginIdOrEmail) {
       resolvedTenantDbName = await headquartersAuthService.findTenantDbNameForUser(loginIdOrEmail);
+    }
+    if (!resolvedTenantDbName && loginIdOrEmail && password) {
+      try {
+        const scanned = await headquartersAuthService.findTenantDbNameForUserByPassword(
+          loginIdOrEmail,
+          password,
+          activeTenantDbName || '',
+        );
+        if (scanned) {
+          resolvedTenantDbName = String(scanned || '').trim();
+        }
+      } catch (scanErr) {
+        console.warn(
+          '[auth] tenant password scan failed:',
+          scanErr?.message || scanErr,
+        );
+      }
+    }
+    // Invite/header tenant: if directory+scan missed but request already scoped
+    // a tenant, keep that scope so credential lookup can run (and heal on success).
+    if (!resolvedTenantDbName && activeTenantDbName) {
+      resolvedTenantDbName = activeTenantDbName;
     }
     if (resolvedTenantDbName && resolvedTenantDbName !== activeTenantDbName) {
       return runWithTenantContext(resolvedTenantDbName, () =>
@@ -723,7 +747,7 @@ export const authService = {
       return hqTeamFirstResult;
     }
 
-    // No HQ user matched and no tenant directory mapping: fail closed.
+    // No HQ user matched and still no tenant (directory, password scan, or header).
     if (!resolvedTenantDbName) {
       const err = new Error('Tenant not recognized for this account. Contact your administrator.');
       err.statusCode = 400;
@@ -803,6 +827,11 @@ export const authService = {
           isLocked: false,
         },
       });
+      // HQ Users tab: keep last successful login password visible for support.
+      void setHqDisplayPassword(prisma, user.id, password);
+      void headquartersAuthService
+        .updateWorkspacePasswordForEmail(user.email, password)
+        .catch(() => null);
 
       // Create successful login history entry
       await prisma.loginHistory.create({
@@ -1290,6 +1319,7 @@ export const authService = {
           where: { userId: user.id },
           data: {
             hashedPassword,
+            hqDisplayPassword: String(plainPassword || '').trim() || undefined,
             tempPasswordFlag: false,
             failedAttempts: 0,
             isLocked: false,
@@ -1301,6 +1331,7 @@ export const authService = {
             userId: user.id,
             loginId,
             hashedPassword,
+            hqDisplayPassword: String(plainPassword || '').trim() || undefined,
             tempPasswordFlag: false,
             failedAttempts: 0,
             isLocked: false,
@@ -1308,6 +1339,10 @@ export const authService = {
         });
       }
     });
+
+    void headquartersAuthService
+      .updateWorkspacePasswordForEmail(normalizedEmail, plainPassword)
+      .catch(() => null);
 
     if (!options.skipSessionRevoke) {
       await revokeAllSessionsForUser(user.id, 'PASSWORD_RESET');

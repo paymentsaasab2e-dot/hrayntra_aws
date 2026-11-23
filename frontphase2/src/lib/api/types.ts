@@ -145,6 +145,38 @@ export interface HqTenantRow {
   source?: 'tenant' | 'landing' | string;
 }
 
+/** HQ tenant drawer Users tab — admin + team loginId/password. */
+export type HqTenantUserCredentialRow = {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  status: string;
+  loginId: string;
+  password: string;
+  tempPasswordPending: boolean;
+  isLocked: boolean;
+  lastLoginAt: string | null;
+  inviteSentAt: string | null;
+  hasCredentials: boolean;
+  isTenantAdmin: boolean;
+};
+
+export type HqTenantUsersCredentials = {
+  tenantDbName: string;
+  admin: {
+    id: string;
+    name: string;
+    email: string;
+    loginId: string;
+    password: string;
+    organizationName: string;
+    status: string;
+  } | null;
+  team: HqTenantUserCredentialRow[];
+  note?: string;
+};
+
 export type HqAccountSupportLookup = {
   exists: boolean;
   accountKind?: 'employer' | 'employee' | string;

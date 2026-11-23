@@ -360,6 +360,12 @@ function getDefaultClientInstance() {
 }
 
 function getScopedClient() {
+  // `node --test` stubs methods on the default client; never open real tenant
+  // URLs or mocks are ignored after runWithTenantContext(...).
+  if (process.env.NODE_TEST_CONTEXT) {
+    return getDefaultClientInstance();
+  }
+
   const store = tenantContext.getStore();
   const tenantDbName = String(store?.tenantDbName || '').trim();
 
