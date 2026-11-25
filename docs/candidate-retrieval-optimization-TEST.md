@@ -64,3 +64,49 @@ From backend + frontend audits:
 ## Rollback
 
 Unset `CANDIDATE_ORG_CACHE_ENABLED` (or set `0`) and restart. List API falls back to legacy `candidateService.getAll` with no cache wrapper behavior change beyond optional `_retrievalPerf` when enabled.
+
+## Completion report (testing)
+
+### Files created
+- `backendphase2/src/services/candidateRetrieval/*` — engine, L1/L2, keys, coalescer, version, invalidation, metrics
+- `backendphase2/src/modules/candidatePerformance/*` — secured perf APIs
+- `frontphase2/src/app/candidate-speed/*` + `frontphase2/src/app/candidate/speed/page.tsx`
+- `frontphase2/src/components/candidate-speed/CandidateSpeedDashboard.tsx`
+- `frontphase2/src/lib/api/candidatePerformance.ts`
+- `docs/candidate-retrieval-optimization-TEST.md`
+
+### Files modified
+- `backendphase2/src/modules/candidate/candidate.controller.js` — optional cache wrapper + invalidation hooks
+- `backendphase2/src/app.js` — mount `/api/v1/candidate-performance`
+
+### Architecture
+Organization-scoped L1 (process memory LRU) → L2 (optional Redis) → single-flight coalescer → existing `candidateService.getAll`. Cache keys include env namespace, tenantId, visibility, tab, permission hash, filter hash, sort, page, limit, org version. Mine stays user-scoped; All is shared for the same permission fingerprint.
+
+### Cache / env
+- Flags: `CANDIDATE_ORG_CACHE_ENABLED`, `CANDIDATE_ORG_CACHE_ENV=test`, `CANDIDATE_ORG_CACHE_TTL_SEC`, `CANDIDATE_PERF_ENABLED`
+- Redis optional via existing `REDIS_*`; fail-open to Mongo when unavailable
+
+### Invalidation
+Candidate create/update/delete bumps org version and clears org key prefix (L1 + L2 pattern).
+
+### Mongo indexes
+No production indexes added. Recommend evaluating compound indexes on tenant Candidate + common pool verified/updatedAt only after `explain` on test data.
+
+### APIs
+`GET/POST /api/v1/candidate-performance/{overview,cache-stats,history,run-test,concurrency-test,cache-refresh,cache-clear,reset-stats}`
+
+### Before/after
+Measure on test via `/candidate/speed` Cold→warm: warm should be L1/L2 hit with near-zero Mongo ops. Absolute ms depends on test dataset size.
+
+### Limitations
+Count/common-index Redis caches, distributed lock across multi-instance, and background warmer are deferred. Neighbor prefetch still stubbed.
+
+### Deploy (test only)
+1. Merge/push `speed-proven-phase2`  
+2. Set env vars on **test** backend only  
+3. Restart test backend  
+4. Validate dashboard + list flows  
+5. Do **not** enable on production until accepted
+
+### Rollback
+Disable `CANDIDATE_ORG_CACHE_ENABLED` and restart.
