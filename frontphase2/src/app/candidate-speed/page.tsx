@@ -165,11 +165,14 @@ export default function CandidateSpeedPage() {
             <Metric label="Cache version" value={overview?.version ?? 'N/A'} />
             <Metric label="TTL (sec)" value={overview?.ttlSec ?? 'N/A'} />
             <Metric label="L1 size" value={overview?.l1?.size ?? 'N/A'} />
-            <Metric label="L1 hit rate" value={
-              overview?.l1?.hitRate != null
-                ? `${Math.round(Number(overview.l1.hitRate) * 100)}%`
-                : 'N/A'
-            } />
+            <Metric
+              label="L1 hit rate"
+              value={
+                overview?.l1?.hitRate != null
+                  ? `${Math.round(Number(overview.l1.hitRate) * 100)}%`
+                  : 'N/A'
+              }
+            />
             <Metric label="L2 Redis" value={overview?.l2Available ? 'UP' : 'DOWN / N/A'} />
             <Metric label="Requests tracked" value={overview?.counters?.requests ?? 0} />
           </section>
@@ -218,7 +221,11 @@ export default function CandidateSpeedPage() {
                 onClick={() => void run('cached')}
                 className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-60"
               >
-                {busy === 'cached' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                {busy === 'cached' ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Play className="h-4 w-4" />
+                )}
                 Cached request
               </button>
               <button
@@ -235,7 +242,11 @@ export default function CandidateSpeedPage() {
                 onClick={() => void runColdWarm()}
                 className="inline-flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-60"
               >
-                {busy === 'cold-warm' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
+                {busy === 'cold-warm' ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Zap className="h-4 w-4" />
+                )}
                 Cold → warm compare
               </button>
               <button
@@ -277,7 +288,10 @@ export default function CandidateSpeedPage() {
 
           <section className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Metric label="Last cache state" value={String(perf?.cacheState || 'N/A')} />
-            <Metric label="Last total (ms)" value={timings?.totalMs ?? (lastRun?.durationMs as number) ?? 'N/A'} />
+            <Metric
+              label="Last total (ms)"
+              value={timings?.totalMs ?? (lastRun?.durationMs as number) ?? 'N/A'}
+            />
             <Metric label="Last L1 (ms)" value={timings?.l1Ms ?? 'N/A'} />
             <Metric label="Last L2 (ms)" value={timings?.l2Ms ?? 'N/A'} />
             <Metric label="Last Mongo path (ms)" value={timings?.mongoMs ?? 'N/A'} />
@@ -294,14 +308,20 @@ export default function CandidateSpeedPage() {
                   <p className="font-semibold text-slate-800">Cold (force miss)</p>
                   <p className="mt-1 tabular-nums text-slate-600">
                     {String((coldWarm.cold?.durationMs as number) ?? 'N/A')} ms ·{' '}
-                    {String((coldWarm.cold?.perf as { cacheState?: string } | undefined)?.cacheState || 'N/A')}
+                    {String(
+                      (coldWarm.cold?.perf as { cacheState?: string } | undefined)?.cacheState ||
+                        'N/A',
+                    )}
                   </p>
                 </div>
                 <div className="rounded-xl bg-emerald-50 px-4 py-3 text-sm">
                   <p className="font-semibold text-emerald-900">Warm (cached)</p>
                   <p className="mt-1 tabular-nums text-emerald-800">
                     {String((coldWarm.warm?.durationMs as number) ?? 'N/A')} ms ·{' '}
-                    {String((coldWarm.warm?.perf as { cacheState?: string } | undefined)?.cacheState || 'N/A')}
+                    {String(
+                      (coldWarm.warm?.perf as { cacheState?: string } | undefined)?.cacheState ||
+                        'N/A',
+                    )}
                   </p>
                 </div>
               </div>
@@ -349,10 +369,11 @@ export default function CandidateSpeedPage() {
           </section>
 
           <p className="mt-6 text-xs text-slate-500">
-            Enable with <code className="rounded bg-slate-100 px-1">CANDIDATE_ORG_CACHE_ENABLED=1</code> and
-            optionally Redis (<code className="rounded bg-slate-100 px-1">REDIS_URL</code>). Namespace:{' '}
-            <code className="rounded bg-slate-100 px-1">{overview?.env || 'test'}</code>. Testing only —
-            cache keys are environment-scoped.
+            Enable with <code className="rounded bg-slate-100 px-1">CANDIDATE_ORG_CACHE_ENABLED=1</code>{' '}
+            and optionally Redis (<code className="rounded bg-slate-100 px-1">REDIS_URL</code>).
+            Namespace: <code className="rounded bg-slate-100 px-1">{overview?.env || 'test'}</code>.
+            Prefer <code className="rounded bg-slate-100 px-1">/candidate/speed</code> (inherits
+            Candidates auth). Testing only.
           </p>
         </>
       )}

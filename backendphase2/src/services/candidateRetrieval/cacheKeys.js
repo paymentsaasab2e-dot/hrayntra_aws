@@ -82,6 +82,8 @@ export function buildFilterHash(query = {}) {
     'order',
     'picker',
     'placementPicker',
+    'includeCommonPool',
+    'mine',
   ];
   const parts = keys
     .map((k) => `${k}=${String(query?.[k] ?? '').trim()}`)

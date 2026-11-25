@@ -4,6 +4,9 @@
  */
 
 import { candidateService } from '../../modules/candidate/candidate.service.js';
+import { parseIncludeCommonPoolQuery } from '../../modules/candidate/candidateListQuery.js';
+import { getHqEnabledModules } from '../../modules/setting/recruitmentMode.service.js';
+import { getActiveTenantDbName } from '../../config/prisma.js';
 import {
   buildListCacheKey,
   isCandidateOrgCacheEnabled,
@@ -39,8 +42,8 @@ function parseBypass(req) {
 }
 
 /**
- * Resolve whether this request would load common pool (mirrors getAll decision surface).
- * Exact decision still happens inside getAll; this is for cache-key visibility only.
+ * Mirror candidateService.resolveLoadCommonPool for cache-key visibility.
+ * Missing includeCommonPool must be false (opt-in), matching list API.
  */
 async function estimateLoadCommonPool(req, mine) {
   if (mine) return false;
@@ -50,11 +53,11 @@ async function estimateLoadCommonPool(req, mine) {
     req?.query?.placementPicker === '1' ||
     req?.query?.placementPicker === 'true';
   if (picker) return false;
+  if (!parseIncludeCommonPoolQuery(req?.query || {})) return false;
   try {
-    // Soft signal — actual gate is inside getAll / resolveLoadCommonPool.
-    const q = String(req?.query?.includeCommonPool || req?.query?.commonPool || '').toLowerCase();
-    if (q === '0' || q === 'false') return false;
-    return true;
+    if (!String(getActiveTenantDbName?.() || '').trim()) return true;
+    const modules = await getHqEnabledModules();
+    return modules?.phase1CommonPoolEnabled !== false;
   } catch {
     return true;
   }

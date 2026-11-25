@@ -41,12 +41,21 @@ Restart backendphase2 after setting env.
 ## How to test
 
 1. Log into the **testing** tenant as a recruiter with candidates access.  
-2. Open `/candidate-speed`.  
+2. Open **`/candidate/speed`** (preferred; inherits Candidates layout/auth) or `/candidate-speed`.  
 3. Run **Cold → warm compare** — second request should show `L1_HIT` or `L2_HIT` and lower ms.  
 4. Open All Candidates as a second recruiter in the **same** org — should hit shared cache (All, same permissions).  
 5. Confirm a **different** org does not see the first org’s data (separate `tenantId` in keys).  
 6. Upload/update/delete a candidate — cache version bumps; next list is a miss then refill.  
 7. Stop Redis — app must still list candidates (fail-open).
+
+## Audit notes (follow-up)
+
+From backend + frontend audits:
+
+- Common pool is **opt-in** via `includeCommonPool=true` (+ HQ `phase1CommonPoolEnabled`). Cache keys now mirror that (missing flag = private).
+- Neighbor page prefetch in `useCandidateList` is documented but **not implemented** — safe future win once list cache is warm.
+- Compose has no Redis/Mongo services; L2 needs explicit `REDIS_*` on the test host.
+- Next high-ROI cache targets (not yet done): Redis for `countMergedCandidateListTotal` and `fetchCandidateCommonListIndex`.
 
 ## Cache key shape
 
