@@ -390,6 +390,12 @@ const COMMON_LIST_INDEX_TTL_MS = Math.min(
 const commonListIndexCache = new Map(); // key -> { at, rows }
 const commonListIndexInflight = new Map(); // key -> Promise<rows>
 
+/** Drop the common-pool short-lived caches (called by the org-aware list cache on invalidation). */
+export function clearCandidateCommonInternalCaches() {
+  commonListIndexCache.clear();
+  tenantJobIdSetCache.clear();
+}
+
 function roundCommonIndexTake(limit, envMax, searchActive) {
   // First paint must not pull a 500-row common-pool window. Page 2+ fetches its own K.
   const requested = Math.max(1, Number(limit) || 1);

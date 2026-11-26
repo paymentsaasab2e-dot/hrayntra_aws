@@ -1,12 +1,25 @@
 /**
- * Shared Redis L2 cache for candidate list payloads.
- * Fail-open: if Redis is down, callers fall back to MongoDB.
+ * Shared Redis L2 cache for candidate list payloads (optional).
+ * Fail-open: if Redis is down or not configured, callers fall back to MongoDB.
  */
 
-import { getCache, setCache, deleteCache, deleteCacheByPattern, hasRedisConfig } from '../../cache/redis.js';
+import {
+  getCache,
+  setCache,
+  deleteCache,
+  deleteCacheByPattern,
+  hasRedisConfig,
+  pingRedis,
+} from '../../cache/redis.js';
 
+/** True when Redis is CONFIGURED (not proof it is reachable — see l2Status). */
 export function l2Available() {
   return hasRedisConfig();
+}
+
+/** Configured + actually reachable right now. */
+export async function l2Status() {
+  return pingRedis();
 }
 
 export async function l2Get(key) {

@@ -9,6 +9,7 @@ import {
   publicApplyTenantMiddleware,
 } from './middleware/tenant-context.middleware.js';
 import { requestLoggerMiddleware, responseTimingMiddleware } from './middleware/request-logger.middleware.js';
+import { candidateCacheInvalidationMiddleware } from './middleware/candidateCacheInvalidation.middleware.js';
 import { securityHeaders } from './middleware/securityHeaders.middleware.js';
 import { createUploadsStatic } from './middleware/uploadsStatic.middleware.js';
 import {
@@ -150,6 +151,8 @@ app.use(compression());
 app.use(responseTimingMiddleware);
 app.use(requestLoggerMiddleware);
 app.use(tenantContextMiddleware);
+// Invalidates the org candidate list cache after any successful candidate-affecting write.
+app.use(candidateCacheInvalidationMiddleware);
 app.use((req, res, next) => {
   if (req.method !== 'GET' || !req.path.startsWith('/api/')) return next();
   // Do not mark authenticated / tenant-scoped JSON as publicly cacheable (browser would show stale roles, permissions, etc.)

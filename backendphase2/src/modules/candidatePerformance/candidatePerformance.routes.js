@@ -19,6 +19,7 @@ router.get('/overview', candidatePerformanceController.overview);
 router.get('/cache-stats', candidatePerformanceController.cacheStats);
 router.get('/history', candidatePerformanceController.history);
 router.post('/run-test', candidatePerformanceController.runTest);
+router.post('/compare', candidatePerformanceController.compare);
 router.post('/concurrency-test', candidatePerformanceController.concurrencyTest);
 router.post('/cache-refresh', candidatePerformanceController.cacheRefresh);
 router.post('/cache-clear', candidatePerformanceController.cacheClear);

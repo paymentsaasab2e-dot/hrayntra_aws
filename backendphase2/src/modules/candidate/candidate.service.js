@@ -5149,6 +5149,16 @@ function writeCandidateCountCache(key, total) {
 }
 
 /**
+ * Drop the service's own short-lived in-process caches (count cache 45s, tenant job-id
+ * cache 120s). Called by the org-aware list cache on invalidation so a fresh list never
+ * pairs with a stale total or stale job scope.
+ */
+export function clearCandidateServiceInternalCaches() {
+  CANDIDATE_COUNT_CACHE.clear();
+  TENANT_JOB_ID_CACHE.clear();
+}
+
+/**
  * Resolve bounded K for multi-source list merge.
  * Search keeps a small window; deep offset pages are capped (not full-table).
  */
@@ -5740,16 +5750,37 @@ export const candidateService = {
           Number(process.env.CANDIDATE_COMMON_QUERY_MS || commonBudgetDefault) || commonBudgetDefault,
         ),
       );
-      const withBudget = (promise, label, fallback, budgetMs = PORTAL_QUERY_BUDGET_MS) =>
-        Promise.race([
-          promise,
+      const withBudget = (promise, label, fallback, budgetMs = PORTAL_QUERY_BUDGET_MS) => {
+        let timer = null;
+        let finished = false;
+        // Settle tracking: the timeout must only count when it actually WON the race. Before this,
+        // the timer fired even after the query had finished in time and falsely marked every
+        // combined list as degraded (so it was never cached).
+        const guarded = Promise.resolve(promise).then(
+          (value) => {
+            finished = true;
+            clearTimeout(timer);
+            return value;
+          },
+          (error) => {
+            finished = true;
+            clearTimeout(timer);
+            throw error;
+          },
+        );
+        return Promise.race([
+          guarded,
           new Promise((resolve) => {
-            setTimeout(() => {
+            timer = setTimeout(() => {
+              if (finished) return;
               logCandidatePerf({ [label]: `timeout>${budgetMs}ms` });
+              // Tell the org cache this response is incomplete so it is never cached.
+              try { req.__candidateListDegraded = label; } catch { /* ignore */ }
               resolve(fallback);
             }, budgetMs);
           }),
         ]);
+      };
 
       // Warm count in parallel, but never block the page rows on a slow total.
       const countPromise = countMergedCandidateListTotal({
@@ -5836,6 +5867,7 @@ export const candidateService = {
         mergedTotal = await prisma.candidate.count({ where }).catch(() => skip + limit);
         void countPromise.catch(() => null);
         perfMarks.count = `timeout>${COUNT_WAIT_MS}ms→tenant`;
+        try { req.__candidateListDegraded = 'count'; } catch { /* ignore */ }
       }
 
       perfMarks.sourceCounts = `t=${tenantIndex.length},p=${portalIndex.length},c=${commonIndex.length},portalLive=${livePortalMerge ? 1 : 0}`;
@@ -6010,6 +6042,7 @@ export const candidateService = {
           pageIndexRows.length +
           (pageIndexRows.length === limit ? 1 : 0);
         perfMarks.count = `timeout>${COUNT_WAIT_MS}ms→estimate`;
+        try { req.__candidateListDegraded = 'count'; } catch { /* ignore */ }
       } else {
         perfMarks.count = Math.round(candidatePerfNow() - tQ);
       }

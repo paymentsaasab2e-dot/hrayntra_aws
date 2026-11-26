@@ -1,6 +1,9 @@
 import Redis from 'ioredis';
+import { authMemoInvalidateKey, authMemoInvalidatePattern } from '../utils/localAuthMemo.js';
 
 let redisClient = null;
+let redisDownUntil = 0;
+const REDIS_DOWN_BACKOFF_MS = 15_000;
 
 export function hasRedisConfig() {
   return Boolean(process.env.REDIS_URL || process.env.REDIS_HOST);
@@ -14,6 +17,7 @@ function createRedisClient() {
       lazyConnect: true,
       maxRetriesPerRequest: 1,
       enableReadyCheck: false,
+      connectTimeout: 2000,
     });
   }
 
@@ -25,6 +29,7 @@ function createRedisClient() {
     lazyConnect: true,
     maxRetriesPerRequest: 1,
     enableReadyCheck: false,
+    connectTimeout: 2000,
   });
 }
 
@@ -38,9 +43,16 @@ async function getRedisClient() {
   }
 
   if (redisClient.status !== 'ready') {
+    // Circuit breaker: after a failed connect, skip Redis for a short window so an outage
+    // costs ~0ms per request instead of a connect timeout on every call.
+    if (Date.now() < redisDownUntil) return null;
     try {
       await redisClient.connect();
     } catch {
+      if (redisClient.status === 'ready') return redisClient;
+      if (redisClient.status !== 'connecting' && redisClient.status !== 'connect') {
+        redisDownUntil = Date.now() + REDIS_DOWN_BACKOFF_MS;
+      }
       return null;
     }
   }
@@ -71,6 +83,8 @@ export async function setCache(key, value, ttlSeconds = 300) {
 }
 
 export async function deleteCache(key) {
+  // Always drop the in-process auth memo first (works with or without Redis).
+  authMemoInvalidateKey(key);
   const client = await getRedisClient();
   if (!client) return false;
 
@@ -83,16 +97,38 @@ export async function deleteCache(key) {
 }
 
 export async function deleteCacheByPattern(pattern) {
+  authMemoInvalidatePattern(pattern);
   const client = await getRedisClient();
   if (!client) return false;
 
   try {
-    const keys = await client.keys(pattern);
-    if (!keys || keys.length === 0) return true;
-    await client.del(keys);
+    // Cursor-based SCAN (non-blocking) instead of KEYS, which stalls Redis on big keyspaces.
+    let cursor = '0';
+    do {
+      const [next, keys] = await client.scan(cursor, 'MATCH', pattern, 'COUNT', 500);
+      cursor = String(next);
+      if (keys && keys.length > 0) await client.del(...keys);
+    } while (cursor !== '0');
     return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Reachability probe for diagnostics (never throws).
+ * @returns {{ configured: boolean, reachable: boolean, ms: number | null }}
+ */
+export async function pingRedis() {
+  if (!hasRedisConfig()) return { configured: false, reachable: false, ms: null };
+  const t0 = Date.now();
+  try {
+    const client = await getRedisClient();
+    if (!client) return { configured: true, reachable: false, ms: null };
+    await client.ping();
+    return { configured: true, reachable: true, ms: Date.now() - t0 };
+  } catch {
+    return { configured: true, reachable: false, ms: null };
   }
 }
 

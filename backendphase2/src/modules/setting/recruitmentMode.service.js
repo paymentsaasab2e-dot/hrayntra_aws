@@ -3,6 +3,7 @@ import {
   findOrgSettingRow,
   upsertOrgSettingJson,
 } from './orgSettingStore.util.js';
+import { invalidateOrgCandidateCaches } from '../../services/candidateRetrieval/invalidation.service.js';
 
 const KEY_RECRUITMENT_MODE = 'recruitmentMode';
 const KEY_PIPELINE_TEMPLATE = 'defaultPipelineTemplate';
@@ -324,6 +325,9 @@ export async function setHqEnabledModules({
     updatedAt: new Date().toISOString(),
   };
   await upsertOrgSettingJson(KEY_TENANT_MODULES, normalized);
+  // Discovery visibility (Phase 1 common pool) changed → this org's candidate lists differ now.
+  // Runs inside the target tenant's context (HQ calls this via runWithTenantContext).
+  void invalidateOrgCandidateCaches('org-settings:modules');
   return normalized;
 }
 

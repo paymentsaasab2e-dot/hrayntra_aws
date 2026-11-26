@@ -1,6 +1,7 @@
 import { prisma } from '../config/prisma.js';
 import { getActiveTenantDbName } from '../config/prisma.js';
 import { getCache, setCache } from '../cache/redis.js';
+import { authMemoGet, authMemoSet } from '../utils/localAuthMemo.js';
 import { sendError } from '../utils/response.js';
 import logger from '../utils/logger.js';
 import { userHasAnyPermission } from '../modules/role/permission-aliases.js';
@@ -89,10 +90,18 @@ async function loadUserAuthz(req) {
   }
 
   const cacheKey = buildPermissionCacheKey(req.user.id);
+
+  // Opt-in in-process memo (AUTH_LOCAL_CACHE_TTL_SEC) — cleared by deleteCache/deleteCacheByPattern.
+  const memoKey = `${cacheKey}|authz`;
+  const memoed = authMemoGet(memoKey);
+  if (memoed) return { userAuthz: memoed };
+
   const cached = await getCache(cacheKey);
   if (cached) {
     try {
-      return { userAuthz: JSON.parse(cached) };
+      const parsed = JSON.parse(cached);
+      authMemoSet(memoKey, parsed);
+      return { userAuthz: parsed };
     } catch {
       /* ignore corrupt cache and reload from the database */
     }
@@ -123,6 +132,7 @@ async function loadUserAuthz(req) {
   };
 
   await setCache(cacheKey, JSON.stringify(userAuthz), 300);
+  if (user.isActive !== false) authMemoSet(memoKey, userAuthz);
   return { userAuthz };
 }
 

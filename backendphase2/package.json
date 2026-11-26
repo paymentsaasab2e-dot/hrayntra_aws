@@ -26,6 +26,7 @@
     "db:studio": "prisma studio",
     "db:validate": "prisma validate",
     "test": "node --test src/security/tenant-isolation.test.js src/services/assigneeModuleAccess.service.test.js src/services/cvParsing.names.test.js src/utils/parseAgreementTermsFromText.test.js src/modules/role/roleCompanyAccess.service.test.js src/modules/hq/hq-portal-feed-push.util.test.js src/modules/auth/auth.service.test.js src/modules/job/jobPublishQuota.service.test.js src/modules/peoplecore/countryPacks.test.js src/modules/peoplecore/payroll.calc.test.js src/modules/peoplecore/peoplecore.util.test.js src/modules/peoplecore/peopleAlert.test.js src/modules/candidate/candidateListQuery.test.js src/modules/ai/ariaCommandMatch.test.js",
+    "test:candidate-cache": "node --test --test-force-exit src/services/candidateRetrieval/cacheKeys.test.js src/services/candidateRetrieval/l1Cache.test.js src/services/candidateRetrieval/metrics.service.test.js src/utils/localAuthMemo.test.js src/middleware/candidateCacheInvalidation.middleware.test.js",
     "test:w1": "node --test src/modules/auth/auth.service.test.js",
     "test:security": "node --test src/security/tenant-isolation.test.js",
     "create:super-admin": "node scripts/create-super-admin.js",

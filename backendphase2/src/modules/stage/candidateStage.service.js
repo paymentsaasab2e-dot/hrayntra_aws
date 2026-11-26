@@ -1,5 +1,6 @@
 import { prisma } from '../../config/prisma.js';
 import { getJobPortalPrismaClient } from '../../config/prisma.js';
+import { invalidateOrgCandidateCaches } from '../../services/candidateRetrieval/invalidation.service.js';
 import { env, isLoopbackPublicUrl, normalizePublicUrl } from '../../config/env.js';
 import {
   buildPublicUploadsAccessUrl,
@@ -991,6 +992,9 @@ export async function updateCandidateStage({
       status,
     },
   });
+  // Stage/status changed in the tenant DB → the org's candidate lists are stale. This catches
+  // non-HTTP callers (workers, portal events) that the request middleware cannot see.
+  void invalidateOrgCandidateCaches('stage.update');
 
   if (jobId) {
     const interviewTimelineTitle =

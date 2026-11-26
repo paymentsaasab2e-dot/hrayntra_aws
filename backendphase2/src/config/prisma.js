@@ -3,6 +3,7 @@ import dns from 'node:dns';
 import { PrismaClient } from '@prisma/client';
 import { env } from './env.js';
 import logger from '../utils/logger.js';
+import { installQueryCounter } from '../utils/prismaQueryCounter.js';
 
 // Prefer IPv4 when resolving Atlas hosts (Windows/ISP often fail intermittently on AAAA).
 try {
@@ -251,6 +252,14 @@ function createClientForUrl(url) {
   });
   installOrphanRelationHeal(client);
   installTenantPrismaWriteAudit(client);
+  // Per-request MongoDB op counting (no-op unless a counter is active). Label = DB name only.
+  let dbLabel = 'db';
+  try {
+    dbLabel = new URL(normalizeMongoDatabaseUrl(url)).pathname.replace(/^\//, '') || 'db';
+  } catch {
+    /* keep default label */
+  }
+  installQueryCounter(client, dbLabel);
   return withQueryLogging(client);
 }
 

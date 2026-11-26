@@ -4,6 +4,8 @@ import { prisma, setTenantAuditUser, runWithTenantContext, getActiveTenantDbName
 import { sessionService } from '../modules/session/session.service.js';
 import { env } from '../config/env.js';
 import { isValidTenantDbName } from '../utils/tenantDbName.util.js';
+import { authMemoGet, authMemoSet } from '../utils/localAuthMemo.js';
+import { buildPermissionCacheKey } from './permission.middleware.js';
 
 /**
  * Phase 2 auth: access JWT must be signed and unexpired.
@@ -58,19 +60,26 @@ export const authMiddleware = async (req, res, next) => {
     };
 
     const lookupUser = async () => {
-      const user = await prisma.user.findUnique({
-        where: { id: userId },
-        select: {
-          id: true,
-          email: true,
-          name: true,
-          firstName: true,
-          lastName: true,
-          role: true,
-          isActive: true,
-          systemRole: { select: { roleName: true } },
-        },
-      });
+      // Opt-in in-process memo (AUTH_LOCAL_CACHE_TTL_SEC). Only ACTIVE users are ever stored, and
+      // it is dropped by the same events that clear the permission cache (role / team edits).
+      const userMemoKey = `${buildPermissionCacheKey(userId)}|user`;
+      let user = authMemoGet(userMemoKey);
+      if (!user) {
+        user = await prisma.user.findUnique({
+          where: { id: userId },
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            firstName: true,
+            lastName: true,
+            role: true,
+            isActive: true,
+            systemRole: { select: { roleName: true } },
+          },
+        });
+        if (user?.isActive) authMemoSet(userMemoKey, user);
+      }
 
       if (!user || !user.isActive) {
         return sendError(res, 401, 'User not found or inactive', { code: 'USER_INACTIVE' });
@@ -88,9 +97,14 @@ export const authMiddleware = async (req, res, next) => {
             code: 'SESSION_REQUIRED',
           });
         }
-        const sessionCheck = await sessionService.validateSessionFromToken(tokenPayload);
-        if (!sessionCheck.ok) {
-          return sendError(res, 401, sessionCheck.message, { code: sessionCheck.code });
+        // Only a PASSED check is memoized; logout / new login clears it via deleteCache(active_session:<id>).
+        const sessionMemoKey = `active_session:${userId}|${tokenPayload.sessionId}`;
+        if (!authMemoGet(sessionMemoKey)) {
+          const sessionCheck = await sessionService.validateSessionFromToken(tokenPayload);
+          if (!sessionCheck.ok) {
+            return sendError(res, 401, sessionCheck.message, { code: sessionCheck.code });
+          }
+          authMemoSet(sessionMemoKey, true);
         }
       }
 

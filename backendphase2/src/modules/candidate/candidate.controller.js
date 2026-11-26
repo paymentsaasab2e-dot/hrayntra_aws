@@ -1,16 +1,28 @@
 import { candidateService } from './candidate.service.js';
 import { sendResponse, sendError } from '../../utils/response.js';
 import { httpStatusFromError } from '../../utils/interviewConflict.util.js';
-import { getCandidatesCached } from '../../services/candidateRetrieval/engine.service.js';
+import { getCandidatesCachedWithMeta } from '../../services/candidateRetrieval/engine.service.js';
 import { isCandidateOrgCacheEnabled } from '../../services/candidateRetrieval/cacheKeys.js';
-import { invalidateOrgCandidateCaches } from '../../services/candidateRetrieval/invalidation.service.js';
 
 export const candidateController = {
   async getAll(req, res) {
     try {
-      const result = isCandidateOrgCacheEnabled()
-        ? await getCandidatesCached(req)
-        : await candidateService.getAll(req);
+      let result;
+      if (isCandidateOrgCacheEnabled()) {
+        const { payload, perf } = await getCandidatesCachedWithMeta(req);
+        result = payload;
+        // The Candidates tab never shows cache stats (they live on /candidate-speed), but a tiny
+        // response header lets anyone verify HIT/MISS in DevTools without changing the body.
+        if (perf) {
+          res.setHeader('X-Candidate-Cache', String(perf.cacheState));
+          res.setHeader('X-Candidate-Cache-Ms', String(perf.timings?.totalMs ?? ''));
+          if (String(req.headers['x-candidate-perf'] || '') === '1' && result && typeof result === 'object') {
+            result = { ...result, _retrievalPerf: perf };
+          }
+        }
+      } else {
+        result = await candidateService.getAll(req);
+      }
       sendResponse(res, 200, 'Candidates retrieved successfully', result);
     } catch (error) {
       sendError(res, 500, error.message, error);
@@ -41,7 +53,6 @@ export const candidateController = {
   async create(req, res) {
     try {
       const candidate = await candidateService.create(req.body, req.user?.id, req);
-      void invalidateOrgCandidateCaches('candidate.create');
       sendResponse(res, 201, 'Candidate created successfully', candidate);
     } catch (error) {
       sendError(res, error?.statusCode || 400, error.message, error);
@@ -51,7 +62,6 @@ export const candidateController = {
   async update(req, res) {
     try {
       const candidate = await candidateService.update(req.params.id, req.body, req.user?.id, req);
-      void invalidateOrgCandidateCaches('candidate.update');
       sendResponse(res, 200, 'Candidate updated successfully', candidate);
     } catch (error) {
       sendError(res, error?.statusCode || 400, error.message, error);
@@ -61,7 +71,6 @@ export const candidateController = {
   async delete(req, res) {
     try {
       const result = await candidateService.delete(req.params.id, req.user?.id);
-      void invalidateOrgCandidateCaches('candidate.delete');
       sendResponse(res, 200, result.message);
     } catch (error) {
       sendError(res, 500, error.message, error);
