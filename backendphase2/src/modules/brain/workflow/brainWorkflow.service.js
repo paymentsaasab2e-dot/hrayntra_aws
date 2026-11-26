@@ -27,6 +27,11 @@ const APPROVED_ACTIONS = new Set([
   'create_placement',
   'update_placement',
   'mark_placement_joined',
+  // People commands — a confirmed workflow and a typed command share one path.
+  'punch_attendance',
+  'decide_leave',
+  'lock_attendance_month',
+  'run_payroll',
 ]);
 
 /**

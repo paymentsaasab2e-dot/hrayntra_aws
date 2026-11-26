@@ -2,16 +2,18 @@
 
 import { usePathname } from 'next/navigation';
 import { AnimatePresence, motion } from 'motion/react';
-import { Loader2, Sparkles, X } from 'lucide-react';
+import { Loader2, Sparkles, Undo2, X } from 'lucide-react';
 import { BrandPngIcon } from './coins/BrandPngIcon';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { usePageDrawerOpen } from '../hooks/usePageDrawerOpen';
 import {
-  askHrYantraLocalAssistant,
+  askHrYantraBrainDetailed,
   HRYANTRA_AI_SUGGESTIONS,
   HRYANTRA_AI_WELCOME,
+  type HrYantraBrainUndo,
   type HrYantraChatMessage,
 } from '../lib/hrYantraLocalAssistant';
+import { apiUndoKnownAriaCommand } from '@/lib/api';
 import { HqBrandLogo } from './hq/HqBrandLogo';
 import { isEmployerPublicAuthPath } from '@/lib/sessionAuth';
 
@@ -61,6 +63,8 @@ export function HrYantraAiFloatingButton() {
   const [pos, setPos] = useState({ x: 0, y: 0 });
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
+  const [undoBusy, setUndoBusy] = useState(false);
+  const [lastUndo, setLastUndo] = useState<HrYantraBrainUndo>(null);
   const [messages, setMessages] = useState<HrYantraChatMessage[]>([
     {
       id: 'welcome',
@@ -229,11 +233,12 @@ export function HrYantraAiFloatingButton() {
     ]);
     setBusy(true);
     try {
-      const answer = await askHrYantraLocalAssistant(text, messages);
+      const result = await askHrYantraBrainDetailed(text, messages);
       setMessages((prev) => [
         ...prev,
-        { id: uid(), role: 'assistant', content: answer, createdAt: new Date().toISOString() },
+        { id: uid(), role: 'assistant', content: result.reply, createdAt: new Date().toISOString() },
       ]);
+      if (result.undo) setLastUndo(result.undo);
     } catch (error: any) {
       setMessages((prev) => [
         ...prev,
@@ -246,6 +251,37 @@ export function HrYantraAiFloatingButton() {
       ]);
     } finally {
       setBusy(false);
+    }
+  };
+
+  const runUndo = async () => {
+    if (!lastUndo || undoBusy) return;
+    setUndoBusy(true);
+    try {
+      const res = await apiUndoKnownAriaCommand(lastUndo.actionId);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: uid(),
+          role: 'assistant',
+          content: res.data?.summary || 'Undone.',
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+      setLastUndo(null);
+    } catch (error: any) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: uid(),
+          role: 'assistant',
+          content: error?.message || 'Undo is no longer available.',
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+      setLastUndo(null);
+    } finally {
+      setUndoBusy(false);
     }
   };
 
@@ -335,6 +371,22 @@ export function HrYantraAiFloatingButton() {
             </div>
 
             <div className="border-t border-slate-100 bg-white/95 px-3 py-3 backdrop-blur">
+              {lastUndo ? (
+                <div className="mb-2 flex items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
+                  <span className="truncate text-[11px] font-medium text-amber-900">
+                    {lastUndo.label || 'Last write can be undone'}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={undoBusy}
+                    onClick={() => void runUndo()}
+                    className="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-amber-800 transition hover:bg-amber-100 disabled:opacity-50"
+                  >
+                    {undoBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Undo2 className="h-3 w-3" />}
+                    Undo
+                  </button>
+                </div>
+              ) : null}
               <div className="mb-2 flex gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none]">
                 {HRYANTRA_AI_SUGGESTIONS.map((item) => (
                   <button

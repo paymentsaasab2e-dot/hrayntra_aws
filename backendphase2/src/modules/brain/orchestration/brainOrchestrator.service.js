@@ -21,8 +21,17 @@ import {
   saveBrainTurn,
   buildMemoryContextBlock,
 } from '../memory/brainMemory.service.js';
-import { assertPermission, filterEntitiesForUser } from '../permissions/brainPermissions.service.js';
+import { assertPermission, filterEntitiesForUser, canExecuteWorkflow } from '../permissions/brainPermissions.service.js';
 import { invokeBrainTool } from '../tools/brainTools.registry.js';
+import { executeApprovedWorkflow } from '../workflow/brainWorkflow.service.js';
+import { resolveEffectivePermissionNames } from '../../role/effectivePermissions.service.js';
+import { userHasAnyPermission } from '../../role/permission-aliases.js';
+import {
+  matchKnownPeopleCommand,
+  executeKnownPeopleCommand,
+  undoKnownPeopleCommand,
+  resolvePendingReply,
+} from '../../ai/ariaKnownCommands.js';
 import {
   buildTenantAnalyticsSnapshot,
   summarizeBusinessPerformance,
@@ -99,8 +108,189 @@ function helpText() {
     '• Generate reports, analytics, and action recommendations',
     '• Execute **approved workflows** when your role allows',
     '',
+    'I also run the same actions the screens do:',
+    '• People: `punch Ada`, `approve leave`, `approve leave Ada`, `reject leave Theo`, `lock this month`, `run payroll`, `apply leave Ada Annual from 26 Nov 2026 to 28 Nov 2026`, `regularise Ada 26 Nov 2026`, `complete onboarding Ada bank details`, `join Ada`, `defer Ada`, `no show Ada`, `start exit Ada`, `complete exit Ada`, `assign asset LP-01 to Ada`, `return asset LP-01`, `issue letter relieving to Ada`, `approve inbox`, `approve payroll`, `lock payroll`',
+    '• CRM: `create lead Acme`, `create job Frontend Dev for Acme`, `move Ada to Interview on Frontend Dev`, `schedule interview Ada Frontend Dev on 26 Nov 2026`, `add task Follow up for Theo`, `complete task Follow up`, `create placement Ada on Frontend Dev`, `mark Ada joined`',
+    '• When I list options, reply with a number or a name. Say `cancel` to stop, `yes` to confirm, `undo` to reverse the last write (10 minutes).',
+    '',
     'Try: “Summarize business performance”, “Report on open jobs”, “How many candidates?”, “Show schema for placements”.',
   ].join('\n');
+}
+
+const COMMAND_PERMISSION_LABELS = {
+  punch: 'punch attendance',
+  leave: 'approve or reject leave',
+  lock: 'lock the attendance month',
+  payroll: 'run payroll',
+  'payroll-decide': 'approve or lock payroll',
+  'apply-leave': 'apply leave',
+  'apply-leave-resolve-type': 'apply leave',
+  'apply-leave-final': 'apply leave',
+  regularise: 'regularise attendance',
+  onboarding: 'complete an onboarding task',
+  join: 'mark an employee as joined',
+  defer: 'defer an employee',
+  noshow: 'mark an employee as no-show',
+  'exit-start': 'start an exit',
+  'exit-complete': 'complete an exit',
+  'asset-assign': 'assign an asset',
+  'asset-assign-pick-person': 'assign an asset',
+  'asset-return': 'return an asset',
+  letter: 'issue a letter',
+  'letter-final': 'issue a letter',
+  inbox: 'decide an inbox item',
+};
+
+const PENDING_TTL_MS = 10 * 60 * 1000;
+
+// Same list peoplecore.routes.js uses for People writes.
+const PEOPLE_WRITE_PERMISSIONS = ['candidates_create', 'candidates_update', 'add_candidate', 'edit_candidate'];
+
+async function peopleWriteAllowed(user) {
+  try {
+    const resolved = await resolveEffectivePermissionNames(user?.id || user);
+    if (resolved.isSuperAdmin) return true;
+    return userHasAnyPermission(resolved.permissions || [], PEOPLE_WRITE_PERMISSIONS);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Command front door. Runs before intent detection so `approve leave` is never
+ * swallowed by the analytics summariser. Returns an ask-style result, or null
+ * when the text is a normal question.
+ */
+async function tryBrainCommand(user, { question, sessionKey, memory, input, started }) {
+  const cm = memory?.conversationMemory || {};
+  let pending = cm.pendingCommand && typeof cm.pendingCommand === 'object' ? cm.pendingCommand : null;
+  if (pending && pending.expiresAt && new Date(pending.expiresAt).getTime() < Date.now()) pending = null;
+  const lastUndoId = cm.lastUndoActionId || null;
+  const match = matchKnownPeopleCommand(question);
+
+  let reply = null;
+  let nextPending = pending;
+  let nextUndoId = lastUndoId;
+  let undoInfo = null;
+  let ranCommand = null;
+  let ranResult = null;
+  let status = 'ok';
+
+  if (match?.kind === 'undo') {
+    if (!lastUndoId) {
+      reply = 'Nothing to undo.';
+    } else {
+      const undone = await undoKnownPeopleCommand(user, lastUndoId);
+      reply = undone.summary;
+      if (undone.ok) nextUndoId = null;
+    }
+    nextPending = null;
+    ranCommand = { kind: 'undo' };
+  } else if (match?.kind === 'cancel' || (match?.kind === 'choice' && !pending)) {
+    reply = pending ? 'Cancelled.' : 'Nothing is waiting for an answer.';
+    nextPending = null;
+    ranCommand = match;
+  } else {
+    let command = null;
+    if (pending) {
+      const resolved = resolvePendingReply(pending, question);
+      if (resolved.type === 'cancel') {
+        reply = 'Cancelled.';
+        nextPending = null;
+      } else if (resolved.type === 'reprompt') {
+        reply = resolved.text;
+        nextPending = { ...pending, expiresAt: new Date(Date.now() + PENDING_TTL_MS).toISOString() };
+      } else if (resolved.type === 'command' || resolved.type === 'fresh') {
+        command = resolved.command;
+      } else {
+        nextPending = null;
+      }
+    } else if (match) {
+      command = match;
+    }
+
+    if (command) {
+      const isCrm = command.kind === 'crm';
+      const allowed = isCrm ? canExecuteWorkflow(user) : await peopleWriteAllowed(user);
+      if (!allowed) {
+        const label = isCrm ? 'run that CRM action' : COMMAND_PERMISSION_LABELS[command.kind] || 'do that';
+        reply = `You don't have permission to ${label}.`;
+        nextPending = null;
+        status = 'denied';
+      } else {
+        ranCommand = command;
+        ranResult = await executeKnownPeopleCommand(user, command);
+        if (ranResult?.workflowSpec) {
+          const wf = await executeApprovedWorkflow(user, { ...ranResult.workflowSpec, confirm: true });
+          if (wf?.ok) {
+            reply = `${ranResult.summary.replace(/\.$/, '')} — done.`;
+          } else {
+            reply = wf?.error || wf?.message || 'That action failed.';
+            status = 'error';
+          }
+        } else {
+          reply = ranResult?.summary || (ranResult?.ok ? 'Done.' : 'Could not run that.');
+          if (ranResult && !ranResult.ok && !ranResult.pending) status = 'error';
+        }
+        if (ranResult?.pending) {
+          nextPending = { ...ranResult.pending, expiresAt: new Date(Date.now() + PENDING_TTL_MS).toISOString() };
+          status = 'ok';
+        } else {
+          nextPending = null;
+        }
+        if (ranResult?.undoPayload?.available) {
+          nextUndoId = ranResult.undoPayload.actionId;
+          undoInfo = ranResult.undoPayload;
+          reply = `${reply} Say undo to take that back.`;
+        }
+      }
+    }
+  }
+
+  if (!reply) return null;
+
+  const audit = logBrainAction({
+    user,
+    action: 'brain.command',
+    toolName: ranCommand?.kind || (pending ? 'pending' : 'command'),
+    status,
+    inputSummary: question.slice(0, 300),
+    outputSummary: String(reply).slice(0, 400),
+    durationMs: Date.now() - started,
+  });
+
+  await saveBrainTurn({
+    userId: user.id,
+    sessionKey,
+    pathname: input.pathname || null,
+    priorMessages: input.messages,
+    userMessage: question,
+    assistantMessage: reply,
+    memoryUpdate: {
+      userIntent: 'command',
+      lastActions: ranCommand ? [ranCommand.kind] : [],
+      pendingCommand: nextPending,
+      lastUndoActionId: nextUndoId,
+      currentPageContext: String(input.pathname || ''),
+    },
+    actionLogItem: {
+      action_id: audit.id,
+      entity: ranCommand?.kind || 'brain',
+      operation: 'command',
+      status: status === 'ok' ? 'SUCCESS' : status.toUpperCase(),
+      createdAt: audit.at,
+    },
+  });
+
+  return {
+    reply,
+    intent: 'command',
+    entities: [],
+    usedTools: ranCommand ? [ranCommand.kind] : [],
+    undo: undoInfo,
+    auditId: audit.id,
+    durationMs: Date.now() - started,
+  };
 }
 
 async function optionalLlmSynthesize({ question, contextBlock, toolFacts, memoryBlock }) {
@@ -164,6 +354,12 @@ export async function runBrainAsk(user, input = {}) {
 
   const sessionKey = input.sessionKey || 'default';
   const memory = await loadBrainMemory(user.id, sessionKey);
+
+  // One command front door: known People/CRM sentences execute here; anything
+  // else falls through to the normal question path below.
+  const commandResult = await tryBrainCommand(user, { question, sessionKey, memory, input, started });
+  if (commandResult) return commandResult;
+
   const memoryBlock = buildMemoryContextBlock(memory);
   const retrieval = retrievePlatformKnowledge(question);
   const matchedEntities = filterEntitiesForUser(user, retrieval.entities.length ? retrieval.entities : matchEntitiesFromText(question));

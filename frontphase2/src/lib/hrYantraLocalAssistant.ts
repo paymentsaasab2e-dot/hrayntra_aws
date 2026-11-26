@@ -770,6 +770,13 @@ export const HRYANTRA_AI_WELCOME = [
   '• “Show schema for placements”',
   '• “What should I do next?”',
   '',
+  'I can also run the actions the screens do:',
+  '• “approve leave”, “approve leave Ada”, “punch Ada”',
+  '• “lock this month”, “run payroll”',
+  '• “create lead Acme”, “complete task Follow up”',
+  '',
+  'Say a number or a name when I list choices, `yes` to confirm, `cancel` to stop, and `undo` within 10 minutes to reverse my last write.',
+  '',
   '_Private to your company · Brain services on Phase 2 backend · no OpenAI required by default._',
 ].join('\n');
 
@@ -2330,13 +2337,24 @@ function answerFromSnapshot(
   return answerTenantBrainFallback(prompt, snap);
 }
 
-export async function askHrYantraLocalAssistant(
+export type HrYantraBrainUndo = {
+  available: boolean;
+  actionId: string;
+  expiresAt?: string;
+  label?: string;
+} | null;
+
+/** Same as askHrYantraLocalAssistant but also returns the undo payload for command writes. */
+export async function askHrYantraBrainDetailed(
   prompt: string,
   history: HrYantraChatMessage[] = [],
-): Promise<string> {
+): Promise<{ reply: string; undo: HrYantraBrainUndo }> {
   const rawQuestion = String(prompt || '').trim();
   if (!rawQuestion) {
-    return 'Ask the Enterprise Brain anything about your CRM — try “Summarize business performance” or “How many open jobs?”.';
+    return {
+      reply: 'Ask the Enterprise Brain anything about your CRM — try “Summarize business performance” or “How many open jobs?”.',
+      undo: null,
+    };
   }
 
   const spelling = correctSpelling(rawQuestion);
@@ -2358,12 +2376,13 @@ export async function askHrYantraLocalAssistant(
 
     const reply = String(res.data?.reply || '').trim();
     if (reply) {
-      return withSpellingNote(reply, spelling);
+      const undo = res.data?.undo && res.data.undo.available ? res.data.undo : null;
+      return { reply: withSpellingNote(reply, spelling), undo };
     }
   } catch (error: any) {
     const message = String(error?.message || error || '');
     if (/auth|login|token|401|403/i.test(message) && !/brain_ask|Forbidden: missing/i.test(message)) {
-      return 'Please sign in to use the HRYANTRA Brain. I need your tenant session.';
+      return { reply: 'Please sign in to use the HRYANTRA Brain. I need your tenant session.', undo: null };
     }
     // Fall through to local tenant composition if Brain route is down.
   }
@@ -2372,14 +2391,22 @@ export async function askHrYantraLocalAssistant(
   try {
     const forceRefresh = /fresh|reload|refresh|latest|live now/i.test(question);
     const snap = await loadTenantSnapshot(forceRefresh);
-    return withSpellingNote(answerFromSnapshot(question, snap, history), spelling);
+    return { reply: withSpellingNote(answerFromSnapshot(question, snap, history), spelling), undo: null };
   } catch (error: any) {
     const message = String(error?.message || '');
     if (/auth|login|token/i.test(message)) {
-      return 'Please sign in to use HRYantra AI. I need your tenant session to read CRM data.';
+      return { reply: 'Please sign in to use HRYantra AI. I need your tenant session to read CRM data.', undo: null };
     }
-    return `I could not reach the Brain or load tenant data. ${message || 'Try again in a moment.'}`;
+    return { reply: `I could not reach the Brain or load tenant data. ${message || 'Try again in a moment.'}`, undo: null };
   }
+}
+
+export async function askHrYantraLocalAssistant(
+  prompt: string,
+  history: HrYantraChatMessage[] = [],
+): Promise<string> {
+  const result = await askHrYantraBrainDetailed(prompt, history);
+  return result.reply;
 }
 
 export const HRYANTRA_AI_SUGGESTIONS = [

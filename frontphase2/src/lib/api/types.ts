@@ -4827,6 +4827,7 @@ export type BrainAskResult = {
   intent?: string;
   entities?: string[];
   usedTools?: string[];
+  undo?: { available: boolean; actionId: string; expiresAt?: string; label?: string } | null;
   retrieval?: { chunkIds?: string[]; entities?: string[] };
   auditId?: string;
   llmEnabled?: boolean;

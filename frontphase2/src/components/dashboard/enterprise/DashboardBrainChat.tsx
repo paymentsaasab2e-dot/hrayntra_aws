@@ -1,9 +1,9 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Loader2, Sparkles } from 'lucide-react';
+import { Loader2, Sparkles, Undo2 } from 'lucide-react';
 import { BrandPngIcon } from '@/components/coins/BrandPngIcon';
-import { apiBrainAsk } from '@/lib/api';
+import { apiBrainAsk, apiUndoKnownAriaCommand } from '@/lib/api';
 import { cardClass } from './dashboardUi';
 
 type Msg = { role: 'user' | 'assistant'; content: string };
@@ -22,6 +22,8 @@ const SUGGESTIONS = [
 export function DashboardBrainChat() {
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
+  const [undoBusy, setUndoBusy] = useState(false);
+  const [lastUndo, setLastUndo] = useState<{ actionId: string; label?: string } | null>(null);
   const [messages, setMessages] = useState<Msg[]>([
     {
       role: 'assistant',
@@ -46,6 +48,7 @@ export function DashboardBrainChat() {
       });
       const reply = String(res.data?.reply || 'No answer returned.').trim();
       setMessages((prev) => [...prev, { role: 'assistant', content: reply }]);
+      if (res.data?.undo?.available) setLastUndo(res.data.undo);
     } catch (error: any) {
       setMessages((prev) => [
         ...prev,
@@ -56,6 +59,27 @@ export function DashboardBrainChat() {
       ]);
     } finally {
       setBusy(false);
+    }
+  };
+
+  const runUndo = async () => {
+    if (!lastUndo || undoBusy) return;
+    setUndoBusy(true);
+    try {
+      const res = await apiUndoKnownAriaCommand(lastUndo.actionId);
+      setMessages((prev) => [
+        ...prev,
+        { role: 'assistant', content: res.data?.summary || 'Undone.' },
+      ]);
+      setLastUndo(null);
+    } catch (error: any) {
+      setMessages((prev) => [
+        ...prev,
+        { role: 'assistant', content: error?.message || 'Undo is no longer available.' },
+      ]);
+      setLastUndo(null);
+    } finally {
+      setUndoBusy(false);
     }
   };
 
@@ -108,6 +132,23 @@ export function DashboardBrainChat() {
           </div>
         ) : null}
       </div>
+
+      {lastUndo ? (
+        <div className="flex items-center justify-between gap-2 border-t border-slate-100 bg-amber-50 px-5 py-2.5">
+          <span className="truncate text-[11px] font-medium text-amber-900">
+            {lastUndo.label || 'Last write can be undone'}
+          </span>
+          <button
+            type="button"
+            disabled={undoBusy}
+            onClick={() => void runUndo()}
+            className="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-amber-800 transition hover:bg-amber-100 disabled:opacity-50"
+          >
+            {undoBusy ? <Loader2 size={12} className="animate-spin" /> : <Undo2 size={12} />}
+            Undo
+          </button>
+        </div>
+      ) : null}
 
       <form
         className="flex items-center gap-2 border-t border-slate-100 bg-white px-4 py-3"

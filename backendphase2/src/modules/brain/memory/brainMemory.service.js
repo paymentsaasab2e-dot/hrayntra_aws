@@ -31,6 +31,8 @@ export async function loadBrainMemory(userId, sessionKey = 'default') {
       currentPageContext: '',
       userPreferences: [],
       frequentlyUsedActions: [],
+      pendingCommand: null,
+      lastUndoActionId: null,
       updatedAt: null,
     },
     taskMemory: history.taskMemory || { tasks: [] },

@@ -1412,6 +1412,7 @@ export async function executeAssistantActionTool(user, rawArgs) {
                   decision: String(payload.decision || payload.status || 'APPROVED').toUpperCase() === 'REJECTED'
                     ? 'REJECTED'
                     : 'APPROVED',
+                  name: String(payload.employeeName || payload.name || '').trim(),
                 }
               : actionType === 'lock_attendance_month'
                 ? { kind: 'lock' }
