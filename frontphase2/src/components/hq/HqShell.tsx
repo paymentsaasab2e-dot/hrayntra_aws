@@ -25,7 +25,7 @@ export function HqShell({ children }: { children: React.ReactNode }) {
         <Suspense fallback={<HqSidebarFallback />}>
           <HqSidebar />
         </Suspense>
-        <div className="ph2-main-surface min-h-0 min-w-0 flex-1 overflow-y-auto">{children}</div>
+        <div className="ph2-main-surface ph2-viewport-scroll min-h-0 min-w-0 flex-1">{children}</div>
       </div>
     </HqCurrencyProvider>
   );

@@ -639,7 +639,47 @@ html {
   background-clip: padding-box;
 }
 
-/* CRM list tables — thin indigo scrollbars on both axes */
+/* Right-hand page scrollbar. Always painted, including short pages. */
+.ph2-viewport-scroll {
+  min-height: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+  scrollbar-width: auto;
+  scrollbar-color: #475569 #e2e8f0;
+  overscroll-behavior: contain;
+}
+
+/*
+  Page shells were viewport-locked, so this bar had nothing to scroll and the
+  inner table bar sat below the fold. Let the page grow and scroll here.
+*/
+.ph2-viewport-scroll .ph2-page-shell,
+.ph2-viewport-scroll .ph2-page-shell > main,
+.ph2-viewport-scroll .ph2-page-scroll {
+  height: auto !important;
+  max-height: none !important;
+  overflow: visible !important;
+}
+
+.ph2-viewport-scroll .ph2-page-shell {
+  min-height: 100%;
+}
+
+.ph2-viewport-scroll .ph2-page-shell > main,
+.ph2-viewport-scroll .ph2-page-scroll,
+.ph2-viewport-scroll .ph2-table-body-scroll {
+  flex: none !important;
+}
+
+.ph2-viewport-scroll .ph2-table-body-scroll {
+  height: auto !important;
+  max-height: none !important;
+  overflow-y: visible !important;
+}
+
+/* CRM list tables — visible scrollbars on both axes */
 .ph2-page-scroll,
 .ph2-table-body-scroll,
 .leads-table-body-scroll,
@@ -721,6 +761,7 @@ table tbody td .text-sm {
   }
 }
 
+.ph2-viewport-scroll::-webkit-scrollbar,
 .ph2-page-scroll::-webkit-scrollbar,
 .ph2-table-body-scroll::-webkit-scrollbar,
 .leads-table-body-scroll::-webkit-scrollbar,
@@ -729,6 +770,7 @@ table tbody td .text-sm {
   height: 14px;
 }
 
+.ph2-viewport-scroll::-webkit-scrollbar-track,
 .ph2-page-scroll::-webkit-scrollbar-track,
 .ph2-table-body-scroll::-webkit-scrollbar-track,
 .leads-table-body-scroll::-webkit-scrollbar-track,
@@ -737,6 +779,7 @@ table tbody td .text-sm {
   border-radius: 999px;
 }
 
+.ph2-viewport-scroll::-webkit-scrollbar-thumb,
 .ph2-page-scroll::-webkit-scrollbar-thumb,
 .ph2-table-body-scroll::-webkit-scrollbar-thumb,
 .leads-table-body-scroll::-webkit-scrollbar-thumb,
@@ -746,6 +789,7 @@ table tbody td .text-sm {
   border: 3px solid #e2e8f0;
 }
 
+.ph2-viewport-scroll::-webkit-scrollbar-thumb:hover,
 .ph2-page-scroll::-webkit-scrollbar-thumb:hover,
 .ph2-table-body-scroll::-webkit-scrollbar-thumb:hover,
 .leads-table-body-scroll::-webkit-scrollbar-thumb:hover,

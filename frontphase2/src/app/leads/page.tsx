@@ -1965,7 +1965,7 @@ export default function RecruitmentAgencyDashboard() {
       <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <div className="hry-aurora" aria-hidden />
         {/* Header */}
-        <header className="no-scrollbar flex min-h-0 shrink-0 flex-nowrap items-center justify-between gap-2 overflow-x-auto bg-transparent px-2 py-2 sm:gap-3 sm:px-4 sm:py-2.5 lg:px-5">
+        <header className="no-scrollbar flex min-h-0 shrink-0 flex-nowrap items-center justify-between gap-2 overflow-x-auto bg-transparent px-2 py-1.5 sm:gap-3 sm:px-4 lg:px-5">
           <div className="flex min-w-0 items-center gap-2 sm:gap-3">
             <div className="hry-title-icon flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl text-white ring-1 ring-white/30 sm:h-11 sm:w-11">
               <Target className="h-4 w-4 sm:h-5 sm:w-5" strokeWidth={2.2} />

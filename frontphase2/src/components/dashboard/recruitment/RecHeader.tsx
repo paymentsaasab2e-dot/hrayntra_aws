@@ -40,7 +40,7 @@ export function RecTimelinePills({ className = '' }: { className?: string }) {
               setFilters((f) => ({ ...f, dateRange: opt.value, startDate: undefined, endDate: undefined }));
               bumpRefresh();
             }}
-            className={`shrink-0 rounded-full px-2.5 py-1.5 text-[12px] font-semibold transition ${
+            className={`shrink-0 rounded-full px-2.5 py-1 text-[12px] font-semibold transition ${
               active ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800'
             }`}
           >
@@ -55,9 +55,10 @@ export function RecTimelinePills({ className = '' }: { className?: string }) {
 type Props = {
   overview: RecruitmentOverview | null;
   onRefresh: () => void;
+  toolbar?: React.ReactNode;
 };
 
-export function RecHeader({ overview, onRefresh }: Props) {
+export function RecHeader({ overview, onRefresh, toolbar }: Props) {
   const { filters, hiddenSections, toggleSection } = useRecDashboard();
   const [customizeOpen, setCustomizeOpen] = useState(false);
   const dateLabel =
@@ -79,11 +80,11 @@ export function RecHeader({ overview, onRefresh }: Props) {
   };
 
   return (
-    <header className={`${recCard} px-5 py-3.5`}>
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <header className={`${recCard} px-4 py-2.5`}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">
-          <h1 className="text-[20px] font-bold tracking-tight text-slate-900">Recruitment Dashboard</h1>
-          <p className="mt-0.5 text-[12px] text-slate-500">
+          <h1 className="text-[18px] font-bold leading-none tracking-tight text-slate-900">Recruitment Dashboard</h1>
+          <p className="mt-1 text-[12px] leading-4 text-slate-500">
             Live hiring book
             {teamLabel ? ` · ${teamLabel}` : ''}
             {' · '}
@@ -97,14 +98,14 @@ export function RecHeader({ overview, onRefresh }: Props) {
           <button
             type="button"
             onClick={onRefresh}
-            className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-[13px] font-medium text-slate-700 hover:bg-slate-50"
+            className="inline-flex h-8 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 text-[12px] font-medium text-slate-700 hover:bg-slate-50"
           >
             <RefreshCw size={14} /> Refresh
           </button>
           <button
             type="button"
             onClick={exportCsv}
-            className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-[13px] font-medium text-slate-700 hover:bg-slate-50"
+            className="inline-flex h-8 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 text-[12px] font-medium text-slate-700 hover:bg-slate-50"
           >
             <Download size={14} /> Export
           </button>
@@ -113,7 +114,7 @@ export function RecHeader({ overview, onRefresh }: Props) {
             <button
               type="button"
               onClick={() => setCustomizeOpen((v) => !v)}
-              className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-[13px] font-medium text-slate-700 hover:bg-slate-50"
+              className="inline-flex h-8 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 text-[12px] font-medium text-slate-700 hover:bg-slate-50"
             >
               <Settings2 size={14} /> Customize
             </button>
@@ -141,6 +142,7 @@ export function RecHeader({ overview, onRefresh }: Props) {
           </div>
         </div>
       </div>
+      {toolbar ? <div className="mt-2">{toolbar}</div> : null}
     </header>
   );
 }

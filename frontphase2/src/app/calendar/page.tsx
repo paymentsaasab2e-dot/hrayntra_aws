@@ -393,7 +393,7 @@ export default function CalendarPage() {
     return formatDateDMY(new Date(event.start));
   }
   return (
-    <div className="min-h-screen bg-[#F8FAFC] p-6 md:p-8">
+    <div className="min-h-screen bg-[#F8FAFC] p-3 md:p-4">
       <div className="mx-auto flex max-w-[1600px] flex-col gap-6">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div>

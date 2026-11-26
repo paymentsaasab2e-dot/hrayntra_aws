@@ -231,20 +231,30 @@ function RecruitmentDashboardInner() {
     return () => window.clearInterval(id);
   }, [overviewQuery, category]);
 
-  return (
-    <div className={`${dashFontVars} ${crmTextFont} dash-ui space-y-5 antialiased`}>
-      <RecHeader overview={overview} onRefresh={() => void load()} />
+  const blurb = REC_CATEGORY_TABS.find((tab) => tab.id === category)?.blurb;
 
-      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <HqDashCategoryTabs
-          instanceId="rec-tenant"
-          tabs={visibleTabs}
-          value={category}
-          onChange={(id) => setCategory(id as RecCategoryTabId)}
-          className="mb-0 min-w-0 flex-1"
-        />
-        <RecTimelinePills className="lg:mt-1.5" />
-      </div>
+  return (
+    <div className={`${dashFontVars} ${crmTextFont} dash-ui space-y-2 antialiased`}>
+      <RecHeader
+        overview={overview}
+        onRefresh={() => void load()}
+        toolbar={
+          <div>
+            <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
+              <HqDashCategoryTabs
+                compact
+                instanceId="rec-tenant"
+                tabs={visibleTabs}
+                value={category}
+                onChange={(id) => setCategory(id as RecCategoryTabId)}
+                className="min-w-0 flex-1"
+              />
+              <RecTimelinePills />
+            </div>
+            {blurb ? <p className="mt-1.5 text-[11px] leading-4 text-slate-500">{blurb}</p> : null}
+          </div>
+        }
+      />
 
       {category !== 'mine' ? (
         <DashScopeBanner

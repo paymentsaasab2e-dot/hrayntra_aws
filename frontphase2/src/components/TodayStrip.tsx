@@ -60,14 +60,14 @@ export function TodayStrip() {
   const show = (value: number | null) => (value == null ? '…' : String(value));
 
   return (
-    <div className="mb-3 flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200/80 bg-white px-3 py-2 text-xs text-slate-700 shadow-sm">
+    <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-slate-200/80 bg-white px-2.5 py-1 text-xs text-slate-700 shadow-sm">
       <span className="font-semibold text-[#101b35]">Today</span>
-      <span className="rounded-full bg-slate-100 px-2 py-1">Jobs {show(today.jobs)}</span>
-      <span className="rounded-full bg-slate-100 px-2 py-1">Applicants {show(today.applicants)}</span>
-      <span className="rounded-full bg-slate-100 px-2 py-1">Leave waiting {show(today.leave)}</span>
+      <span className="rounded-full bg-slate-100 px-2 py-0.5">Jobs {show(today.jobs)}</span>
+      <span className="rounded-full bg-slate-100 px-2 py-0.5">Applicants {show(today.applicants)}</span>
+      <span className="rounded-full bg-slate-100 px-2 py-0.5">Leave waiting {show(today.leave)}</span>
       <Link
         href={today.action.href}
-        className="ml-auto inline-flex h-8 items-center rounded-full bg-[#101b35] px-3 font-semibold text-white"
+        className="ml-auto inline-flex h-7 items-center rounded-full bg-[#101b35] px-3 font-semibold text-white"
       >
         {today.action.label}
       </Link>

@@ -48,7 +48,7 @@ export const PH2_PAGE_HEADER_TITLE_CLASS =
   'text-xl sm:text-[1.4rem] font-semibold tracking-tight text-[#101B35] leading-none';
 
 export const PH2_PAGE_HEADER_CLASS =
-  'no-scrollbar flex min-h-0 shrink-0 flex-nowrap items-center justify-between gap-2 overflow-x-auto bg-transparent px-2 py-2 sm:gap-3 sm:px-4 sm:py-2.5 lg:px-5';
+  'no-scrollbar flex min-h-0 shrink-0 flex-nowrap items-center justify-between gap-2 overflow-x-auto bg-transparent px-2 py-1.5 sm:gap-3 sm:px-4 lg:px-5';
 
 export const PH2_HEADER_PILL =
   'hry-btn-glass inline-flex h-8 w-8 sm:h-9 sm:w-auto shrink-0 items-center justify-center gap-1.5 rounded-full px-0 sm:px-3.5 text-xs font-semibold active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50';
@@ -120,7 +120,7 @@ export function Ph2ModulePageLayout({
           </div>
           {actions ? <div className="flex min-w-0 shrink-0 flex-nowrap items-center gap-1.5 overflow-x-auto sm:gap-2">{actions}</div> : null}
         </header>
-        <div className="ph2-page-scroll flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto px-2 py-1.5 sm:px-3 sm:py-2 lg:px-4">
+        <div className="ph2-page-scroll flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto px-2 py-1 sm:px-3 sm:py-1.5 lg:px-4">
           {children}
         </div>
         {belowScroll}

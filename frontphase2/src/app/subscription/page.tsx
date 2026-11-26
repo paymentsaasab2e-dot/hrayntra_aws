@@ -75,7 +75,7 @@ export default function SubscriptionPage() {
   return (
     <>
       <div className={`${dashTextFont} w-full min-h-screen text-slate-800`}>
-        <header className="flex min-h-[4.5rem] shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200/80 bg-white/80 px-4 py-3 backdrop-blur-md sm:px-6">
+        <header className="flex min-h-0 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-200/80 bg-white/80 px-4 py-1.5 backdrop-blur-md sm:px-6">
           <div className="flex items-center gap-2.5">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-amber-300 shadow-lg shadow-slate-900/20">
               <Coins className="h-5 w-5" />

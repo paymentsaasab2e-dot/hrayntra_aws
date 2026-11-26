@@ -16,6 +16,8 @@ type Props = {
   className?: string;
   /** Unique layout id so multiple dashboards on one page don't share the pill. */
   instanceId?: string;
+  /** Sit inside a page header: no extra margin and no caption line. */
+  compact?: boolean;
 };
 
 /** Horizontal category tabs — gradient active pill with spring slide on change. */
@@ -25,6 +27,7 @@ export function HqDashCategoryTabs({
   onChange,
   className = '',
   instanceId,
+  compact = false,
 }: Props) {
   const safeTabs = Array.isArray(tabs) ? tabs : [];
   const active = safeTabs.find((t) => t.id === value) || safeTabs[0];
@@ -55,10 +58,12 @@ export function HqDashCategoryTabs({
   }, [value, safeTabs]);
 
   return (
-    <div className={`mb-4 ${className}`}>
+    <div className={`${compact ? '' : 'mb-4'} ${className}`}>
       <div
         ref={trackRef}
-        className="relative flex flex-wrap gap-1.5 rounded-2xl border border-slate-200/80 bg-slate-100/70 p-1.5 shadow-inner"
+        className={`relative flex flex-wrap border border-slate-200/80 bg-slate-100/70 shadow-inner ${
+          compact ? 'gap-1 rounded-xl p-1' : 'gap-1.5 rounded-2xl p-1.5'
+        }`}
       >
         {pill.ready ? (
           <motion.div
@@ -88,7 +93,9 @@ export function HqDashCategoryTabs({
                 btnRefs.current[tab.id] = el;
               }}
               onClick={() => onChange(tab.id)}
-              className={`relative z-10 rounded-xl px-3.5 py-2 text-left text-[12px] font-semibold transition sm:px-4 ${
+              className={`relative z-10 rounded-lg text-left text-[12px] font-semibold transition ${
+                compact ? 'px-3 py-1.5' : 'rounded-xl px-3.5 py-2 sm:px-4'
+              } ${
                 on
                   ? 'text-white'
                   : 'text-slate-500 hover:bg-white/60 hover:text-slate-800'
@@ -99,8 +106,8 @@ export function HqDashCategoryTabs({
           );
         })}
       </div>
-      {active?.blurb ? (
-        <p className="mt-2 text-[11px] text-slate-500">{active.blurb}</p>
+      {!compact && active?.blurb ? (
+        <p className="mt-1.5 text-[11px] leading-4 text-slate-500">{active.blurb}</p>
       ) : null}
     </div>
   );

@@ -6,7 +6,6 @@ import { usePermissions } from '../hooks/usePermissions';
 import { MODULE_ACCESS_MAP } from '../lib/rbac/moduleAccess';
 import { matchesQuickSearch, buildQuickSearchHaystack } from '../lib/quickSearch';
 import { crmNavItems, peopleNavItems, recruitmentNavItems } from '../lib/navConfig';
-import { AskAriaBar } from './AskAriaBar';
 import { TodayStrip } from './TodayStrip';
 import { JobPublishQuotaMeter } from './jobs/JobPublishQuotaMeter';
 import { useUser } from '../hooks/useUser';
@@ -1154,19 +1153,20 @@ function SidenavInner({ avatarUrl = '', userProfile, children }: SidenavProps) {
         transition={{ duration: 0.28, ease: [0.4, 0, 0.2, 1] }}
         className="ph2-main-surface flex h-dvh min-h-0 min-w-0 max-w-full flex-col overflow-hidden pt-[calc(3.5rem+var(--ph2-impersonation-banner-h,0px))]"
       >
+        <div className="shrink-0 px-3 pt-2 sm:px-4">
+          <TodayStrip />
+        </div>
         <PageErrorBoundary key={pathname || 'page'}>
-          <div className="shrink-0 px-3 pt-3 sm:px-5">
-            <AskAriaBar />
-            <TodayStrip />
-          </div>
-          {children || (
-            <div className="p-6">
-              <div className="mb-6">
-                <h1 className="text-xl font-bold text-slate-800">Dashboard</h1>
-                <p className="text-sm text-slate-500">Welcome back, {profile.name}!</p>
+          <div className="ph2-viewport-scroll min-h-0 w-full flex-1">
+            {children || (
+              <div className="p-6">
+                <div className="mb-6">
+                  <h1 className="text-xl font-bold text-slate-800">Dashboard</h1>
+                  <p className="text-sm text-slate-500">Welcome back, {profile.name}!</p>
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </PageErrorBoundary>
       </motion.main>
 
@@ -1199,7 +1199,7 @@ function SidenavShellFallback({ children }: { children?: React.ReactNode }) {
         style={{ backgroundColor: 'var(--hry-navy, #0b1220)' }}
         aria-hidden
       />
-      <div className="ph2-main-surface min-h-screen min-w-0 max-w-full pt-[calc(3.5rem+var(--ph2-impersonation-banner-h,0px))]">
+      <div className="ph2-main-surface ph2-viewport-scroll min-h-screen min-w-0 max-w-full pt-[calc(3.5rem+var(--ph2-impersonation-banner-h,0px))]">
         {children}
       </div>
     </div>

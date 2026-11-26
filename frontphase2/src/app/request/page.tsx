@@ -33,7 +33,7 @@ function RequestHubInner() {
     <>
       <div className={`${dashTextFont} w-full min-h-screen overflow-hidden text-slate-900`}>
         <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-          <header className="flex min-h-[4.5rem] shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200/80 bg-white/80 px-4 py-3 backdrop-blur-md sm:px-6">
+          <header className="flex min-h-0 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-200/80 bg-white/80 px-4 py-1.5 backdrop-blur-md sm:px-6">
             <div className="flex min-w-0 flex-wrap items-center gap-3">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-white shadow-lg shadow-slate-900/20">
                 {view === 'approvals' ? (

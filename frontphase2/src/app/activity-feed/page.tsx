@@ -720,7 +720,7 @@ export default function ActivityFeedPage() {
   if (feedMode) {
     return (
       <div className="ph2-page-shell flex h-[calc(100dvh-3.5rem)] w-full flex-col overflow-hidden">
-        <div className="mx-auto flex min-h-0 w-full max-w-[1400px] flex-1 flex-col overflow-hidden px-4 py-4 sm:px-6 sm:py-6 lg:px-8">
+        <div className="mx-auto flex min-h-0 w-full max-w-[1400px] flex-1 flex-col overflow-hidden px-4 py-2 sm:px-6 sm:py-3 lg:px-8">
         {feedMode !== 'self' ? (
           <button
             type="button"
@@ -826,7 +826,7 @@ export default function ActivityFeedPage() {
 
   return (
     <div className="ph2-page-shell flex h-[calc(100dvh-3.5rem)] w-full flex-col overflow-hidden">
-      <div className="mx-auto flex min-h-0 w-full max-w-[1400px] flex-1 flex-col overflow-hidden px-4 py-4 sm:px-6 sm:py-6 lg:px-8">
+      <div className="mx-auto flex min-h-0 w-full max-w-[1400px] flex-1 flex-col overflow-hidden px-4 py-2 sm:px-6 sm:py-3 lg:px-8">
       <div className="mb-4 shrink-0">
         <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2">
           <History size={22} className="text-indigo-600" />

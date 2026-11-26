@@ -225,20 +225,30 @@ function CrmDashboardInner() {
     return () => window.clearInterval(id);
   }, [filters, category]);
 
-  return (
-    <div className={`${dashFontVars} ${crmTextFont} dash-ui space-y-5 antialiased`}>
-      <CrmHeader overview={overview} onRefresh={() => void load()} />
+  const blurb = CRM_CATEGORY_TABS.find((tab) => tab.id === category)?.blurb;
 
-      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <HqDashCategoryTabs
-          instanceId="crm-tenant"
-          tabs={visibleTabs}
-          value={category}
-          onChange={(id) => setCategory(id as CrmCategoryTabId)}
-          className="mb-0 min-w-0 flex-1"
-        />
-        <CrmTimelinePills className="lg:mt-1.5" />
-      </div>
+  return (
+    <div className={`${dashFontVars} ${crmTextFont} dash-ui space-y-2 antialiased`}>
+      <CrmHeader
+        overview={overview}
+        onRefresh={() => void load()}
+        toolbar={
+          <div>
+            <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
+              <HqDashCategoryTabs
+                compact
+                instanceId="crm-tenant"
+                tabs={visibleTabs}
+                value={category}
+                onChange={(id) => setCategory(id as CrmCategoryTabId)}
+                className="min-w-0 flex-1"
+              />
+              <CrmTimelinePills />
+            </div>
+            {blurb ? <p className="mt-1.5 text-[11px] leading-4 text-slate-500">{blurb}</p> : null}
+          </div>
+        }
+      />
 
       {category !== 'mine' ? (
         <DashScopeBanner

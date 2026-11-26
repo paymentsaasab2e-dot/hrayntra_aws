@@ -5,7 +5,7 @@ import { RecruitmentDashboard } from '@/components/dashboard/recruitment/Recruit
 
 export default function RecruitmentDashboardPage() {
   return (
-    <div className="p-4 sm:p-6 lg:p-8">
+    <div className="px-3 pb-4 pt-2 sm:px-4">
       <RecruitmentDashboard />
     </div>
   );

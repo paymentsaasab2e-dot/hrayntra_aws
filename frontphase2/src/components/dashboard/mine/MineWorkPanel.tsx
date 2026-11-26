@@ -34,7 +34,7 @@ export function DashScopeBanner({
 }) {
   if (mineTab) {
     return (
-      <p className="rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-[12px] text-slate-600">
+      <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-[12px] leading-4 text-slate-600">
         <span className="font-semibold text-slate-800">My work</span>
         {' — '}
         your assigned records and tasks. Approvals waiting on you appear here when that bucket is on
@@ -62,7 +62,7 @@ export function DashScopeBanner({
 
   if (level === 'self') {
     return (
-      <p className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2 text-[12px] text-amber-900">
+      <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-[12px] leading-4 text-amber-900">
         Showing <span className="font-semibold">{selfRecords}</span>
         {' — '}
         numbers are limited to records assigned to you. Department Rank 1 sees the whole department;
@@ -74,7 +74,7 @@ export function DashScopeBanner({
 
   if (level === 'department') {
     return (
-      <p className="rounded-xl border border-sky-200 bg-sky-50 px-3.5 py-2 text-[12px] text-sky-950">
+      <p className="rounded-xl border border-sky-200 bg-sky-50 px-3 py-1.5 text-[12px] leading-4 text-sky-950">
         Showing <span className="font-semibold">{label}</span>
         {' — '}
         stats include everyone in your department. Open <span className="font-semibold">My work</span>{' '}
@@ -85,7 +85,7 @@ export function DashScopeBanner({
 
   if (level === 'company') {
     return (
-      <p className="rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-[12px] text-slate-600">
+      <p className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-[12px] leading-4 text-slate-600">
         Showing <span className="font-semibold text-slate-800">{label}</span>
         {' — '}
         stats for this company / branch. Open <span className="font-semibold">My work</span> for your
@@ -95,7 +95,7 @@ export function DashScopeBanner({
   }
 
   return (
-    <p className="rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-[12px] text-slate-600">
+    <p className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-[12px] leading-4 text-slate-600">
       Showing <span className="font-semibold text-slate-800">{label}</span>
       {' — '}
       full tenant stats for the tabs on this dashboard. Open{' '}
